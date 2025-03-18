@@ -1,0 +1,35 @@
+[workspace]
+resolver = "2"
+members = ["crates/*"]
+
+[workspace.package]
+version = "0.1.0"
+authors = [
+    "Parity Technologies <admin@parity.io>",
+]
+license = "MIT/Apache-2.0"
+edition = "2024"
+repository = "https://github.com/paritytech/revive-differential-testing.git"
+rust-version = "1.85.0"
+
+[workspace.dependencies]
+revive-differential-testing-format = { version = "0.1.0", path = "crates/format" }
+
+anyhow = "1.0"
+semver = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = { version = "1.0", features = ["arbitrary_precision"] }
+
+# revive compiler
+revive-llvm-context = { git = "https://github.com/paritytech/revive", rev = "2bbc5d713d1bf8b38c43f6ce9382812561ca3ce1" }
+
+
+# polkadot-sdk and friends
+codec = { version = "3.6.12", default-features = false, package = "parity-scale-codec" }
+scale-info = { version = "2.11.6", default-features = false }
+polkadot-sdk = { git = "https://github.com/paritytech/polkadot-sdk", rev = "c29e72a8628835e34deb6aa7db9a78a2e4eabcee" }
+
+[profile.bench]
+inherits = "release"
+lto = true
+codegen-units = 1

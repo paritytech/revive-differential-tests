@@ -1,0 +1,14 @@
+[package]
+name = "revive-differential-testing-format"
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+edition.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+anyhow = { workspace = true }
+semver = { workspace = true }
+serde = { workspace = true, features = [ "derive" ] }
+serde_json = { workspace = true }
