@@ -1,9 +1,9 @@
-use revive_differential_testing_format::case::Case;
+use revive_differential_testing_format::metadata::Metadata;
 
 fn main() {
     let example_def = include_str!("../../../test.json");
 
-    let case: Case = serde_json::from_str(example_def).unwrap();
+    let metadata: Metadata = serde_json::from_str(example_def).unwrap();
 
-    println!("{case:?}");
+    println!("{metadata:?}");
 }

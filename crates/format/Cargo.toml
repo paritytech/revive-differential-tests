@@ -8,6 +8,11 @@ repository.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+alloy-json-abi = { workspace = true }
+alloy-genesis = { workspace = true }
+alloy-serde = { workspace = true }
+alloy-primitives = { workspace = true }
+alloy-sol-types = { workspace = true }
 anyhow = { workspace = true }
 semver = { workspace = true }
 serde = { workspace = true, features = [ "derive" ] }

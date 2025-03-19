@@ -1,9 +1,12 @@
-use serde::Deserialize;
+use serde::{Deserialize, de::Deserializer};
 
-use crate::modes::Mode;
+use crate::{input::Input, mode::Mode};
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Default, Deserialize, Clone, Eq, PartialEq)]
 pub struct Case {
-    #[serde(rename(deserialize = "modes"))]
-    pub modes: Vec<Mode>,
+    pub name: Option<String>,
+    pub comment: Option<String>,
+    pub modes: Option<Vec<Mode>>,
+    pub inputs: Vec<Input>,
+    pub expected: Vec<String>,
 }

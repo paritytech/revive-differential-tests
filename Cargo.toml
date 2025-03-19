@@ -16,6 +16,11 @@ rust-version = "1.85.0"
 revive-differential-testing-format = { version = "0.1.0", path = "crates/format" }
 
 anyhow = "1.0"
+alloy-json-abi = "0.8.23"
+alloy-genesis = "0.12.6"
+alloy-primitives = { version = "0.8.23", features = ["serde"] }
+alloy-serde = "0.12.6"
+alloy-sol-types = "0.8.23"
 semver = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = { version = "1.0", features = ["arbitrary_precision"] }
