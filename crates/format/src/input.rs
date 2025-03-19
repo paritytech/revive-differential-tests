@@ -41,7 +41,7 @@ where
         match calldata_string.parse::<U256>() {
             Ok(parsed) => result.extend_from_slice(&parsed.to_be_bytes::<32>()),
             Err(error) => {
-                return Err(serde::de::Error::custom(&format!(
+                return Err(serde::de::Error::custom(format!(
                     "parsing U256 {calldata_string} error: {error}"
                 )));
             }
@@ -67,7 +67,7 @@ where
             match Function::parse(&signature) {
                 Ok(function) => Method::Function(function.selector().0),
                 Err(error) => {
-                    return Err(serde::de::Error::custom(&format!(
+                    return Err(serde::de::Error::custom(format!(
                         "parsing function signature '{signature}' error: {error}"
                     )));
                 }

@@ -1,4 +1,4 @@
-use serde::{Deserialize, de::Deserializer};
+use serde::Deserialize;
 
 use crate::{input::Input, mode::Mode};
 
@@ -8,5 +8,4 @@ pub struct Case {
     pub comment: Option<String>,
     pub modes: Option<Vec<Mode>>,
     pub inputs: Vec<Input>,
-    pub expected: Vec<String>,
 }

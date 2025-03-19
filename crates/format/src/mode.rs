@@ -38,13 +38,13 @@ impl SolcMode {
             _ => return None,
         }
 
-        while let Some(part) = parts.next() {
+        for part in parts {
             if let Ok(solc_version) = semver::VersionReq::parse(part) {
                 result.solc_version = Some(solc_version);
                 continue;
             }
-            if part.starts_with("-O") {
-                result.llvm_optimizer_settings.push(part[2..].to_string());
+            if let Some(level) = part.strip_prefix("-O") {
+                result.llvm_optimizer_settings.push(level.to_string());
                 continue;
             }
             panic!("the YUL mode string {mode_string} failed to parse, invalid part: {part}")

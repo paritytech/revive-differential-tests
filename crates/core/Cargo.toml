@@ -1,5 +1,5 @@
 [package]
-name = "revive-differential-testing-retester"
+name = "revive-differential-testing-core"
 version.workspace = true
 authors.workspace = true
 license.workspace = true
@@ -9,8 +9,13 @@ rust-version.workspace = true
 
 [[bin]]
 name = "retester"
-path = "src/main.rs"
+path = "src/bin/main.rs"
 
 [dependencies]
+anyhow = { workspace = true }
+clap = { workspace = true }
+log = { workspace = true }
+env_logger = { workspace = true }
 revive-differential-testing-format = { workspace = true }
+serde = { workspace = true, features = [ "derive" ] }
 serde_json = { workspace = true }

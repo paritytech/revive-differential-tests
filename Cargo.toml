@@ -21,9 +21,12 @@ alloy-genesis = "0.12.6"
 alloy-primitives = { version = "0.8.23", features = ["serde"] }
 alloy-serde = "0.12.6"
 alloy-sol-types = "0.8.23"
+env_logger = "0.11.7"
+log = "0.4.26"
 semver = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = { version = "1.0", features = ["arbitrary_precision"] }
+clap = { version = "4", features = ["derive"] }
 
 # revive compiler
 revive-llvm-context = { git = "https://github.com/paritytech/revive", rev = "2bbc5d713d1bf8b38c43f6ce9382812561ca3ce1" }
