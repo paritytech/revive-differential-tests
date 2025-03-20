@@ -2,8 +2,8 @@ use std::collections::BTreeSet;
 
 use clap::Parser;
 
-use revive_differential_testing_core::arguments::Arguments;
-use revive_differential_testing_format::corpus::Corpus;
+use revive_dt_core::arguments::Arguments;
+use revive_dt_format::corpus::Corpus;
 
 fn main() -> anyhow::Result<()> {
     env_logger::init();

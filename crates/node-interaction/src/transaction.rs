@@ -36,8 +36,7 @@ pub fn execute_transaction(
         connection_string,
     })?;
 
-    match receipt_receiver.blocking_recv() {
-        Some(receipt) => receipt,
-        None => anyhow::bail!("no receipt received"),
-    }
+    receipt_receiver
+        .blocking_recv()
+        .unwrap_or_else(|| anyhow::bail!("no receipt received"))
 }

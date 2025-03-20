@@ -1,5 +1,5 @@
 [package]
-name = "revive-differential-testing-node-interaction"
+name = "revive-dt-node-interaction"
 version.workspace = true
 authors.workspace = true
 license.workspace = true

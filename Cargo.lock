@@ -2582,20 +2582,20 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2b15c43186be67a4fd63bee50d0303afffcef381492ebe2c5d87f324e1b8815c"
 
 [[package]]
-name = "revive-differential-testing-core"
+name = "revive-dt-core"
 version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
  "env_logger",
  "log",
- "revive-differential-testing-format",
+ "revive-dt-format",
  "serde",
  "serde_json",
 ]
 
 [[package]]
-name = "revive-differential-testing-format"
+name = "revive-dt-format"
 version = "0.1.0"
 dependencies = [
  "alloy",
@@ -2607,7 +2607,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "revive-differential-testing-node-interaction"
+name = "revive-dt-node-interaction"
 version = "0.1.0"
 dependencies = [
  "alloy",
@@ -3051,9 +3051,9 @@ checksum = "55937e1799185b12863d447f42597ed69d9928686b8d88a1df17376a097d8369"
 
 [[package]]
 name = "tempfile"
-version = "3.19.0"
+version = "3.19.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "488960f40a3fd53d72c2a29a58722561dee8afdd175bd88e3db4677d7b2ba600"
+checksum = "7437ac7763b9b123ccf33c338a5cc1bac6f69b45a136c19bdd8a65e3916435bf"
 dependencies = [
  "fastrand",
  "getrandom 0.3.2",

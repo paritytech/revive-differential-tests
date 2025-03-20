@@ -1,5 +1,5 @@
 [package]
-name = "revive-differential-testing-format"
+name = "revive-dt-format"
 version.workspace = true
 authors.workspace = true
 license.workspace = true
