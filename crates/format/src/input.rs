@@ -1,6 +1,16 @@
-use alloy_json_abi::Function;
-use alloy_primitives::U256;
+use alloy::json_abi::Function;
+use alloy::primitives::U256;
 use serde::{Deserialize, de::Deserializer};
+
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
+pub struct Input {
+    instance: String,
+    #[serde(deserialize_with = "deserialize_method")]
+    method: Method,
+    #[serde(deserialize_with = "deserialize_calldata")]
+    calldata: Vec<u8>,
+    expected: Option<Vec<String>>,
+}
 
 /// Specify how the contract is called.
 #[derive(Debug, Default, Clone, Eq, PartialEq)]
@@ -18,16 +28,6 @@ pub enum Method {
     ///
     /// Calculates the selector if neither deployer or fallback matches.
     Function([u8; 4]),
-}
-
-#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
-pub struct Input {
-    instance: String,
-    #[serde(deserialize_with = "deserialize_method")]
-    method: Method,
-    #[serde(deserialize_with = "deserialize_calldata")]
-    calldata: Vec<u8>,
-    expected: Option<Vec<String>>,
 }
 
 fn deserialize_calldata<'de, D>(deserializer: D) -> Result<Vec<u8>, D::Error>

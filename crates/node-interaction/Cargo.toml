@@ -1,5 +1,5 @@
 [package]
-name = "revive-differential-testing-format"
+name = "revive-differential-testing-node-interaction"
 version.workspace = true
 authors.workspace = true
 license.workspace = true
@@ -10,7 +10,8 @@ rust-version.workspace = true
 [dependencies]
 alloy = { workspace = true }
 anyhow = { workspace = true }
+hex = { workspace = true }
 log = { workspace = true }
-semver = { workspace = true }
-serde = { workspace = true, features = [ "derive" ] }
+once_cell = { workspace = true }
 serde_json = { workspace = true }
+tokio = { workspace = true }

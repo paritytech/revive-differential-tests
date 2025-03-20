@@ -9,7 +9,7 @@ rust-version.workspace = true
 
 [[bin]]
 name = "retester"
-path = "src/bin/main.rs"
+path = "src/main.rs"
 
 [dependencies]
 anyhow = { workspace = true }
