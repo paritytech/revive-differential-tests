@@ -4,3 +4,4 @@
 //! provides a helper utilty to execute tests.
 
 pub mod arguments;
+pub mod driver;

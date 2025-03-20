@@ -13,6 +13,7 @@ repository = "https://github.com/paritytech/revive-differential-testing.git"
 rust-version = "1.85.0"
 
 [workspace.dependencies]
+revive-dt-compiler = { version = "0.1.0", path = "crates/compiler" }
 revive-dt-core = { version = "0.1.0", path = "crates/core" }
 revive-dt-format = { version = "0.1.0", path = "crates/format" }
 revive-dt-node-interaction = { version = "0.1.0", path = "crates/node-interaction" }
@@ -30,7 +31,8 @@ serde_json = { version = "1.0", default-features = false, features = ["arbitrary
 tokio = { version = "1", default-features = false, features = ["rt-multi-thread"] }
 
 # revive compiler
-revive-llvm-context = { git = "https://github.com/paritytech/revive", rev = "2bbc5d713d1bf8b38c43f6ce9382812561ca3ce1" }
+revive-solc-json-interface = { git = "https://github.com/paritytech/revive", rev = "497dae2494dabe12d1af32d6d687122903cb2ada" }
+revive-common = { git = "https://github.com/paritytech/revive", rev = "497dae2494dabe12d1af32d6d687122903cb2ada" }
 
 # polkadot-sdk and friends
 codec = { version = "3.6.12", default-features = false, package = "parity-scale-codec" }
