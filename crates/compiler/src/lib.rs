@@ -39,6 +39,12 @@ pub struct Compiler<T: SolidityCompiler> {
     base_path: Option<String>,
 }
 
+impl Default for Compiler<solc::Solc> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<T> Compiler<T>
 where
     T: SolidityCompiler,

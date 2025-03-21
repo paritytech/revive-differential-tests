@@ -1,5 +1,6 @@
 [package]
 name = "revive-dt-node-interaction"
+description = "send and trace transactions to EVM and PVM nodes"
 version.workspace = true
 authors.workspace = true
 license.workspace = true

@@ -19,15 +19,16 @@ revive-dt-format = { version = "0.1.0", path = "crates/format" }
 revive-dt-node-interaction = { version = "0.1.0", path = "crates/node-interaction" }
 
 anyhow = "1.0"
-alloy = { version = "0.12.6", default-features = false, features = [ "providers", "rpc-types", "json-abi", "hyper", "std" ] }
+alloy = { version = "0.12.6", default-features = false, features = [ "providers", "rpc-types", "json-abi", "reqwest", "std" ] }
 clap = { version = "4", features = ["derive"] }
 env_logger = "0.11.7"
 hex = "0.4.3"
+reqwest = { version = "0.12.15", features = ["blocking", "json"] }
 log = "0.4.26"
 once_cell = "1.21"
-semver = "1.0"
+semver = {version = "1.0", features = ["serde"] }
 serde = { version = "1.0", default-features = false, features = ["derive"] }
-serde_json = { version = "1.0", default-features = false, features = ["arbitrary_precision"] }
+serde_json = { version = "1.0", default-features = false, features = ["arbitrary_precision", "std"] }
 tokio = { version = "1", default-features = false, features = ["rt-multi-thread"] }
 
 # revive compiler

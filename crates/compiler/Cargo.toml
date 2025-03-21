@@ -1,5 +1,6 @@
 [package]
 name = "revive-dt-compiler"
+description = "Library for compiling Solidity contracts to EVM and PVM"
 version.workspace = true
 authors.workspace = true
 license.workspace = true
