@@ -13,3 +13,4 @@ anyhow = { workspace = true }
 revive-solc-json-interface = { workspace = true }
 revive-common = { workspace = true }
 semver = { workspace = true }
+serde_json = { workspace = true }

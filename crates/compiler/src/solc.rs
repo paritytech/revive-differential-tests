@@ -1,25 +1,46 @@
 //! Implements the [SolidityCompiler] trait with solc for
 //! compiling contracts to EVM bytecode.
 
+use std::{
+    path::PathBuf,
+    process::{Command, Stdio},
+};
+
 use revive_solc_json_interface::{SolcStandardJsonInput, SolcStandardJsonOutput};
 use semver::Version;
 
 use crate::SolidityCompiler;
 
-pub struct Solc {}
+pub struct Solc {
+    binary_path: PathBuf,
+}
 
 impl SolidityCompiler for Solc {
     type Options = ();
 
     fn build(
         &self,
-        _input: &SolcStandardJsonInput,
+        input: &SolcStandardJsonInput,
         _extra_options: &Option<Self::Options>,
     ) -> anyhow::Result<SolcStandardJsonOutput> {
-        todo!()
+        let mut child = Command::new(&self.binary_path)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .arg("--standard-json")
+            .spawn()?;
+
+        let stdin = child.stdin.as_mut().expect("should be piped");
+        serde_json::to_writer(stdin, input)?;
+
+        let output = child.wait_with_output()?.stdout;
+
+        Ok(serde_json::from_slice(&output)?)
     }
 
     fn new(_solc_version: &Version) -> Self {
-        todo!()
+        Self {
+            binary_path: "solc".into(),
+        }
     }
 }

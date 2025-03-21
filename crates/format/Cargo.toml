@@ -1,5 +1,6 @@
 [package]
 name = "revive-dt-format"
+description = "declarative test definition format"
 version.workspace = true
 authors.workspace = true
 license.workspace = true

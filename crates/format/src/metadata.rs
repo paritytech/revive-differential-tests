@@ -19,7 +19,6 @@ pub struct Metadata {
     pub ignore: Option<bool>,
     pub modes: Option<Vec<Mode>>,
     pub path: Option<PathBuf>,
-    pub directory: Option<PathBuf>,
 }
 
 impl Metadata {
@@ -62,7 +61,7 @@ impl Metadata {
 
         match serde_json::from_reader::<_, Metadata>(file) {
             Ok(mut metadata) => {
-                metadata.directory = Some(path.to_path_buf());
+                metadata.path = Some(path.to_path_buf());
                 Some(metadata)
             }
             Err(error) => {
@@ -75,7 +74,7 @@ impl Metadata {
         }
     }
 
-    fn try_from_solidity(path: &Path) -> Option<Self> {
-        todo!()
+    fn try_from_solidity(_path: &Path) -> Option<Self> {
+        None
     }
 }

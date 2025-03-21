@@ -1,5 +1,6 @@
 [package]
 name = "revive-dt-core"
+description = "revive differential testing core utility"
 version.workspace = true
 authors.workspace = true
 license.workspace = true
@@ -12,11 +13,15 @@ name = "retester"
 path = "src/main.rs"
 
 [dependencies]
+revive-dt-compiler = { workspace = true }
 revive-dt-format = { workspace = true }
+revive-solc-json-interface = { workspace = true }
 
 anyhow = { workspace = true }
 clap = { workspace = true }
 log = { workspace = true }
 env_logger = { workspace = true }
+rayon = { workspace = true }
+semver = { workspace = true }
 serde = { workspace = true, features = [ "derive" ] }
 serde_json = { workspace = true }

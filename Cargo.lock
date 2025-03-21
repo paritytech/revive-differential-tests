@@ -2832,6 +2832,7 @@ dependencies = [
  "revive-common",
  "revive-solc-json-interface",
  "semver 1.0.26",
+ "serde_json",
 ]
 
 [[package]]
@@ -2842,7 +2843,11 @@ dependencies = [
  "clap",
  "env_logger",
  "log",
+ "rayon",
+ "revive-dt-compiler",
  "revive-dt-format",
+ "revive-solc-json-interface",
+ "semver 1.0.26",
  "serde",
  "serde_json",
 ]
