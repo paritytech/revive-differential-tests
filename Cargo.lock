@@ -2877,10 +2877,12 @@ name = "revive-dt-solc-binaries"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "hex",
  "once_cell",
  "reqwest",
  "semver 1.0.26",
  "serde",
+ "sha2",
 ]
 
 [[package]]

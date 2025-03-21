@@ -14,7 +14,9 @@ download = ["reqwest"]
 
 [dependencies]
 anyhow = { workspace = true }
+hex = { workspace = true }
 once_cell = { workspace = true }
 reqwest = { workspace = true, optional = true }
 semver = { workspace = true }
 serde = { workspace = true }
+sha2 = { workspace = true }

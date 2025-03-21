@@ -20,7 +20,7 @@ pub struct Build {
     pub build: String,
     #[serde(rename = "longVersion")]
     pub long_version: String,
-    keccak256: String,
-    sha256: String,
-    urls: Vec<String>,
+    pub keccak256: String,
+    pub sha256: String,
+    pub urls: Vec<String>,
 }
