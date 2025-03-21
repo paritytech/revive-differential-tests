@@ -1,6 +1,7 @@
 //! This crate provides compiler helpers for all supported Solidity targets:
 //! - Ethereum solc compiler
-//! - Polkadot revive compiler
+//! - Polkadot revive resolc compiler
+//! - Polkadot revive Wasm compiler
 
 use std::{fs::read_to_string, path::Path};
 
@@ -19,7 +20,7 @@ pub mod solc;
 /// A common interface for all supported Solidity compilers.
 pub trait SolidityCompiler {
     /// Extra options specific to the compiler.
-    type Options: Sized;
+    type Options;
 
     fn build(
         &self,
@@ -34,7 +35,6 @@ pub trait SolidityCompiler {
 pub struct Compiler<T: SolidityCompiler> {
     input: SolcStandardJsonInput,
     extra_options: Option<T::Options>,
-    solc_version: Version,
     allow_paths: Vec<String>,
     base_path: Option<String>,
 }
@@ -43,7 +43,7 @@ impl<T> Compiler<T>
 where
     T: SolidityCompiler,
 {
-    pub fn new(solc_version: Version) -> Self {
+    pub fn new() -> Self {
         Self {
             input: SolcStandardJsonInput {
                 language: SolcStandardJsonInputLanguage::Solidity,
@@ -63,7 +63,6 @@ where
                 ),
             },
             extra_options: None,
-            solc_version,
             allow_paths: Default::default(),
             base_path: None,
         }
@@ -86,11 +85,6 @@ where
         self
     }
 
-    pub fn solc_version(mut self, solc_version: Version) -> Self {
-        self.solc_version = solc_version;
-        self
-    }
-
     pub fn extra_options(mut self, extra_options: T::Options) -> Self {
         self.extra_options = Some(extra_options);
         self
@@ -106,8 +100,7 @@ where
         self
     }
 
-    pub fn try_build(&self) -> anyhow::Result<SolcStandardJsonOutput> {
-        let compiler = T::new(&self.solc_version);
-        compiler.build(&self.input, &self.extra_options)
+    pub fn try_build(&self, solc_version: &Version) -> anyhow::Result<SolcStandardJsonOutput> {
+        T::new(solc_version).build(&self.input, &self.extra_options)
     }
 }
