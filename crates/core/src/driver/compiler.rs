@@ -38,7 +38,7 @@ pub fn build_evm(
     let mut result = HashMap::new();
     for mode in modes {
         let mut compiler = Compiler::<Solc>::new().base_path(directory.display().to_string());
-        for (_, file) in &sources {
+        for file in sources.values() {
             compiler = compiler.with_source(file)?;
         }
 

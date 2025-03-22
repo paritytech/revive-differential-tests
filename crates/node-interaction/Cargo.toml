@@ -1,6 +1,6 @@
 [package]
 name = "revive-dt-node-interaction"
-description = "send and trace transactions to EVM and PVM nodes"
+description = "send and trace transactions to nodes"
 version.workspace = true
 authors.workspace = true
 license.workspace = true
@@ -16,3 +16,5 @@ log = { workspace = true }
 once_cell = { workspace = true }
 serde_json = { workspace = true }
 tokio = { workspace = true }
+
+revive-dt-node = { workspace = true }

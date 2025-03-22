@@ -1,45 +1,25 @@
-//! Implements helpers for node interactions using transactions.
-//!
-//! The alloy crate is convenient but requires running in a tokio runtime.
-//! We contain any async rust right here.
+//! This crate implements all node interactions.
 
-use once_cell::sync::Lazy;
-use std::sync::Mutex;
-use std::thread;
-use tokio::runtime::Runtime;
-use tokio::sync::mpsc;
-use transaction::Transaction;
+use alloy::rpc::types::trace::geth::GethTrace;
+use alloy::rpc::types::{TransactionReceipt, TransactionRequest};
+use revive_dt_node::Node;
+use tokio_runtime::TO_TOKIO;
 
+mod tokio_runtime;
+pub mod trace;
 pub mod transaction;
 
-pub(crate) static TO_TOKIO: Lazy<Mutex<TokioRuntime>> =
-    Lazy::new(|| Mutex::new(TokioRuntime::spawn()));
+/// An interface for all node interactions.
+pub trait NodeInteraction: Node {
+    /// Execute the [TransactionRequest] and return a [TransactionReceipt].
+    fn execute_transaction(
+        &self,
+        transaction_request: TransactionRequest,
+    ) -> anyhow::Result<TransactionReceipt>;
 
-pub struct TokioRuntime {
-    pub transaction_sender: mpsc::Sender<Transaction>,
-}
-
-impl TokioRuntime {
-    pub fn spawn() -> Self {
-        let rt = Runtime::new().expect("should be able to create the tokio runtime");
-        let (transaction_sender, mut transaction_receiver) = mpsc::channel::<Transaction>(1024);
-
-        thread::spawn(move || {
-            rt.block_on(async move {
-                while let Some(transaction) = transaction_receiver.recv().await {
-                    tokio::task::spawn(async move {
-                        let sender = transaction.receipt_sender.clone();
-                        let result = transaction.execute().await;
-                        if let Err(error) = sender.send(result).await {
-                            log::error!("failed to send transaction receipt: {error}");
-                        }
-                    })
-                    .await
-                    .expect("should alaways be able to spawn the tokio tasks");
-                }
-            });
-        });
-
-        Self { transaction_sender }
-    }
+    /// Trace the transaction in the [TransactionReceipt] and return a [GethTrace].
+    fn trace_transaction(
+        &self,
+        transaction_receipt: TransactionReceipt,
+    ) -> anyhow::Result<GethTrace>;
 }

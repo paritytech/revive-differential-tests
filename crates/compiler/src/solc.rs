@@ -34,7 +34,6 @@ impl SolidityCompiler for Solc {
         serde_json::to_writer(stdin, input)?;
 
         let output = child.wait_with_output()?.stdout;
-
         Ok(serde_json::from_slice(&output)?)
     }
 

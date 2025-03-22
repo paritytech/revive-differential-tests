@@ -21,7 +21,7 @@ fn main() -> anyhow::Result<()> {
 
         tests
             .par_iter()
-            .for_each(|metadata| match build_evm(&metadata) {
+            .for_each(|metadata| match build_evm(metadata) {
                 Ok(_) => log::info!(
                     "metadata {} compilation success",
                     metadata.path.as_ref().unwrap().display()
