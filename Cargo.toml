@@ -14,6 +14,7 @@ rust-version = "1.85.0"
 
 [workspace.dependencies]
 revive-dt-compiler = { version = "0.1.0", path = "crates/compiler" }
+revive-dt-config = { version = "0.1.0", path = "crates/config" }
 revive-dt-core = { version = "0.1.0", path = "crates/core" }
 revive-dt-format = { version = "0.1.0", path = "crates/format" }
 revive-dt-node = { version = "0.1.0", path = "crates/node" }
@@ -43,13 +44,13 @@ revive-differential = { git = "https://github.com/paritytech/revive", rev = "497
 version = "0.12.6"
 default-features = false
 features = [
-    "providers",
-    "rpc-types",
     "json-abi",
-    "reqwest",
-    "std",
     "genesis",
-    "provider-debug-api"
+    "providers",
+    "provider-debug-api",
+    "reqwest",
+    "rpc-types",
+    "std",
 ]
 
 [profile.bench]

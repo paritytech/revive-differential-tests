@@ -2,7 +2,6 @@
 
 use alloy::providers::{Provider, ProviderBuilder};
 use alloy::rpc::types::{TransactionReceipt, TransactionRequest};
-use revive_dt_node::Node;
 use tokio::sync::mpsc;
 
 use crate::TO_TOKIO;
@@ -34,9 +33,9 @@ impl AsyncNodeInteraction for Transaction {
 }
 
 /// Execute the [TransactionRequest] against the `node`.
-pub fn execute_transaction<T: Node>(
+pub fn execute_transaction(
     transaction_request: TransactionRequest,
-    node: &T,
+    connection_string: String,
 ) -> anyhow::Result<TransactionReceipt> {
     let request_sender = TO_TOKIO.lock().unwrap().transaction_sender.clone();
     let (receipt_sender, mut receipt_receiver) = mpsc::channel(1);
@@ -44,7 +43,7 @@ pub fn execute_transaction<T: Node>(
     request_sender.blocking_send(Transaction {
         transaction_request,
         receipt_sender,
-        connection_string: node.connection_string(),
+        connection_string,
     })?;
 
     receipt_receiver

@@ -5,7 +5,6 @@ use alloy::providers::ProviderBuilder;
 use alloy::providers::ext::DebugApi;
 use alloy::rpc::types::TransactionReceipt;
 use alloy::rpc::types::trace::geth::{GethDebugTracingOptions, GethTrace};
-use revive_dt_node::Node;
 use tokio::sync::mpsc;
 
 use crate::TO_TOKIO;
@@ -37,10 +36,10 @@ impl AsyncNodeInteraction for Trace {
 
 /// Trace the transaction in [TransactionReceipt] against the `node`,
 /// using the provided [GethDebugTracingOptions].
-pub fn trace_transaction<T: Node>(
+pub fn trace_transaction(
     transaction_receipt: TransactionReceipt,
     options: GethDebugTracingOptions,
-    node: &T,
+    connection_string: String,
 ) -> anyhow::Result<GethTrace> {
     let trace_sender = TO_TOKIO.lock().unwrap().trace_sender.clone();
     let (geth_trace_sender, mut geth_trace_receiver) = mpsc::channel(1);
@@ -49,7 +48,7 @@ pub fn trace_transaction<T: Node>(
         transaction_hash: transaction_receipt.transaction_hash,
         options,
         geth_trace_sender,
-        connection_string: node.connection_string(),
+        connection_string,
     })?;
 
     geth_trace_receiver

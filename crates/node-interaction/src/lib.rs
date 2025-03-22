@@ -2,15 +2,14 @@
 
 use alloy::rpc::types::trace::geth::GethTrace;
 use alloy::rpc::types::{TransactionReceipt, TransactionRequest};
-use revive_dt_node::Node;
 use tokio_runtime::TO_TOKIO;
 
 mod tokio_runtime;
 pub mod trace;
 pub mod transaction;
 
-/// An interface for all node interactions.
-pub trait NodeInteraction: Node {
+/// An interface for all interactions with Ethereum compatible nodes.
+pub trait EthereumNode {
     /// Execute the [TransactionRequest] and return a [TransactionReceipt].
     fn execute_transaction(
         &self,
