@@ -1,6 +1,6 @@
 //! The global configuration used accross all revive differential testing crates.
 
-use std::{env, path::PathBuf};
+use std::path::PathBuf;
 
 use clap::Parser;
 
@@ -18,8 +18,10 @@ pub struct Arguments {
     pub corpus: Vec<PathBuf>,
 
     /// A place to store temporary artifacts during test execution.
-    #[arg(long = "workdir", short, default_value_t = cwd())]
-    pub working_directory: String,
+    ///
+    /// Creates a temporary dir if not specified.
+    #[arg(long = "workdir", short)]
+    pub working_directory: Option<PathBuf>,
 
     /// The path to the `geth` executable.
     ///
@@ -38,13 +40,6 @@ pub struct Arguments {
     /// Configure nodes according to this genesis.json file.
     #[arg(long = "genesis-file")]
     pub genesis_file: Option<PathBuf>,
-}
-
-fn cwd() -> String {
-    env::current_dir()
-        .expect("should be able to access current woring directory")
-        .to_string_lossy()
-        .to_string()
 }
 
 impl Default for Arguments {

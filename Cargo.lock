@@ -2886,6 +2886,7 @@ dependencies = [
  "semver 1.0.26",
  "serde",
  "serde_json",
+ "temp-dir",
 ]
 
 [[package]]
@@ -2909,6 +2910,7 @@ dependencies = [
  "revive-dt-config",
  "revive-dt-node-interaction",
  "serde_json",
+ "temp-dir",
 ]
 
 [[package]]
@@ -3526,6 +3528,12 @@ name = "tap"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "55937e1799185b12863d447f42597ed69d9928686b8d88a1df17376a097d8369"
+
+[[package]]
+name = "temp-dir"
+version = "0.1.14"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bc1ee6eef34f12f765cb94725905c6312b6610ab2b0940889cfe58dae7bc3c72"
 
 [[package]]
 name = "tempfile"

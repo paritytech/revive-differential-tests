@@ -15,3 +15,6 @@ serde_json = { workspace = true }
 
 revive-dt-node-interaction = { workspace = true }
 revive-dt-config = { workspace = true }
+
+[dev-dependencies]
+temp-dir = { workspace = true }

@@ -6,14 +6,21 @@ use rayon::prelude::*;
 use revive_dt_config::*;
 use revive_dt_core::driver::compiler::build_evm;
 use revive_dt_format::corpus::Corpus;
+use temp_dir::TempDir;
 
 fn main() -> anyhow::Result<()> {
     env_logger::init();
 
-    let config = Arguments::parse();
+    let mut config = Arguments::parse();
+
     if config.corpus.is_empty() {
         anyhow::bail!("no test corpus specified");
     }
+
+    let temporary_directory = TempDir::new()?;
+    config
+        .working_directory
+        .get_or_insert_with(|| temporary_directory.path().into());
 
     for path in config.corpus.iter().collect::<BTreeSet<_>>() {
         log::trace!("attempting corpus {path:?}");

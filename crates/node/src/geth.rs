@@ -54,7 +54,11 @@ impl Instance {
 
     /// Create a new uninitialized instance.
     pub fn new(config: &Arguments) -> anyhow::Result<Self> {
-        let geth_directory = PathBuf::from(&config.working_directory).join(Self::BASE_DIRECTORY);
+        let geth_directory = config
+            .working_directory
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("config did not provide working directory"))?
+            .join(Self::BASE_DIRECTORY);
         let id = NODE_COUNT.fetch_add(1, Ordering::SeqCst);
         let base_directory = geth_directory.join(id.to_string());
 
@@ -218,16 +222,24 @@ impl Drop for Instance {
 
 #[cfg(test)]
 mod tests {
-
     use revive_dt_config::Arguments;
+    use temp_dir::TempDir;
 
     use crate::{GENESIS_JSON, Node};
 
     use super::Instance;
 
+    fn test_config() -> (Arguments, TempDir) {
+        let mut config = Arguments::default();
+        let temp_dir = TempDir::new().unwrap();
+        config.working_directory = temp_dir.path().to_path_buf().into();
+
+        (config, temp_dir)
+    }
+
     #[test]
     fn init_works() {
-        Instance::new(&Arguments::default())
+        Instance::new(&test_config().0)
             .unwrap()
             .init(GENESIS_JSON.to_string())
             .unwrap();
@@ -235,7 +247,7 @@ mod tests {
 
     #[test]
     fn spawn_works() {
-        Instance::new(&Arguments::default())
+        Instance::new(&test_config().0)
             .unwrap()
             .spawn(GENESIS_JSON.to_string())
             .unwrap();
