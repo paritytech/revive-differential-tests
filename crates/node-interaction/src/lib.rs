@@ -13,12 +13,9 @@ pub trait EthereumNode {
     /// Execute the [TransactionRequest] and return a [TransactionReceipt].
     fn execute_transaction(
         &self,
-        transaction_request: TransactionRequest,
+        transaction: TransactionRequest,
     ) -> anyhow::Result<TransactionReceipt>;
 
     /// Trace the transaction in the [TransactionReceipt] and return a [GethTrace].
-    fn trace_transaction(
-        &self,
-        transaction_receipt: TransactionReceipt,
-    ) -> anyhow::Result<GethTrace>;
+    fn trace_transaction(&self, transaction: TransactionReceipt) -> anyhow::Result<GethTrace>;
 }

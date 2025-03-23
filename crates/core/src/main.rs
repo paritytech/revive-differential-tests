@@ -1,5 +1,6 @@
 use std::collections::BTreeSet;
 
+use clap::Parser;
 use rayon::prelude::*;
 
 use revive_dt_config::*;
@@ -9,7 +10,12 @@ use revive_dt_format::corpus::Corpus;
 fn main() -> anyhow::Result<()> {
     env_logger::init();
 
-    for path in get_args().corpus.iter().collect::<BTreeSet<_>>() {
+    let config = Arguments::parse();
+    if config.corpus.is_empty() {
+        anyhow::bail!("no test corpus specified");
+    }
+
+    for path in config.corpus.iter().collect::<BTreeSet<_>>() {
         log::trace!("attempting corpus {path:?}");
         let corpus = Corpus::try_from_path(path)?;
         log::info!("found corpus: {corpus:?}");

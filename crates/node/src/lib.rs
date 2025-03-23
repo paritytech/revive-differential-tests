@@ -1,19 +1,19 @@
 //! This crate implements the testing nodes.
 
-use alloy::{
-    genesis::Genesis,
-    rpc::types::{TransactionReceipt, trace::geth::DiffMode},
-};
+use alloy::rpc::types::{TransactionReceipt, trace::geth::DiffMode};
 use revive_dt_node_interaction::EthereumNode;
 
 pub mod geth;
 
+/// The default genesis configuration.
+pub const GENESIS_JSON: &str = include_str!("../../../genesis.json");
+
 /// An abstract interface for testing nodes.
 pub trait Node: EthereumNode {
-    /// Spawns a node configured according to the [Genesis].
+    /// Spawns a node configured according to the genesis json.
     ///
     /// Blocking until it's ready to accept transactions.
-    fn spawn(&mut self, genesis: Genesis) -> anyhow::Result<&mut Self>;
+    fn spawn(&mut self, genesis: String) -> anyhow::Result<()>;
 
     /// Prune the node instance and related data.
     ///

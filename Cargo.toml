@@ -45,7 +45,6 @@ version = "0.12.6"
 default-features = false
 features = [
     "json-abi",
-    "genesis",
     "providers",
     "provider-debug-api",
     "reqwest",

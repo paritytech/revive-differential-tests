@@ -1,21 +1,11 @@
 //! The global configuration used accross all revive differential testing crates.
 
-use std::{path::PathBuf, sync::OnceLock};
+use std::{env, path::PathBuf};
 
 use clap::Parser;
 
-static ARGUMENTS: OnceLock<Arguments> = OnceLock::new();
-
-/// Get the command line arguments.
-pub fn get_args() -> &'static Arguments {
-    ARGUMENTS.get_or_init(Arguments::parse)
-}
-
 #[derive(Debug, Parser, Clone)]
-#[command(
-    name = "revive compiler differential tester utility",
-    arg_required_else_help = true
-)]
+#[command(name = "retester")]
 pub struct Arguments {
     /// The path to the `resolc` executable to be tested.
     ///
@@ -28,12 +18,37 @@ pub struct Arguments {
     pub corpus: Vec<PathBuf>,
 
     /// A place to store temporary artifacts during test execution.
-    #[arg(long = "workdir", short)]
-    pub working_directory: PathBuf,
+    #[arg(long = "workdir", short, default_value_t = cwd())]
+    pub working_directory: String,
 
     /// The path to the `geth` executable.
     ///
     /// By default it uses `geth` binary found in `$PATH`.
     #[arg(short, long = "geth", default_value = "geth")]
     pub geth: PathBuf,
+
+    /// The maximum time in milliseconds to wait for geth to start.
+    #[arg(long = "geth-start-timeout", default_value = "2000")]
+    pub geth_start_timeout: u64,
+
+    /// The test network chain ID.
+    #[arg(short, long = "network-id", default_value = "420420420")]
+    pub network_id: u64,
+
+    /// Configure nodes according to this genesis.json file.
+    #[arg(long = "genesis-file")]
+    pub genesis_file: Option<PathBuf>,
+}
+
+fn cwd() -> String {
+    env::current_dir()
+        .expect("should be able to access current woring directory")
+        .to_string_lossy()
+        .to_string()
+}
+
+impl Default for Arguments {
+    fn default() -> Self {
+        Arguments::parse_from(["retester"])
+    }
 }

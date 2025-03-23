@@ -14,11 +14,13 @@ path = "src/main.rs"
 
 [dependencies]
 revive-dt-compiler = { workspace = true }
+revive-dt-config = { workspace = true }
 revive-dt-format = { workspace = true }
 revive-solc-json-interface = { workspace = true }
-revive-dt-config = { workspace = true }
+revive-dt-node = { workspace = true }
 
 anyhow = { workspace = true }
+clap = { workspace = true }
 log = { workspace = true }
 env_logger = { workspace = true }
 rayon = { workspace = true }
