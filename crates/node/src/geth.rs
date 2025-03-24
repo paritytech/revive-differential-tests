@@ -207,6 +207,18 @@ impl Node for Instance {
             _ => anyhow::bail!("expected a diff mode trace"),
         }
     }
+
+    fn version(&self) -> anyhow::Result<String> {
+        let output = Command::new(&self.geth)
+            .arg("--version")
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()?
+            .wait_with_output()?
+            .stdout;
+        Ok(String::from_utf8_lossy(&output).into())
+    }
 }
 
 impl Drop for Instance {
@@ -251,5 +263,14 @@ mod tests {
             .unwrap()
             .spawn(GENESIS_JSON.to_string())
             .unwrap();
+    }
+
+    #[test]
+    fn version_works() {
+        let version = Instance::new(&test_config().0).unwrap().version().unwrap();
+        assert!(
+            version.starts_with("geth version"),
+            "expected version string, got: '{version}'"
+        );
     }
 }

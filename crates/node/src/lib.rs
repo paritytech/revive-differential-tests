@@ -25,4 +25,7 @@ pub trait Node: EthereumNode {
 
     /// Returns the state diff of the transaction hash in the [TransactionReceipt].
     fn state_diff(&self, transaction: TransactionReceipt) -> anyhow::Result<DiffMode>;
+
+    /// Returns the node version.
+    fn version(&self) -> anyhow::Result<String>;
 }
