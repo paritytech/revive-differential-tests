@@ -2,7 +2,7 @@
 
 use std::path::PathBuf;
 
-use clap::Parser;
+use clap::{Parser, ValueEnum};
 
 #[derive(Debug, Parser, Clone)]
 #[command(name = "retester")]
@@ -48,10 +48,34 @@ pub struct Arguments {
         default_value = "0x4f3edf983ac636a65a842ce7c78d9aa706d3b113bce9c46f30d7d21715b23b1d"
     )]
     pub account: String,
+
+    /// The differential testing leader node implementation.
+    #[arg(short, long = "leader", default_value = "geth")]
+    pub leader: TestingPlatform,
+
+    /// The differential testing follower node implementation.
+    #[arg(short, long = "follower", default_value = "kitchensink")]
+    pub follower: TestingPlatform,
+
+    /// Only compile against this testing platform (doesn't execute the tests).
+    #[arg(short, long = "compile-only")]
+    pub compile_only: bool,
 }
 
 impl Default for Arguments {
     fn default() -> Self {
         Arguments::parse_from(["retester"])
     }
+}
+
+/// The Solidity compatible node implementation.
+///
+/// This describes the solutions to be tested against on a high level.
+#[derive(Clone, Debug, Eq, Hash, PartialEq, ValueEnum)]
+#[clap(rename_all = "lower")]
+pub enum TestingPlatform {
+    /// The go-ethereum reference full node EVM implementation.
+    Geth,
+    /// The kitchensink runtime provides the PolkaVM (PVM) based node implentation.
+    Kitchensink,
 }

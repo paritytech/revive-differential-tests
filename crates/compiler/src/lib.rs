@@ -3,7 +3,7 @@
 //! - Polkadot revive resolc compiler
 //! - Polkadot revive Wasm compiler
 
-use std::{fs::read_to_string, path::Path};
+use std::{fs::read_to_string, hash::Hash, path::Path};
 
 use revive_common::EVMVersion;
 use revive_solc_json_interface::{
@@ -20,21 +20,57 @@ pub mod solc;
 /// A common interface for all supported Solidity compilers.
 pub trait SolidityCompiler {
     /// Extra options specific to the compiler.
-    type Options;
+    type Options: Default + PartialEq + Eq + Hash;
 
+    /// The low-level compiler interface.
     fn build(
         &self,
-        input: &SolcStandardJsonInput,
-        extra_options: &Option<Self::Options>,
-    ) -> anyhow::Result<SolcStandardJsonOutput>;
+        input: CompilerInput<Self::Options>,
+    ) -> anyhow::Result<CompilerOutput<Self::Options>>;
 
     fn new(solc_version: &Version) -> Self;
+}
+
+/// The generic compilation input configuration.
+#[derive(Debug)]
+pub struct CompilerInput<T: PartialEq + Eq + Hash> {
+    pub extra_options: T,
+    pub input: SolcStandardJsonInput,
+}
+
+/// The generic compilation output configuration.
+pub struct CompilerOutput<T: PartialEq + Eq + Hash> {
+    pub input: CompilerInput<T>,
+    pub output: SolcStandardJsonOutput,
+}
+
+impl<T> PartialEq for CompilerInput<T>
+where
+    T: PartialEq + Eq + Hash,
+{
+    fn eq(&self, other: &Self) -> bool {
+        let self_input = serde_json::to_vec(&self.input).unwrap_or_default();
+        let other_input = serde_json::to_vec(&self.input).unwrap_or_default();
+        self.extra_options.eq(&other.extra_options) && self_input == other_input
+    }
+}
+
+impl<T> Eq for CompilerInput<T> where T: PartialEq + Eq + Hash {}
+
+impl<T> Hash for CompilerInput<T>
+where
+    T: PartialEq + Eq + Hash,
+{
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.extra_options.hash(state);
+        state.write(&serde_json::to_vec(&self.input).unwrap_or_default());
+    }
 }
 
 /// A generic builder style interface for configuring all compiler options.
 pub struct Compiler<T: SolidityCompiler> {
     input: SolcStandardJsonInput,
-    extra_options: Option<T::Options>,
+    extra_options: T::Options,
     allow_paths: Vec<String>,
     base_path: Option<String>,
 }
@@ -68,7 +104,7 @@ where
                     None,
                 ),
             },
-            extra_options: None,
+            extra_options: Default::default(),
             allow_paths: Default::default(),
             base_path: None,
         }
@@ -92,7 +128,7 @@ where
     }
 
     pub fn extra_options(mut self, extra_options: T::Options) -> Self {
-        self.extra_options = Some(extra_options);
+        self.extra_options = extra_options;
         self
     }
 
@@ -106,7 +142,10 @@ where
         self
     }
 
-    pub fn try_build(&self, solc_version: &Version) -> anyhow::Result<SolcStandardJsonOutput> {
-        T::new(solc_version).build(&self.input, &self.extra_options)
+    pub fn try_build(self, solc_version: &Version) -> anyhow::Result<CompilerOutput<T::Options>> {
+        T::new(solc_version).build(CompilerInput {
+            extra_options: self.extra_options,
+            input: self.input,
+        })
     }
 }

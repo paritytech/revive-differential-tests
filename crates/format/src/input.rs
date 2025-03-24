@@ -4,12 +4,12 @@ use serde::{Deserialize, de::Deserializer};
 
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
 pub struct Input {
-    instance: String,
+    pub instance: String,
     #[serde(deserialize_with = "deserialize_method")]
-    method: Method,
+    pub method: Method,
     #[serde(deserialize_with = "deserialize_calldata")]
-    calldata: Vec<u8>,
-    expected: Option<Vec<String>>,
+    pub calldata: Vec<u8>,
+    pub expected: Option<Vec<String>>,
 }
 
 /// Specify how the contract is called.

@@ -18,7 +18,9 @@ revive-dt-config = { workspace = true }
 revive-dt-format = { workspace = true }
 revive-solc-json-interface = { workspace = true }
 revive-dt-node = { workspace = true }
+revive-dt-node-interaction = { workspace = true }
 
+alloy = { workspace = true }
 anyhow = { workspace = true }
 clap = { workspace = true }
 log = { workspace = true }

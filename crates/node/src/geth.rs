@@ -52,28 +52,6 @@ impl Instance {
     const READY_MARKER: &str = "IPC endpoint opened";
     const ERROR_MARKER: &str = "Fatal:";
 
-    /// Create a new uninitialized instance.
-    pub fn new(config: &Arguments) -> anyhow::Result<Self> {
-        let geth_directory = config
-            .working_directory
-            .as_ref()
-            .ok_or_else(|| anyhow::anyhow!("config did not provide working directory"))?
-            .join(Self::BASE_DIRECTORY);
-        let id = NODE_COUNT.fetch_add(1, Ordering::SeqCst);
-        let base_directory = geth_directory.join(id.to_string());
-
-        Ok(Self {
-            connection_string: base_directory.join(Self::IPC_FILE).display().to_string(),
-            data_directory: base_directory.join(Self::DATA_DIRECTORY),
-            base_directory,
-            geth: config.geth.clone(),
-            id,
-            handle: None,
-            network_id: config.network_id,
-            start_timeout: config.geth_start_timeout,
-        })
-    }
-
     /// Create the node directory and call `geth init` to configure the genesis.
     fn init(&mut self, genesis: String) -> anyhow::Result<&mut Self> {
         let geth_directory = self.base_directory.parent().expect("the id should be set");
@@ -182,6 +160,27 @@ impl EthereumNode for Instance {
 }
 
 impl Node for Instance {
+    fn new(config: &Arguments) -> Self {
+        let geth_directory = config
+            .working_directory
+            .as_ref()
+            .expect("config should provide working directory")
+            .join(Self::BASE_DIRECTORY);
+        let id = NODE_COUNT.fetch_add(1, Ordering::SeqCst);
+        let base_directory = geth_directory.join(id.to_string());
+
+        Self {
+            connection_string: base_directory.join(Self::IPC_FILE).display().to_string(),
+            data_directory: base_directory.join(Self::DATA_DIRECTORY),
+            base_directory,
+            geth: config.geth.clone(),
+            id,
+            handle: None,
+            network_id: config.network_id,
+            start_timeout: config.geth_start_timeout,
+        }
+    }
+
     fn connection_string(&self) -> String {
         self.connection_string.clone()
     }
@@ -252,7 +251,6 @@ mod tests {
     #[test]
     fn init_works() {
         Instance::new(&test_config().0)
-            .unwrap()
             .init(GENESIS_JSON.to_string())
             .unwrap();
     }
@@ -260,14 +258,13 @@ mod tests {
     #[test]
     fn spawn_works() {
         Instance::new(&test_config().0)
-            .unwrap()
             .spawn(GENESIS_JSON.to_string())
             .unwrap();
     }
 
     #[test]
     fn version_works() {
-        let version = Instance::new(&test_config().0).unwrap().version().unwrap();
+        let version = Instance::new(&test_config().0).version().unwrap();
         assert!(
             version.starts_with("geth version"),
             "expected version string, got: '{version}'"

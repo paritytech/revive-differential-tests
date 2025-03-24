@@ -2873,6 +2873,7 @@ dependencies = [
 name = "revive-dt-core"
 version = "0.1.0"
 dependencies = [
+ "alloy",
  "anyhow",
  "clap",
  "env_logger",
@@ -2882,6 +2883,7 @@ dependencies = [
  "revive-dt-config",
  "revive-dt-format",
  "revive-dt-node",
+ "revive-dt-node-interaction",
  "revive-solc-json-interface",
  "semver 1.0.26",
  "serde",

@@ -4,7 +4,7 @@ use clap::Parser;
 use rayon::prelude::*;
 
 use revive_dt_config::*;
-use revive_dt_core::driver::compiler::build_evm;
+use revive_dt_core::{Geth, Kitchensink, driver::Driver};
 use revive_dt_format::corpus::Corpus;
 use temp_dir::TempDir;
 
@@ -27,22 +27,28 @@ fn main() -> anyhow::Result<()> {
         log::info!("found {} tests", tests.len());
 
         tests.par_iter().for_each(|metadata| {
-            let _ = match build_evm(metadata) {
+            let mut driver = match (&args.leader, &args.follower) {
+                (TestingPlatform::Geth, TestingPlatform::Kitchensink) => {
+                    Driver::<Geth, Kitchensink>::new(metadata, &args)
+                }
+                _ => unimplemented!(),
+            };
+
+            match driver.execute() {
                 Ok(build) => {
                     log::info!(
-                        "metadata {} compilation success",
+                        "metadata {} success",
                         metadata.file_path.as_ref().unwrap().display()
                     );
                     build
                 }
                 Err(error) => {
                     log::warn!(
-                        "metadata {} compilation failure: {error:?}",
+                        "metadata {} failure: {error:?}",
                         metadata.file_path.as_ref().unwrap().display()
                     );
-                    return;
                 }
-            };
+            }
         });
     }
 
