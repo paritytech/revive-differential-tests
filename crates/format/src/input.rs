@@ -1,15 +1,38 @@
 use alloy::json_abi::Function;
-use alloy::primitives::U256;
+use semver::VersionReq;
 use serde::{Deserialize, de::Deserializer};
+use serde_json::Value;
 
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
 pub struct Input {
-    pub instance: String,
+    pub instance: Option<String>,
     #[serde(deserialize_with = "deserialize_method")]
     pub method: Method,
-    #[serde(deserialize_with = "deserialize_calldata")]
-    pub calldata: Vec<u8>,
-    pub expected: Option<Vec<String>>,
+    pub calldata: Option<Calldata>,
+    pub expected: Option<Expected>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
+#[serde(untagged)]
+pub enum Expected {
+    Calldata(Calldata),
+    Expected(ExpectedOutput),
+    ExpectedMany(Vec<ExpectedOutput>),
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
+pub struct ExpectedOutput {
+    compiler_version: Option<VersionReq>,
+    return_data: Option<Calldata>,
+    events: Option<Value>,
+    exception: Option<bool>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
+#[serde(untagged)]
+pub enum Calldata {
+    Single(String),
+    Compound(Vec<String>),
 }
 
 /// Specify how the contract is called.
@@ -28,27 +51,6 @@ pub enum Method {
     ///
     /// Calculates the selector if neither deployer or fallback matches.
     Function([u8; 4]),
-}
-
-fn deserialize_calldata<'de, D>(deserializer: D) -> Result<Vec<u8>, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let calldata_strings: Vec<String> = Vec::deserialize(deserializer)?;
-    let mut result = Vec::with_capacity(calldata_strings.len() * 32);
-
-    for calldata_string in &calldata_strings {
-        match calldata_string.parse::<U256>() {
-            Ok(parsed) => result.extend_from_slice(&parsed.to_be_bytes::<32>()),
-            Err(error) => {
-                return Err(serde::de::Error::custom(format!(
-                    "parsing U256 {calldata_string} error: {error}"
-                )));
-            }
-        };
-    }
-
-    Ok(result)
 }
 
 fn deserialize_method<'de, D>(deserializer: D) -> Result<Method, D::Error>
