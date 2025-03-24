@@ -3,7 +3,11 @@
 //! - Polkadot revive resolc compiler
 //! - Polkadot revive Wasm compiler
 
-use std::{fs::read_to_string, hash::Hash, path::Path};
+use std::{
+    fs::read_to_string,
+    hash::Hash,
+    path::{Path, PathBuf},
+};
 
 use revive_common::EVMVersion;
 use revive_solc_json_interface::{
@@ -28,7 +32,7 @@ pub trait SolidityCompiler {
         input: CompilerInput<Self::Options>,
     ) -> anyhow::Result<CompilerOutput<Self::Options>>;
 
-    fn new(solc_version: &Version) -> Self;
+    fn new(solc_executable: PathBuf) -> Self;
 }
 
 /// The generic compilation input configuration.
@@ -142,8 +146,8 @@ where
         self
     }
 
-    pub fn try_build(self, solc_version: &Version) -> anyhow::Result<CompilerOutput<T::Options>> {
-        T::new(solc_version).build(CompilerInput {
+    pub fn try_build(self, solc_path: PathBuf) -> anyhow::Result<CompilerOutput<T::Options>> {
+        T::new(solc_path).build(CompilerInput {
             extra_options: self.extra_options,
             input: self.input,
         })

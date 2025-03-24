@@ -3,6 +3,27 @@ use semver::VersionReq;
 use serde::{Deserialize, de::Deserializer};
 use serde_json::Value;
 
+/* fn deserialize_calldata<'de, D>(deserializer: D) -> Result<Vec<u8>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let calldata_strings: Vec<String> = Vec::deserialize(deserializer)?;
+    let mut result = Vec::with_capacity(calldata_strings.len() * 32);
+
+    for calldata_string in &calldata_strings {
+        match calldata_string.parse::<U256>() {
+            Ok(parsed) => result.extend_from_slice(&parsed.to_be_bytes::<32>()),
+            Err(error) => {
+                return Err(serde::de::Error::custom(format!(
+                    "parsing U256 {calldata_string} error: {error}"
+                )));
+            }
+        };
+    }
+
+    Ok(result)
+} */
+
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
 pub struct Input {
     pub instance: Option<String>,

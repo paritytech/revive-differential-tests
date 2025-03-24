@@ -8,15 +8,11 @@ edition.workspace = true
 repository.workspace = true
 rust-version.workspace = true
 
-[features]
-default = ["download"]
-download = ["reqwest"]
-
 [dependencies]
 anyhow = { workspace = true }
 hex = { workspace = true }
 once_cell = { workspace = true }
-reqwest = { workspace = true, optional = true }
+reqwest = { workspace = true }
 semver = { workspace = true }
 serde = { workspace = true }
 sha2 = { workspace = true }

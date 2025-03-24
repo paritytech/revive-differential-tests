@@ -1,7 +1,7 @@
 //! The go-ethereum node implementation.
 
 use std::{
-    fs::{File, create_dir, exists, remove_dir_all},
+    fs::{File, create_dir_all, remove_dir_all},
     io::{BufRead, BufReader, Read, Write},
     path::PathBuf,
     process::{Child, Command, Stdio},
@@ -54,11 +54,7 @@ impl Instance {
 
     /// Create the node directory and call `geth init` to configure the genesis.
     fn init(&mut self, genesis: String) -> anyhow::Result<&mut Self> {
-        let geth_directory = self.base_directory.parent().expect("the id should be set");
-        if !exists(geth_directory)? {
-            create_dir(geth_directory)?;
-        }
-        create_dir(&self.base_directory)?;
+        create_dir_all(&self.base_directory)?;
 
         let genesis_path = self.base_directory.join(Self::GENESIS_JSON_FILE);
         File::create(&genesis_path)?.write_all(genesis.as_bytes())?;
@@ -161,11 +157,7 @@ impl EthereumNode for Instance {
 
 impl Node for Instance {
     fn new(config: &Arguments) -> Self {
-        let geth_directory = config
-            .working_directory
-            .as_ref()
-            .expect("config should provide working directory")
-            .join(Self::BASE_DIRECTORY);
+        let geth_directory = config.directory().join(Self::BASE_DIRECTORY);
         let id = NODE_COUNT.fetch_add(1, Ordering::SeqCst);
         let base_directory = geth_directory.join(id.to_string());
 

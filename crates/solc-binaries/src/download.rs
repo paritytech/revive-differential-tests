@@ -35,9 +35,9 @@ impl List {
 
 /// Download solc binaries from GitHub releases (IPFS links aren't reliable).
 pub struct GHDownloader {
-    version: Version,
-    target: &'static str,
-    list: &'static str,
+    pub version: Version,
+    pub target: &'static str,
+    pub list: &'static str,
 }
 
 impl GHDownloader {
@@ -48,36 +48,33 @@ impl GHDownloader {
     pub const WINDOWS_NAME: &str = "solc-windows.exe";
     pub const WASM_NAME: &str = "soljson.js";
 
-    pub fn linux(version: Version) -> Self {
+    fn new(version: Version, target: &'static str, list: &'static str) -> Self {
         Self {
             version,
-            target: Self::LINUX_NAME,
-            list: List::LINUX_URL,
+            target,
+            list,
         }
+    }
+
+    pub fn linux(version: Version) -> Self {
+        Self::new(version, Self::LINUX_NAME, List::LINUX_URL)
     }
 
     pub fn macosx(version: Version) -> Self {
-        Self {
-            version,
-            target: Self::MACOSX_NAME,
-            list: List::MACOSX_URL,
-        }
+        Self::new(version, Self::MACOSX_NAME, List::MACOSX_URL)
     }
 
     pub fn windows(version: Version) -> Self {
-        Self {
-            version,
-            target: Self::WINDOWS_NAME,
-            list: List::WINDOWS_URL,
-        }
+        Self::new(version, Self::WINDOWS_NAME, List::WINDOWS_URL)
     }
 
     pub fn wasm(version: Version) -> Self {
-        Self {
-            version,
-            target: Self::WASM_NAME,
-            list: List::WASM_URL,
-        }
+        Self::new(version, Self::WASM_NAME, List::WASM_URL)
+    }
+
+    /// Returns the download link.
+    pub fn url(&self) -> String {
+        format!("{}/v{}/{}", Self::BASE_URL, &self.version, &self.target)
     }
 
     /// Download the solc binary.
@@ -92,8 +89,7 @@ impl GHDownloader {
             .ok_or_else(|| anyhow::anyhow!("solc v{} not found builds", self.version))
             .map(|b| b.sha256.strip_prefix("0x").unwrap_or(&b.sha256).to_string())?;
 
-        let url = format!("{}/v{}/{}", Self::BASE_URL, self.version, self.target);
-        let file = reqwest::blocking::get(&url)?.bytes()?.to_vec();
+        let file = reqwest::blocking::get(self.url())?.bytes()?.to_vec();
 
         if hex::encode(Sha256::digest(&file)) != expected_digest {
             anyhow::bail!("sha256 mismatch for solc version {}", self.version);

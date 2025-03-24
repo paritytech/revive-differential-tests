@@ -15,8 +15,9 @@ fn main() -> anyhow::Result<()> {
     if args.corpus.is_empty() {
         anyhow::bail!("no test corpus specified");
     }
-    let temp_dir = TempDir::new()?;
-    args.working_directory.get_or_insert(temp_dir.path().into());
+    if args.working_directory.is_none() {
+        args.temp_dir = TempDir::new()?.into()
+    }
 
     for path in args.corpus.iter().collect::<BTreeSet<_>>() {
         log::trace!("attempting corpus {path:?}");
@@ -38,7 +39,7 @@ fn main() -> anyhow::Result<()> {
                 Ok(build) => {
                     log::info!(
                         "metadata {} success",
-                        metadata.file_path.as_ref().unwrap().display()
+                        metadata.directory().as_ref().unwrap().display()
                     );
                     build
                 }

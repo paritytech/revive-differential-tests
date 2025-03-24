@@ -17,11 +17,18 @@ pub struct Metadata {
     pub contracts: Option<BTreeMap<String, String>>,
     pub libraries: Option<BTreeMap<String, BTreeMap<String, String>>>,
     pub ignore: Option<bool>,
-    pub modes: Option<Vec<Mode>>,
+    modes: Option<Vec<Mode>>,
     pub file_path: Option<PathBuf>,
 }
 
 impl Metadata {
+    /// Returns the modes of this metadata, inserting a default mode if not present.
+    pub fn modes(&self) -> Vec<Mode> {
+        self.modes
+            .to_owned()
+            .unwrap_or_else(|| vec![Mode::Solidity(Default::default())])
+    }
+
     /// Returns the base directory of this metadata.
     pub fn directory(&self) -> anyhow::Result<PathBuf> {
         Ok(self

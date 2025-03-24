@@ -8,4 +8,5 @@ pub struct Case {
     pub comment: Option<String>,
     pub modes: Option<Vec<Mode>>,
     pub inputs: Vec<Input>,
+    pub group: Option<String>,
 }

@@ -12,7 +12,7 @@ pub enum Mode {
 #[derive(Debug, Default, Clone, Eq, PartialEq)]
 pub struct SolcMode {
     pub solc_version: Option<semver::VersionReq>,
-    pub solc_optimize: Option<bool>,
+    solc_optimize: Option<bool>,
     pub llvm_optimizer_settings: Vec<String>,
 }
 
@@ -51,6 +51,11 @@ impl SolcMode {
         }
 
         Some(result)
+    }
+
+    /// Returns whether to enable the solc optimizer.
+    pub fn solc_optimize(&self) -> bool {
+        self.solc_optimize.unwrap_or(true)
     }
 }
 

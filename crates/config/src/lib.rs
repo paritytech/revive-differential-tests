@@ -1,15 +1,30 @@
 //! The global configuration used accross all revive differential testing crates.
 
-use std::path::PathBuf;
+use std::{
+    env,
+    path::{Path, PathBuf},
+};
 
-use clap::{Parser, ValueEnum};
+use clap::{Arg, Parser, ValueEnum};
+use semver::Version;
+use temp_dir::TempDir;
 
 #[derive(Debug, Parser, Clone)]
 #[command(name = "retester")]
 pub struct Arguments {
+    /// The `solc` version to use if the test didn't specify it explicitly.
+    #[arg(long = "solc", short, default_value = "0.8.29")]
+    pub solc: Version,
+
+    /// Use the Wasm compiler versions.
+    #[arg(long = "wasm")]
+    pub wasm: bool,
+
     /// The path to the `resolc` executable to be tested.
     ///
     /// By default it uses the `resolc` binary found in `$PATH`.
+    ///
+    /// If `--wasm` is set, this should point to the resolc Wasm ile.
     #[arg(long = "resolc", short, default_value = "resolc")]
     pub resolc: PathBuf,
 
@@ -22,6 +37,12 @@ pub struct Arguments {
     /// Creates a temporary dir if not specified.
     #[arg(long = "workdir", short)]
     pub working_directory: Option<PathBuf>,
+
+    /// Add a tempdir manually if `working_directory` was not given.
+    ///
+    /// We attach it here because [TempDir] prunes itself on drop.
+    #[clap(skip)]
+    pub temp_dir: Option<TempDir>,
 
     /// The path to the `geth` executable.
     ///
@@ -58,8 +79,22 @@ pub struct Arguments {
     pub follower: TestingPlatform,
 
     /// Only compile against this testing platform (doesn't execute the tests).
-    #[arg(short, long = "compile-only")]
+    #[arg(long = "compile-only")]
     pub compile_only: bool,
+}
+
+impl Arguments {
+    pub fn directory(&self) -> &Path {
+        if let Some(path) = &self.working_directory {
+            return path.as_path();
+        }
+
+        if let Some(temp_dir) = &self.temp_dir {
+            return temp_dir.path();
+        }
+
+        panic!("should have a workdir configured")
+    }
 }
 
 impl Default for Arguments {

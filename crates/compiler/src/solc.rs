@@ -11,7 +11,7 @@ use semver::Version;
 use crate::{CompilerInput, CompilerOutput, SolidityCompiler};
 
 pub struct Solc {
-    binary_path: PathBuf,
+    solc_path: PathBuf,
 }
 
 impl SolidityCompiler for Solc {
@@ -21,7 +21,7 @@ impl SolidityCompiler for Solc {
         &self,
         input: CompilerInput<Self::Options>,
     ) -> anyhow::Result<CompilerOutput<Self::Options>> {
-        let mut child = Command::new(&self.binary_path)
+        let mut child = Command::new(&self.solc_path)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -38,9 +38,7 @@ impl SolidityCompiler for Solc {
         })
     }
 
-    fn new(_solc_version: &Version) -> Self {
-        Self {
-            binary_path: "solc".into(),
-        }
+    fn new(solc_path: PathBuf) -> Self {
+        Self { solc_path }
     }
 }
