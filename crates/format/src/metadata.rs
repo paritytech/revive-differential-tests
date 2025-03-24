@@ -18,10 +18,47 @@ pub struct Metadata {
     pub libraries: Option<BTreeMap<String, BTreeMap<String, String>>>,
     pub ignore: Option<bool>,
     pub modes: Option<Vec<Mode>>,
-    pub path: Option<PathBuf>,
+    pub file_path: Option<PathBuf>,
 }
 
 impl Metadata {
+    /// Returns the base directory of this metadata.
+    pub fn directory(&self) -> anyhow::Result<PathBuf> {
+        Ok(self
+            .file_path
+            .as_ref()
+            .and_then(|path| path.parent())
+            .ok_or_else(|| anyhow::anyhow!("metadata invalid file path: {:?}", self.file_path))?
+            .to_path_buf())
+    }
+
+    /// Extract the contract sources.
+    ///
+    /// Returns a mapping of contract IDs to their source path and contract name.
+    pub fn contract_sources(&self) -> anyhow::Result<BTreeMap<String, (PathBuf, String)>> {
+        let directory = self.directory()?;
+        let mut sources = BTreeMap::new();
+        let Some(contracts) = &self.contracts else {
+            return Ok(sources);
+        };
+
+        for (id, contract) in contracts {
+            // TODO: broken if a colon is in the dir name..
+            let mut parts = contract.split(':');
+            let (Some(file_name), Some(contract_name)) = (parts.next(), parts.next()) else {
+                anyhow::bail!("metadata contains invalid contract: {contract}");
+            };
+            let file = directory.to_path_buf().join(file_name);
+            if !file.is_file() {
+                anyhow::bail!("contract {id} is not a file: {}", file.display());
+            }
+
+            sources.insert(id.clone(), (file, contract_name.to_string()));
+        }
+
+        Ok(sources)
+    }
+
     /// Try to parse the test metadata struct from the given file at `path`.
     ///
     /// Returns `None` if `path` didn't contain a test metadata or case definition.
@@ -41,8 +78,7 @@ impl Metadata {
         }
 
         if file_extension == SOLIDITY_CASE_FILE_EXTENSION {
-            return None;
-            //return Self::try_from_solidity(path);
+            return Self::try_from_solidity(path);
         }
 
         log::debug!("ignoring invalid corpus file: {}", path.display());
@@ -61,7 +97,7 @@ impl Metadata {
 
         match serde_json::from_reader::<_, Metadata>(file) {
             Ok(mut metadata) => {
-                metadata.path = Some(path.to_path_buf());
+                metadata.file_path = Some(path.to_path_buf());
                 Some(metadata)
             }
             Err(error) => {

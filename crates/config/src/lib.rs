@@ -40,6 +40,14 @@ pub struct Arguments {
     /// Configure nodes according to this genesis.json file.
     #[arg(long = "genesis-file")]
     pub genesis_file: Option<PathBuf>,
+
+    /// The signing account private key.
+    #[arg(
+        short,
+        long = "account",
+        default_value = "0x4f3edf983ac636a65a842ce7c78d9aa706d3b113bce9c46f30d7d21715b23b1d"
+    )]
+    pub account: String,
 }
 
 impl Default for Arguments {

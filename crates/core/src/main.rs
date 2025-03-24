@@ -11,18 +11,14 @@ use temp_dir::TempDir;
 fn main() -> anyhow::Result<()> {
     env_logger::init();
 
-    let mut config = Arguments::parse();
-
-    if config.corpus.is_empty() {
+    let mut args = Arguments::parse();
+    if args.corpus.is_empty() {
         anyhow::bail!("no test corpus specified");
     }
+    let temp_dir = TempDir::new()?;
+    args.working_directory.get_or_insert(temp_dir.path().into());
 
-    let temporary_directory = TempDir::new()?;
-    config
-        .working_directory
-        .get_or_insert_with(|| temporary_directory.path().into());
-
-    for path in config.corpus.iter().collect::<BTreeSet<_>>() {
+    for path in args.corpus.iter().collect::<BTreeSet<_>>() {
         log::trace!("attempting corpus {path:?}");
         let corpus = Corpus::try_from_path(path)?;
         log::info!("found corpus: {corpus:?}");
@@ -30,18 +26,24 @@ fn main() -> anyhow::Result<()> {
         let tests = corpus.enumerate_tests();
         log::info!("found {} tests", tests.len());
 
-        tests
-            .par_iter()
-            .for_each(|metadata| match build_evm(metadata) {
-                Ok(_) => log::info!(
-                    "metadata {} compilation success",
-                    metadata.path.as_ref().unwrap().display()
-                ),
-                Err(error) => log::warn!(
-                    "metadata {} compilation failure: {error:?}",
-                    metadata.path.as_ref().unwrap().display()
-                ),
-            });
+        tests.par_iter().for_each(|metadata| {
+            let _ = match build_evm(metadata) {
+                Ok(build) => {
+                    log::info!(
+                        "metadata {} compilation success",
+                        metadata.file_path.as_ref().unwrap().display()
+                    );
+                    build
+                }
+                Err(error) => {
+                    log::warn!(
+                        "metadata {} compilation failure: {error:?}",
+                        metadata.file_path.as_ref().unwrap().display()
+                    );
+                    return;
+                }
+            };
+        });
     }
 
     Ok(())

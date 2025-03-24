@@ -19,31 +19,21 @@ pub struct SolcSettings {
 pub fn build_evm(
     metadata: &Metadata,
 ) -> anyhow::Result<HashMap<SolcSettings, SolcStandardJsonOutput>> {
-    let Some(metadata_path) = &metadata.path else {
-        anyhow::bail!("missing directory in metadata");
-    };
-    let Some(directory) = metadata_path.parent() else {
-        anyhow::bail!("metadata path has no parent: {}", metadata_path.display());
-    };
-    let Some(contracts) = &metadata.contracts else {
-        anyhow::bail!("missing contracts in metadata: {}", metadata_path.display());
-    };
+    let sources = metadata.contract_sources()?;
+    let base_path = metadata.directory()?.display().to_string();
     let modes = metadata
         .modes
         .to_owned()
         .unwrap_or_else(|| vec![Mode::Solidity(Default::default())]);
 
-    let sources = super::contract_sources_from_metadata(directory, contracts)?;
-
     let mut result = HashMap::new();
     for mode in modes {
-        let mut compiler = Compiler::<Solc>::new().base_path(directory.display().to_string());
-        for file in sources.values() {
+        let mut compiler = Compiler::<Solc>::new().base_path(base_path.clone());
+        for (file, _contract) in sources.values() {
             compiler = compiler.with_source(file)?;
         }
 
         match mode {
-            Mode::Unknown(mode) => log::debug!("compiler: ignoring unknown mode '{mode}'"),
             Mode::Solidity(SolcMode {
                 solc_version: _,
                 solc_optimize,
@@ -61,6 +51,7 @@ pub fn build_evm(
                     out,
                 );
             }
+            Mode::Unknown(mode) => log::debug!("compiler: ignoring unknown mode '{mode}'"),
         }
     }
 
