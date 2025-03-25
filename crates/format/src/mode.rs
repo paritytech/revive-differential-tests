@@ -1,3 +1,4 @@
+use semver::Version;
 use serde::Deserialize;
 use serde::de::Deserializer;
 
@@ -56,6 +57,26 @@ impl SolcMode {
     /// Returns whether to enable the solc optimizer.
     pub fn solc_optimize(&self) -> bool {
         self.solc_optimize.unwrap_or(true)
+    }
+
+    /// Calculate the latest matching solc patch version. Returns:
+    /// - `latest_supported` if no version request was specified.
+    /// - A matching version with the same minor version as `latest_supported`, if any.
+    /// - `None` if no minor version of the `latest_supported` version matches.
+    pub fn last_patch_version(&self, latest_supported: &Version) -> Option<Version> {
+        let Some(version_req) = self.solc_version.as_ref() else {
+            return Some(latest_supported.to_owned());
+        };
+
+        // lgtm
+        for patch in (0..latest_supported.patch + 1).rev() {
+            let version = Version::new(0, latest_supported.minor, patch);
+            if version_req.matches(&version) {
+                return Some(version);
+            }
+        }
+
+        None
     }
 }
 

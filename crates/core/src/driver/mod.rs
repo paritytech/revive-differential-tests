@@ -11,7 +11,6 @@ use revive_dt_format::{
 use revive_dt_node::Node;
 use revive_dt_solc_binaries::download_solc;
 use revive_solc_json_interface::SolcStandardJsonOutput;
-use semver::Version;
 
 use crate::Platform;
 
@@ -41,19 +40,22 @@ where
     }
 
     pub fn build_contracts(&mut self, mode: &SolcMode, metadata: &Metadata) -> anyhow::Result<()> {
+        let Some(version) = mode.last_patch_version(&self.config.solc) else {
+            anyhow::bail!("unsupported solc version: {:?}", mode.solc_version);
+        };
+
         let sources = metadata.contract_sources()?;
         let base_path = metadata.directory()?.display().to_string();
-
         let mut compiler = Compiler::<T::Compiler>::new().base_path(base_path.clone());
         for (file, _contract) in sources.values() {
             compiler = compiler.with_source(file)?;
         }
 
-        let version = Version::new(0, 8, 29);
         let solc_path = download_solc(self.config.directory(), version, self.config.wasm)?;
         let output = compiler
             .solc_optimizer(mode.solc_optimize())
             .try_build(solc_path)?;
+
         self.contracts.insert(output.input, output.output);
 
         Ok(())

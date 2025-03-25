@@ -1,14 +1,17 @@
 //! This module downloads solc binaries.
 
-use std::{collections::HashMap, sync::Mutex};
+use std::{
+    collections::HashMap,
+    sync::{LazyLock, Mutex},
+};
 
-use once_cell::sync::Lazy;
 use semver::Version;
 use sha2::{Digest, Sha256};
 
 use crate::list::List;
 
-pub static LIST_CACHE: Lazy<Mutex<HashMap<&'static str, List>>> = Lazy::new(Default::default);
+pub static LIST_CACHE: LazyLock<Mutex<HashMap<&'static str, List>>> =
+    LazyLock::new(Default::default);
 
 impl List {
     pub const LINUX_URL: &str = "https://binaries.soliditylang.org/linux-amd64/list.json";
@@ -34,6 +37,7 @@ impl List {
 }
 
 /// Download solc binaries from GitHub releases (IPFS links aren't reliable).
+#[derive(Clone, Debug)]
 pub struct GHDownloader {
     pub version: Version,
     pub target: &'static str,
@@ -82,6 +86,7 @@ impl GHDownloader {
     /// Errors out if the download fails or the digest of the downloaded file
     /// mismatches the expected digest from the release [List].
     pub fn download(&self) -> anyhow::Result<Vec<u8>> {
+        log::info!("downloading solc: {self:?}");
         let expected_digest = List::download(self.list)?
             .builds
             .iter()

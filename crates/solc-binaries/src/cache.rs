@@ -1,84 +1,70 @@
 //! Helper for caching the solc binaries.
 
 use std::{
-    cell::OnceCell,
     collections::HashSet,
     fs::{File, create_dir_all},
-    io::Write,
+    io::{BufWriter, Write},
     os::unix::fs::PermissionsExt,
     path::{Path, PathBuf},
-    sync::Mutex,
+    sync::{LazyLock, Mutex},
 };
 
 use crate::download::GHDownloader;
 
 pub const SOLC_CACHE_DIRECTORY: &str = "solc";
-pub const SOLC_CACHER: OnceCell<Mutex<SolcCacher>> = OnceCell::new();
+pub(crate) static SOLC_CACHER: LazyLock<Mutex<HashSet<PathBuf>>> = LazyLock::new(Default::default);
 
-pub fn get_or_download(
+pub(crate) fn get_or_download(
     working_directory: &Path,
     downloader: &GHDownloader,
 ) -> anyhow::Result<PathBuf> {
-    SOLC_CACHER
-        .get_or_init(|| {
-            Mutex::new(SolcCacher::new(
-                working_directory.join(SOLC_CACHE_DIRECTORY),
-            ))
-        })
-        .lock()
-        .unwrap()
-        .get_or_download(downloader)
-}
+    let target_directory = working_directory
+        .join(SOLC_CACHE_DIRECTORY)
+        .join(downloader.version.to_string());
+    let target_file = target_directory.join(downloader.target);
 
-pub struct SolcCacher {
-    cache_directory: PathBuf,
-    cached_binaries: HashSet<PathBuf>,
-}
-
-impl SolcCacher {
-    fn new(cache_directory: PathBuf) -> Self {
-        Self {
-            cache_directory,
-            cached_binaries: Default::default(),
-        }
+    let mut cache = SOLC_CACHER.lock().unwrap();
+    if cache.contains(&target_file) {
+        return Ok(target_file);
     }
 
-    fn get_or_download(&mut self, downloader: &GHDownloader) -> anyhow::Result<PathBuf> {
-        let directory = self.cache_directory.join(downloader.version.to_string());
-        let file_path = directory.join(downloader.target);
+    create_dir_all(target_directory)?;
+    download_to_file(&target_file, downloader)?;
+    cache.insert(target_file.clone());
 
-        if self.cached_binaries.contains(&file_path) {
-            return Ok(file_path);
-        }
+    Ok(target_file)
+}
 
-        create_dir_all(directory)?;
+fn download_to_file(path: &Path, downloader: &GHDownloader) -> anyhow::Result<()> {
+    log::info!("caching file: {}", path.display());
 
-        let Ok(mut file) = File::create_new(&file_path) else {
-            self.cached_binaries.insert(file_path.clone());
-            return Ok(file_path);
-        };
+    let Ok(file) = File::create_new(path) else {
+        log::warn!("cache file already exists: {}", path.display());
+        return Ok(());
+    };
 
-        file.write_all(&downloader.download()?)?;
-
-        #[cfg(unix)]
-        {
-            let mut permissions = file.metadata()?.permissions();
-            let mode = permissions.mode() | 0o111;
-            permissions.set_mode(mode);
-            file.set_permissions(permissions)?;
-        }
-
-        #[cfg(target_os = "macos")]
-        std::process::Command::new("xattr")
-            .arg("-d")
-            .arg("com.apple.quarantine")
-            .arg(&file_path)
-            .stderr(std::process::Stdio::null())
-            .stdout(std::process::Stdio::null())
-            .stdout(std::process::Stdio::null())
-            .spawn()?
-            .wait()?;
-
-        Ok(file_path)
+    #[cfg(unix)]
+    {
+        let mut permissions = file.metadata()?.permissions();
+        permissions.set_mode(permissions.mode() | 0o111);
+        file.set_permissions(permissions)?;
     }
+
+    let mut file = BufWriter::new(file);
+    file.write_all(&downloader.download()?)?;
+    file.flush()?;
+    drop(file);
+
+    #[cfg(target_os = "macos")]
+    std::process::Command::new("xattr")
+        .arg("-d")
+        .arg("com.apple.quarantine")
+        .arg(&path)
+        .stderr(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .spawn()?
+        .wait()?;
+
+    Ok(())
 }

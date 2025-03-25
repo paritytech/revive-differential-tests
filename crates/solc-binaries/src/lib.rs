@@ -19,7 +19,7 @@ pub mod list;
 /// Subsequent calls for the same version will use a cached artifact
 /// and not download it again.
 pub fn download_solc(
-    working_directory: &Path,
+    cache_directory: &Path,
     version: Version,
     wasm: bool,
 ) -> anyhow::Result<PathBuf> {
@@ -35,5 +35,5 @@ pub fn download_solc(
         unimplemented!()
     };
 
-    get_or_download(working_directory, &downloader)
+    get_or_download(cache_directory, &downloader)
 }

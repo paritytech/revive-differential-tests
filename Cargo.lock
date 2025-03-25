@@ -2937,7 +2937,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "hex",
- "once_cell",
+ "log",
  "reqwest",
  "semver 1.0.26",
  "serde",
