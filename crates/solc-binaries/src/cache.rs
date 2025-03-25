@@ -5,6 +5,7 @@ use std::{
     collections::HashSet,
     fs::{File, create_dir_all},
     io::Write,
+    os::unix::fs::PermissionsExt,
     path::{Path, PathBuf},
     sync::Mutex,
 };
@@ -50,17 +51,33 @@ impl SolcCacher {
             return Ok(file_path);
         }
 
-        if file_path.exists() {
-            self.cached_binaries.insert(file_path.clone());
-            return Ok(file_path);
-        }
-
         create_dir_all(directory)?;
 
-        let buf = downloader.download()?;
-        File::create_new(&file_path)
-            .expect("should not exist because of above early return")
-            .write_all(&buf)?;
+        let Ok(mut file) = File::create_new(&file_path) else {
+            self.cached_binaries.insert(file_path.clone());
+            return Ok(file_path);
+        };
+
+        file.write_all(&downloader.download()?)?;
+
+        #[cfg(unix)]
+        {
+            let mut permissions = file.metadata()?.permissions();
+            let mode = permissions.mode() | 0o111;
+            permissions.set_mode(mode);
+            file.set_permissions(permissions)?;
+        }
+
+        #[cfg(target_os = "macos")]
+        std::process::Command::new("xattr")
+            .arg("-d")
+            .arg("com.apple.quarantine")
+            .arg(&file_path)
+            .stderr(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .spawn()?
+            .wait()?;
 
         Ok(file_path)
     }

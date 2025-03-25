@@ -2867,6 +2867,8 @@ name = "revive-dt-config"
 version = "0.1.0"
 dependencies = [
  "clap",
+ "semver 1.0.26",
+ "temp-dir",
 ]
 
 [[package]]
@@ -2884,6 +2886,7 @@ dependencies = [
  "revive-dt-format",
  "revive-dt-node",
  "revive-dt-node-interaction",
+ "revive-dt-solc-binaries",
  "revive-solc-json-interface",
  "semver 1.0.26",
  "serde",

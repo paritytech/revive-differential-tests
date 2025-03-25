@@ -20,6 +20,7 @@ revive-dt-format = { version = "0.1.0", path = "crates/format" }
 revive-dt-node = { version = "0.1.0", path = "crates/node" }
 revive-dt-node-interaction = { version = "0.1.0", path = "crates/node-interaction" }
 revive-dt-node-pool = { version = "0.1.0", path = "crates/node-pool" }
+revive-dt-solc-binaries = { version = "0.1.0", path = "crates/solc-binaries" }
 
 anyhow = "1.0"
 clap = { version = "4", features = ["derive"] }
