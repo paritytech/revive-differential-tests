@@ -81,6 +81,10 @@ pub struct Arguments {
     /// Only compile against this testing platform (doesn't execute the tests).
     #[arg(long = "compile-only")]
     pub compile_only: bool,
+
+    /// Determines the amount of tests that are executed in parallel.
+    #[arg(long = "workers", default_value = "12")]
+    pub workers: usize,
 }
 
 impl Arguments {

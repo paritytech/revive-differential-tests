@@ -5,6 +5,7 @@ use revive_dt_config::Arguments;
 use revive_dt_node_interaction::EthereumNode;
 
 pub mod geth;
+pub mod pool;
 
 /// The default genesis configuration.
 pub const GENESIS_JSON: &str = include_str!("../../../genesis.json");

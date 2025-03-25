@@ -1,14 +1,17 @@
 //! The test driver handles the compilation and execution of the test cases.
 
-use alloy::primitives::{Address, map::HashMap};
+use alloy::{
+    primitives::{Address, map::HashMap},
+    rpc::types::trace::geth::GethTrace,
+};
 use revive_dt_compiler::{Compiler, CompilerInput, SolidityCompiler};
 use revive_dt_config::Arguments;
 use revive_dt_format::{
-    case::Case,
+    input::Input,
     metadata::Metadata,
     mode::{Mode, SolcMode},
 };
-use revive_dt_node::Node;
+use revive_dt_node_interaction::EthereumNode;
 use revive_dt_solc_binaries::download_solc;
 use revive_solc_json_interface::SolcStandardJsonOutput;
 
@@ -23,7 +26,6 @@ pub struct State<'a, T: Platform> {
     config: &'a Arguments,
     contracts: Contracts<T>,
     deployed_contracts: HashMap<String, Address>,
-    node: T::Blockchain,
 }
 
 impl<'a, T> State<'a, T>
@@ -35,7 +37,6 @@ where
             config,
             contracts: Default::default(),
             deployed_contracts: Default::default(),
-            node: <T::Blockchain as Node>::new(config),
         }
     }
 
@@ -61,10 +62,18 @@ where
         Ok(())
     }
 
-    pub fn execute_case(&mut self, case: &Case) -> anyhow::Result<()> {
-        for input in &case.inputs {}
-
-        Ok(())
+    pub fn execute_input(
+        &mut self,
+        input: &Input,
+        node: &T::Blockchain,
+    ) -> anyhow::Result<GethTrace> {
+        let receipt = node.execute_transaction(input.legacy_transaction(
+            self.config.network_id,
+            0,
+            &self.deployed_contracts,
+        )?)?;
+        dbg!(&receipt);
+        Ok(node.trace_transaction(receipt)?)
     }
 }
 
@@ -89,7 +98,11 @@ where
         }
     }
 
-    pub fn execute(&mut self) -> anyhow::Result<()> {
+    pub fn execute(
+        &mut self,
+        leader: L::Blockchain,
+        follower: F::Blockchain,
+    ) -> anyhow::Result<()> {
         for mode in self.modes() {
             self.leader.build_contracts(&mode, self.metadata)?;
             self.follower.build_contracts(&mode, self.metadata)?;
@@ -99,7 +112,9 @@ where
             }
 
             for case in &self.metadata.cases {
-                self.leader.execute_case(case)?;
+                for input in &case.inputs {
+                    let expected = self.leader.execute_input(input, &leader)?;
+                }
             }
 
             *self = Self::new(self.metadata, self.config);

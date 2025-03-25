@@ -1,4 +1,9 @@
-use alloy::json_abi::Function;
+use std::collections::HashMap;
+
+use alloy::{
+    json_abi::Function, network::TransactionBuilder, primitives::Address,
+    rpc::types::TransactionRequest,
+};
 use semver::VersionReq;
 use serde::{Deserialize, de::Deserializer};
 use serde_json::Value;
@@ -26,11 +31,17 @@ where
 
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
 pub struct Input {
-    pub instance: Option<String>,
+    #[serde(default = "default_caller")]
+    pub caller: Address,
+    pub comment: Option<String>,
+    #[serde(default = "default_instance")]
+    pub instance: String,
     #[serde(deserialize_with = "deserialize_method")]
     pub method: Method,
     pub calldata: Option<Calldata>,
     pub expected: Option<Expected>,
+    pub value: Option<String>,
+    pub storage: Option<HashMap<String, Calldata>>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
@@ -97,4 +108,46 @@ where
             }
         }
     })
+}
+
+impl Input {
+    fn instance_to_address(
+        &self,
+        instance: &str,
+        deployed_contracts: &HashMap<String, Address>,
+    ) -> anyhow::Result<Address> {
+        deployed_contracts
+            .get(instance)
+            .copied()
+            .ok_or_else(|| anyhow::anyhow!("instance {instance} not deployed"))
+    }
+
+    /// Parse this input into a legacy transaction.
+    pub fn legacy_transaction(
+        &self,
+        chain_id: u64,
+        nonce: u64,
+        deployed_contracts: &HashMap<String, Address>,
+    ) -> anyhow::Result<TransactionRequest> {
+        let to = match self.method {
+            Method::Deployer => Address::ZERO,
+            _ => self.instance_to_address(&self.instance, deployed_contracts)?,
+        };
+
+        Ok(TransactionRequest::default()
+            .with_from(self.caller.clone())
+            .with_to(to)
+            .with_nonce(nonce)
+            .with_chain_id(chain_id)
+            .with_gas_price(20_000_000_000)
+            .with_gas_limit(20_000_000_000))
+    }
+}
+
+fn default_instance() -> String {
+    "Test".to_string()
+}
+
+fn default_caller() -> Address {
+    "90F8bf6A479f320ead074411a4B0e7944Ea8c9C1".parse().unwrap()
 }

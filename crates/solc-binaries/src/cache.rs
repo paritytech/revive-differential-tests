@@ -39,7 +39,7 @@ fn download_to_file(path: &Path, downloader: &GHDownloader) -> anyhow::Result<()
     log::info!("caching file: {}", path.display());
 
     let Ok(file) = File::create_new(path) else {
-        log::warn!("cache file already exists: {}", path.display());
+        log::debug!("cache file already exists: {}", path.display());
         return Ok(());
     };
 
