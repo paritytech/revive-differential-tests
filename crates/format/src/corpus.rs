@@ -7,7 +7,7 @@ use serde::Deserialize;
 
 use crate::metadata::Metadata;
 
-#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Hash)]
 pub struct Corpus {
     pub name: String,
     pub path: PathBuf,

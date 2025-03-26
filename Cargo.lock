@@ -39,16 +39,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2b4ae82946772d69f868b9ef81fc66acb1b149ef9b4601849bec4bcf5da6552e"
 dependencies = [
  "alloy-consensus",
+ "alloy-contract",
  "alloy-core",
  "alloy-eips",
  "alloy-genesis",
  "alloy-network",
  "alloy-provider",
+ "alloy-pubsub",
  "alloy-rpc-client",
  "alloy-rpc-types",
  "alloy-serde",
  "alloy-transport",
  "alloy-transport-http",
+ "alloy-transport-ipc",
 ]
 
 [[package]]
@@ -97,6 +100,28 @@ dependencies = [
  "alloy-rlp",
  "alloy-serde",
  "serde",
+]
+
+[[package]]
+name = "alloy-contract"
+version = "0.12.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cd0a0c1ddee20ecc14308aae21c2438c994df7b39010c26d70f86e1d8fdb8db0"
+dependencies = [
+ "alloy-consensus",
+ "alloy-dyn-abi",
+ "alloy-json-abi",
+ "alloy-network",
+ "alloy-network-primitives",
+ "alloy-primitives",
+ "alloy-provider",
+ "alloy-pubsub",
+ "alloy-rpc-types-eth",
+ "alloy-sol-types",
+ "alloy-transport",
+ "futures",
+ "futures-util",
+ "thiserror",
 ]
 
 [[package]]
@@ -304,6 +329,7 @@ dependencies = [
  "alloy-network",
  "alloy-network-primitives",
  "alloy-primitives",
+ "alloy-pubsub",
  "alloy-rpc-client",
  "alloy-rpc-types-debug",
  "alloy-rpc-types-eth",
@@ -311,6 +337,7 @@ dependencies = [
  "alloy-sol-types",
  "alloy-transport",
  "alloy-transport-http",
+ "alloy-transport-ipc",
  "async-stream",
  "async-trait",
  "auto_impl",
@@ -328,6 +355,25 @@ dependencies = [
  "tracing",
  "url",
  "wasmtimer",
+]
+
+[[package]]
+name = "alloy-pubsub"
+version = "0.12.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "721aca709a9231815ad5903a2d284042cc77e7d9d382696451b30c9ee0950001"
+dependencies = [
+ "alloy-json-rpc",
+ "alloy-primitives",
+ "alloy-transport",
+ "bimap",
+ "futures",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tokio-stream",
+ "tower",
+ "tracing",
 ]
 
 [[package]]
@@ -360,8 +406,10 @@ checksum = "445a3298c14fae7afb5b9f2f735dead989f3dd83020c2ab8e48ed95d7b6d1acb"
 dependencies = [
  "alloy-json-rpc",
  "alloy-primitives",
+ "alloy-pubsub",
  "alloy-transport",
  "alloy-transport-http",
+ "alloy-transport-ipc",
  "async-stream",
  "futures",
  "pin-project",
@@ -580,6 +628,26 @@ dependencies = [
  "tower",
  "tracing",
  "url",
+]
+
+[[package]]
+name = "alloy-transport-ipc"
+version = "0.12.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "45a78cfda2cac16fa83f6b5dd8b4643caec6161433b25b67e484ce05d2194513"
+dependencies = [
+ "alloy-json-rpc",
+ "alloy-pubsub",
+ "alloy-transport",
+ "bytes",
+ "futures",
+ "interprocess",
+ "pin-project",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tokio-util",
+ "tracing",
 ]
 
 [[package]]
@@ -890,6 +958,12 @@ name = "base64ct"
 version = "1.7.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "89e25b6adfb930f02d1981565a6e5d9c547ac15a96606256d3b59040e5cd4ca3"
+
+[[package]]
+name = "bimap"
+version = "0.6.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "230c5f1ca6a325a32553f8640d31ac9b49f2411e901e427570154868b46da4f7"
 
 [[package]]
 name = "bit-set"
@@ -1345,6 +1419,12 @@ dependencies = [
  "quote",
  "syn 2.0.100",
 ]
+
+[[package]]
+name = "doctest-file"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "aac81fa3e28d21450aa4d2ac065992ba96a1d7303efbce51a95f4fd175b67562"
 
 [[package]]
 name = "dunce"
@@ -2084,6 +2164,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "interprocess"
+version = "2.2.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d941b405bd2322993887859a8ee6ac9134945a24ec5ec763a8a962fc64dfec2d"
+dependencies = [
+ "doctest-file",
+ "futures-core",
+ "libc",
+ "recvmsg",
+ "tokio",
+ "widestring",
+ "windows-sys 0.52.0",
+]
+
+[[package]]
 name = "ipnet"
 version = "2.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2758,6 +2853,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "recvmsg"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d3edd4d5d42c92f0a659926464d4cce56b562761267ecf0f469d85b7de384175"
+
+[[package]]
 name = "redox_syscall"
 version = "0.5.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2912,6 +3013,7 @@ version = "0.1.0"
 dependencies = [
  "alloy",
  "anyhow",
+ "log",
  "revive-dt-config",
  "revive-dt-node-interaction",
  "serde_json",
@@ -4019,6 +4121,12 @@ dependencies = [
  "js-sys",
  "wasm-bindgen",
 ]
+
+[[package]]
+name = "widestring"
+version = "1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7219d36b6eac893fa81e84ebe06485e7dcbb616177469b142df14f1f4deb1311"
 
 [[package]]
 name = "windows-core"

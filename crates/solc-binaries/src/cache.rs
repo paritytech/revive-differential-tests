@@ -25,6 +25,7 @@ pub(crate) fn get_or_download(
 
     let mut cache = SOLC_CACHER.lock().unwrap();
     if cache.contains(&target_file) {
+        log::debug!("using cached solc: {}", target_file.display());
         return Ok(target_file);
     }
 

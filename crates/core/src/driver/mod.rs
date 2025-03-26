@@ -32,7 +32,7 @@ impl<'a, T> State<'a, T>
 where
     T: Platform,
 {
-    fn new(config: &'a Arguments) -> Self {
+    pub fn new(config: &'a Arguments) -> Self {
         Self {
             config,
             contracts: Default::default(),
@@ -49,6 +49,7 @@ where
         let base_path = metadata.directory()?.display().to_string();
         let mut compiler = Compiler::<T::Compiler>::new().base_path(base_path.clone());
         for (file, _contract) in sources.values() {
+            log::debug!("contract source {}", file.display());
             compiler = compiler.with_source(file)?;
         }
 
@@ -73,15 +74,15 @@ where
             &self.deployed_contracts,
         )?)?;
         dbg!(&receipt);
-        Ok(node.trace_transaction(receipt)?)
+        node.trace_transaction(receipt)
     }
 }
 
 pub struct Driver<'a, Leader: Platform, Follower: Platform> {
     metadata: &'a Metadata,
     config: &'a Arguments,
-    leader: State<'a, Leader>,
-    follower: State<'a, Follower>,
+    leader_node: &'a Leader::Blockchain,
+    follower_node: &'a Follower::Blockchain,
 }
 
 impl<'a, L, F> Driver<'a, L, F>
@@ -89,52 +90,36 @@ where
     L: Platform,
     F: Platform,
 {
-    pub fn new(metadata: &'a Metadata, config: &'a Arguments) -> Driver<'a, L, F> {
+    pub fn new(
+        metadata: &'a Metadata,
+        config: &'a Arguments,
+        leader_node: &'a L::Blockchain,
+        follower_node: &'a F::Blockchain,
+    ) -> Driver<'a, L, F> {
         Self {
             metadata,
             config,
-            leader: State::new(config),
-            follower: State::new(config),
+            leader_node,
+            follower_node,
         }
     }
 
-    pub fn execute(
-        &mut self,
-        leader: L::Blockchain,
-        follower: F::Blockchain,
-    ) -> anyhow::Result<()> {
-        for mode in self.modes() {
-            self.leader.build_contracts(&mode, self.metadata)?;
-            self.follower.build_contracts(&mode, self.metadata)?;
+    pub fn execute(&mut self) -> anyhow::Result<()> {
+        for mode in self.metadata.solc_modes() {
+            let mut leader_state = State::<L>::new(self.config);
+            leader_state.build_contracts(&mode, self.metadata)?;
 
-            if self.config.compile_only {
-                continue;
-            }
+            let mut follower_state = State::<F>::new(self.config);
+            follower_state.build_contracts(&mode, self.metadata)?;
 
             for case in &self.metadata.cases {
                 for input in &case.inputs {
-                    let expected = self.leader.execute_input(input, &leader)?;
+                    let expected = leader_state.execute_input(input, self.leader_node)?;
+                    let received = follower_state.execute_input(input, self.follower_node)?;
                 }
             }
-
-            *self = Self::new(self.metadata, self.config);
         }
 
         Ok(())
-    }
-
-    fn modes(&self) -> Vec<SolcMode> {
-        self.metadata
-            .modes()
-            .iter()
-            .filter_map(|mode| match mode {
-                Mode::Solidity(solc_mode) => Some(solc_mode),
-                Mode::Unknown(mode) => {
-                    log::debug!("compiler: ignoring unknown mode '{mode}'");
-                    None
-                }
-            })
-            .cloned()
-            .collect()
     }
 }

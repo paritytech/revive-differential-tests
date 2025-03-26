@@ -42,7 +42,7 @@ pub struct Arguments {
     ///
     /// We attach it here because [TempDir] prunes itself on drop.
     #[clap(skip)]
-    pub temp_dir: Option<TempDir>,
+    pub temp_dir: Option<&'static TempDir>,
 
     /// The path to the `geth` executable.
     ///
@@ -59,8 +59,8 @@ pub struct Arguments {
     pub network_id: u64,
 
     /// Configure nodes according to this genesis.json file.
-    #[arg(long = "genesis-file")]
-    pub genesis_file: Option<PathBuf>,
+    #[arg(long = "genesis", default_value = "genesis.json")]
+    pub genesis_file: PathBuf,
 
     /// The signing account private key.
     #[arg(
@@ -80,7 +80,7 @@ pub struct Arguments {
 
     /// Only compile against this testing platform (doesn't execute the tests).
     #[arg(long = "compile-only")]
-    pub compile_only: bool,
+    pub compile_only: Option<TestingPlatform>,
 
     /// Determines the amount of tests that are executed in parallel.
     #[arg(long = "workers", default_value = "12")]

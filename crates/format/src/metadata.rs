@@ -6,7 +6,10 @@ use std::{
 
 use serde::Deserialize;
 
-use crate::{case::Case, mode::Mode};
+use crate::{
+    case::Case,
+    mode::{Mode, SolcMode},
+};
 
 pub const METADATA_FILE_EXTENSION: &str = "json";
 pub const SOLIDITY_CASE_FILE_EXTENSION: &str = "sol";
@@ -17,16 +20,26 @@ pub struct Metadata {
     pub contracts: Option<BTreeMap<String, String>>,
     pub libraries: Option<BTreeMap<String, BTreeMap<String, String>>>,
     pub ignore: Option<bool>,
-    modes: Option<Vec<Mode>>,
+    pub modes: Option<Vec<Mode>>,
     pub file_path: Option<PathBuf>,
 }
 
 impl Metadata {
-    /// Returns the modes of this metadata, inserting a default mode if not present.
-    pub fn modes(&self) -> Vec<Mode> {
+    /// Returns the solc modes of this metadata, inserting a default mode if not present.
+    pub fn solc_modes(&self) -> Vec<SolcMode> {
         self.modes
             .to_owned()
             .unwrap_or_else(|| vec![Mode::Solidity(Default::default())])
+            .iter()
+            .filter_map(|mode| match mode {
+                Mode::Solidity(solc_mode) => Some(solc_mode),
+                Mode::Unknown(mode) => {
+                    log::debug!("compiler: ignoring unknown mode '{mode}'");
+                    None
+                }
+            })
+            .cloned()
+            .collect()
     }
 
     /// Returns the base directory of this metadata.

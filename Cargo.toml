@@ -48,6 +48,7 @@ default-features = false
 features = [
     "json-abi",
     "providers",
+    "provider-ipc",
     "provider-debug-api",
     "reqwest",
     "rpc-types",

@@ -4,7 +4,8 @@
 //! provides a helper utilty to execute tests.
 
 use revive_dt_compiler::{SolidityCompiler, solc};
-use revive_dt_node::{Node, geth};
+use revive_dt_node::geth;
+use revive_dt_node_interaction::EthereumNode;
 
 pub mod driver;
 
@@ -12,7 +13,7 @@ pub mod driver;
 ///
 /// For this we need a blockchain node implementation and a compiler.
 pub trait Platform {
-    type Blockchain: Node;
+    type Blockchain: EthereumNode;
     type Compiler: SolidityCompiler;
 }
 
