@@ -1,6 +1,6 @@
 use std::{
     collections::BTreeMap,
-    fs::File,
+    fs::{File, read_to_string},
     path::{Path, PathBuf},
 };
 
@@ -13,6 +13,7 @@ use crate::{
 
 pub const METADATA_FILE_EXTENSION: &str = "json";
 pub const SOLIDITY_CASE_FILE_EXTENSION: &str = "sol";
+pub const SOLIDITY_CASE_COMMENT_MARKER: &str = "//!";
 
 #[derive(Debug, Default, Deserialize, Clone, Eq, PartialEq)]
 pub struct Metadata {
@@ -130,7 +131,38 @@ impl Metadata {
         }
     }
 
-    fn try_from_solidity(_path: &Path) -> Option<Self> {
-        None
+    fn try_from_solidity(path: &Path) -> Option<Self> {
+        let buf = read_to_string(path)
+            .inspect_err(|error| {
+                log::error!(
+                    "opening JSON test metadata file '{}' error: {error}",
+                    path.display()
+                );
+            })
+            .ok()?
+            .lines()
+            .filter_map(|line| line.strip_prefix(SOLIDITY_CASE_COMMENT_MARKER))
+            .fold(String::new(), |mut buf, string| {
+                buf.push_str(string);
+                buf
+            });
+
+        if buf.is_empty() {
+            return None;
+        }
+
+        match serde_json::from_str::<Self>(&buf) {
+            Ok(mut metadata) => {
+                metadata.file_path = Some(path.to_path_buf());
+                Some(metadata)
+            }
+            Err(error) => {
+                log::error!(
+                    "parsing Solidity test metadata file '{}' error: {error}",
+                    path.display()
+                );
+                None
+            }
+        }
     }
 }
