@@ -6,11 +6,7 @@ use alloy::{
 };
 use revive_dt_compiler::{Compiler, CompilerInput, SolidityCompiler};
 use revive_dt_config::Arguments;
-use revive_dt_format::{
-    input::Input,
-    metadata::Metadata,
-    mode::{Mode, SolcMode},
-};
+use revive_dt_format::{input::Input, metadata::Metadata, mode::SolcMode};
 use revive_dt_node_interaction::EthereumNode;
 use revive_dt_solc_binaries::download_solc;
 use revive_solc_json_interface::SolcStandardJsonOutput;
@@ -74,7 +70,8 @@ where
             &self.deployed_contracts,
         )?)?;
         dbg!(&receipt);
-        node.trace_transaction(receipt)
+        //node.trace_transaction(receipt)
+        todo!()
     }
 }
 
@@ -114,8 +111,8 @@ where
 
             for case in &self.metadata.cases {
                 for input in &case.inputs {
-                    let expected = leader_state.execute_input(input, self.leader_node)?;
-                    let received = follower_state.execute_input(input, self.follower_node)?;
+                    let _ = leader_state.execute_input(input, self.leader_node)?;
+                    let _ = follower_state.execute_input(input, self.follower_node)?;
                 }
             }
         }

@@ -6,8 +6,6 @@ use std::{
     process::{Command, Stdio},
 };
 
-use semver::Version;
-
 use crate::{CompilerInput, CompilerOutput, SolidityCompiler};
 
 pub struct Solc {

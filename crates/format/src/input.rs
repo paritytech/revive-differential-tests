@@ -135,7 +135,7 @@ impl Input {
         };
 
         Ok(TransactionRequest::default()
-            .with_from(self.caller.clone())
+            .with_from(self.caller)
             .with_to(to)
             .with_nonce(nonce)
             .with_chain_id(chain_id)

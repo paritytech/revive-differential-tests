@@ -1,12 +1,13 @@
-//! The alloy crate is convenient but requires a tokio runtime.
+//! The alloy crate __requires__ a tokio runtime.
 //! We contain any async rust right here.
 
 use once_cell::sync::Lazy;
+use std::pin::Pin;
 use std::sync::Mutex;
 use std::thread;
 use tokio::runtime::Runtime;
 use tokio::spawn;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinError;
 
 use crate::trace::Trace;
@@ -15,15 +16,18 @@ use crate::transaction::Transaction;
 pub(crate) static TO_TOKIO: Lazy<Mutex<TokioRuntime>> =
     Lazy::new(|| Mutex::new(TokioRuntime::spawn()));
 
-// Common interface for executing async node interactions from a non-async context.
+/// Common interface for executing async node interactions from a non-async context.
+#[allow(clippy::type_complexity)]
 pub(crate) trait AsyncNodeInteraction: Send + 'static {
-    type Output: Send + 'static;
+    type Output: Send;
 
-    /// Any async calls the task needs to perform go here.
-    fn execute_async(self) -> impl std::future::Future<Output = Self::Output> + Send;
-
-    /// Returns the interactions output sender.
-    fn output_sender(&self) -> mpsc::Sender<Self::Output>;
+    //// Returns the task and the output sender.
+    fn split(
+        self,
+    ) -> (
+        Pin<Box<dyn Future<Output = Self::Output> + Send>>,
+        oneshot::Sender<Self::Output>,
+    );
 }
 
 pub(crate) struct TokioRuntime {
@@ -58,18 +62,17 @@ impl TokioRuntime {
     }
 }
 
-async fn interaction<T: AsyncNodeInteraction>(
-    mut receiver: mpsc::Receiver<T>,
-) -> Result<(), JoinError> {
+async fn interaction<T>(mut receiver: mpsc::Receiver<T>) -> Result<(), JoinError>
+where
+    T: AsyncNodeInteraction,
+{
     while let Some(task) = receiver.recv().await {
         spawn(async move {
-            let sender = task.output_sender();
-            let result = task.execute_async().await;
-            if let Err(error) = sender.send(result).await {
-                log::error!("failed to send task output: {error}");
-            }
-        })
-        .await?;
+            let (task, sender) = task.split();
+            sender
+                .send(task.await)
+                .unwrap_or_else(|_| panic!("failed to send task output"));
+        });
     }
 
     Ok(())

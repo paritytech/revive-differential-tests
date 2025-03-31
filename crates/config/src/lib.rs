@@ -1,11 +1,8 @@
 //! The global configuration used accross all revive differential testing crates.
 
-use std::{
-    env,
-    path::{Path, PathBuf},
-};
+use std::path::{Path, PathBuf};
 
-use clap::{Arg, Parser, ValueEnum};
+use clap::{Parser, ValueEnum};
 use semver::Version;
 use temp_dir::TempDir;
 

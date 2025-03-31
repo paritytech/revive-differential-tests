@@ -10,9 +10,12 @@ use std::{
     time::{Duration, Instant},
 };
 
-use alloy::rpc::types::{
-    TransactionReceipt, TransactionRequest,
-    trace::geth::{DiffMode, PreStateFrame},
+use alloy::{
+    providers::{Provider, ProviderBuilder, ext::DebugApi},
+    rpc::types::{
+        TransactionReceipt, TransactionRequest,
+        trace::geth::{DiffMode, GethDebugTracingOptions, PreStateConfig, PreStateFrame},
+    },
 };
 use revive_dt_config::Arguments;
 use revive_dt_node_interaction::{
@@ -144,14 +147,37 @@ impl EthereumNode for Instance {
         &self,
         transaction: TransactionRequest,
     ) -> anyhow::Result<alloy::rpc::types::TransactionReceipt> {
-        execute_transaction(transaction, self.connection_string())
+        let connection_string = self.connection_string();
+
+        execute_transaction(Box::pin(async move {
+            Ok(ProviderBuilder::new()
+                .connect(&connection_string)
+                .await?
+                .send_transaction(transaction)
+                .await?
+                .get_receipt()
+                .await?)
+        }))
     }
 
     fn trace_transaction(
         &self,
         transaction: TransactionReceipt,
     ) -> anyhow::Result<alloy::rpc::types::trace::geth::GethTrace> {
-        trace_transaction(transaction, Default::default(), self.connection_string())
+        let connection_string = self.connection_string();
+        let trace_options = GethDebugTracingOptions::prestate_tracer(PreStateConfig {
+            diff_mode: Some(true),
+            disable_code: None,
+            disable_storage: None,
+        });
+
+        trace_transaction(Box::pin(async move {
+            Ok(ProviderBuilder::new()
+                .connect(&connection_string)
+                .await?
+                .debug_trace_transaction(transaction.transaction_hash, trace_options)
+                .await?)
+        }))
     }
 }
 

@@ -1,57 +1,43 @@
 //! Trace transactions in a sync context.
 
-use alloy::primitives::TxHash;
-use alloy::providers::ProviderBuilder;
-use alloy::providers::ext::DebugApi;
-use alloy::rpc::types::TransactionReceipt;
-use alloy::rpc::types::trace::geth::{GethDebugTracingOptions, GethTrace};
-use tokio::sync::mpsc;
+use std::pin::Pin;
+
+use alloy::rpc::types::trace::geth::GethTrace;
+use tokio::sync::oneshot;
 
 use crate::TO_TOKIO;
 use crate::tokio_runtime::AsyncNodeInteraction;
 
+pub type Task = Pin<Box<dyn Future<Output = anyhow::Result<GethTrace>> + Send>>;
+
 pub(crate) struct Trace {
-    transaction_hash: TxHash,
-    options: GethDebugTracingOptions,
-    geth_trace_sender: mpsc::Sender<anyhow::Result<GethTrace>>,
-    connection_string: String,
+    sender: oneshot::Sender<anyhow::Result<GethTrace>>,
+    task: Task,
 }
 
 impl AsyncNodeInteraction for Trace {
     type Output = anyhow::Result<GethTrace>;
 
-    async fn execute_async(self) -> Self::Output {
-        let provider = ProviderBuilder::new()
-            .connect(&self.connection_string)
-            .await?;
-        Ok(provider
-            .debug_trace_transaction(self.transaction_hash, self.options)
-            .await?)
-    }
-
-    fn output_sender(&self) -> mpsc::Sender<Self::Output> {
-        self.geth_trace_sender.clone()
+    fn split(
+        self,
+    ) -> (
+        std::pin::Pin<Box<dyn Future<Output = Self::Output> + Send>>,
+        oneshot::Sender<Self::Output>,
+    ) {
+        (self.task, self.sender)
     }
 }
 
-/// Trace the transaction in [TransactionReceipt] against the `node`,
-/// using the provided [GethDebugTracingOptions].
-pub fn trace_transaction(
-    transaction_receipt: TransactionReceipt,
-    options: GethDebugTracingOptions,
-    connection_string: String,
-) -> anyhow::Result<GethTrace> {
-    let trace_sender = TO_TOKIO.lock().unwrap().trace_sender.clone();
-    let (geth_trace_sender, mut geth_trace_receiver) = mpsc::channel(1);
+/// Execute some [Task] that return a [GethTrace] result.
+pub fn trace_transaction(task: Task) -> anyhow::Result<GethTrace> {
+    let task_sender = TO_TOKIO.lock().unwrap().trace_sender.clone();
+    let (sender, receiver) = oneshot::channel();
 
-    trace_sender.blocking_send(Trace {
-        transaction_hash: transaction_receipt.transaction_hash,
-        options,
-        geth_trace_sender,
-        connection_string,
-    })?;
+    task_sender
+        .blocking_send(Trace { task, sender })
+        .expect("we are not calling this from an async context");
 
-    geth_trace_receiver
+    receiver
         .blocking_recv()
-        .unwrap_or_else(|| anyhow::bail!("no receipt received"))
+        .unwrap_or_else(|error| anyhow::bail!("no trace received: {error}"))
 }
