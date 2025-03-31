@@ -1,0 +1,21 @@
+[package]
+name = "revive-dt-node"
+description = "abstraction over blockchain nodes"
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+edition.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+anyhow = { workspace = true }
+alloy = { workspace = true }
+log = { workspace = true }
+serde_json = { workspace = true }
+
+revive-dt-node-interaction = { workspace = true }
+revive-dt-config = { workspace = true }
+
+[dev-dependencies]
+temp-dir = { workspace = true }

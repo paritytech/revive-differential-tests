@@ -1,0 +1,33 @@
+[package]
+name = "revive-dt-core"
+description = "revive differential testing core utility"
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+edition.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "retester"
+path = "src/main.rs"
+
+[dependencies]
+revive-dt-compiler = { workspace = true }
+revive-dt-config = { workspace = true }
+revive-dt-format = { workspace = true }
+revive-dt-node = { workspace = true }
+revive-dt-node-interaction = { workspace = true }
+revive-dt-solc-binaries = { workspace = true }
+
+alloy = { workspace = true }
+anyhow = { workspace = true }
+clap = { workspace = true }
+log = { workspace = true }
+env_logger = { workspace = true }
+rayon = { workspace = true }
+revive-solc-json-interface = { workspace = true }
+semver = { workspace = true }
+serde = { workspace = true, features = [ "derive" ] }
+serde_json = { workspace = true }
+temp-dir = { workspace = true }

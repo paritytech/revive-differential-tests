@@ -1,0 +1,18 @@
+[package]
+name = "revive-dt-solc-binaries"
+dependencies = "Download and cache solc binaries"
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+edition.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+anyhow = { workspace = true }
+hex = { workspace = true }
+log = { workspace = true }
+reqwest = { workspace = true }
+semver = { workspace = true }
+serde = { workspace = true }
+sha2 = { workspace = true }

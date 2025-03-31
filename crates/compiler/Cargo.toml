@@ -1,0 +1,16 @@
+[package]
+name = "revive-dt-compiler"
+description = "Library for compiling Solidity contracts to EVM and PVM"
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+edition.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+anyhow = { workspace = true }
+revive-solc-json-interface = { workspace = true }
+revive-common = { workspace = true }
+semver = { workspace = true }
+serde_json = { workspace = true }
