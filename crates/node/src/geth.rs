@@ -11,6 +11,7 @@ use std::{
 };
 
 use alloy::{
+    network::EthereumWallet,
     providers::{Provider, ProviderBuilder, ext::DebugApi},
     rpc::types::{
         TransactionReceipt, TransactionRequest,
@@ -43,6 +44,7 @@ pub struct Instance {
     handle: Option<Child>,
     network_id: u64,
     start_timeout: u64,
+    wallet: EthereumWallet,
 }
 
 impl Instance {
@@ -148,9 +150,11 @@ impl EthereumNode for Instance {
         transaction: TransactionRequest,
     ) -> anyhow::Result<alloy::rpc::types::TransactionReceipt> {
         let connection_string = self.connection_string();
+        let wallet = self.wallet.clone();
 
         execute_transaction(Box::pin(async move {
             Ok(ProviderBuilder::new()
+                .wallet(wallet)
                 .connect(&connection_string)
                 .await?
                 .send_transaction(transaction)
@@ -170,9 +174,11 @@ impl EthereumNode for Instance {
             disable_code: None,
             disable_storage: None,
         });
+        let wallet = self.wallet.clone();
 
         trace_transaction(Box::pin(async move {
             Ok(ProviderBuilder::new()
+                .wallet(wallet)
                 .connect(&connection_string)
                 .await?
                 .debug_trace_transaction(transaction.transaction_hash, trace_options)
@@ -196,6 +202,7 @@ impl Node for Instance {
             handle: None,
             network_id: config.network_id,
             start_timeout: config.geth_start_timeout,
+            wallet: config.wallet(),
         }
     }
 

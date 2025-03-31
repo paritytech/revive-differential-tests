@@ -52,6 +52,7 @@ features = [
     "provider-debug-api",
     "reqwest",
     "rpc-types",
+    "signer-local",
     "std",
 ]
 

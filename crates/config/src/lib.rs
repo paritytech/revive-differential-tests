@@ -2,6 +2,7 @@
 
 use std::path::{Path, PathBuf};
 
+use alloy::{network::EthereumWallet, signers::local::PrivateKeySigner};
 use clap::{Parser, ValueEnum};
 use semver::Version;
 use temp_dir::TempDir;
@@ -85,6 +86,10 @@ pub struct Arguments {
 }
 
 impl Arguments {
+    /// Return the configured working directory with the following precedence:
+    /// 1. `self.working_directory` if it was provided.
+    /// 2. `self.temp_dir` if it it was provided
+    /// 3. Panic.
     pub fn directory(&self) -> &Path {
         if let Some(path) = &self.working_directory {
             return path.as_path();
@@ -95,6 +100,18 @@ impl Arguments {
         }
 
         panic!("should have a workdir configured")
+    }
+
+    /// Try to parse `self.account` into a [PrivateKeySigner],
+    /// panicing on error.
+    pub fn wallet(&self) -> EthereumWallet {
+        let signer = self
+            .account
+            .parse::<PrivateKeySigner>()
+            .unwrap_or_else(|error| {
+                panic!("private key '{}' parsing error: {error}", self.account);
+            });
+        EthereumWallet::new(signer)
     }
 }
 
