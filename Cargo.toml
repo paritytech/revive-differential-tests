@@ -43,7 +43,7 @@ revive-common = { git = "https://github.com/paritytech/revive", rev = "497dae249
 revive-differential = { git = "https://github.com/paritytech/revive", rev = "497dae2494dabe12d1af32d6d687122903cb2ada" }
 
 [workspace.dependencies.alloy]
-version = "0.12.6"
+version = "0.13.0"
 default-features = false
 features = [
     "json-abi",
