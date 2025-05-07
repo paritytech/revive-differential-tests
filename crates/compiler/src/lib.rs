@@ -4,10 +4,10 @@
 //! - Polkadot revive Wasm compiler
 
 use std::{
-    fs::read_to_string,
-    hash::Hash,
-    path::{Path, PathBuf},
+    fs::read_to_string, hash::Hash, path::{Path, PathBuf}
 };
+
+use revive_dt_config::Arguments;
 
 use revive_common::EVMVersion;
 use revive_solc_json_interface::{
@@ -33,6 +33,8 @@ pub trait SolidityCompiler {
     ) -> anyhow::Result<CompilerOutput<Self::Options>>;
 
     fn new(solc_executable: PathBuf) -> Self;
+
+    fn get_compiler_executable(config: &Arguments, version: Version) -> anyhow::Result<PathBuf>;
 }
 
 /// The generic compilation input configuration.

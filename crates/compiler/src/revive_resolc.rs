@@ -8,6 +8,7 @@ use std::{
 
 use crate::{CompilerInput, CompilerOutput, SolidityCompiler};
 use revive_solc_json_interface::SolcStandardJsonOutput;
+use revive_dt_config::Arguments;
 
 /// A wrapper around the `resolc` binary, emitting PVM-compatible bytecode.
 pub struct Resolc {
@@ -56,5 +57,13 @@ impl SolidityCompiler for Resolc {
 
     fn new(resolc_path: PathBuf) -> Self {
         Resolc { resolc_path }
+    }
+    
+    fn get_compiler_executable(config: &Arguments, _version: semver::Version) -> anyhow::Result<PathBuf> {
+        if !config.resolc.as_os_str().is_empty() {
+            return Ok(config.resolc.clone());
+        }
+
+        Ok(PathBuf::from("resolc"))
     }
 }
