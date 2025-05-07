@@ -43,11 +43,14 @@ pub struct Kitchensink;
 
 impl Platform for Kitchensink {
     type Blockchain = geth::Instance;
-    type Compiler = revive_resolc::Resolv;
+    type Compiler = revive_resolc::Resolc;
     
-    fn get_compiler_executable(_config: &Arguments, _version: Version) -> anyhow::Result<PathBuf> {
+    fn get_compiler_executable(config: &Arguments, _version: Version) -> anyhow::Result<PathBuf> {
 
-        //very dummy for now, maybe we can send like an arg param, --resolcpath
+        if !config.resolc.as_os_str().is_empty() {
+            return Ok(config.resolc.clone());
+        }
+
         Ok(PathBuf::from("resolc"))
     }
 }

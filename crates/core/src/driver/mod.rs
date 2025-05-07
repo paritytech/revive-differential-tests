@@ -42,23 +42,18 @@ where
 
         let sources = metadata.contract_sources()?;
         let base_path = metadata.directory()?.display().to_string();
-        log::info!("base path is: {} ", base_path.clone());
 
         let mut compiler = Compiler::<T::Compiler>::new().base_path(base_path.clone());
         for (file, _contract) in sources.values() {
-            log::info!("contract source {}", file.display());
+            log::debug!("contract source {}", file.display());
             compiler = compiler.with_source(file)?;
         }
 
         let compiler_path = T::get_compiler_executable(self.config, version)?;
-        //log::info!("Compiler selected is: {}", compiler_path.display());
 
         let output = compiler
             .solc_optimizer(mode.solc_optimize())
             .try_build(compiler_path)?;
-
-        //let json_output = serde_json::to_string_pretty(&output.output)?;
-        //log::info!("JSON to solc:\n{}", json_output);
 
         self.contracts.insert(output.input, output.output);
 
