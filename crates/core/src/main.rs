@@ -5,7 +5,8 @@ use rayon::{ThreadPoolBuilder, prelude::*};
 
 use revive_dt_config::*;
 use revive_dt_core::{
-    driver::{Driver, State}, Geth, Kitchensink
+    Geth, Kitchensink,
+    driver::{Driver, State},
 };
 use revive_dt_format::{corpus::Corpus, metadata::Metadata};
 use revive_dt_node::pool::NodePool;

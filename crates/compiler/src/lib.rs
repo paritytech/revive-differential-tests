@@ -4,7 +4,9 @@
 //! - Polkadot revive Wasm compiler
 
 use std::{
-    fs::read_to_string, hash::Hash, path::{Path, PathBuf}
+    fs::read_to_string,
+    hash::Hash,
+    path::{Path, PathBuf},
 };
 
 use revive_dt_config::Arguments;

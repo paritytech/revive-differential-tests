@@ -51,7 +51,6 @@ where
 
         let compiler_path = T::Compiler::get_compiler_executable(self.config, version)?;
 
-
         let output = compiler
             .solc_optimizer(mode.solc_optimize())
             .try_build(compiler_path)?;

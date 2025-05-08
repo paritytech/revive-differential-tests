@@ -41,8 +41,11 @@ impl SolidityCompiler for Solc {
     fn new(solc_path: PathBuf) -> Self {
         Self { solc_path }
     }
-    
-    fn get_compiler_executable(config: &Arguments, version: semver::Version) -> anyhow::Result<PathBuf> {
+
+    fn get_compiler_executable(
+        config: &Arguments,
+        version: semver::Version,
+    ) -> anyhow::Result<PathBuf> {
         let path = download_solc(config.directory(), version, config.wasm)?;
         Ok(path)
     }
