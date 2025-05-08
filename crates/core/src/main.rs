@@ -5,7 +5,7 @@ use rayon::{ThreadPoolBuilder, prelude::*};
 
 use revive_dt_config::*;
 use revive_dt_core::{
-    Geth,
+    Geth, Kitchensink,
     driver::{Driver, State},
 };
 use revive_dt_format::{corpus::Corpus, metadata::Metadata};
@@ -109,11 +109,16 @@ fn main_compile_only(
 ) -> anyhow::Result<()> {
     tests.par_iter().for_each(|metadata| {
         for mode in &metadata.solc_modes() {
-            let mut state = match platform {
-                TestingPlatform::Geth => State::<Geth>::new(config),
-                _ => todo!(),
+            match platform {
+                TestingPlatform::Geth => {
+                    let mut state = State::<Geth>::new(config);
+                    let _ = state.build_contracts(mode, metadata);
+                }
+                TestingPlatform::Kitchensink => {
+                    let mut state = State::<Kitchensink>::new(config);
+                    let _ = state.build_contracts(mode, metadata);
+                }
             };
-            let _ = state.build_contracts(mode, metadata);
         }
     });
 

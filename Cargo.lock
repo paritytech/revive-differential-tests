@@ -2998,7 +2998,10 @@ name = "revive-dt-compiler"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "log",
  "revive-common",
+ "revive-dt-config",
+ "revive-dt-solc-binaries",
  "revive-solc-json-interface",
  "semver 1.0.26",
  "serde_json",

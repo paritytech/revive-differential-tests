@@ -9,6 +9,8 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use revive_dt_config::Arguments;
+
 use revive_common::EVMVersion;
 use revive_solc_json_interface::{
     SolcStandardJsonInput, SolcStandardJsonInputLanguage, SolcStandardJsonInputSettings,
@@ -33,6 +35,8 @@ pub trait SolidityCompiler {
     ) -> anyhow::Result<CompilerOutput<Self::Options>>;
 
     fn new(solc_executable: PathBuf) -> Self;
+
+    fn get_compiler_executable(config: &Arguments, version: Version) -> anyhow::Result<PathBuf>;
 }
 
 /// The generic compilation input configuration.

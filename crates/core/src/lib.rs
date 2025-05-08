@@ -3,7 +3,7 @@
 //! This crate defines the testing configuration and
 //! provides a helper utilty to execute tests.
 
-use revive_dt_compiler::{SolidityCompiler, solc};
+use revive_dt_compiler::{SolidityCompiler, revive_resolc, solc};
 use revive_dt_node::geth;
 use revive_dt_node_interaction::EthereumNode;
 
@@ -30,5 +30,5 @@ pub struct Kitchensink;
 
 impl Platform for Kitchensink {
     type Blockchain = geth::Instance;
-    type Compiler = solc::Solc;
+    type Compiler = revive_resolc::Resolc;
 }
