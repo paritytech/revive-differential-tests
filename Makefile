@@ -1,4 +1,4 @@
-.PHONY: format clippy test-workspace test-cli
+.PHONY: format clippy test
 
 format:
 	cargo fmt --all -- --check
@@ -6,5 +6,5 @@ format:
 clippy:
 	cargo clippy --all-features --workspace -- --deny warnings
 
-test-workspace:
+test:
 	cargo test --workspace -- --nocapture

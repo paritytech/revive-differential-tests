@@ -59,7 +59,4 @@ jobs:
         run: make clippy
 
       - name: Test cargo workspace
-        run: make test-workspace
-
-      - name: Test CLI
-        run: make test-cli
+        run: make test
