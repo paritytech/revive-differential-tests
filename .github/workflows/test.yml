@@ -53,6 +53,11 @@ jobs:
           brew tap ethereum/ethereum
           brew install ethereum
 
+      - name: Install Geth on Windows
+        if: matrix.os == 'windows-2022'
+        run: choco install geth -y
+
+
       - name: Format
         run: make format
 
