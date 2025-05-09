@@ -38,8 +38,8 @@ jobs:
         with:
           rustflags: ""
 
-      - name: Machete
-        uses: bnjbvr/cargo-machete@v0.7.1
+      - name: Machete (with metadata)
+        run: cargo machete --with-metadata
 
       - name: Format
         run: make format
