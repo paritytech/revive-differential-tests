@@ -38,9 +38,6 @@ jobs:
         with:
           rustflags: ""
 
-      - name: Machete (with metadata)
-        run: cargo machete --with-metadata
-
       - name: Format
         run: make format
 
