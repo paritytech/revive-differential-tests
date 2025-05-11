@@ -31,3 +31,11 @@ semver = { workspace = true }
 serde = { workspace = true, features = [ "derive" ] }
 serde_json = { workspace = true }
 temp-dir = { workspace = true }
+
+[package.metadata.cargo-machete]
+ignored = [
+  "revive-dt-solc-binaries",
+  "semver",
+  "serde",
+  "serde_json",
+]
