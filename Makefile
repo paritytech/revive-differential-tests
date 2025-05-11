@@ -1,4 +1,4 @@
-.PHONY: format clippy test
+.PHONY: format clippy test machete
 
 format:
 	cargo fmt --all -- --check
@@ -8,3 +8,7 @@ clippy:
 
 test:
 	cargo test --workspace -- --nocapture
+
+machete:
+	cargo install cargo-machete
+	cargo machete
