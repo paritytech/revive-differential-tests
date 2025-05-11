@@ -19,3 +19,6 @@ revive-dt-config = { workspace = true }
 
 [dev-dependencies]
 temp-dir = { workspace = true }
+
+[package.metadata.cargo-machete]
+ignored = ["serde_json"]

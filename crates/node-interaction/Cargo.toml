@@ -16,3 +16,6 @@ log = { workspace = true }
 once_cell = { workspace = true }
 serde_json = { workspace = true }
 tokio = { workspace = true }
+
+[package.metadata.cargo-machete]
+ignored = ["hex", "serde_json"]
