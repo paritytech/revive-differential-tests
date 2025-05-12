@@ -3032,11 +3032,7 @@ dependencies = [
  "revive-dt-format",
  "revive-dt-node",
  "revive-dt-node-interaction",
- "revive-dt-solc-binaries",
  "revive-solc-json-interface",
- "semver 1.0.26",
- "serde",
- "serde_json",
  "temp-dir",
 ]
 
@@ -3061,7 +3057,6 @@ dependencies = [
  "log",
  "revive-dt-config",
  "revive-dt-node-interaction",
- "serde_json",
  "temp-dir",
 ]
 
@@ -3071,10 +3066,8 @@ version = "0.1.0"
 dependencies = [
  "alloy",
  "anyhow",
- "hex",
  "log",
  "once_cell",
- "serde_json",
  "tokio",
 ]
 

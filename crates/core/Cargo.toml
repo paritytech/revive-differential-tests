@@ -18,7 +18,6 @@ revive-dt-config = { workspace = true }
 revive-dt-format = { workspace = true }
 revive-dt-node = { workspace = true }
 revive-dt-node-interaction = { workspace = true }
-revive-dt-solc-binaries = { workspace = true }
 
 alloy = { workspace = true }
 anyhow = { workspace = true }
@@ -27,7 +26,4 @@ log = { workspace = true }
 env_logger = { workspace = true }
 rayon = { workspace = true }
 revive-solc-json-interface = { workspace = true }
-semver = { workspace = true }
-serde = { workspace = true, features = [ "derive" ] }
-serde_json = { workspace = true }
 temp-dir = { workspace = true }
