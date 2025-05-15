@@ -6,9 +6,10 @@ format:
 clippy:
 	cargo clippy --all-features --workspace -- --deny warnings
 
-test:
-	cargo test --workspace -- --nocapture
-
 machete:
 	cargo install cargo-machete
 	cargo machete
+
+test: format clippy machete
+	cargo test --workspace -- --nocapture
+
