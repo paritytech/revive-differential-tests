@@ -110,6 +110,7 @@ where
                         false,
                     ),
                     None,
+                    None,
                 ),
             },
             extra_options: Default::default(),
@@ -155,5 +156,10 @@ where
             extra_options: self.extra_options,
             input: self.input,
         })
+    }
+
+    /// Returns the compiler JSON input.
+    pub fn input(&self) -> SolcStandardJsonInput {
+        self.input.clone()
     }
 }

@@ -13,3 +13,5 @@ alloy = { workspace = true }
 clap = { workspace = true }
 semver = { workspace = true }
 temp-dir = { workspace = true }
+serde = { workspace = true }
+

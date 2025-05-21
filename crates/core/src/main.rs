@@ -10,6 +10,7 @@ use revive_dt_core::{
 };
 use revive_dt_format::{corpus::Corpus, metadata::Metadata};
 use revive_dt_node::pool::NodePool;
+use revive_dt_report::reporter::{Report, Span};
 use temp_dir::TempDir;
 
 static TEMP_DIR: LazyLock<TempDir> = LazyLock::new(|| TempDir::new().unwrap());
@@ -19,16 +20,17 @@ fn main() -> anyhow::Result<()> {
 
     let corpora = collect_corpora(&args)?;
 
-    if let Some(platform) = &args.compile_only {
-        for tests in corpora.values() {
-            main_compile_only(&args, tests, platform)?;
+    for (corpus, tests) in corpora.iter() {
+        Report::save()?;
+
+        let span = Span::new(corpus.clone());
+
+        if let Some(platform) = &args.compile_only {
+            main_compile_only(&args, tests, platform, span);
+            continue;
         }
 
-        return Ok(());
-    }
-
-    for tests in corpora.values() {
-        main_execute_differential(&args, tests)?;
+        main_execute_differential(&args, tests, span)?;
     }
 
     Ok(())
@@ -67,7 +69,11 @@ fn collect_corpora(args: &Arguments) -> anyhow::Result<HashMap<Corpus, Vec<Metad
     Ok(corpora)
 }
 
-fn main_execute_differential(args: &Arguments, tests: &[Metadata]) -> anyhow::Result<()> {
+fn main_execute_differential(
+    args: &Arguments,
+    tests: &[Metadata],
+    span: Span,
+) -> anyhow::Result<()> {
     let leader_nodes = NodePool::new(args)?;
     let follower_nodes = NodePool::new(args)?;
 
@@ -82,7 +88,7 @@ fn main_execute_differential(args: &Arguments, tests: &[Metadata]) -> anyhow::Re
             _ => unimplemented!(),
         };
 
-        match driver.execute() {
+        match driver.execute(span) {
             Ok(build) => {
                 log::info!(
                     "metadata {} success",
@@ -106,21 +112,20 @@ fn main_compile_only(
     config: &Arguments,
     tests: &[Metadata],
     platform: &TestingPlatform,
-) -> anyhow::Result<()> {
+    span: Span,
+) {
     tests.par_iter().for_each(|metadata| {
         for mode in &metadata.solc_modes() {
             match platform {
                 TestingPlatform::Geth => {
-                    let mut state = State::<Geth>::new(config);
+                    let mut state = State::<Geth>::new(config, span);
                     let _ = state.build_contracts(mode, metadata);
                 }
                 TestingPlatform::Kitchensink => {
-                    let mut state = State::<Kitchensink>::new(config);
+                    let mut state = State::<Kitchensink>::new(config, span);
                     let _ = state.build_contracts(mode, metadata);
                 }
             };
         }
     });
-
-    Ok(())
 }
