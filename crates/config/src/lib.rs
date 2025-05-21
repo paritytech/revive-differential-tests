@@ -83,6 +83,18 @@ pub struct Arguments {
     /// Determines the amount of tests that are executed in parallel.
     #[arg(long = "workers", default_value = "12")]
     pub workers: usize,
+
+    /// The path to the `kitchensink` executable.
+    ///
+    /// By default it uses `kitchensink` binary found in `$PATH`.
+    #[arg(short, long = "kitchensink", default_value = "kitchensink")]
+    pub kitchensink: PathBuf,
+
+    /// The path to the `eth_proxy` executable.
+    ///
+    /// By default it uses `eth_proxy` binary found in `$PATH`.
+    #[arg(short, long = "eth_proxy", default_value = "eth_proxy")]
+    pub eth_proxy: PathBuf,
 }
 
 impl Arguments {
