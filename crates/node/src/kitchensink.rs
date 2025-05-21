@@ -1,24 +1,25 @@
 use std::{
+    io::BufRead,
     path::PathBuf,
     process::{Child, Command, Stdio},
     sync::atomic::{AtomicU32, Ordering},
     time::Duration,
-    thread,
 };
 
 use alloy::{
     network::EthereumWallet,
-    providers::{ext::DebugApi, Provider, ProviderBuilder},
+    providers::{Provider, ProviderBuilder, ext::DebugApi},
     rpc::types::{
-        trace::geth::{DiffMode, GethDebugTracingOptions, PreStateConfig, PreStateFrame}, TransactionReceipt
+        TransactionReceipt,
+        trace::geth::{DiffMode, GethDebugTracingOptions, PreStateConfig, PreStateFrame},
     },
 };
 
+use crate::Node;
 use revive_dt_config::Arguments;
 use revive_dt_node_interaction::{
     EthereumNode, trace::trace_transaction, transaction::execute_transaction,
 };
-use crate::Node;
 
 static NODE_COUNT: AtomicU32 = AtomicU32::new(0);
 
@@ -36,6 +37,8 @@ pub struct KitchensinkNode {
 
 impl KitchensinkNode {
     const BASE_DIRECTORY: &str = "kitchensink";
+    const SUBSTRATE_READY_MARKER: &str = "Running JSON-RPC server";
+    const ETH_PROXY_READY_MARKER: &str = "Running JSON-RPC server";
     const BASE_SUBSTRATE_RPC_PORT: u16 = 9944;
     const BASE_PROXY_RPC_PORT: u16 = 8545;
 
@@ -46,44 +49,81 @@ impl KitchensinkNode {
 
         self.rpc_url = format!("http://127.0.0.1:{proxy_rpc_port}");
 
-        println!("Trying to run substrate from: {:?}", self.substrate_binary);
-        println!("Trying to run eth-rpc from: {:?}", self.eth_proxy_binary);
-
         // Start Substrate node
-        let substrate_process = Command::new(&self.substrate_binary)
+        let mut substrate_process = Command::new(&self.substrate_binary)
             .arg("--dev")
-            .arg("--rpc-port").arg(substrate_rpc_port.to_string())
-            .arg("--ws-port").arg(substrate_ws_port.to_string())
-            .arg("--name").arg(format!("revive-kitchensink-{}", self.id))
-            .arg("--rpc-methods").arg("Unsafe")
-            .env("RUST_LOG", "error,evm=debug,sc_rpc_server=info,runtime::revive=debug")
+            .arg("--rpc-port")
+            .arg(substrate_rpc_port.to_string())
+            .arg("--ws-port")
+            .arg(substrate_ws_port.to_string())
+            .arg("--name")
+            .arg(format!("revive-kitchensink-{}", self.id))
+            .arg("--rpc-methods")
+            .arg("Unsafe")
+            .env(
+                "RUST_LOG",
+                "error,evm=debug,sc_rpc_server=info,runtime::revive=debug",
+            )
             .stdout(Stdio::null())
             .stderr(Stdio::piped())
             .spawn()?;
 
         // Give the node a moment to boot
-        thread::sleep(Duration::from_secs(5));
+        Self::wait_ready(
+            &mut substrate_process,
+            Self::SUBSTRATE_READY_MARKER,
+            Duration::from_secs(10),
+        )?;
 
-        let proxy_process = Command::new(&self.eth_proxy_binary)
+        let mut proxy_process = Command::new(&self.eth_proxy_binary)
             .arg("--dev")
-            .arg("--rpc-port").arg(proxy_rpc_port.to_string())
-            .arg("--substrate-ws-endpoint").arg(format!("ws://127.0.0.1:{substrate_ws_port}"))
+            .arg("--rpc-port")
+            .arg(proxy_rpc_port.to_string())
+            .arg("--substrate-ws-endpoint")
+            .arg(format!("ws://127.0.0.1:{substrate_ws_port}"))
             .env("RUST_LOG", "info,eth-rpc=debug")
             .stdout(Stdio::null())
             .stderr(Stdio::piped())
             .spawn()?;
 
-        thread::sleep(Duration::from_secs(3));
+        Self::wait_ready(
+            &mut proxy_process,
+            Self::ETH_PROXY_READY_MARKER,
+            Duration::from_secs(10),
+        )?;
 
         self.process_substrate = Some(substrate_process);
         self.process_proxy = Some(proxy_process);
 
         Ok(())
     }
+
+    fn wait_ready(child: &mut Child, marker: &str, timeout: Duration) -> anyhow::Result<()> {
+        let start_time = std::time::Instant::now();
+        let stderr = child.stderr.take().expect("stderr must be piped");
+
+        let mut lines = std::io::BufReader::new(stderr).lines();
+        loop {
+            if let Some(Ok(line)) = lines.next() {
+                if line.contains(marker) {
+                    std::thread::spawn(move || for _ in lines.by_ref() {});
+                    return Ok(());
+                }
+            }
+
+            if start_time.elapsed() > timeout {
+                let _ = child.kill();
+                anyhow::bail!("Timeout waiting for process readiness: {marker}");
+            }
+        }
+    }
 }
 
 impl EthereumNode for KitchensinkNode {
-    fn execute_transaction(&self, transaction: alloy::rpc::types::TransactionRequest) -> anyhow::Result<TransactionReceipt> {
+    fn execute_transaction(
+        &self,
+        transaction: alloy::rpc::types::TransactionRequest,
+    ) -> anyhow::Result<TransactionReceipt> {
         let url = self.rpc_url.clone();
         let wallet = self.wallet.clone();
 
@@ -99,7 +139,10 @@ impl EthereumNode for KitchensinkNode {
         }))
     }
 
-    fn trace_transaction(&self, transaction: TransactionReceipt) -> anyhow::Result<alloy::rpc::types::trace::geth::GethTrace> {
+    fn trace_transaction(
+        &self,
+        transaction: TransactionReceipt,
+    ) -> anyhow::Result<alloy::rpc::types::trace::geth::GethTrace> {
         let url = self.rpc_url.clone();
         let trace_options = GethDebugTracingOptions::prestate_tracer(PreStateConfig {
             diff_mode: Some(true),
@@ -123,7 +166,10 @@ impl EthereumNode for KitchensinkNode {
 impl Node for KitchensinkNode {
     fn new(config: &Arguments) -> Self {
         let id = NODE_COUNT.fetch_add(1, Ordering::SeqCst);
-        let base_directory = config.directory().join(Self::BASE_DIRECTORY).join(id.to_string());
+        let base_directory = config
+            .directory()
+            .join(Self::BASE_DIRECTORY)
+            .join(id.to_string());
 
         Self {
             id,
@@ -156,7 +202,10 @@ impl Node for KitchensinkNode {
     }
 
     fn state_diff(&self, transaction: TransactionReceipt) -> anyhow::Result<DiffMode> {
-        match self.trace_transaction(transaction)?.try_into_pre_state_frame()? {
+        match self
+            .trace_transaction(transaction)?
+            .try_into_pre_state_frame()?
+        {
             PreStateFrame::Diff(diff) => Ok(diff),
             _ => anyhow::bail!("expected a diff mode trace"),
         }
@@ -175,6 +224,17 @@ impl Node for KitchensinkNode {
     }
 }
 
+impl Drop for KitchensinkNode {
+    fn drop(&mut self) {
+        if let Some(mut child) = self.process_proxy.take() {
+            let _ = child.kill();
+        }
+        if let Some(mut child) = self.process_substrate.take() {
+            let _ = child.kill();
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::path::PathBuf;
@@ -182,8 +242,8 @@ mod tests {
     use revive_dt_config::Arguments;
     use temp_dir::TempDir;
 
-    use crate::{GENESIS_JSON, Node};
     use super::KitchensinkNode;
+    use crate::{GENESIS_JSON, Node};
 
     fn test_config() -> (Arguments, TempDir) {
         let mut config = Arguments::default();
@@ -218,4 +278,3 @@ mod tests {
         );
     }
 }
-
