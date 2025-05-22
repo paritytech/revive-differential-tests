@@ -23,7 +23,7 @@ fn main() -> anyhow::Result<()> {
     for (corpus, tests) in corpora.iter() {
         Report::save()?;
 
-        let span = Span::new(corpus.clone());
+        let span = Span::new(corpus.clone(), args.clone());
 
         if let Some(platform) = &args.compile_only {
             main_compile_only(&args, tests, platform, span);
@@ -32,6 +32,8 @@ fn main() -> anyhow::Result<()> {
 
         main_execute_differential(&args, tests, span)?;
     }
+
+    Report::save()?;
 
     Ok(())
 }

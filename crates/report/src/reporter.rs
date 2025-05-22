@@ -7,7 +7,7 @@ use std::{
     collections::HashMap,
     fs::File,
     path::PathBuf,
-    sync::{LazyLock, Mutex},
+    sync::{Mutex, OnceLock},
     time::{SystemTime, UNIX_EPOCH},
 };
 
@@ -17,7 +17,7 @@ use revive_dt_config::{Arguments, TestingPlatform};
 use revive_dt_format::{corpus::Corpus, mode::SolcMode};
 use revive_solc_json_interface::{SolcStandardJsonInput, SolcStandardJsonOutput};
 
-pub(crate) static REPORTER: LazyLock<Mutex<Report>> = LazyLock::new(Default::default);
+pub(crate) static REPORTER: OnceLock<Mutex<Report>> = OnceLock::new();
 
 /// The `Report` datastructure stores all relevant inforamtion required for generating reports.
 #[derive(Default, Debug, Serialize, Deserialize)]
@@ -30,45 +30,9 @@ pub struct Report {
     metadata_files: Vec<PathBuf>,
     /// The observed compilation results.
     compilation_results: HashMap<TestingPlatform, Vec<CompilationResult>>,
-}
-
-impl Report {
-    /// Add a compilation task to the report.
-    pub fn compilation(span: Span, platform: TestingPlatform, compilation_task: CompilationTask) {
-        REPORTER
-            .lock()
-            .unwrap()
-            .compilation_results
-            .entry(platform)
-            .or_default()
-            .push(CompilationResult {
-                compilation_task,
-                span,
-            });
-    }
-
-    /// Write the report to disk.
-    pub fn save() -> anyhow::Result<()> {
-        REPORTER.lock().unwrap().write_to_file()
-    }
-
-    fn write_to_file(&self) -> anyhow::Result<()> {
-        let file_name = format!(
-            "{:?}.json",
-            SystemTime::now().duration_since(UNIX_EPOCH).unwrap()
-        );
-        let file = File::create(self.config.directory().join(file_name))?;
-
-        serde_json::to_writer_pretty(file, &self)?;
-
-        Ok(())
-    }
-}
-
-impl Drop for Report {
-    fn drop(&mut self) {
-        let _ = self.write_to_file();
-    }
+    /// The file name this is serialized to.
+    #[serde(skip)]
+    file_name: PathBuf,
 }
 
 /// Contains a compiled contract.
@@ -108,10 +72,72 @@ pub struct Span {
     input: usize,
 }
 
+impl Report {
+    /// The [Span] is expected to initialize the reporter by providing the config.
+    const INITIALIZED_VIA_SPAN: &str = "requires a Span which initializes the reporter";
+
+    /// Create a new [Report].
+    fn new(config: Arguments) -> Self {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_millis();
+        let file_name = config
+            .working_directory
+            .as_ref()
+            .unwrap()
+            .join(format!("{now}.json"));
+
+        Self {
+            config,
+            file_name,
+            ..Default::default()
+        }
+    }
+
+    /// Add a compilation task to the report.
+    pub fn compilation(span: Span, platform: TestingPlatform, compilation_task: CompilationTask) {
+        REPORTER
+            .get()
+            .expect(Report::INITIALIZED_VIA_SPAN)
+            .lock()
+            .unwrap()
+            .compilation_results
+            .entry(platform)
+            .or_default()
+            .push(CompilationResult {
+                compilation_task,
+                span,
+            });
+    }
+
+    /// Write the report to disk.
+    pub fn save() -> anyhow::Result<()> {
+        if let Some(reporter) = REPORTER.get() {
+            reporter.lock().unwrap().write_to_file()?;
+        }
+
+        Ok(())
+    }
+
+    fn write_to_file(&self) -> anyhow::Result<()> {
+        let file = File::create(&self.file_name)?;
+
+        serde_json::to_writer_pretty(file, &self)?;
+
+        Ok(())
+    }
+}
+
 impl Span {
     /// Create a new [Span] with case and input index at 0.
-    pub fn new(corpus: Corpus) -> Self {
-        let mut reporter = REPORTER.lock().unwrap();
+    ///
+    /// Initializes the reporting facility on the first call.
+    pub fn new(corpus: Corpus, config: Arguments) -> Self {
+        let mut reporter = REPORTER
+            .get_or_init(|| Mutex::new(Report::new(config)))
+            .lock()
+            .unwrap();
 
         reporter.corpora.push(corpus);
 
@@ -125,7 +151,11 @@ impl Span {
 
     /// Advance to the next metadata file: Resets the case input index to 0.
     pub fn next_metadata(&mut self, metadata_file: PathBuf) {
-        let mut reporter = REPORTER.lock().unwrap();
+        let mut reporter = REPORTER
+            .get()
+            .expect(Report::INITIALIZED_VIA_SPAN)
+            .lock()
+            .unwrap();
 
         reporter.metadata_files.push(metadata_file);
 
