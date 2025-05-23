@@ -134,3 +134,12 @@ pub enum TestingPlatform {
     /// The kitchensink runtime provides the PolkaVM (PVM) based node implentation.
     Kitchensink,
 }
+
+impl ToString for TestingPlatform {
+    fn to_string(&self) -> String {
+        String::from(match self {
+            Self::Geth => "geth",
+            Self::Kitchensink => "revive",
+        })
+    }
+}

@@ -5,7 +5,7 @@
 
 use std::{
     collections::HashMap,
-    fs::File,
+    fs::{self, File, create_dir_all},
     path::PathBuf,
     sync::{Mutex, OnceLock},
     time::{SystemTime, UNIX_EPOCH},
@@ -37,7 +37,7 @@ pub struct Report {
     pub compiler_statistics: HashMap<TestingPlatform, CompilerStatistics>,
     /// The file name this is serialized to.
     #[serde(skip)]
-    file_name: PathBuf,
+    directory: PathBuf,
 }
 
 /// Contains a compiled contract.
@@ -78,22 +78,29 @@ pub struct Span {
 }
 
 impl Report {
+    /// The file name where this report will be written to.
+    pub const FILE_NAME: &str = "report.json";
+
     /// The [Span] is expected to initialize the reporter by providing the config.
     const INITIALIZED_VIA_SPAN: &str = "requires a Span which initializes the reporter";
 
     /// Create a new [Report].
-    fn new(config: Arguments) -> Self {
+    fn new(config: Arguments) -> anyhow::Result<Self> {
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_millis();
-        let file_name = config.directory().join(format!("{now}.json"));
 
-        Self {
-            config,
-            file_name,
-            ..Default::default()
+        let directory = config.directory().join("report").join(format!("{now}"));
+        if !directory.exists() {
+            create_dir_all(&directory)?;
         }
+
+        Ok(Self {
+            config,
+            directory,
+            ..Default::default()
+        })
     }
 
     /// Add a compilation task to the report.
@@ -122,9 +129,55 @@ impl Report {
 
     /// Write the report to disk.
     pub fn save() -> anyhow::Result<()> {
-        if let Some(reporter) = REPORTER.get() {
-            if let Err(error) = reporter.lock().unwrap().write_to_file() {
-                anyhow::bail!("can not write report: {error}");
+        let Some(reporter) = REPORTER.get() else {
+            return Ok(());
+        };
+        let report = reporter.lock().unwrap();
+
+        if let Err(error) = report.write_to_file() {
+            anyhow::bail!("can not write report: {error}");
+        }
+
+        if let Err(error) = report.save_compiler_problems() {
+            anyhow::bail!("can not write compiler problems: {error}");
+        }
+
+        Ok(())
+    }
+
+    /// Write compiler problems to disk for later debugging.
+    pub fn save_compiler_problems(&self) -> anyhow::Result<()> {
+        for (platform, results) in self.compiler_results.iter() {
+            for result in results {
+                // ignore if there were no errors
+                if result.compilation_task.error.is_none()
+                    && result
+                        .compilation_task
+                        .json_output
+                        .as_ref()
+                        .and_then(|output| output.errors.as_ref())
+                        .map(|errors| errors.is_empty())
+                        .unwrap_or(true)
+                {
+                    continue;
+                }
+
+                let path = &self.metadata_files[result.span.metadata_file]
+                    .parent()
+                    .unwrap()
+                    .join(format!("{}_errors", platform.to_string()));
+                if !path.exists() {
+                    create_dir_all(path)?;
+                }
+
+                if let Some(error) = result.compilation_task.error.as_ref() {
+                    fs::write(path.join("compiler_error.txt"), error)?;
+                }
+
+                if let Some(errors) = result.compilation_task.json_output.as_ref() {
+                    let file = File::create(path.join("compiler_output.txt"))?;
+                    serde_json::to_writer_pretty(file, &errors)?;
+                }
             }
         }
 
@@ -132,14 +185,12 @@ impl Report {
     }
 
     fn write_to_file(&self) -> anyhow::Result<()> {
-        let file = File::create(&self.file_name).context(format!(
-            "failed to create file: {}",
-            self.file_name.display()
-        ))?;
+        let path = self.directory.join(Self::FILE_NAME);
 
+        let file = File::create(&path).context(path.display().to_string())?;
         serde_json::to_writer_pretty(file, &self)?;
 
-        log::info!("report written to: {}", self.file_name.display());
+        log::info!("report written to: {}", path.display());
 
         Ok(())
     }
@@ -149,20 +200,17 @@ impl Span {
     /// Create a new [Span] with case and input index at 0.
     ///
     /// Initializes the reporting facility on the first call.
-    pub fn new(corpus: Corpus, config: Arguments) -> Self {
-        let mut reporter = REPORTER
-            .get_or_init(|| Mutex::new(Report::new(config)))
-            .lock()
-            .unwrap();
-
+    pub fn new(corpus: Corpus, config: Arguments) -> anyhow::Result<Self> {
+        let report = Mutex::new(Report::new(config)?);
+        let mut reporter = REPORTER.get_or_init(|| report).lock().unwrap();
         reporter.corpora.push(corpus);
 
-        Self {
+        Ok(Self {
             corpus: reporter.corpora.len() - 1,
             metadata_file: 0,
             case: 0,
             input: 0,
-        }
+        })
     }
 
     /// Advance to the next metadata file: Resets the case input index to 0.

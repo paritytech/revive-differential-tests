@@ -78,6 +78,7 @@ where
         match compiler.try_build(compiler_path) {
             Ok(output) => {
                 task.json_output = Some(output.output.clone());
+                task.error = output.error;
                 self.contracts.insert(output.input, output.output);
                 Report::compilation(span, T::config_id(), task);
                 Ok(())

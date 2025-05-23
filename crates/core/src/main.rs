@@ -19,7 +19,7 @@ fn main() -> anyhow::Result<()> {
     let args = init_cli()?;
 
     for (corpus, tests) in collect_corpora(&args)? {
-        let span = Span::new(corpus, args.clone());
+        let span = Span::new(corpus, args.clone())?;
 
         match &args.compile_only {
             Some(platform) => compile_corpus(&args, &tests, platform, span),
