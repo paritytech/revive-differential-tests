@@ -36,10 +36,13 @@ jobs:
       - name: Setup Rust toolchain
         uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
-          rustflags: ""
+          rustflags: ""  
 
       - name: Add wasm32 target
-        run: rustup target add wasm32-unknown-unknown
+        run: |
+          rustup target add wasm32-unknown-unknown
+          rustup component add rust-src
+        
 
       # ────────────── Install geth ──────────────
       - name: Install Geth on Ubuntu
