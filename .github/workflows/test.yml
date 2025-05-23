@@ -60,6 +60,23 @@ jobs:
 
       - name: Clippy
         run: make clippy
+      
+      - name: Install substrate-node from polkadot-sdk
+        run: |
+          git clone --depth=1 https://github.com/paritytech/polkadot-sdk.git
+          cd polkadot-sdk
+          cargo install --path substrate/bin/node/cli --bin substrate-node --features cli
+
+      - name: Check substrate-node version
+        run: substrate-node --version
+
+      - name: Install eth-rpc from polkadot-sdk
+        run: |
+          cd polkadot-sdk
+          cargo install --path substrate/frame/revive/rpc --bin eth-rpc
+
+      - name: Check eth-rpc version
+        run: eth-rpc --version
 
       - name: Test cargo workspace
         run: make test

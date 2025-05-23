@@ -86,14 +86,14 @@ pub struct Arguments {
 
     /// The path to the `kitchensink` executable.
     ///
-    /// By default it uses `kitchensink` binary found in `$PATH`.
-    #[arg(short, long = "kitchensink", default_value = "kitchensink")]
+    /// By default it uses `substrate-node` binary found in `$PATH`.
+    #[arg(short, long = "kitchensink", default_value = "substrate-node")]
     pub kitchensink: PathBuf,
 
     /// The path to the `eth_proxy` executable.
     ///
-    /// By default it uses `eth_proxy` binary found in `$PATH`.
-    #[arg(short, long = "eth_proxy", default_value = "eth_proxy")]
+    /// By default it uses `eth-rpc` binary found in `$PATH`.
+    #[arg(short, long = "eth_proxy", default_value = "eth-rpc")]
     pub eth_proxy: PathBuf,
 }
 

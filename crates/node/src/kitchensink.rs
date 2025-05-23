@@ -117,6 +117,18 @@ impl KitchensinkNode {
             }
         }
     }
+
+    pub fn eth_rpc_version(&self) -> anyhow::Result<String> {
+        let output = Command::new(&self.eth_proxy_binary)
+            .arg("--version")
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()?
+            .wait_with_output()?
+            .stdout;
+        Ok(String::from_utf8_lossy(&output).trim().to_string())
+    }
 }
 
 impl EthereumNode for KitchensinkNode {
@@ -251,8 +263,8 @@ mod tests {
 
         config.working_directory = temp_dir.path().to_path_buf().into();
 
-        config.kitchensink = PathBuf::from("kitchensink");
-        config.eth_proxy = PathBuf::from("eth-proxy");
+        config.kitchensink = PathBuf::from("substrate-node");
+        config.eth_proxy = PathBuf::from("eth-rpc");
 
         (config, temp_dir)
     }
@@ -273,8 +285,21 @@ mod tests {
         let version = node.version().unwrap();
 
         assert!(
-            version.starts_with("kitchensink"),
-            "Expected kitchensink version string, got: {version}"
+            version.starts_with("substrate-node"),
+            "Expected substrate-node version string, got: {version}"
+        );
+    }
+
+    #[test]
+    fn eth_rpc_version_works() {
+        let (config, _temp_dir) = test_config();
+
+        let node = KitchensinkNode::new(&config);
+        let version = node.eth_rpc_version().unwrap();
+
+        assert!(
+            version.starts_with("pallet-revive-eth-rpc"),
+            "Expected eth-rpc version string, got: {version}"
         );
     }
 }
