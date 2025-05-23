@@ -138,8 +138,10 @@ impl Report {
             anyhow::bail!("can not write report: {error}");
         }
 
-        if let Err(error) = report.save_compiler_problems() {
-            anyhow::bail!("can not write compiler problems: {error}");
+        if report.config.extract_problems {
+            if let Err(error) = report.save_compiler_problems() {
+                anyhow::bail!("can not write compiler problems: {error}");
+            }
         }
 
         Ok(())
@@ -165,7 +167,7 @@ impl Report {
                 let path = &self.metadata_files[result.span.metadata_file]
                     .parent()
                     .unwrap()
-                    .join(format!("{}_errors", platform.to_string()));
+                    .join(format!("{platform}_errors"));
                 if !path.exists() {
                     create_dir_all(path)?;
                 }

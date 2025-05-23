@@ -13,7 +13,6 @@ revive-dt-format = { workspace = true }
 
 anyhow = { workspace = true }
 log = { workspace = true }
-hex = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 revive-solc-json-interface = { workspace = true }

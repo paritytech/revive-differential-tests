@@ -1,6 +1,9 @@
 //! The global configuration used accross all revive differential testing crates.
 
-use std::path::{Path, PathBuf};
+use std::{
+    fmt::Display,
+    path::{Path, PathBuf},
+};
 
 use alloy::{network::EthereumWallet, signers::local::PrivateKeySigner};
 use clap::{Parser, ValueEnum};
@@ -85,6 +88,10 @@ pub struct Arguments {
     /// Determines the amount of tests that are executed in parallel.
     #[arg(long = "workers", default_value = "12")]
     pub workers: usize,
+
+    /// Extract problems back to the test corpus.
+    #[arg(short, long = "extract-problems")]
+    pub extract_problems: bool,
 }
 
 impl Arguments {
@@ -135,11 +142,11 @@ pub enum TestingPlatform {
     Kitchensink,
 }
 
-impl ToString for TestingPlatform {
-    fn to_string(&self) -> String {
-        String::from(match self {
-            Self::Geth => "geth",
-            Self::Kitchensink => "revive",
-        })
+impl Display for TestingPlatform {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Geth => f.write_str("geth"),
+            Self::Kitchensink => f.write_str("revive"),
+        }
     }
 }
