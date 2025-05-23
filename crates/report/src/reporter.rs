@@ -11,6 +11,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
+use anyhow::Context;
 use serde::{Deserialize, Serialize};
 
 use revive_dt_config::{Arguments, TestingPlatform};
@@ -82,11 +83,7 @@ impl Report {
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_millis();
-        let file_name = config
-            .working_directory
-            .as_ref()
-            .unwrap()
-            .join(format!("{now}.json"));
+        let file_name = config.directory().join(format!("{now}.json"));
 
         Self {
             config,
@@ -114,16 +111,23 @@ impl Report {
     /// Write the report to disk.
     pub fn save() -> anyhow::Result<()> {
         if let Some(reporter) = REPORTER.get() {
-            reporter.lock().unwrap().write_to_file()?;
+            if let Err(error) = reporter.lock().unwrap().write_to_file() {
+                anyhow::bail!("can not write report: {error}");
+            }
         }
 
         Ok(())
     }
 
     fn write_to_file(&self) -> anyhow::Result<()> {
-        let file = File::create(&self.file_name)?;
+        let file = File::create(&self.file_name).context(format!(
+            "failed to create file: {}",
+            self.file_name.display()
+        ))?;
 
         serde_json::to_writer_pretty(file, &self)?;
+
+        log::info!("report written to: {}", self.file_name.display());
 
         Ok(())
     }

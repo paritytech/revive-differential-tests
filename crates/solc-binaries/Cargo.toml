@@ -1,6 +1,6 @@
 [package]
 name = "revive-dt-solc-binaries"
-dependencies = "Download and cache solc binaries"
+description = "Download and cache solc binaries"
 version.workspace = true
 authors.workspace = true
 license.workspace = true

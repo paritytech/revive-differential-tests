@@ -18,22 +18,16 @@ static TEMP_DIR: LazyLock<TempDir> = LazyLock::new(|| TempDir::new().unwrap());
 fn main() -> anyhow::Result<()> {
     let args = init_cli()?;
 
-    let corpora = collect_corpora(&args)?;
+    for (corpus, tests) in collect_corpora(&args)? {
+        let span = Span::new(corpus, args.clone());
 
-    for (corpus, tests) in corpora.iter() {
-        Report::save()?;
-
-        let span = Span::new(corpus.clone(), args.clone());
-
-        if let Some(platform) = &args.compile_only {
-            main_compile_only(&args, tests, platform, span);
-            continue;
+        match &args.compile_only {
+            Some(platform) => compile_corpus(&args, &tests, platform, span),
+            None => execute_corpus(&args, &tests, span)?,
         }
 
-        main_execute_differential(&args, tests, span)?;
+        Report::save()?;
     }
-
-    Report::save()?;
 
     Ok(())
 }
@@ -42,17 +36,26 @@ fn init_cli() -> anyhow::Result<Arguments> {
     env_logger::init();
 
     let mut args = Arguments::parse();
+
     if args.corpus.is_empty() {
         anyhow::bail!("no test corpus specified");
     }
-    if args.working_directory.is_none() {
-        args.temp_dir = Some(&TEMP_DIR);
+
+    match args.working_directory.as_ref() {
+        Some(dir) => {
+            if !dir.exists() {
+                anyhow::bail!("workdir {} does not exist", dir.display());
+            }
+        }
+        None => {
+            args.temp_dir = Some(&TEMP_DIR);
+        }
     }
+    log::info!("workdir: {}", args.directory().display());
 
     ThreadPoolBuilder::new()
         .num_threads(args.workers)
-        .build_global()
-        .unwrap();
+        .build_global()?;
 
     Ok(args)
 }
@@ -71,11 +74,7 @@ fn collect_corpora(args: &Arguments) -> anyhow::Result<HashMap<Corpus, Vec<Metad
     Ok(corpora)
 }
 
-fn main_execute_differential(
-    args: &Arguments,
-    tests: &[Metadata],
-    span: Span,
-) -> anyhow::Result<()> {
+fn execute_corpus(args: &Arguments, tests: &[Metadata], span: Span) -> anyhow::Result<()> {
     let leader_nodes = NodePool::new(args)?;
     let follower_nodes = NodePool::new(args)?;
 
@@ -110,12 +109,7 @@ fn main_execute_differential(
     Ok(())
 }
 
-fn main_compile_only(
-    config: &Arguments,
-    tests: &[Metadata],
-    platform: &TestingPlatform,
-    span: Span,
-) {
+fn compile_corpus(config: &Arguments, tests: &[Metadata], platform: &TestingPlatform, span: Span) {
     tests.par_iter().for_each(|metadata| {
         for mode in &metadata.solc_modes() {
             match platform {

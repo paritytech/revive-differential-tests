@@ -3078,6 +3078,7 @@ name = "revive-dt-report"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "log",
  "revive-dt-config",
  "revive-dt-format",
  "revive-solc-json-interface",
