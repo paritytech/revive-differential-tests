@@ -32,9 +32,9 @@ pub struct Report {
     /// The observed test definitions.
     pub metadata_files: Vec<PathBuf>,
     /// The observed compilation results.
-    pub compilation_results: HashMap<TestingPlatform, Vec<CompilationResult>>,
+    pub compiler_results: HashMap<TestingPlatform, Vec<CompilationResult>>,
     /// The observed compilation statistics.
-    pub compiler_statistics: CompilerStatistics,
+    pub compiler_statistics: HashMap<TestingPlatform, CompilerStatistics>,
     /// The file name this is serialized to.
     #[serde(skip)]
     file_name: PathBuf,
@@ -104,9 +104,14 @@ impl Report {
             .lock()
             .unwrap();
 
-        report.compiler_statistics.update(&compilation_task);
         report
-            .compilation_results
+            .compiler_statistics
+            .entry(platform)
+            .or_default()
+            .sample(&compilation_task);
+
+        report
+            .compiler_results
             .entry(platform)
             .or_default()
             .push(CompilationResult {

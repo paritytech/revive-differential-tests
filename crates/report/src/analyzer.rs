@@ -18,7 +18,8 @@ pub struct CompilerStatistics {
 }
 
 impl CompilerStatistics {
-    pub fn update(&mut self, compilation_task: &CompilationTask) {
+    /// Cumulatively update the statistics with the next compiler task.
+    pub fn sample(&mut self, compilation_task: &CompilationTask) {
         let Some(output) = &compilation_task.json_output else {
             return;
         };
@@ -35,19 +36,23 @@ impl CompilerStatistics {
                 let Some(deploy_code) = &evm.deployed_bytecode else {
                     continue;
                 };
-                let bytecode_size = hex::decode(&deploy_code.object)
-                    .expect("the bytecode in the compiler output should be valid")
+
+                // The EVM bytecode can be unlinked and thus is not necessarily a decodable hex
+                // string; for our statistics this is a good enough approximation.
+                let bytecode_size = deploy_code.object.len() / 2;
+
+                let yul_size = contract
+                    .ir_optimized
+                    .as_ref()
+                    .expect("if the contract has a deploy code it should also have the opimized IR")
                     .len();
 
-                let ir_optimized = contract.ir_optimized.as_ref().expect(
-                    "if the contract has a deploy code it should also have the opimized IR",
-                );
-
-                self.update_sizes(bytecode_size, ir_optimized.len());
+                self.update_sizes(bytecode_size, yul_size);
             }
         }
     }
 
+    /// Updates the size statistics cumulatively.
     fn update_sizes(&mut self, bytecode_size: usize, yul_size: usize) {
         let n_previous = self.n_contracts;
         let n_current = self.n_contracts + 1;
@@ -75,7 +80,7 @@ mod tests {
         received.update_sizes(3, 37);
         received.update_sizes(123, 456);
 
-        let mean_code_size = 41; // rounding error
+        let mean_code_size = 41; // rounding error from integer truncation
         let mean_yul_size = 164;
         let expected = CompilerStatistics {
             n_contracts: 3,
