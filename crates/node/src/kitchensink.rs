@@ -42,7 +42,6 @@ impl KitchensinkNode {
 
     fn spawn_process(&mut self, _genesis: String) -> anyhow::Result<()> {
         let substrate_rpc_port = Self::BASE_SUBSTRATE_RPC_PORT + self.id as u16;
-        let substrate_ws_port = substrate_rpc_port + 1;
         let proxy_rpc_port = Self::BASE_PROXY_RPC_PORT + self.id as u16;
 
         self.rpc_url = format!("http://127.0.0.1:{proxy_rpc_port}");
@@ -52,8 +51,6 @@ impl KitchensinkNode {
             .arg("--dev")
             .arg("--rpc-port")
             .arg(substrate_rpc_port.to_string())
-            .arg("--ws-port")
-            .arg(substrate_ws_port.to_string())
             .arg("--name")
             .arg(format!("revive-kitchensink-{}", self.id))
             .arg("--rpc-methods")
@@ -77,8 +74,8 @@ impl KitchensinkNode {
             .arg("--dev")
             .arg("--rpc-port")
             .arg(proxy_rpc_port.to_string())
-            .arg("--substrate-ws-endpoint")
-            .arg(format!("ws://127.0.0.1:{substrate_ws_port}"))
+            .arg("--node-rpc-url")
+            .arg(format!("ws://127.0.0.1:{substrate_rpc_port}"))
             .env("RUST_LOG", "info,eth-rpc=debug")
             .stdout(Stdio::null())
             .stderr(Stdio::piped())
@@ -87,7 +84,7 @@ impl KitchensinkNode {
         Self::wait_ready(
             &mut proxy_process,
             Self::ETH_PROXY_READY_MARKER,
-            Duration::from_secs(10),
+            Duration::from_secs(30),
         )?;
 
         self.process_substrate = Some(substrate_process);
