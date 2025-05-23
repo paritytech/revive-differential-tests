@@ -26,7 +26,6 @@ static NODE_COUNT: AtomicU32 = AtomicU32::new(0);
 #[derive(Debug)]
 pub struct KitchensinkNode {
     id: u32,
-    base_directory: PathBuf,
     substrate_binary: PathBuf,
     eth_proxy_binary: PathBuf,
     rpc_url: String,
@@ -36,7 +35,6 @@ pub struct KitchensinkNode {
 }
 
 impl KitchensinkNode {
-    const BASE_DIRECTORY: &str = "kitchensink";
     const SUBSTRATE_READY_MARKER: &str = "Running JSON-RPC server";
     const ETH_PROXY_READY_MARKER: &str = "Running JSON-RPC server";
     const BASE_SUBSTRATE_RPC_PORT: u16 = 9944;
@@ -178,14 +176,9 @@ impl EthereumNode for KitchensinkNode {
 impl Node for KitchensinkNode {
     fn new(config: &Arguments) -> Self {
         let id = NODE_COUNT.fetch_add(1, Ordering::SeqCst);
-        let base_directory = config
-            .directory()
-            .join(Self::BASE_DIRECTORY)
-            .join(id.to_string());
 
         Self {
             id,
-            base_directory,
             substrate_binary: config.kitchensink.clone(),
             eth_proxy_binary: config.eth_proxy.clone(),
             rpc_url: String::new(),
