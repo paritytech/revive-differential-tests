@@ -48,8 +48,12 @@ pub struct CompilerInput<T: PartialEq + Eq + Hash> {
 
 /// The generic compilation output configuration.
 pub struct CompilerOutput<T: PartialEq + Eq + Hash> {
+    /// The solc standard JSON input.
     pub input: CompilerInput<T>,
+    /// The produced solc standard JSON output.
     pub output: SolcStandardJsonOutput,
+    /// The error message in case the compiler returns abnormally.
+    pub error: Option<String>,
 }
 
 impl<T> PartialEq for CompilerInput<T>
@@ -110,6 +114,7 @@ where
                         false,
                     ),
                     None,
+                    None,
                 ),
             },
             extra_options: Default::default(),
@@ -155,5 +160,10 @@ where
             extra_options: self.extra_options,
             input: self.input,
         })
+    }
+
+    /// Returns the compiler JSON input.
+    pub fn input(&self) -> SolcStandardJsonInput {
+        self.input.clone()
     }
 }

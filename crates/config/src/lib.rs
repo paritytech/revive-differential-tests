@@ -1,13 +1,17 @@
 //! The global configuration used accross all revive differential testing crates.
 
-use std::path::{Path, PathBuf};
+use std::{
+    fmt::Display,
+    path::{Path, PathBuf},
+};
 
 use alloy::{network::EthereumWallet, signers::local::PrivateKeySigner};
 use clap::{Parser, ValueEnum};
 use semver::Version;
+use serde::{Deserialize, Serialize};
 use temp_dir::TempDir;
 
-#[derive(Debug, Parser, Clone)]
+#[derive(Debug, Parser, Clone, Serialize, Deserialize)]
 #[command(name = "retester")]
 pub struct Arguments {
     /// The `solc` version to use if the test didn't specify it explicitly.
@@ -40,6 +44,7 @@ pub struct Arguments {
     ///
     /// We attach it here because [TempDir] prunes itself on drop.
     #[clap(skip)]
+    #[serde(skip)]
     pub temp_dir: Option<&'static TempDir>,
 
     /// The path to the `geth` executable.
@@ -83,6 +88,10 @@ pub struct Arguments {
     /// Determines the amount of tests that are executed in parallel.
     #[arg(long = "workers", default_value = "12")]
     pub workers: usize,
+
+    /// Extract problems back to the test corpus.
+    #[arg(short, long = "extract-problems")]
+    pub extract_problems: bool,
 }
 
 impl Arguments {
@@ -124,11 +133,20 @@ impl Default for Arguments {
 /// The Solidity compatible node implementation.
 ///
 /// This describes the solutions to be tested against on a high level.
-#[derive(Clone, Debug, Eq, Hash, PartialEq, ValueEnum)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, ValueEnum, Serialize, Deserialize)]
 #[clap(rename_all = "lower")]
 pub enum TestingPlatform {
     /// The go-ethereum reference full node EVM implementation.
     Geth,
     /// The kitchensink runtime provides the PolkaVM (PVM) based node implentation.
     Kitchensink,
+}
+
+impl Display for TestingPlatform {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Geth => f.write_str("geth"),
+            Self::Kitchensink => f.write_str("revive"),
+        }
+    }
 }

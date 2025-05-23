@@ -2984,8 +2984,8 @@ dependencies = [
 
 [[package]]
 name = "revive-common"
-version = "0.1.0-dev.12"
-source = "git+https://github.com/paritytech/revive?rev=497dae2494dabe12d1af32d6d687122903cb2ada#497dae2494dabe12d1af32d6d687122903cb2ada"
+version = "0.1.0-dev.16"
+source = "git+https://github.com/paritytech/revive?rev=3389865af7c3ff6f29a586d82157e8bc573c1a8e#3389865af7c3ff6f29a586d82157e8bc573c1a8e"
 dependencies = [
  "anyhow",
  "serde",
@@ -3014,6 +3014,7 @@ dependencies = [
  "alloy",
  "clap",
  "semver 1.0.26",
+ "serde",
  "temp-dir",
 ]
 
@@ -3032,6 +3033,7 @@ dependencies = [
  "revive-dt-format",
  "revive-dt-node",
  "revive-dt-node-interaction",
+ "revive-dt-report",
  "revive-solc-json-interface",
  "temp-dir",
 ]
@@ -3072,6 +3074,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "revive-dt-report"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "log",
+ "revive-dt-config",
+ "revive-dt-format",
+ "revive-solc-json-interface",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "revive-dt-solc-binaries"
 version = "0.1.0"
 dependencies = [
@@ -3086,8 +3101,8 @@ dependencies = [
 
 [[package]]
 name = "revive-solc-json-interface"
-version = "0.1.0-dev.12"
-source = "git+https://github.com/paritytech/revive?rev=497dae2494dabe12d1af32d6d687122903cb2ada#497dae2494dabe12d1af32d6d687122903cb2ada"
+version = "0.1.0-dev.16"
+source = "git+https://github.com/paritytech/revive?rev=3389865af7c3ff6f29a586d82157e8bc573c1a8e#3389865af7c3ff6f29a586d82157e8bc573c1a8e"
 dependencies = [
  "anyhow",
  "rayon",
