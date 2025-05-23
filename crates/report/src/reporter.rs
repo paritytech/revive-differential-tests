@@ -18,26 +18,30 @@ use revive_dt_config::{Arguments, TestingPlatform};
 use revive_dt_format::{corpus::Corpus, mode::SolcMode};
 use revive_solc_json_interface::{SolcStandardJsonInput, SolcStandardJsonOutput};
 
+use crate::analyzer::CompilerStatistics;
+
 pub(crate) static REPORTER: OnceLock<Mutex<Report>> = OnceLock::new();
 
 /// The `Report` datastructure stores all relevant inforamtion required for generating reports.
-#[derive(Default, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct Report {
     /// The configuration used during the test.
-    config: Arguments,
+    pub config: Arguments,
     /// The observed test corpora.
-    corpora: Vec<Corpus>,
+    pub corpora: Vec<Corpus>,
     /// The observed test definitions.
-    metadata_files: Vec<PathBuf>,
+    pub metadata_files: Vec<PathBuf>,
     /// The observed compilation results.
-    compilation_results: HashMap<TestingPlatform, Vec<CompilationResult>>,
+    pub compilation_results: HashMap<TestingPlatform, Vec<CompilationResult>>,
+    /// The observed compilation statistics.
+    pub compiler_statistics: CompilerStatistics,
     /// The file name this is serialized to.
     #[serde(skip)]
     file_name: PathBuf,
 }
 
 /// Contains a compiled contract.
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct CompilationTask {
     /// The observed compiler input.
     pub json_input: SolcStandardJsonInput,
@@ -52,12 +56,12 @@ pub struct CompilationTask {
 }
 
 /// Represents a report about a compilation task.
-#[derive(Debug, Serialize, Deserialize)]
-struct CompilationResult {
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct CompilationResult {
     /// The observed compilation task.
-    compilation_task: CompilationTask,
+    pub compilation_task: CompilationTask,
     /// The linked span.
-    span: Span,
+    pub span: Span,
 }
 
 /// The [Span] struct indicates the context of what is being reported.
@@ -94,11 +98,14 @@ impl Report {
 
     /// Add a compilation task to the report.
     pub fn compilation(span: Span, platform: TestingPlatform, compilation_task: CompilationTask) {
-        REPORTER
+        let mut report = REPORTER
             .get()
             .expect(Report::INITIALIZED_VIA_SPAN)
             .lock()
-            .unwrap()
+            .unwrap();
+
+        report.compiler_statistics.update(&compilation_task);
+        report
             .compilation_results
             .entry(platform)
             .or_default()

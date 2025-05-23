@@ -57,34 +57,36 @@ where
             anyhow::bail!("unsupported solc version: {:?}", &mode.solc_version);
         };
 
-        let sources = metadata.contract_sources()?;
-        let base_path = metadata.directory()?.display().to_string();
+        let mut compiler = Compiler::<T::Compiler>::new()
+            .base_path(metadata.directory()?.display().to_string())
+            .solc_optimizer(mode.solc_optimize());
 
-        let mut compiler = Compiler::<T::Compiler>::new().base_path(base_path.clone());
-        for (file, _contract) in sources.values() {
+        for (file, _contract) in metadata.contract_sources()?.values() {
             log::debug!("contract source {}", file.display());
             compiler = compiler.with_source(file)?;
         }
 
-        let compiler_version = format!("{}", &version);
-        let compiler_path = T::Compiler::get_compiler_executable(self.config, version)?;
-
-        let output = compiler
-            .solc_optimizer(mode.solc_optimize())
-            .try_build(compiler_path)?;
-
-        let task = CompilationTask {
-            json_input: output.input.input.clone(),
+        let mut task = CompilationTask {
+            json_input: compiler.input(),
             json_output: None,
             mode: mode.clone(),
-            compiler_version,
+            compiler_version: format!("{}", &version),
             error: None,
         };
-        self.contracts.insert(output.input, output.output);
 
-        Report::compilation(span, T::config_id(), task);
-
-        Ok(())
+        let compiler_path = T::Compiler::get_compiler_executable(self.config, version)?;
+        match compiler.try_build(compiler_path) {
+            Ok(output) => {
+                task.json_output = Some(output.output.clone());
+                self.contracts.insert(output.input, output.output);
+                Report::compilation(span, T::config_id(), task);
+                Ok(())
+            }
+            Err(error) => {
+                task.error = Some(error.to_string());
+                Err(error)
+            }
+        }
     }
 
     pub fn execute_input(
