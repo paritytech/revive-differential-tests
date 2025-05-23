@@ -18,3 +18,6 @@ revive-dt-config = { workspace = true }
 
 [dev-dependencies]
 temp-dir = { workspace = true }
+
+[env]
+RUST_BACKTRACE = "1"
