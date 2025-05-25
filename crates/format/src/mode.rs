@@ -1,16 +1,16 @@
 use semver::Version;
-use serde::Deserialize;
 use serde::de::Deserializer;
+use serde::{Deserialize, Serialize};
 
 /// Specifies the compilation mode of the test artifact.
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Hash, Debug, Clone, Eq, PartialEq)]
 pub enum Mode {
     Solidity(SolcMode),
     Unknown(String),
 }
 
 /// Specify Solidity specific compiler options.
-#[derive(Debug, Default, Clone, Eq, PartialEq)]
+#[derive(Hash, Debug, Default, Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub struct SolcMode {
     pub solc_version: Option<semver::VersionReq>,
     solc_optimize: Option<bool>,

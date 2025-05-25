@@ -1,6 +1,5 @@
 [package]
-name = "revive-dt-solc-binaries"
-description = "Download and cache solc binaries"
+name = "revive-dt-report"
 version.workspace = true
 authors.workspace = true
 license.workspace = true
@@ -9,10 +8,12 @@ repository.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+revive-dt-config = { workspace = true }
+revive-dt-format = { workspace = true }
+
 anyhow = { workspace = true }
-hex = { workspace = true }
 log = { workspace = true }
-reqwest = { workspace = true }
-semver = { workspace = true }
 serde = { workspace = true }
-sha2 = { workspace = true }
+serde_json = { workspace = true }
+revive-solc-json-interface = { workspace = true }
+

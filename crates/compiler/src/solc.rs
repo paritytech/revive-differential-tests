@@ -30,11 +30,22 @@ impl SolidityCompiler for Solc {
 
         let stdin = child.stdin.as_mut().expect("should be piped");
         serde_json::to_writer(stdin, &input.input)?;
+        let output = child.wait_with_output()?;
 
-        let output = child.wait_with_output()?.stdout;
+        if !output.status.success() {
+            let message = String::from_utf8_lossy(&output.stderr);
+            log::error!("solc failed exit={} stderr={}", output.status, &message);
+            return Ok(CompilerOutput {
+                input,
+                output: Default::default(),
+                error: Some(message.into()),
+            });
+        }
+
         Ok(CompilerOutput {
             input,
-            output: serde_json::from_slice(&output)?,
+            output: serde_json::from_slice(&output.stdout)?,
+            error: None,
         })
     }
 

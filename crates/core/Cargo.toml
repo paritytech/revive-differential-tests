@@ -18,6 +18,7 @@ revive-dt-config = { workspace = true }
 revive-dt-format = { workspace = true }
 revive-dt-node = { workspace = true }
 revive-dt-node-interaction = { workspace = true }
+revive-dt-report = { workspace = true }
 
 alloy = { workspace = true }
 anyhow = { workspace = true }

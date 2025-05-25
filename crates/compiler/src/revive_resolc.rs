@@ -41,12 +41,18 @@ impl SolidityCompiler for Resolc {
         let stderr = output.stderr;
 
         if !output.status.success() {
+            let message = String::from_utf8_lossy(&stderr);
             log::error!(
                 "resolc failed exit={} stderr={} JSON-in={} ",
                 output.status,
-                String::from_utf8_lossy(&stderr),
+                &message,
                 json_in,
             );
+            return Ok(CompilerOutput {
+                input,
+                output: Default::default(),
+                error: Some(message.into()),
+            });
         }
 
         let parsed: SolcStandardJsonOutput = serde_json::from_slice(&stdout).map_err(|e| {
@@ -59,6 +65,7 @@ impl SolidityCompiler for Resolc {
         Ok(CompilerOutput {
             input,
             output: parsed,
+            error: None,
         })
     }
 

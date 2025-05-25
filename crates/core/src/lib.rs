@@ -4,6 +4,7 @@
 //! provides a helper utilty to execute tests.
 
 use revive_dt_compiler::{SolidityCompiler, revive_resolc, solc};
+use revive_dt_config::TestingPlatform;
 use revive_dt_node::geth;
 use revive_dt_node_interaction::EthereumNode;
 
@@ -15,6 +16,9 @@ pub mod driver;
 pub trait Platform {
     type Blockchain: EthereumNode;
     type Compiler: SolidityCompiler;
+
+    /// Returns the matching [TestingPlatform] of the [revive_dt_config::Arguments].
+    fn config_id() -> TestingPlatform;
 }
 
 #[derive(Default)]
@@ -23,6 +27,10 @@ pub struct Geth;
 impl Platform for Geth {
     type Blockchain = geth::Instance;
     type Compiler = solc::Solc;
+
+    fn config_id() -> TestingPlatform {
+        TestingPlatform::Geth
+    }
 }
 
 #[derive(Default)]
@@ -31,4 +39,8 @@ pub struct Kitchensink;
 impl Platform for Kitchensink {
     type Blockchain = geth::Instance;
     type Compiler = revive_resolc::Resolc;
+
+    fn config_id() -> TestingPlatform {
+        TestingPlatform::Kitchensink
+    }
 }

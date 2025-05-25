@@ -3,11 +3,11 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use crate::metadata::Metadata;
 
-#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Hash)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize, Eq, PartialEq, Hash)]
 pub struct Corpus {
     pub name: String,
     pub path: PathBuf,
