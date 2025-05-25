@@ -78,6 +78,14 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v4
 
+      - name: Restore binaries from cache
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/bin/substrate-node
+            ~/.cargo/bin/eth-rpc
+          key: polkadot-binaries-${{ matrix.os }}-${{ hashFiles('polkadot-sdk/.git') }}
+
       - name: Setup Rust toolchain
         uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
