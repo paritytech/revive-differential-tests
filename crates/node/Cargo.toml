@@ -13,8 +13,13 @@ anyhow = { workspace = true }
 alloy = { workspace = true }
 log = { workspace = true }
 
+
 revive-dt-node-interaction = { workspace = true }
 revive-dt-config = { workspace = true }
+
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tempfile = "3.3"
 
 [dev-dependencies]
 temp-dir = { workspace = true }

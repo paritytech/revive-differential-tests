@@ -1,5 +1,5 @@
 use std::{
-    io::BufRead,
+    io::{BufRead, Write},
     path::PathBuf,
     process::{Child, Command, Stdio},
     sync::atomic::{AtomicU32, Ordering},
@@ -14,6 +14,8 @@ use alloy::{
         trace::geth::{DiffMode, GethDebugTracingOptions, PreStateConfig, PreStateFrame},
     },
 };
+use serde_json::{Value as JsonValue, json};
+use tempfile::NamedTempFile;
 
 use crate::Node;
 use revive_dt_config::Arguments;
@@ -40,11 +42,18 @@ impl KitchensinkNode {
     const BASE_SUBSTRATE_RPC_PORT: u16 = 9944;
     const BASE_PROXY_RPC_PORT: u16 = 8545;
 
-    fn spawn_process(&mut self, _genesis: String) -> anyhow::Result<()> {
+    fn spawn_process(&mut self, genesis: String) -> anyhow::Result<()> {
         let substrate_rpc_port = Self::BASE_SUBSTRATE_RPC_PORT + self.id as u16;
         let proxy_rpc_port = Self::BASE_PROXY_RPC_PORT + self.id as u16;
 
         self.rpc_url = format!("http://127.0.0.1:{proxy_rpc_port}");
+
+        let _chainspec_path = self.generate_chainspec(&genesis)?;
+        /*
+
+        .arg("--chain")
+        .arg(chainspec_path)
+         */
 
         // Start Substrate node
         let mut substrate_process = Command::new(&self.substrate_binary)
@@ -93,6 +102,42 @@ impl KitchensinkNode {
         Ok(())
     }
 
+    fn generate_chainspec(&self, genesis_json: &str) -> anyhow::Result<PathBuf> {
+        let genesis: JsonValue = serde_json::from_str(genesis_json)?;
+        let alloc = genesis
+            .get("alloc")
+            .and_then(|a| a.as_object())
+            .ok_or_else(|| anyhow::anyhow!("Missing 'alloc' in genesis"))?;
+
+        let mut balances = Vec::new();
+        for (eth_addr, obj) in alloc.iter() {
+            let balance_str = obj.get("balance").and_then(|b| b.as_str()).unwrap_or("0");
+
+            let balance = if balance_str.starts_with("0x") {
+                u128::from_str_radix(balance_str.trim_start_matches("0x"), 16)?
+            } else {
+                balance_str.parse::<u128>()?
+            };
+
+            let substrate_addr = self.eth_to_substrate_address(eth_addr);
+            balances.push(json!([substrate_addr, balance]));
+        }
+
+        let mut chainspec: JsonValue =
+            serde_json::from_str(include_str!("default_chainspec.json"))?;
+        chainspec["genesis"]["runtimeGenesis"]["patch"]["balances"]["balances"] = json!(balances);
+
+        let mut temp_file = NamedTempFile::new()?;
+        serde_json::to_writer_pretty(&mut temp_file, &chainspec)?;
+        temp_file.flush()?;
+
+        Ok(temp_file.into_temp_path().keep()?)
+    }
+
+    fn eth_to_substrate_address(&self, eth_addr: &str) -> String {
+        return "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY".to_string();
+    }
+
     fn wait_ready(child: &mut Child, marker: &str, timeout: Duration) -> anyhow::Result<()> {
         let start_time = std::time::Instant::now();
         let stderr = child.stderr.take().expect("stderr must be piped");
@@ -100,6 +145,7 @@ impl KitchensinkNode {
         let mut lines = std::io::BufReader::new(stderr).lines();
         loop {
             if let Some(Ok(line)) = lines.next() {
+                //println!("Kitchensink log: {line:?}");
                 if line.contains(marker) {
                     std::thread::spawn(move || for _ in lines.by_ref() {});
                     return Ok(());
@@ -239,9 +285,8 @@ impl Drop for KitchensinkNode {
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
-
     use revive_dt_config::Arguments;
+    use std::path::PathBuf;
     use temp_dir::TempDir;
 
     use super::KitchensinkNode;

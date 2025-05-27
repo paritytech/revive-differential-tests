@@ -3059,7 +3059,10 @@ dependencies = [
  "log",
  "revive-dt-config",
  "revive-dt-node-interaction",
+ "serde",
+ "serde_json",
  "temp-dir",
+ "tempfile",
 ]
 
 [[package]]
