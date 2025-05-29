@@ -31,6 +31,7 @@ use revive_dt_node_interaction::{
 
 static NODE_COUNT: AtomicU32 = AtomicU32::new(0);
 
+
 #[derive(Debug)]
 pub struct KitchensinkNode {
     id: u32,
@@ -48,7 +49,7 @@ impl KitchensinkNode {
     const BASE_SUBSTRATE_RPC_PORT: u16 = 9944;
     const BASE_PROXY_RPC_PORT: u16 = 8545;
 
-    fn spawn_process(&mut self, genesis: String) -> anyhow::Result<()> {
+    fn spawn_process(&mut self, _genesis: String) -> anyhow::Result<()> {
         let substrate_rpc_port = Self::BASE_SUBSTRATE_RPC_PORT + self.id as u16;
         let proxy_rpc_port = Self::BASE_PROXY_RPC_PORT + self.id as u16;
 
@@ -101,6 +102,7 @@ impl KitchensinkNode {
         Ok(())
     }
 
+    #[allow(dead_code)]
     fn generate_chainspec_file(&self, genesis_path: &str) -> anyhow::Result<PathBuf> {
         let mut balances = self.extract_balance_from_genesis_file(genesis_path)?;
 
