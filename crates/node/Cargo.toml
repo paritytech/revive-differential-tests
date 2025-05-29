@@ -13,6 +13,10 @@ anyhow = { workspace = true }
 alloy = { workspace = true }
 log = { workspace = true }
 
+sp-core = "36.1.0"
+sp-runtime = "41.1.0"
+sc-chain-spec = "42.0.0"
+
 
 revive-dt-node-interaction = { workspace = true }
 revive-dt-config = { workspace = true }

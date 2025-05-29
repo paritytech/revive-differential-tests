@@ -6,7 +6,15 @@ use std::{
     time::Duration,
 };
 
+use serde_json::Value;
+use serde_json::json;
+use sp_core::crypto::Ss58Codec;
+use sp_runtime::AccountId32;
+use std::fs;
+use tempfile::NamedTempFile;
+
 use alloy::{
+    hex,
     network::EthereumWallet,
     providers::{Provider, ProviderBuilder, ext::DebugApi},
     rpc::types::{
@@ -14,8 +22,7 @@ use alloy::{
         trace::geth::{DiffMode, GethDebugTracingOptions, PreStateConfig, PreStateFrame},
     },
 };
-use serde_json::{Value as JsonValue, json};
-use tempfile::NamedTempFile;
+use serde_json::Value as JsonValue;
 
 use crate::Node;
 use revive_dt_config::Arguments;
@@ -48,16 +55,19 @@ impl KitchensinkNode {
 
         self.rpc_url = format!("http://127.0.0.1:{proxy_rpc_port}");
 
-        let _chainspec_path = self.generate_chainspec(&genesis)?;
         /*
+            let chainspec_path = PathBuf::from(
+            "/Users/vasilutlucian/projects/revive-differential-tests/crates/node/src/default_chainspec.json",
 
-        .arg("--chain")
-        .arg(chainspec_path)
+            .arg("--dev")
+        );
          */
+        let chainspec_path = self.generate_chainspec_three(&genesis)?;
 
         // Start Substrate node
         let mut substrate_process = Command::new(&self.substrate_binary)
-            .arg("--dev")
+            .arg("--chain")
+            .arg(chainspec_path)
             .arg("--rpc-port")
             .arg(substrate_rpc_port.to_string())
             .arg("--name")
@@ -102,27 +112,10 @@ impl KitchensinkNode {
         Ok(())
     }
 
-    fn generate_chainspec(&self, genesis_json: &str) -> anyhow::Result<PathBuf> {
-        let genesis: JsonValue = serde_json::from_str(genesis_json)?;
-        let alloc = genesis
-            .get("alloc")
-            .and_then(|a| a.as_object())
-            .ok_or_else(|| anyhow::anyhow!("Missing 'alloc' in genesis"))?;
-
-        let mut balances = Vec::new();
-        for (eth_addr, obj) in alloc.iter() {
-            let balance_str = obj.get("balance").and_then(|b| b.as_str()).unwrap_or("0");
-
-            let balance = if balance_str.starts_with("0x") {
-                u128::from_str_radix(balance_str.trim_start_matches("0x"), 16)?
-            } else {
-                balance_str.parse::<u128>()?
-            };
-
-            let substrate_addr = self.eth_to_substrate_address(eth_addr);
-            balances.push(json!([substrate_addr, balance]));
-        }
-
+    
+    /* 
+    fn generate_chainspec_one(&self, genesis_json: &str) -> anyhow::Result<PathBuf> {
+        let mut balances = self.extract_balance_from_genesis_file(genesis_json);
         let mut chainspec: JsonValue =
             serde_json::from_str(include_str!("default_chainspec.json"))?;
         chainspec["genesis"]["runtimeGenesis"]["patch"]["balances"]["balances"] = json!(balances);
@@ -133,9 +126,95 @@ impl KitchensinkNode {
 
         Ok(temp_file.into_temp_path().keep()?)
     }
+    */
+    
 
-    fn eth_to_substrate_address(&self, eth_addr: &str) -> String {
-        return "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY".to_string();
+    fn generate_chainspec_two(&self, genesis_path: &str) -> anyhow::Result<PathBuf> {
+        // Step 1: Extract balances from the Geth genesis
+        let balances = self.extract_balance_from_genesis_file(genesis_path)?;
+
+        // Step 2: Load your existing chainspec.json
+        let mut chainspec_json: JsonValue =
+            serde_json::from_str(&fs::read_to_string("default_chainspec.json")?)?;
+
+        // Step 3: Patch the balances into the chainspec
+        chainspec_json["genesis"]["runtimeGenesis"]["patch"]["balances"]["balances"] =
+            json!(balances);
+
+        // Step 4: Serialize and write to a temporary file
+        let mut temp_file = NamedTempFile::new()?;
+        serde_json::to_writer_pretty(&mut temp_file, &chainspec_json)?;
+        temp_file.flush()?;
+
+        //debug
+
+        // Get the actual file path
+        let temp_path = temp_file.into_temp_path().keep()?;
+        println!("✅ Chainspec written to: {:?}", temp_path);
+
+        // Optional: Print the full JSON contents (careful with large files)
+        let chainspec_str = fs::read_to_string(&temp_path)?;
+        println!("✅ Final chainspec contents:\n{}", chainspec_str);
+
+        Ok(temp_path)
+    }
+
+    fn generate_chainspec_three(&self, genesis_path: &str) -> anyhow::Result<PathBuf> {
+        let balances = self.extract_balance_from_genesis_file(genesis_path)?;
+
+        let mut chainspec_json: JsonValue =
+            serde_json::from_str(include_str!("default_chainspec.json"))?;
+
+        chainspec_json["genesis"]["runtimeGenesis"]["patch"]["balances"]["balances"] =
+            json!(balances);
+
+        let temp_path = std::env::temp_dir().join(format!("chainspec-{}.json", 1));
+        println!("✅ Writing chainspec to: {:?}", temp_path);
+
+        let mut temp_file = std::fs::File::create(&temp_path)?;
+        serde_json::to_writer_pretty(&mut temp_file, &chainspec_json)?;
+        temp_file.flush()?;
+
+        println!(
+            "✅ Final chainspec contents:\n{}",
+            fs::read_to_string(&temp_path)?
+        );
+
+        Ok(temp_path)
+    }
+
+    fn extract_balance_from_genesis_file(
+        &self,
+        genesis_path: &str,
+    ) -> anyhow::Result<Vec<(String, u128)>> {
+        let genesis_str = fs::read_to_string(genesis_path)?;
+        let genesis_json: Value = serde_json::from_str(&genesis_str)?;
+        let alloc = genesis_json
+            .get("alloc")
+            .and_then(|a| a.as_object())
+            .ok_or_else(|| anyhow::anyhow!("Missing 'alloc' in genesis"))?;
+
+        let mut balances = Vec::new();
+        for (eth_addr, obj) in alloc.iter() {
+            let balance_str = obj.get("balance").and_then(|b| b.as_str()).unwrap_or("0");
+            let balance = if balance_str.starts_with("0x") {
+                u128::from_str_radix(balance_str.trim_start_matches("0x"), 16)?
+            } else {
+                balance_str.parse::<u128>()?
+            };
+            let substrate_addr = &self.eth_to_substrate_address(eth_addr)?;
+            balances.push((substrate_addr.clone(), balance));
+        }
+        Ok(balances)
+    }
+
+    fn eth_to_substrate_address(&self, eth_addr: &str) -> anyhow::Result<String> {
+        let eth_bytes = hex::decode(eth_addr.trim_start_matches("0x"))?;
+        let mut padded = [0u8; 32];
+        padded[12..].copy_from_slice(&eth_bytes);
+        let account_id = AccountId32::from(padded);
+        // Convert to SS58 format
+        Ok(account_id.to_ss58check())
     }
 
     fn wait_ready(child: &mut Child, marker: &str, timeout: Duration) -> anyhow::Result<()> {
@@ -145,7 +224,7 @@ impl KitchensinkNode {
         let mut lines = std::io::BufReader::new(stderr).lines();
         loop {
             if let Some(Ok(line)) = lines.next() {
-                //println!("Kitchensink log: {line:?}");
+                println!("Kitchensink log: {line:?}");
                 if line.contains(marker) {
                     std::thread::spawn(move || for _ in lines.by_ref() {});
                     return Ok(());
@@ -289,6 +368,10 @@ mod tests {
     use std::path::PathBuf;
     use temp_dir::TempDir;
 
+    use super::*;
+    use std::fs;
+    use tempfile::tempdir;
+
     use super::KitchensinkNode;
     use crate::{GENESIS_JSON, Node};
 
@@ -302,6 +385,83 @@ mod tests {
         config.eth_proxy = PathBuf::from("eth-rpc");
 
         (config, temp_dir)
+    }
+
+    #[test]
+    fn test_parse_genesis_alloc() {
+        let temp_dir = tempdir().unwrap();
+        let genesis_path = temp_dir.path().join("test_genesis.json");
+
+        // Create test genesis file
+        let genesis_json = r#"
+        {
+          "alloc": {
+            "0x90F8bf6A479f320ead074411a4B0e7944Ea8c9C1": { "balance": "1000000000000000000" },
+            "0x0000000000000000000000000000000000000000": { "balance": "0xDE0B6B3A7640000" },
+            "0xffffffffffffffffffffffffffffffffffffffff": { "balance": "123456789" }
+          }
+        }
+        "#;
+
+        fs::write(&genesis_path, genesis_json).unwrap();
+
+        // Initialize KitchensinkNode (dummy values)
+        let node = KitchensinkNode::new(&test_config().0);
+
+        let result = node
+            .extract_balance_from_genesis_file(genesis_path.to_str().unwrap())
+            .unwrap();
+
+        // Collect results into a HashMap for easier checking
+        let result_map: std::collections::HashMap<_, _> = result.into_iter().collect();
+
+        // Check expected values
+        assert_eq!(
+            result_map.get("5C4hrfjw9DjXZTzV3NdLyqx6imk2ZYAfDdacXRwCxXmMpQdK"),
+            Some(&1_000_000_000_000_000_000u128)
+        );
+
+        assert_eq!(
+            result_map.get("5C4hrfjw9DjXZTzV3MwzrrAr9P1MJhSrvWGWqi1eSuyUpnhM"),
+            Some(&1_000_000_000_000_000_000u128)
+        );
+
+        assert_eq!(
+            result_map.get("5C4hrfjw9DjXZTzV3P9UmfbQox1vWPNoGNrwq5qYrDt3ngdY"),
+            Some(&123_456_789u128)
+        );
+    }
+
+    #[test]
+    fn test_eth_to_substrate_address() {
+        let node = KitchensinkNode::new(&test_config().0);
+
+        let cases = vec![
+            (
+                "0x90F8bf6A479f320ead074411a4B0e7944Ea8c9C1",
+                "5C4hrfjw9DjXZTzV3NdLyqx6imk2ZYAfDdacXRwCxXmMpQdK",
+            ),
+            (
+                "90F8bf6A479f320ead074411a4B0e7944Ea8c9C1",
+                "5C4hrfjw9DjXZTzV3NdLyqx6imk2ZYAfDdacXRwCxXmMpQdK",
+            ),
+            (
+                "0x0000000000000000000000000000000000000000",
+                "5C4hrfjw9DjXZTzV3MwzrrAr9P1MJhSrvWGWqi1eSuyUpnhM",
+            ),
+            (
+                "0xffffffffffffffffffffffffffffffffffffffff",
+                "5C4hrfjw9DjXZTzV3P9UmfbQox1vWPNoGNrwq5qYrDt3ngdY",
+            ),
+        ];
+
+        for (eth_addr, expected_ss58) in cases {
+            let result = node.eth_to_substrate_address(eth_addr).unwrap();
+            assert_eq!(
+                result, expected_ss58,
+                "Mismatch for Ethereum address {eth_addr}"
+            );
+        }
     }
 
     #[test]
