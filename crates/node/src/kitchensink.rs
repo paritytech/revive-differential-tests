@@ -31,7 +31,6 @@ use revive_dt_node_interaction::{
 
 static NODE_COUNT: AtomicU32 = AtomicU32::new(0);
 
-
 #[derive(Debug)]
 pub struct KitchensinkNode {
     id: u32,
@@ -49,15 +48,18 @@ impl KitchensinkNode {
     const BASE_SUBSTRATE_RPC_PORT: u16 = 9944;
     const BASE_PROXY_RPC_PORT: u16 = 8545;
 
-    fn spawn_process(&mut self, _genesis: String) -> anyhow::Result<()> {
+    fn spawn_process(&mut self, genesis: String) -> anyhow::Result<()> {
         let substrate_rpc_port = Self::BASE_SUBSTRATE_RPC_PORT + self.id as u16;
         let proxy_rpc_port = Self::BASE_PROXY_RPC_PORT + self.id as u16;
 
         self.rpc_url = format!("http://127.0.0.1:{proxy_rpc_port}");
 
+        let chainspec_path = self.generate_chainspec_file(&genesis)?;
+
         // Start Substrate node
         let mut substrate_process = Command::new(&self.substrate_binary)
-            .arg("--dev")
+            .arg("--chain")
+            .arg(chainspec_path)
             .arg("--rpc-port")
             .arg(substrate_rpc_port.to_string())
             .arg("--name")
@@ -102,7 +104,6 @@ impl KitchensinkNode {
         Ok(())
     }
 
-    #[allow(dead_code)]
     fn generate_chainspec_file(&self, genesis_path: &str) -> anyhow::Result<PathBuf> {
         let mut balances = self.extract_balance_from_genesis_file(genesis_path)?;
 
@@ -134,7 +135,8 @@ impl KitchensinkNode {
         chainspec_json["genesis"]["runtimeGenesis"]["patch"]["balances"]["balances"] =
             json!(merged_balances);
 
-        let temp_path = std::env::temp_dir().join(format!("chainspec-{}.json", 1));
+        let temp_path =
+            std::env::temp_dir().join(format!("chainspec-{}.json", uuid::Uuid::new_v4()));
 
         let mut temp_file = std::fs::File::create(&temp_path)?;
         serde_json::to_writer_pretty(&mut temp_file, &chainspec_json)?;
@@ -349,7 +351,7 @@ mod tests {
     #[test]
     fn test_generate_chainspec() {
         // Setup: Write a minimal Geth-style genesis.json
-        let test_genesis_path = std::env::temp_dir().join("test_genesis.json");
+        let test_genesis_path = std::env::temp_dir().join("test_genesis_file.json");
         let genesis_content = r#"
         {
             "alloc": {
@@ -392,7 +394,7 @@ mod tests {
     #[test]
     fn test_parse_genesis_alloc() {
         let temp_dir = tempdir().unwrap();
-        let genesis_path = temp_dir.path().join("test_genesis.json");
+        let genesis_path = temp_dir.path().join("test_genesis_file_eth.json");
 
         // Create test genesis file
         let genesis_json = r#"
@@ -467,8 +469,13 @@ mod tests {
     fn spawn_works() {
         let (config, _temp_dir) = test_config();
 
+        // Write GENESIS_JSON to a temp file
+        let genesis_path = std::env::temp_dir().join("test_genesis_eth.json");
+        std::fs::write(&genesis_path, GENESIS_JSON).unwrap();
+
         let mut node = KitchensinkNode::new(&config);
-        node.spawn(GENESIS_JSON.to_string()).unwrap();
+        node.spawn(genesis_path.to_str().unwrap().to_string())
+            .unwrap();
     }
 
     #[test]

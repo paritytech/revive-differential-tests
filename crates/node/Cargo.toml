@@ -12,6 +12,7 @@ rust-version.workspace = true
 anyhow = { workspace = true }
 alloy = { workspace = true }
 log = { workspace = true }
+uuid = { version = "1.8", features = ["v4"] }
 
 sp-core = "36.1.0"
 sp-runtime = "41.1.0"
