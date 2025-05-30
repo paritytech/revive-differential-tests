@@ -1,4 +1,4 @@
-name: Test
+name: Test workflow
 
 on:
   push:
@@ -7,9 +7,7 @@ on:
   pull_request:
     branches:
       - main
-    types:
-      - opened
-      - synchronize
+    types: [opened, synchronize]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
@@ -19,38 +17,97 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  ci:
-    name: CI on ${{ matrix.os }}
+  cache-polkadot:
+    name: Build and cache Polkadot binaries on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     strategy:
-      fail-fast: false
       matrix:
-        os:
-          - ubuntu-24.04
-          - macos-14
+        os: [ubuntu-24.04, macos-14]
+
+    steps:
+      - name: Checkout repo and submodules
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install dependencies (Linux)
+        if: matrix.os == 'ubuntu-24.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y protobuf-compiler clang libclang-dev
+          rustup target add wasm32-unknown-unknown
+          rustup component add rust-src
+
+      - name: Install dependencies (macOS)
+        if: matrix.os == 'macos-14'
+        run: |
+          brew install protobuf
+          rustup target add wasm32-unknown-unknown
+          rustup component add rust-src
+
+      - name: Cache binaries
+        id: cache
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/bin/substrate-node
+            ~/.cargo/bin/eth-rpc
+          key: polkadot-binaries-${{ matrix.os }}-${{ hashFiles('polkadot-sdk/.git') }}
+
+      - name: Build substrate-node
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          cd polkadot-sdk
+          cargo install --locked --force --profile=production --path substrate/bin/node/cli --bin substrate-node --features cli
+
+      - name: Build eth-rpc
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          cd polkadot-sdk
+          cargo install --path substrate/frame/revive/rpc --bin eth-rpc
+
+  ci:
+    name: CI on ${{ matrix.os }}
+    needs: cache-polkadot
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-24.04, macos-14]
 
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
+
+      - name: Restore binaries from cache
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/bin/substrate-node
+            ~/.cargo/bin/eth-rpc
+          key: polkadot-binaries-${{ matrix.os }}-${{ hashFiles('polkadot-sdk/.git') }}
 
       - name: Setup Rust toolchain
         uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           rustflags: ""
 
-      # ────────────── Install geth ──────────────
+      - name: Add wasm32 target
+        run: |
+          rustup target add wasm32-unknown-unknown
+          rustup component add rust-src
+
       - name: Install Geth on Ubuntu
         if: matrix.os == 'ubuntu-24.04'
         run: |
           sudo add-apt-repository -y ppa:ethereum/ethereum
           sudo apt-get update
-          sudo apt-get install -y ethereum
+          sudo apt-get install -y ethereum protobuf-compiler
 
       - name: Install Geth on macOS
         if: matrix.os == 'macos-14'
         run: |
           brew tap ethereum/ethereum
-          brew install ethereum
+          brew install ethereum protobuf
 
       - name: Machete
         uses: bnjbvr/cargo-machete@v0.7.1
@@ -60,6 +117,12 @@ jobs:
 
       - name: Clippy
         run: make clippy
+
+      - name: Check substrate-node version
+        run: substrate-node --version
+
+      - name: Check eth-rpc version
+        run: eth-rpc --version
 
       - name: Test cargo workspace
         run: make test
