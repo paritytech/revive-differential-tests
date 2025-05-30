@@ -152,10 +152,18 @@ impl KitchensinkNode {
 
     fn eth_to_substrate_address(&self, eth_addr: &str) -> anyhow::Result<String> {
         let eth_bytes = hex::decode(eth_addr.trim_start_matches("0x"))?;
+        if eth_bytes.len() != 20 {
+            anyhow::bail!(
+                "Invalid Ethereum address length: expected 20 bytes, got {}",
+                eth_bytes.len()
+            );
+        }
+
         let mut padded = [0u8; 32];
-        padded[12..].copy_from_slice(&eth_bytes);
+        padded[..12].fill(0xEE); // Fill first 12 bytes with 0xEE
+        padded[12..].copy_from_slice(&eth_bytes); // Append Ethereum 20 bytes
+
         let account_id = AccountId32::from(padded);
-        // Convert to SS58 format
         Ok(account_id.to_ss58check())
     }
 
@@ -398,19 +406,36 @@ mod tests {
         let result_map: std::collections::HashMap<_, _> = result.into_iter().collect();
 
         assert_eq!(
-            result_map.get("5C4hrfjw9DjXZTzV3NdLyqx6imk2ZYAfDdacXRwCxXmMpQdK"),
+            result_map.get("5HTzEPr3W2R93FhiZ3vvDXGduMsEZLHc1Row7KN7R3LkWSK4"),
             Some(&1_000_000_000_000_000_000u128)
         );
 
         assert_eq!(
-            result_map.get("5C4hrfjw9DjXZTzV3MwzrrAr9P1MJhSrvWGWqi1eSuyUpnhM"),
+            result_map.get("5HTzEPr3W2R93FhiZ3Fa6XVPKy8ZJVZoiJVqRbSYuRYsWuGs"),
             Some(&1_000_000_000_000_000_000u128)
         );
 
         assert_eq!(
-            result_map.get("5C4hrfjw9DjXZTzV3P9UmfbQox1vWPNoGNrwq5qYrDt3ngdY"),
+            result_map.get("5HTzEPr3W2R93FhiZ4T41LuwzY98WBVk4B6GQyGTJjTSUoun"),
             Some(&123_456_789u128)
         );
+    }
+
+    #[test]
+    fn print_eth_to_substrate_mappings() {
+        let node = KitchensinkNode::new(&test_config().0);
+
+        let eth_addresses = vec![
+            "0x90F8bf6A479f320ead074411a4B0e7944Ea8c9C1",
+            "0x0000000000000000000000000000000000000000",
+            "0xffffffffffffffffffffffffffffffffffffffff",
+        ];
+
+        for eth_addr in eth_addresses {
+            let ss58 = &node.eth_to_substrate_address(eth_addr).unwrap();
+
+            println!("Ethereum: {eth_addr} -> Substrate SS58: {ss58}");
+        }
     }
 
     #[test]
@@ -420,19 +445,19 @@ mod tests {
         let cases = vec![
             (
                 "0x90F8bf6A479f320ead074411a4B0e7944Ea8c9C1",
-                "5C4hrfjw9DjXZTzV3NdLyqx6imk2ZYAfDdacXRwCxXmMpQdK",
+                "5HTzEPr3W2R93FhiZ3vvDXGduMsEZLHc1Row7KN7R3LkWSK4",
             ),
             (
                 "90F8bf6A479f320ead074411a4B0e7944Ea8c9C1",
-                "5C4hrfjw9DjXZTzV3NdLyqx6imk2ZYAfDdacXRwCxXmMpQdK",
+                "5HTzEPr3W2R93FhiZ3vvDXGduMsEZLHc1Row7KN7R3LkWSK4",
             ),
             (
                 "0x0000000000000000000000000000000000000000",
-                "5C4hrfjw9DjXZTzV3MwzrrAr9P1MJhSrvWGWqi1eSuyUpnhM",
+                "5HTzEPr3W2R93FhiZ3Fa6XVPKy8ZJVZoiJVqRbSYuRYsWuGs",
             ),
             (
                 "0xffffffffffffffffffffffffffffffffffffffff",
-                "5C4hrfjw9DjXZTzV3P9UmfbQox1vWPNoGNrwq5qYrDt3ngdY",
+                "5HTzEPr3W2R93FhiZ4T41LuwzY98WBVk4B6GQyGTJjTSUoun",
             ),
         ];
 
