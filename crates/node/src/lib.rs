@@ -4,6 +4,7 @@ use alloy::rpc::types::{TransactionReceipt, trace::geth::DiffMode};
 use revive_dt_config::Arguments;
 use revive_dt_node_interaction::EthereumNode;
 
+pub mod chainspec;
 pub mod geth;
 pub mod kitchensink;
 pub mod pool;

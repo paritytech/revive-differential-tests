@@ -7,7 +7,6 @@ use std::{
 };
 
 use serde_json::Value;
-use serde_json::json;
 use sp_core::crypto::Ss58Codec;
 use sp_runtime::AccountId32;
 use std::fs;
@@ -21,9 +20,8 @@ use alloy::{
         trace::geth::{DiffMode, GethDebugTracingOptions, PreStateConfig, PreStateFrame},
     },
 };
-use serde_json::Value as JsonValue;
 
-use crate::Node;
+use crate::{Node, chainspec::ChainSpec};
 use revive_dt_config::Arguments;
 use revive_dt_node_interaction::{
     EthereumNode, trace::trace_transaction, transaction::execute_transaction,
@@ -107,39 +105,21 @@ impl KitchensinkNode {
     fn generate_chainspec_file(&self, genesis_path: &str) -> anyhow::Result<PathBuf> {
         let mut balances = self.extract_balance_from_genesis_file(genesis_path)?;
 
-        let mut chainspec_json: JsonValue =
+        let mut chainspec: ChainSpec =
             serde_json::from_str(include_str!("default_chainspec.json"))?;
 
-        let existing_balances =
-            chainspec_json["genesis"]["runtimeGenesis"]["patch"]["balances"]["balances"]
-                .as_array()
-                .cloned()
-                .unwrap_or_default();
+        let existing_balances = chainspec.genesis.runtime_genesis.patch.balances.balances;
 
-        let mut merged_balances: Vec<(String, u128)> = existing_balances
-            .into_iter()
-            .filter_map(|val| {
-                if let Some(arr) = val.as_array() {
-                    if arr.len() == 2 {
-                        let account = arr[0].as_str()?.to_string();
-                        let balance = arr[1].as_f64()? as u128;
-                        return Some((account, balance));
-                    }
-                }
-                None
-            })
-            .collect();
-
+        let mut merged_balances: Vec<(String, u128)> = existing_balances;
         merged_balances.append(&mut balances);
 
-        chainspec_json["genesis"]["runtimeGenesis"]["patch"]["balances"]["balances"] =
-            json!(merged_balances);
+        chainspec.genesis.runtime_genesis.patch.balances.balances = merged_balances;
 
         let temp_path =
             std::env::temp_dir().join(format!("chainspec-{}.json", uuid::Uuid::new_v4()));
 
         let mut temp_file = std::fs::File::create(&temp_path)?;
-        serde_json::to_writer_pretty(&mut temp_file, &chainspec_json)?;
+        serde_json::to_writer_pretty(&mut temp_file, &chainspec)?;
         temp_file.flush()?;
 
         Ok(temp_path)

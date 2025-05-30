@@ -58,7 +58,7 @@ jobs:
         if: steps.cache.outputs.cache-hit != 'true'
         run: |
           cd polkadot-sdk
-          cargo install --path substrate/bin/node/cli --bin substrate-node --features cli
+          cargo install --locked --force --profile=production --path substrate/bin/node/cli --bin substrate-node --features cli
 
       - name: Build eth-rpc
         if: steps.cache.outputs.cache-hit != 'true'
