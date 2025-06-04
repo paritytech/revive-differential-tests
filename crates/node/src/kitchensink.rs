@@ -181,13 +181,13 @@ impl KitchensinkNode {
             } else {
                 balance_str.parse::<u128>()?
             };
-            let substrate_addr = &self.eth_to_substrate_address(eth_addr)?;
+            let substrate_addr = Self::eth_to_substrate_address(eth_addr)?;
             balances.push((substrate_addr.clone(), balance));
         }
         Ok(balances)
     }
 
-    fn eth_to_substrate_address(&self, eth_addr: &str) -> anyhow::Result<String> {
+    fn eth_to_substrate_address(eth_addr: &str) -> anyhow::Result<String> {
         let eth_bytes = hex::decode(eth_addr.trim_start_matches("0x"))?;
         if eth_bytes.len() != 20 {
             anyhow::bail!(
@@ -403,12 +403,12 @@ mod tests {
         let contents = fs::read_to_string(&final_chainspec_path).expect("Failed to read chainspec");
 
         // Validate that the Substrate addresses derived from the Ethereum addresses are in the file
-        let first_eth_addr = dummy_node
-            .eth_to_substrate_address("90F8bf6A479f320ead074411a4B0e7944Ea8c9C1")
-            .unwrap();
-        let second_eth_addr = dummy_node
-            .eth_to_substrate_address("Ab8483F64d9C6d1EcF9b849Ae677dD3315835cb2")
-            .unwrap();
+        let first_eth_addr =
+            KitchensinkNode::eth_to_substrate_address("90F8bf6A479f320ead074411a4B0e7944Ea8c9C1")
+                .unwrap();
+        let second_eth_addr =
+            KitchensinkNode::eth_to_substrate_address("Ab8483F64d9C6d1EcF9b849Ae677dD3315835cb2")
+                .unwrap();
 
         assert!(
             contents.contains(&first_eth_addr),
@@ -459,8 +459,6 @@ mod tests {
 
     #[test]
     fn print_eth_to_substrate_mappings() {
-        let node = KitchensinkNode::new(&test_config().0);
-
         let eth_addresses = vec![
             "0x90F8bf6A479f320ead074411a4B0e7944Ea8c9C1",
             "0xffffffffffffffffffffffffffffffffffffffff",
@@ -468,7 +466,7 @@ mod tests {
         ];
 
         for eth_addr in eth_addresses {
-            let ss58 = &node.eth_to_substrate_address(eth_addr).unwrap();
+            let ss58 = KitchensinkNode::eth_to_substrate_address(eth_addr).unwrap();
 
             println!("Ethereum: {eth_addr} -> Substrate SS58: {ss58}");
         }
@@ -476,8 +474,6 @@ mod tests {
 
     #[test]
     fn test_eth_to_substrate_address() {
-        let node = KitchensinkNode::new(&test_config().0);
-
         let cases = vec![
             (
                 "0x90F8bf6A479f320ead074411a4B0e7944Ea8c9C1",
@@ -498,7 +494,7 @@ mod tests {
         ];
 
         for (eth_addr, expected_ss58) in cases {
-            let result = node.eth_to_substrate_address(eth_addr).unwrap();
+            let result = KitchensinkNode::eth_to_substrate_address(eth_addr).unwrap();
             assert_eq!(
                 result, expected_ss58,
                 "Mismatch for Ethereum address {eth_addr}"
