@@ -35,8 +35,12 @@ semver = { version = "1.0", features = ["serde"] }
 serde = { version = "1.0", default-features = false, features = ["derive"] }
 serde_json = { version = "1.0", default-features = false, features = ["arbitrary_precision", "std"] }
 sha2 = { version = "0.10.9" }
+sp-core = "36.1.0"
+sp-runtime = "41.1.0"
 temp-dir = { version = "0.1.16" }
+tempfile = "3.3"
 tokio = { version = "1", default-features = false, features = ["rt-multi-thread"] }
+uuid = { version = "1.8", features = ["v4"] }
 
 # revive compiler
 revive-solc-json-interface = { git = "https://github.com/paritytech/revive", rev = "3389865af7c3ff6f29a586d82157e8bc573c1a8e" }
