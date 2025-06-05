@@ -1,6 +1,5 @@
 //! This crate implements the testing nodes.
 
-use alloy::rpc::types::{TransactionReceipt, trace::geth::DiffMode};
 use revive_dt_config::Arguments;
 use revive_dt_node_interaction::EthereumNode;
 
@@ -28,9 +27,6 @@ pub trait Node: EthereumNode {
 
     /// Returns the nodes connection string.
     fn connection_string(&self) -> String;
-
-    /// Returns the state diff of the transaction hash in the [TransactionReceipt].
-    fn state_diff(&self, transaction: TransactionReceipt) -> anyhow::Result<DiffMode>;
 
     /// Returns the node version.
     fn version(&self) -> anyhow::Result<String>;
