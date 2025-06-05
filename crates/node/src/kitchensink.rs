@@ -279,6 +279,16 @@ impl EthereumNode for KitchensinkNode {
                 .await?)
         }))
     }
+
+    fn state_diff(&self, transaction: TransactionReceipt) -> anyhow::Result<DiffMode> {
+        match self
+            .trace_transaction(transaction)?
+            .try_into_pre_state_frame()?
+        {
+            PreStateFrame::Diff(diff) => Ok(diff),
+            _ => anyhow::bail!("expected a diff mode trace"),
+        }
+    }
 }
 
 impl Node for KitchensinkNode {
@@ -315,16 +325,6 @@ impl Node for KitchensinkNode {
 
     fn spawn(&mut self, genesis: String) -> anyhow::Result<()> {
         self.init(&genesis)?.spawn_process()
-    }
-
-    fn state_diff(&self, transaction: TransactionReceipt) -> anyhow::Result<DiffMode> {
-        match self
-            .trace_transaction(transaction)?
-            .try_into_pre_state_frame()?
-        {
-            PreStateFrame::Diff(diff) => Ok(diff),
-            _ => anyhow::bail!("expected a diff mode trace"),
-        }
     }
 
     fn version(&self) -> anyhow::Result<String> {
