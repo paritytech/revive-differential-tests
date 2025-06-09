@@ -5,7 +5,7 @@
 
 use revive_dt_compiler::{SolidityCompiler, revive_resolc, solc};
 use revive_dt_config::TestingPlatform;
-use revive_dt_node::geth;
+use revive_dt_node::{geth, kitchensink::KitchensinkNode};
 use revive_dt_node_interaction::EthereumNode;
 
 pub mod driver;
@@ -37,7 +37,7 @@ impl Platform for Geth {
 pub struct Kitchensink;
 
 impl Platform for Kitchensink {
-    type Blockchain = geth::Instance;
+    type Blockchain = KitchensinkNode;
     type Compiler = revive_resolc::Resolc;
 
     fn config_id() -> TestingPlatform {

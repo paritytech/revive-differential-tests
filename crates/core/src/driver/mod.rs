@@ -2,7 +2,7 @@
 
 use alloy::{
     primitives::{Address, map::HashMap},
-    rpc::types::trace::geth::GethTrace,
+    rpc::types::trace::geth::{AccountState, DiffMode, GethTrace},
 };
 use revive_dt_compiler::{Compiler, CompilerInput, SolidityCompiler};
 use revive_dt_config::Arguments;
@@ -94,15 +94,22 @@ where
         &mut self,
         input: &Input,
         node: &T::Blockchain,
-    ) -> anyhow::Result<GethTrace> {
+    ) -> anyhow::Result<(GethTrace, DiffMode)> {
         let receipt = node.execute_transaction(input.legacy_transaction(
             self.config.network_id,
             0,
             &self.deployed_contracts,
         )?)?;
-        dbg!(&receipt);
-        //node.trace_transaction(receipt)
-        todo!()
+
+        log::debug!("Transaction receipt: {:?}", receipt);
+
+        let trace = node.trace_transaction(receipt.clone())?;
+
+        log::debug!("Trace result: {:?}", trace);
+
+        let diff = node.state_diff(receipt)?;
+
+        Ok((trace, diff))
     }
 }
 
@@ -132,6 +139,32 @@ where
         }
     }
 
+    pub fn print_diff_mode(label: &str, diff: &DiffMode) {
+        println!("🔍 {} - PRE STATE:", label);
+        for (addr, state) in &diff.pre {
+            Self::print_account_state("  [pre]", addr, state);
+        }
+
+        println!("🔍 {} - POST STATE:", label);
+        for (addr, state) in &diff.post {
+            Self::print_account_state("  [post]", addr, state);
+        }
+    }
+
+    fn print_account_state(prefix: &str, addr: &Address, state: &AccountState) {
+        println!("{} 0x{:x}", prefix, addr);
+
+        if let Some(balance) = &state.balance {
+            println!("{}   balance: {}", prefix, balance);
+        }
+        if let Some(nonce) = &state.nonce {
+            println!("{}   nonce: {}", prefix, nonce);
+        }
+        if let Some(code) = &state.code {
+            println!("{}   code: {}", prefix, code);
+        }
+    }
+
     pub fn execute(&mut self, span: Span) -> anyhow::Result<()> {
         for mode in self.metadata.solc_modes() {
             let mut leader_state = State::<L>::new(self.config, span);
@@ -142,8 +175,17 @@ where
 
             for case in &self.metadata.cases {
                 for input in &case.inputs {
-                    let _ = leader_state.execute_input(input, self.leader_node)?;
-                    let _ = follower_state.execute_input(input, self.follower_node)?;
+                    let (_, leader_diff) = leader_state.execute_input(input, self.leader_node)?;
+                    let (_, follower_diff) =
+                        follower_state.execute_input(input, self.follower_node)?;
+
+                    if leader_diff == follower_diff {
+                        log::info!("State diffs match between leader and follower.");
+                    } else {
+                        log::warn!("State diffs mismatch between leader and follower.");
+                        Self::print_diff_mode("Leader", &leader_diff);
+                        Self::print_diff_mode("Follower", &follower_diff);
+                    }
                 }
             }
         }
