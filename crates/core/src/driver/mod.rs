@@ -101,11 +101,9 @@ where
             &self.deployed_contracts,
         )?)?;
 
-        log::debug!("Transaction receipt: {:?}", receipt);
-
+        log::trace!("Transaction receipt: {:?}", receipt);
         let trace = node.trace_transaction(receipt.clone())?;
-
-        log::debug!("Trace result: {:?}", trace);
+        log::trace!("Trace result: {:?}", trace);
 
         let diff = node.state_diff(receipt)?;
 
@@ -139,29 +137,29 @@ where
         }
     }
 
-    pub fn print_diff_mode(label: &str, diff: &DiffMode) {
-        println!("🔍 {} - PRE STATE:", label);
+    pub fn trace_diff_mode(label: &str, diff: &DiffMode) {
+        log::trace!("{} - PRE STATE:", label);
         for (addr, state) in &diff.pre {
-            Self::print_account_state("  [pre]", addr, state);
+            Self::trace_account_state("  [pre]", addr, state);
         }
 
-        println!("🔍 {} - POST STATE:", label);
+        log::trace!("{} - POST STATE:", label);
         for (addr, state) in &diff.post {
-            Self::print_account_state("  [post]", addr, state);
+            Self::trace_account_state("  [post]", addr, state);
         }
     }
 
-    fn print_account_state(prefix: &str, addr: &Address, state: &AccountState) {
-        println!("{} 0x{:x}", prefix, addr);
+    fn trace_account_state(prefix: &str, addr: &Address, state: &AccountState) {
+        log::trace!("{} 0x{:x}", prefix, addr);
 
         if let Some(balance) = &state.balance {
-            println!("{}   balance: {}", prefix, balance);
+            log::trace!("{}   balance: {}", prefix, balance);
         }
         if let Some(nonce) = &state.nonce {
-            println!("{}   nonce: {}", prefix, nonce);
+            log::trace!("{}   nonce: {}", prefix, nonce);
         }
         if let Some(code) = &state.code {
-            println!("{}   code: {}", prefix, code);
+            log::trace!("{}   code: {}", prefix, code);
         }
     }
 
@@ -180,11 +178,11 @@ where
                         follower_state.execute_input(input, self.follower_node)?;
 
                     if leader_diff == follower_diff {
-                        log::info!("State diffs match between leader and follower.");
+                        log::debug!("State diffs match between leader and follower.");
                     } else {
-                        log::warn!("State diffs mismatch between leader and follower.");
-                        Self::print_diff_mode("Leader", &leader_diff);
-                        Self::print_diff_mode("Follower", &follower_diff);
+                        log::debug!("State diffs mismatch between leader and follower.");
+                        Self::trace_diff_mode("Leader", &leader_diff);
+                        Self::trace_diff_mode("Follower", &follower_diff);
                     }
                 }
             }
