@@ -2,7 +2,7 @@
 
 use alloy::{
     primitives::{Address, map::HashMap},
-    rpc::types::trace::geth::GethTrace,
+    rpc::types::trace::geth::{AccountState, DiffMode, GethTrace},
 };
 use revive_dt_compiler::{Compiler, CompilerInput, SolidityCompiler};
 use revive_dt_config::Arguments;
@@ -94,15 +94,20 @@ where
         &mut self,
         input: &Input,
         node: &T::Blockchain,
-    ) -> anyhow::Result<GethTrace> {
+    ) -> anyhow::Result<(GethTrace, DiffMode)> {
         let receipt = node.execute_transaction(input.legacy_transaction(
             self.config.network_id,
             0,
             &self.deployed_contracts,
         )?)?;
-        dbg!(&receipt);
-        //node.trace_transaction(receipt)
-        todo!()
+
+        log::trace!("Transaction receipt: {:?}", receipt);
+        let trace = node.trace_transaction(receipt.clone())?;
+        log::trace!("Trace result: {:?}", trace);
+
+        let diff = node.state_diff(receipt)?;
+
+        Ok((trace, diff))
     }
 }
 
@@ -132,6 +137,32 @@ where
         }
     }
 
+    pub fn trace_diff_mode(label: &str, diff: &DiffMode) {
+        log::trace!("{} - PRE STATE:", label);
+        for (addr, state) in &diff.pre {
+            Self::trace_account_state("  [pre]", addr, state);
+        }
+
+        log::trace!("{} - POST STATE:", label);
+        for (addr, state) in &diff.post {
+            Self::trace_account_state("  [post]", addr, state);
+        }
+    }
+
+    fn trace_account_state(prefix: &str, addr: &Address, state: &AccountState) {
+        log::trace!("{} 0x{:x}", prefix, addr);
+
+        if let Some(balance) = &state.balance {
+            log::trace!("{}   balance: {}", prefix, balance);
+        }
+        if let Some(nonce) = &state.nonce {
+            log::trace!("{}   nonce: {}", prefix, nonce);
+        }
+        if let Some(code) = &state.code {
+            log::trace!("{}   code: {}", prefix, code);
+        }
+    }
+
     pub fn execute(&mut self, span: Span) -> anyhow::Result<()> {
         for mode in self.metadata.solc_modes() {
             let mut leader_state = State::<L>::new(self.config, span);
@@ -142,8 +173,17 @@ where
 
             for case in &self.metadata.cases {
                 for input in &case.inputs {
-                    let _ = leader_state.execute_input(input, self.leader_node)?;
-                    let _ = follower_state.execute_input(input, self.follower_node)?;
+                    let (_, leader_diff) = leader_state.execute_input(input, self.leader_node)?;
+                    let (_, follower_diff) =
+                        follower_state.execute_input(input, self.follower_node)?;
+
+                    if leader_diff == follower_diff {
+                        log::debug!("State diffs match between leader and follower.");
+                    } else {
+                        log::debug!("State diffs mismatch between leader and follower.");
+                        Self::trace_diff_mode("Leader", &leader_diff);
+                        Self::trace_diff_mode("Follower", &follower_diff);
+                    }
                 }
             }
         }
