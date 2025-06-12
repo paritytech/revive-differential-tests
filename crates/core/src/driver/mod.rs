@@ -1,8 +1,12 @@
 //! The test driver handles the compilation and execution of the test cases.
 
 use alloy::{
-    primitives::{Address, map::HashMap},
-    rpc::types::trace::geth::{AccountState, DiffMode, GethTrace},
+    network::TransactionBuilder,
+    primitives::{Address, bytes::Bytes, map::HashMap},
+    rpc::types::{
+        TransactionRequest,
+        trace::geth::{AccountState, DiffMode, GethTrace},
+    },
 };
 use revive_dt_compiler::{Compiler, CompilerInput, SolidityCompiler};
 use revive_dt_config::Arguments;
@@ -109,6 +113,56 @@ where
 
         Ok((trace, diff))
     }
+
+    pub fn deploy_contracts(&mut self, input: &Input, node: &T::Blockchain) -> anyhow::Result<()> {
+        for output in self.contracts.values() {
+            let Some(contract_map) = &output.contracts else {
+                log::debug!("No contracts in output — skipping deployment for this input.");
+                continue;
+            };
+
+            for contracts in contract_map.values() {
+                for (contract_name, contract) in contracts {
+                    if contract_name != &input.instance {
+                        continue;
+                    }
+
+                    let bytecode = contract
+                        .evm
+                        .as_ref()
+                        .and_then(|evm| evm.bytecode.as_ref())
+                        .map(|b| b.object.clone());
+
+                    let Some(code) = bytecode else {
+                        anyhow::bail!("no bytecode for contract `{}`", contract_name);
+                    };
+
+                    let tx = TransactionRequest::default()
+                        .with_from(input.caller)
+                        .with_to(Address::ZERO)
+                        .with_input(Bytes::from(code.clone()))
+                        .with_gas_price(20_000_000_000)
+                        .with_gas_limit(20_000_000_000)
+                        .with_chain_id(self.config.network_id)
+                        .with_nonce(0);
+
+                    let receipt = node.execute_transaction(tx)?;
+                    let Some(address) = receipt.contract_address else {
+                        anyhow::bail!(
+                            "contract `{}` deployment did not return an address",
+                            contract_name
+                        );
+                    };
+
+                    self.deployed_contracts
+                        .insert(contract_name.clone(), address);
+                    log::info!("deployed contract `{}` at {:?}", contract_name, address);
+                }
+            }
+        }
+
+        Ok(())
+    }
 }
 
 pub struct Driver<'a, Leader: Platform, Follower: Platform> {
@@ -173,6 +227,9 @@ where
 
             for case in &self.metadata.cases {
                 for input in &case.inputs {
+                    leader_state.deploy_contracts(input, self.leader_node)?;
+                    follower_state.deploy_contracts(input, self.follower_node)?;
+
                     let (_, leader_diff) = leader_state.execute_input(input, self.leader_node)?;
                     let (_, follower_diff) =
                         follower_state.execute_input(input, self.follower_node)?;

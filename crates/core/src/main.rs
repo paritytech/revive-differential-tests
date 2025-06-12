@@ -5,7 +5,7 @@ use rayon::{ThreadPoolBuilder, prelude::*};
 
 use revive_dt_config::*;
 use revive_dt_core::{
-    Geth, Kitchensink,
+    Geth, Kitchensink, Platform,
     driver::{Driver, State},
 };
 use revive_dt_format::{corpus::Corpus, metadata::Metadata};
@@ -74,28 +74,30 @@ fn collect_corpora(args: &Arguments) -> anyhow::Result<HashMap<Corpus, Vec<Metad
     Ok(corpora)
 }
 
-fn execute_corpus(args: &Arguments, tests: &[Metadata], span: Span) -> anyhow::Result<()> {
-    let leader_nodes = NodePool::new(args)?;
-    let follower_nodes = NodePool::new(args)?;
+fn run_driver<L, F>(args: &Arguments, tests: &[Metadata], span: Span) -> anyhow::Result<()>
+where
+    L: Platform,
+    F: Platform,
+    L::Blockchain: revive_dt_node::Node + Send + Sync + 'static,
+    F::Blockchain: revive_dt_node::Node + Send + Sync + 'static,
+{
+    let leader_nodes = NodePool::<L::Blockchain>::new(args)?;
+    let follower_nodes = NodePool::<F::Blockchain>::new(args)?;
 
     tests.par_iter().for_each(|metadata| {
-        let mut driver = match (&args.leader, &args.follower) {
-            (TestingPlatform::Geth, TestingPlatform::Kitchensink) => Driver::<Geth, Geth>::new(
-                metadata,
-                args,
-                leader_nodes.round_robbin(),
-                follower_nodes.round_robbin(),
-            ),
-            _ => unimplemented!(),
-        };
+        let mut driver = Driver::<L, F>::new(
+            metadata,
+            args,
+            leader_nodes.round_robbin(),
+            follower_nodes.round_robbin(),
+        );
 
         match driver.execute(span) {
-            Ok(build) => {
+            Ok(_) => {
                 log::info!(
                     "metadata {} success",
                     metadata.directory().as_ref().unwrap().display()
                 );
-                build
             }
             Err(error) => {
                 log::warn!(
@@ -105,6 +107,20 @@ fn execute_corpus(args: &Arguments, tests: &[Metadata], span: Span) -> anyhow::R
             }
         }
     });
+
+    Ok(())
+}
+
+fn execute_corpus(args: &Arguments, tests: &[Metadata], span: Span) -> anyhow::Result<()> {
+    match (&args.leader, &args.follower) {
+        (TestingPlatform::Geth, TestingPlatform::Kitchensink) => {
+            run_driver::<Geth, Kitchensink>(args, tests, span)?
+        }
+        (TestingPlatform::Geth, TestingPlatform::Geth) => {
+            run_driver::<Geth, Geth>(args, tests, span)?
+        }
+        _ => unimplemented!(),
+    }
 
     Ok(())
 }
