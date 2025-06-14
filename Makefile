@@ -8,7 +8,7 @@ clippy:
 
 machete:
 	cargo install cargo-machete
-	cargo machete
+	cargo machete crates
 
 test: format clippy machete
 	cargo test --workspace -- --nocapture
