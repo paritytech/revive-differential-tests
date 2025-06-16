@@ -118,8 +118,8 @@ impl Input {
             .with_to(to)
             .with_nonce(nonce)
             .with_chain_id(chain_id)
-            .with_gas_price(20_000_000_000)
-            .with_gas_limit(20_000_000_000))
+            .with_gas_price(5_000_000)
+            .with_gas_limit(5_000_000))
     }
 }
 
