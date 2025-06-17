@@ -119,16 +119,27 @@ where
     ) -> anyhow::Result<(GethTrace, DiffMode)> {
         log::trace!("Calling execute_input for input: {:?}", input);
 
-        let tx = match input.legacy_transaction(self.config.network_id, 0, &self.deployed_contracts)
-        {
-            Ok(tx) => tx,
-            Err(err) => {
-                log::error!("Failed to construct legacy transaction: {:?}", err);
-                return Err(err.into());
-            }
-        };
+        let nonce = node.fetch_add_nonce(input.caller)?;
 
-        log::trace!("Executing transaction...");
+        log::debug!(
+            "Nonce calculated on the execute contract, calculated nonce {}, for contract {}, having address {} on node: {}",
+            &nonce,
+            &input.instance,
+            &input.caller,
+            std::any::type_name::<T>()
+        );
+
+        let tx =
+            match input.legacy_transaction(self.config.network_id, nonce, &self.deployed_contracts)
+            {
+                Ok(tx) => tx,
+                Err(err) => {
+                    log::error!("Failed to construct legacy transaction: {:?}", err);
+                    return Err(err.into());
+                }
+            };
+
+        log::trace!("Executing transaction for input: {:?}", input);
 
         let receipt = match node.execute_transaction(tx) {
             Ok(receipt) => receipt,
