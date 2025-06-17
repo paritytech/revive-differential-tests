@@ -132,7 +132,7 @@ impl Metadata {
     }
 
     fn try_from_solidity(path: &Path) -> Option<Self> {
-        let buf = read_to_string(path)
+        let spec = read_to_string(path)
             .inspect_err(|error| {
                 log::error!(
                     "opening JSON test metadata file '{}' error: {error}",
@@ -147,18 +147,24 @@ impl Metadata {
                 buf
             });
 
-        if buf.is_empty() {
+        if spec.is_empty() {
             return None;
         }
 
-        match serde_json::from_str::<Self>(&buf) {
+        match serde_json::from_str::<Self>(&spec) {
             Ok(mut metadata) => {
                 metadata.file_path = Some(path.to_path_buf());
+                let name = path
+                    .file_name()
+                    .expect("this should be the path to a Solidity file")
+                    .to_str()
+                    .expect("the file name should be valid UTF-8k");
+                metadata.contracts = Some([(String::from("Test"), format!("{name}:Test"))].into());
                 Some(metadata)
             }
             Err(error) => {
                 log::error!(
-                    "parsing Solidity test metadata file '{}' error: {error}",
+                    "parsing Solidity test metadata file '{}' error: '{error}' from data: {spec}",
                     path.display()
                 );
                 None
