@@ -1,9 +1,11 @@
 //! This crate implements all node interactions.
 
+use alloy::primitives::Address;
 use alloy::rpc::types::trace::geth::{DiffMode, GethTrace};
 use alloy::rpc::types::{TransactionReceipt, TransactionRequest};
 use tokio_runtime::TO_TOKIO;
 
+pub mod nonce;
 mod tokio_runtime;
 pub mod trace;
 pub mod transaction;
@@ -21,4 +23,6 @@ pub trait EthereumNode {
 
     /// Returns the state diff of the transaction hash in the [TransactionReceipt].
     fn state_diff(&self, transaction: TransactionReceipt) -> anyhow::Result<DiffMode>;
+
+    fn fetch_add_nonce(&self, address: Address) -> anyhow::Result<u64>;
 }

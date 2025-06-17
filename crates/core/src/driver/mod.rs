@@ -150,7 +150,9 @@ where
 
     pub fn deploy_contracts(&mut self, input: &Input, node: &T::Blockchain) -> anyhow::Result<()> {
         log::debug!(
-            "Deploying contracts on node: {}",
+            "Deploying contracts {}, having address {} on node: {}",
+            &input.instance,
+            &input.caller,
             std::any::type_name::<T>()
         );
         for output in self.contracts.values() {
@@ -184,6 +186,16 @@ where
                         continue;
                     };
 
+                    let nonce = node.fetch_add_nonce(input.caller)?;
+
+                    log::debug!(
+                        "Calculated nonce {}, for contract {}, having address {} on node: {}",
+                        &nonce,
+                        &input.instance,
+                        &input.caller,
+                        std::any::type_name::<T>()
+                    );
+
                     let tx = TransactionRequest::default()
                         .with_from(input.caller)
                         .with_to(Address::ZERO)
@@ -191,7 +203,7 @@ where
                         .with_gas_price(5_000_000)
                         .with_gas_limit(5_000_000)
                         .with_chain_id(self.config.network_id)
-                        .with_nonce(0);
+                        .with_nonce(nonce);
 
                     let receipt = match node.execute_transaction(tx) {
                         Ok(receipt) => receipt,
@@ -207,7 +219,7 @@ where
 
                     let Some(address) = receipt.contract_address else {
                         log::error!(
-                            "contract `{}` deployment did not return an address",
+                            "contract {} deployment did not return an address",
                             contract_name
                         );
                         continue;
