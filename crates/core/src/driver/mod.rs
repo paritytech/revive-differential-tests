@@ -83,12 +83,12 @@ where
             Ok(output) => {
                 task.json_output = Some(output.output.clone());
                 task.error = output.error;
-                self.contracts.insert(output.input, output.output.clone());
+                self.contracts.insert(output.input, output.output);
 
                 if let Some(last_output) = self.contracts.values().last() {
                     if let Some(contracts) = &last_output.contracts {
                         for (file, contracts_map) in contracts {
-                            for (contract_name, _) in contracts_map {
+                            for contract_name in contracts_map.keys() {
                                 log::debug!(
                                     "Compiled contract: {} from file: {}",
                                     contract_name,
@@ -135,7 +135,7 @@ where
                 Ok(tx) => tx,
                 Err(err) => {
                     log::error!("Failed to construct legacy transaction: {:?}", err);
-                    return Err(err.into());
+                    return Err(err);
                 }
             };
 
@@ -145,7 +145,7 @@ where
             Ok(receipt) => receipt,
             Err(err) => {
                 log::error!("Failed to execute transaction: {:?}", err);
-                return Err(err.into());
+                return Err(err);
             }
         };
 
@@ -224,7 +224,7 @@ where
                                 &contract_name,
                                 err
                             );
-                            return Err(err.into());
+                            return Err(err);
                         }
                     };
 
