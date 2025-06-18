@@ -84,10 +84,28 @@ where
                 task.json_output = Some(output.output.clone());
                 task.error = output.error;
                 self.contracts.insert(output.input, output.output);
+
+                if let Some(last_output) = self.contracts.values().last() {
+                    if let Some(contracts) = &last_output.contracts {
+                        for (file, contracts_map) in contracts {
+                            for contract_name in contracts_map.keys() {
+                                log::debug!(
+                                    "Compiled contract: {} from file: {}",
+                                    contract_name,
+                                    file
+                                );
+                            }
+                        }
+                    } else {
+                        log::warn!("Compiled contracts field is None");
+                    }
+                }
+
                 Report::compilation(span, T::config_id(), task);
                 Ok(())
             }
             Err(error) => {
+                log::error!("Failed to compile contract: {:?}", error.to_string());
                 task.error = Some(error.to_string());
                 Err(error)
             }
@@ -99,13 +117,40 @@ where
         input: &Input,
         node: &T::Blockchain,
     ) -> anyhow::Result<(GethTrace, DiffMode)> {
-        let receipt = node.execute_transaction(input.legacy_transaction(
-            self.config.network_id,
-            0,
-            &self.deployed_contracts,
-        )?)?;
+        log::trace!("Calling execute_input for input: {:?}", input);
+
+        let nonce = node.fetch_add_nonce(input.caller)?;
+
+        log::debug!(
+            "Nonce calculated on the execute contract, calculated nonce {}, for contract {}, having address {} on node: {}",
+            &nonce,
+            &input.instance,
+            &input.caller,
+            std::any::type_name::<T>()
+        );
+
+        let tx =
+            match input.legacy_transaction(self.config.network_id, nonce, &self.deployed_contracts)
+            {
+                Ok(tx) => tx,
+                Err(err) => {
+                    log::error!("Failed to construct legacy transaction: {:?}", err);
+                    return Err(err);
+                }
+            };
+
+        log::trace!("Executing transaction for input: {:?}", input);
+
+        let receipt = match node.execute_transaction(tx) {
+            Ok(receipt) => receipt,
+            Err(err) => {
+                log::error!("Failed to execute transaction: {:?}", err);
+                return Err(err);
+            }
+        };
 
         log::trace!("Transaction receipt: {:?}", receipt);
+
         let trace = node.trace_transaction(receipt.clone())?;
         log::trace!("Trace result: {:?}", trace);
 
@@ -115,14 +160,28 @@ where
     }
 
     pub fn deploy_contracts(&mut self, input: &Input, node: &T::Blockchain) -> anyhow::Result<()> {
+        log::debug!(
+            "Deploying contracts {}, having address {} on node: {}",
+            &input.instance,
+            &input.caller,
+            std::any::type_name::<T>()
+        );
         for output in self.contracts.values() {
             let Some(contract_map) = &output.contracts else {
-                log::debug!("No contracts in output — skipping deployment for this input.");
+                log::debug!(
+                    "No contracts in output — skipping deployment for this input {}",
+                    &input.instance
+                );
                 continue;
             };
 
             for contracts in contract_map.values() {
                 for (contract_name, contract) in contracts {
+                    log::debug!(
+                        "Contract name is: {:?} and the input name is: {:?}",
+                        &contract_name,
+                        &input.instance
+                    );
                     if contract_name != &input.instance {
                         continue;
                     }
@@ -134,24 +193,47 @@ where
                         .map(|b| b.object.clone());
 
                     let Some(code) = bytecode else {
-                        anyhow::bail!("no bytecode for contract `{}`", contract_name);
+                        log::error!("no bytecode for contract {}", contract_name);
+                        continue;
                     };
+
+                    let nonce = node.fetch_add_nonce(input.caller)?;
+
+                    log::debug!(
+                        "Calculated nonce {}, for contract {}, having address {} on node: {}",
+                        &nonce,
+                        &input.instance,
+                        &input.caller,
+                        std::any::type_name::<T>()
+                    );
 
                     let tx = TransactionRequest::default()
                         .with_from(input.caller)
                         .with_to(Address::ZERO)
                         .with_input(Bytes::from(code.clone()))
-                        .with_gas_price(20_000_000_000)
-                        .with_gas_limit(20_000_000_000)
+                        .with_gas_price(5_000_000)
+                        .with_gas_limit(5_000_000)
                         .with_chain_id(self.config.network_id)
-                        .with_nonce(0);
+                        .with_nonce(nonce);
 
-                    let receipt = node.execute_transaction(tx)?;
+                    let receipt = match node.execute_transaction(tx) {
+                        Ok(receipt) => receipt,
+                        Err(err) => {
+                            log::error!(
+                                "Failed to execute transaction when deploying the contract: {:?}, {:?}",
+                                &contract_name,
+                                err
+                            );
+                            return Err(err);
+                        }
+                    };
+
                     let Some(address) = receipt.contract_address else {
-                        anyhow::bail!(
-                            "contract `{}` deployment did not return an address",
+                        log::error!(
+                            "contract {} deployment did not return an address",
                             contract_name
                         );
+                        continue;
                     };
 
                     self.deployed_contracts
@@ -160,6 +242,8 @@ where
                 }
             }
         }
+
+        log::debug!("Available contracts: {:?}", self.deployed_contracts.keys());
 
         Ok(())
     }
@@ -227,9 +311,11 @@ where
 
             for case in &self.metadata.cases {
                 for input in &case.inputs {
+                    log::debug!("Starting deploying contract {}", &input.instance);
                     leader_state.deploy_contracts(input, self.leader_node)?;
                     follower_state.deploy_contracts(input, self.follower_node)?;
 
+                    log::debug!("Starting executing contract {}", &input.instance);
                     let (_, leader_diff) = leader_state.execute_input(input, self.leader_node)?;
                     let (_, follower_diff) =
                         follower_state.execute_input(input, self.follower_node)?;

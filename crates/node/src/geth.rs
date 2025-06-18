@@ -5,13 +5,17 @@ use std::{
     io::{BufRead, BufReader, Read, Write},
     path::PathBuf,
     process::{Child, Command, Stdio},
-    sync::atomic::{AtomicU32, Ordering},
+    sync::{
+        Mutex,
+        atomic::{AtomicU32, Ordering},
+    },
     thread,
     time::{Duration, Instant},
 };
 
 use alloy::{
     network::EthereumWallet,
+    primitives::{Address, map::HashMap},
     providers::{Provider, ProviderBuilder, ext::DebugApi},
     rpc::types::{
         TransactionReceipt, TransactionRequest,
@@ -20,7 +24,8 @@ use alloy::{
 };
 use revive_dt_config::Arguments;
 use revive_dt_node_interaction::{
-    EthereumNode, trace::trace_transaction, transaction::execute_transaction,
+    EthereumNode, nonce::fetch_onchain_nonce, trace::trace_transaction,
+    transaction::execute_transaction,
 };
 
 use crate::Node;
@@ -45,6 +50,7 @@ pub struct Instance {
     network_id: u64,
     start_timeout: u64,
     wallet: EthereumWallet,
+    nonces: Mutex<HashMap<Address, u64>>,
 }
 
 impl Instance {
@@ -198,6 +204,19 @@ impl EthereumNode for Instance {
             _ => anyhow::bail!("expected a diff mode trace"),
         }
     }
+
+    fn fetch_add_nonce(&self, address: Address) -> anyhow::Result<u64> {
+        let connection_string = self.connection_string.clone();
+        let wallet = self.wallet.clone();
+
+        let onchain_nonce = fetch_onchain_nonce(connection_string, wallet, address)?;
+
+        let mut nonces = self.nonces.lock().unwrap();
+        let current = nonces.entry(address).or_insert(onchain_nonce);
+        let value = *current;
+        *current += 1;
+        Ok(value)
+    }
 }
 
 impl Node for Instance {
@@ -216,6 +235,7 @@ impl Node for Instance {
             network_id: config.network_id,
             start_timeout: config.geth_start_timeout,
             wallet: config.wallet(),
+            nonces: Mutex::new(HashMap::new()),
         }
     }
 

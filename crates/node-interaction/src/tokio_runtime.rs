@@ -10,6 +10,7 @@ use tokio::spawn;
 use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinError;
 
+use crate::nonce::Nonce;
 use crate::trace::Trace;
 use crate::transaction::Transaction;
 
@@ -33,6 +34,7 @@ pub(crate) trait AsyncNodeInteraction: Send + 'static {
 pub(crate) struct TokioRuntime {
     pub(crate) transaction_sender: mpsc::Sender<Transaction>,
     pub(crate) trace_sender: mpsc::Sender<Trace>,
+    pub(crate) nonce_sender: mpsc::Sender<Nonce>,
 }
 
 impl TokioRuntime {
@@ -40,11 +42,13 @@ impl TokioRuntime {
         let rt = Runtime::new().expect("should be able to create the tokio runtime");
         let (transaction_sender, transaction_receiver) = mpsc::channel::<Transaction>(1024);
         let (trace_sender, trace_receiver) = mpsc::channel::<Trace>(1024);
+        let (nonce_sender, nonce_receiver) = mpsc::channel::<Nonce>(1024);
 
         thread::spawn(move || {
             rt.block_on(async move {
                 let transaction_task = spawn(interaction::<Transaction>(transaction_receiver));
                 let trace_task = spawn(interaction::<Trace>(trace_receiver));
+                let nonce_task = spawn(interaction::<Nonce>(nonce_receiver));
 
                 if let Err(error) = transaction_task.await {
                     log::error!("tokio transaction task failed: {error}");
@@ -52,12 +56,16 @@ impl TokioRuntime {
                 if let Err(error) = trace_task.await {
                     log::error!("tokio trace transaction task failed: {error}");
                 }
+                if let Err(error) = nonce_task.await {
+                    log::error!("tokio nonce task failed: {error}");
+                }
             });
         });
 
         Self {
             transaction_sender,
             trace_sender,
+            nonce_sender,
         }
     }
 }
