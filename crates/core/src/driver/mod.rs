@@ -1,10 +1,11 @@
 //! The test driver handles the compilation and execution of the test cases.
 
+use alloy::primitives::Bytes;
+use alloy::rpc::types::TransactionInput;
 use alloy::{
-    network::TransactionBuilder,
-    primitives::{Address, bytes::Bytes, map::HashMap},
+    primitives::{Address, TxKind, map::HashMap},
     rpc::types::{
-        TransactionRequest,
+        TransactionReceipt, TransactionRequest,
         trace::geth::{AccountState, DiffMode, GethTrace},
     },
 };
@@ -116,7 +117,7 @@ where
         &mut self,
         input: &Input,
         node: &T::Blockchain,
-    ) -> anyhow::Result<(GethTrace, DiffMode)> {
+    ) -> anyhow::Result<(TransactionReceipt, GethTrace, DiffMode)> {
         log::trace!("Calling execute_input for input: {:?}", input);
 
         let nonce = node.fetch_add_nonce(input.caller)?;
@@ -144,19 +145,31 @@ where
         let receipt = match node.execute_transaction(tx) {
             Ok(receipt) => receipt,
             Err(err) => {
-                log::error!("Failed to execute transaction: {:?}", err);
+                log::error!(
+                    "Failed to execute transaction when executing the contract: {}, {:?}",
+                    &input.instance,
+                    err
+                );
                 return Err(err);
             }
         };
 
-        log::trace!("Transaction receipt: {:?}", receipt);
+        log::trace!(
+            "Transaction receipt for executed contract: {} - {:?}",
+            &input.instance,
+            receipt,
+        );
 
         let trace = node.trace_transaction(receipt.clone())?;
-        log::trace!("Trace result: {:?}", trace);
+        log::trace!(
+            "Trace result for contract: {} - {:?}",
+            &input.instance,
+            trace
+        );
 
-        let diff = node.state_diff(receipt)?;
+        let diff = node.state_diff(receipt.clone())?;
 
-        Ok((trace, diff))
+        Ok((receipt, trace, diff))
     }
 
     pub fn deploy_contracts(&mut self, input: &Input, node: &T::Blockchain) -> anyhow::Result<()> {
@@ -207,14 +220,16 @@ where
                         std::any::type_name::<T>()
                     );
 
-                    let tx = TransactionRequest::default()
-                        .with_from(input.caller)
-                        .with_to(Address::ZERO)
-                        .with_input(Bytes::from(code.clone()))
-                        .with_gas_price(5_000_000)
-                        .with_gas_limit(5_000_000)
-                        .with_chain_id(self.config.network_id)
-                        .with_nonce(nonce);
+                    let tx = TransactionRequest {
+                        from: Some(input.caller),
+                        to: Some(TxKind::Create),
+                        gas_price: Some(5_000_000),
+                        gas: Some(5_000_000),
+                        chain_id: Some(self.config.network_id),
+                        nonce: Some(nonce),
+                        input: TransactionInput::new(Bytes::from(code.into_bytes())),
+                        ..Default::default()
+                    };
 
                     let receipt = match node.execute_transaction(tx) {
                         Ok(receipt) => receipt,
@@ -227,6 +242,12 @@ where
                             return Err(err);
                         }
                     };
+
+                    log::trace!(
+                        "Deployed transaction receipt for contract: {} - {:?}",
+                        &contract_name,
+                        receipt
+                    );
 
                     let Some(address) = receipt.contract_address else {
                         log::error!(
@@ -316,8 +337,9 @@ where
                     follower_state.deploy_contracts(input, self.follower_node)?;
 
                     log::debug!("Starting executing contract {}", &input.instance);
-                    let (_, leader_diff) = leader_state.execute_input(input, self.leader_node)?;
-                    let (_, follower_diff) =
+                    let (leader_receipt, _, leader_diff) =
+                        leader_state.execute_input(input, self.leader_node)?;
+                    let (follower_receipt, _, follower_diff) =
                         follower_state.execute_input(input, self.follower_node)?;
 
                     if leader_diff == follower_diff {
@@ -326,6 +348,20 @@ where
                         log::debug!("State diffs mismatch between leader and follower.");
                         Self::trace_diff_mode("Leader", &leader_diff);
                         Self::trace_diff_mode("Follower", &follower_diff);
+                    }
+
+                    if leader_receipt.logs() != follower_receipt.logs() {
+                        log::debug!("Log/event mismatch between leader and follower.");
+                        log::trace!("Leader logs: {:?}", leader_receipt.logs());
+                        log::trace!("Follower logs: {:?}", follower_receipt.logs());
+                    }
+
+                    if leader_receipt.status() != follower_receipt.status() {
+                        log::debug!(
+                            "Mismatch in status: leader = {}, follower = {}",
+                            leader_receipt.status(),
+                            follower_receipt.status()
+                        );
                     }
                 }
             }
