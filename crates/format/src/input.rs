@@ -1,7 +1,8 @@
 use std::collections::HashMap;
 
 use alloy::{
-    json_abi::Function, network::TransactionBuilder, primitives::Address,
+    json_abi::Function,
+    primitives::{Address, TxKind},
     rpc::types::TransactionRequest,
 };
 use semver::VersionReq;
@@ -109,17 +110,21 @@ impl Input {
         deployed_contracts: &HashMap<String, Address>,
     ) -> anyhow::Result<TransactionRequest> {
         let to = match self.method {
-            Method::Deployer => Address::ZERO,
-            _ => self.instance_to_address(&self.instance, deployed_contracts)?,
+            Method::Deployer => Some(TxKind::Create),
+            _ => Some(TxKind::Call(
+                self.instance_to_address(&self.instance, deployed_contracts)?,
+            )),
         };
 
-        Ok(TransactionRequest::default()
-            .with_from(self.caller)
-            .with_to(to)
-            .with_nonce(nonce)
-            .with_chain_id(chain_id)
-            .with_gas_price(5_000_000)
-            .with_gas_limit(5_000_000))
+        Ok(TransactionRequest {
+            from: Some(self.caller),
+            to,
+            nonce: Some(nonce),
+            chain_id: Some(chain_id),
+            gas_price: Some(5_000_000),
+            gas: Some(5_000_000),
+            ..Default::default()
+        })
     }
 }
 
