@@ -235,7 +235,8 @@ where
                         Ok(receipt) => receipt,
                         Err(err) => {
                             log::error!(
-                                "Failed to execute transaction when deploying the contract: {:?}, {:?}",
+                                "Failed to execute transaction when deploying the contract on node : {:?}, {:?}, {:?}",
+                                std::any::type_name::<T>(),
                                 &contract_name,
                                 err
                             );
@@ -243,10 +244,19 @@ where
                         }
                     };
 
+                    log::info!(
+                        "Deployment tx sent for {} with nonce {} → tx hash: {:?}, on node: {:?}",
+                        contract_name,
+                        nonce,
+                        receipt.transaction_hash,
+                        std::any::type_name::<T>(),
+                    );
+
                     log::trace!(
-                        "Deployed transaction receipt for contract: {} - {:?}",
+                        "Deployed transaction receipt for contract: {} - {:?}, on node: {:?}",
                         &contract_name,
-                        receipt
+                        receipt,
+                        std::any::type_name::<T>(),
                     );
 
                     let Some(address) = receipt.contract_address else {
@@ -259,7 +269,12 @@ where
 
                     self.deployed_contracts
                         .insert(contract_name.clone(), address);
-                    log::info!("deployed contract `{}` at {:?}", contract_name, address);
+                    log::info!(
+                        "deployed contract `{}` at {:?}, on node {:?}",
+                        contract_name,
+                        address,
+                        std::any::type_name::<T>()
+                    );
                 }
             }
         }
