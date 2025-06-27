@@ -90,11 +90,7 @@ where
                     if let Some(contracts) = &last_output.contracts {
                         for (file, contracts_map) in contracts {
                             for contract_name in contracts_map.keys() {
-                                log::debug!(
-                                    "Compiled contract: {} from file: {}",
-                                    contract_name,
-                                    file
-                                );
+                                log::debug!("Compiled contract: {contract_name} from file: {file}");
                             }
                         }
                     } else {
@@ -118,7 +114,7 @@ where
         input: &Input,
         node: &T::Blockchain,
     ) -> anyhow::Result<(TransactionReceipt, GethTrace, DiffMode)> {
-        log::trace!("Calling execute_input for input: {:?}", input);
+        log::trace!("Calling execute_input for input: {input:?}");
 
         let nonce = node.fetch_add_nonce(input.caller)?;
 
@@ -135,12 +131,12 @@ where
             {
                 Ok(tx) => tx,
                 Err(err) => {
-                    log::error!("Failed to construct legacy transaction: {:?}", err);
+                    log::error!("Failed to construct legacy transaction: {err:?}");
                     return Err(err);
                 }
             };
 
-        log::trace!("Executing transaction for input: {:?}", input);
+        log::trace!("Executing transaction for input: {input:?}");
 
         let receipt = match node.execute_transaction(tx) {
             Ok(receipt) => receipt,
@@ -206,7 +202,7 @@ where
                         .map(|b| b.object.clone());
 
                     let Some(code) = bytecode else {
-                        log::error!("no bytecode for contract {}", contract_name);
+                        log::error!("no bytecode for contract {contract_name}");
                         continue;
                     };
 
@@ -235,7 +231,8 @@ where
                         Ok(receipt) => receipt,
                         Err(err) => {
                             log::error!(
-                                "Failed to execute transaction when deploying the contract: {:?}, {:?}",
+                                "Failed to execute transaction when deploying the contract on node : {:?}, {:?}, {:?}",
+                                std::any::type_name::<T>(),
                                 &contract_name,
                                 err
                             );
@@ -243,23 +240,36 @@ where
                         }
                     };
 
+                    log::debug!(
+                        "Deployment tx sent for {} with nonce {} → tx hash: {:?}, on node: {:?}",
+                        contract_name,
+                        nonce,
+                        receipt.transaction_hash,
+                        std::any::type_name::<T>(),
+                    );
+
                     log::trace!(
-                        "Deployed transaction receipt for contract: {} - {:?}",
+                        "Deployed transaction receipt for contract: {} - {:?}, on node: {:?}",
                         &contract_name,
-                        receipt
+                        receipt,
+                        std::any::type_name::<T>(),
                     );
 
                     let Some(address) = receipt.contract_address else {
                         log::error!(
-                            "contract {} deployment did not return an address",
-                            contract_name
+                            "contract {contract_name} deployment did not return an address"
                         );
                         continue;
                     };
 
                     self.deployed_contracts
                         .insert(contract_name.clone(), address);
-                    log::info!("deployed contract `{}` at {:?}", contract_name, address);
+                    log::trace!(
+                        "deployed contract `{}` at {:?}, on node {:?}",
+                        contract_name,
+                        address,
+                        std::any::type_name::<T>()
+                    );
                 }
             }
         }
@@ -297,28 +307,28 @@ where
     }
 
     pub fn trace_diff_mode(label: &str, diff: &DiffMode) {
-        log::trace!("{} - PRE STATE:", label);
+        log::trace!("{label} - PRE STATE:");
         for (addr, state) in &diff.pre {
             Self::trace_account_state("  [pre]", addr, state);
         }
 
-        log::trace!("{} - POST STATE:", label);
+        log::trace!("{label} - POST STATE:");
         for (addr, state) in &diff.post {
             Self::trace_account_state("  [post]", addr, state);
         }
     }
 
     fn trace_account_state(prefix: &str, addr: &Address, state: &AccountState) {
-        log::trace!("{} 0x{:x}", prefix, addr);
+        log::trace!("{prefix} 0x{addr:x}");
 
         if let Some(balance) = &state.balance {
-            log::trace!("{}   balance: {}", prefix, balance);
+            log::trace!("{prefix}   balance: {balance}");
         }
         if let Some(nonce) = &state.nonce {
-            log::trace!("{}   nonce: {}", prefix, nonce);
+            log::trace!("{prefix}   nonce: {nonce}");
         }
         if let Some(code) = &state.code {
-            log::trace!("{}   code: {}", prefix, code);
+            log::trace!("{prefix}   code: {code}");
         }
     }
 
