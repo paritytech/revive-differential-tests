@@ -1,12 +1,13 @@
 //! The test driver handles the compilation and execution of the test cases.
 
+use alloy::json_abi::JsonAbi;
 use alloy::primitives::Bytes;
 use alloy::rpc::types::TransactionInput;
 use alloy::{
     primitives::{Address, TxKind, map::HashMap},
     rpc::types::{
-        TransactionReceipt, TransactionRequest,
-        trace::geth::{AccountState, DiffMode, GethTrace},
+        TransactionRequest,
+        trace::geth::{AccountState, DiffMode},
     },
 };
 use revive_dt_compiler::{Compiler, CompilerInput, SolidityCompiler};
@@ -15,6 +16,7 @@ use revive_dt_format::{input::Input, metadata::Metadata, mode::SolcMode};
 use revive_dt_node_interaction::EthereumNode;
 use revive_dt_report::reporter::{CompilationTask, Report, Span};
 use revive_solc_json_interface::SolcStandardJsonOutput;
+use serde_json::Value;
 
 use crate::Platform;
 
@@ -28,6 +30,7 @@ pub struct State<'a, T: Platform> {
     span: Span,
     contracts: Contracts<T>,
     deployed_contracts: HashMap<String, Address>,
+    deployed_abis: HashMap<String, JsonAbi>,
 }
 
 impl<'a, T> State<'a, T>
@@ -40,6 +43,7 @@ where
             span,
             contracts: Default::default(),
             deployed_contracts: Default::default(),
+            deployed_abis: Default::default(),
         }
     }
 
@@ -126,15 +130,21 @@ where
             std::any::type_name::<T>()
         );
 
-        let tx =
-            match input.legacy_transaction(self.config.network_id, nonce, &self.deployed_contracts)
-            {
-                Ok(tx) => tx,
-                Err(err) => {
-                    log::error!("Failed to construct legacy transaction: {err:?}");
-                    return Err(err);
-                }
-            };
+        let tx = match input.legacy_transaction(
+            self.config.network_id,
+            nonce,
+            &self.deployed_contracts,
+            &self.deployed_abis,
+        ) {
+            Ok(tx) => {
+                log::debug!("Legacy transaction data: {:#?}", tx);
+                tx
+            }
+            Err(err) => {
+                log::error!("Failed to construct legacy transaction: {err:?}");
+                return Err(err);
+            }
+        };
 
         log::trace!("Executing transaction for input: {input:?}");
 
@@ -191,9 +201,6 @@ where
                         &contract_name,
                         &input.instance
                     );
-                    if contract_name != &input.instance {
-                        continue;
-                    }
 
                     let bytecode = contract
                         .evm
@@ -270,6 +277,54 @@ where
                         address,
                         std::any::type_name::<T>()
                     );
+
+                    if let Some(Value::String(metadata_json_str)) = &contract.metadata {
+                        log::trace!(
+                            "metadata found for contract {}, {}",
+                            contract_name,
+                            metadata_json_str
+                        );
+
+                        match serde_json::from_str::<serde_json::Value>(metadata_json_str) {
+                            Ok(metadata_json) => {
+                                if let Some(abi_value) =
+                                    metadata_json.get("output").and_then(|o| o.get("abi"))
+                                {
+                                    match serde_json::from_value::<JsonAbi>(abi_value.clone()) {
+                                        Ok(parsed_abi) => {
+                                            log::trace!(
+                                                "ABI found in metadata for contract {}",
+                                                &contract_name
+                                            );
+                                            self.deployed_abis
+                                                .insert(contract_name.clone(), parsed_abi);
+                                        }
+                                        Err(err) => {
+                                            log::debug!(
+                                                "Failed to parse ABI from metadata for {}: {}",
+                                                contract_name,
+                                                err
+                                            );
+                                        }
+                                    }
+                                } else {
+                                    log::debug!(
+                                        "No ABI found in metadata for contract {}",
+                                        contract_name
+                                    );
+                                }
+                            }
+                            Err(err) => {
+                                log::debug!(
+                                    "Failed to parse metadata JSON string for contract {}: {}",
+                                    contract_name,
+                                    err
+                                );
+                            }
+                        }
+                    } else {
+                        log::debug!("No metadata found for contract {}", contract_name);
+                    }
                 }
             }
         }

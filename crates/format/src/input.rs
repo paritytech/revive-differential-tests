@@ -1,9 +1,10 @@
 use std::collections::HashMap;
 
 use alloy::{
-    json_abi::Function,
-    primitives::{Address, TxKind},
-    rpc::types::TransactionRequest,
+    hex,
+    json_abi::{Function, JsonAbi},
+    primitives::{Address, Bytes, TxKind},
+    rpc::types::{TransactionInput, TransactionRequest},
 };
 use semver::VersionReq;
 use serde::{Deserialize, de::Deserializer};
@@ -44,7 +45,14 @@ pub struct ExpectedOutput {
 #[serde(untagged)]
 pub enum Calldata {
     Single(String),
-    Compound(Vec<String>),
+    Compound(Vec<CalldataArg>),
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
+#[serde(untagged)]
+pub enum CalldataArg {
+    Literal(String),
+    AddressRef(String), // will be "Contract.address"
 }
 
 /// Specify how the contract is called.
@@ -102,12 +110,77 @@ impl Input {
             .ok_or_else(|| anyhow::anyhow!("instance {instance} not deployed"))
     }
 
+    pub fn encoded_input(
+        &self,
+        deployed_abis: &HashMap<String, JsonAbi>,
+        deployed_contracts: &HashMap<String, Address>,
+    ) -> anyhow::Result<Bytes> {
+        let Method::Function(selector) = self.method else {
+            return Ok(Bytes::default()); // fallback or deployer — no input
+        };
+
+        // ABI
+        let abi = deployed_abis
+            .get(&self.instance)
+            .ok_or_else(|| anyhow::anyhow!("ABI for instance '{}' not found", &self.instance))?;
+
+        // Find function by selector
+        let function = abi
+            .functions()
+            .find(|f| f.selector().0 == selector)
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "Function with selector {:?} not found in ABI for the instance {:?}",
+                    selector,
+                    &self.instance
+                )
+            })?;
+
+        // Parse calldata
+        let calldata_args = match &self.calldata {
+            Some(Calldata::Compound(args)) => args,
+            _ => anyhow::bail!("Expected compound calldata for function call"),
+        };
+
+        // Convert each argument
+        let mut tokens = Vec::new();
+        for (i, param) in function.inputs.iter().enumerate() {
+            let arg = calldata_args
+                .get(i)
+                .ok_or_else(|| anyhow::anyhow!("Missing calldata argument {}", i))?;
+            let token = match arg {
+                CalldataArg::Literal(value) => match param.ty.to_string().as_str() {
+                    "uint256" | "uint" => Token::Uint(value.parse()?),
+                    "address" => Token::Address(value.parse()?),
+                    _ => anyhow::bail!("Unsupported literal type {}", param.ty),
+                },
+                CalldataArg::AddressRef(name) => {
+                    let addr = if name.ends_with(".address") {
+                        let contract_name = name.trim_end_matches(".address");
+                        deployed_contracts.get(contract_name).copied()
+                    } else {
+                        None
+                    };
+                    Token::Address(
+                        addr.ok_or_else(|| anyhow::anyhow!("Address for '{}' not found", name))?,
+                    )
+                }
+            };
+            tokens.push(token);
+        }
+
+        // Encode
+        let encoded = function.encode_input(&tokens)?;
+        Ok(Bytes::from(encoded))
+    }
+
     /// Parse this input into a legacy transaction.
     pub fn legacy_transaction(
         &self,
         chain_id: u64,
         nonce: u64,
         deployed_contracts: &HashMap<String, Address>,
+        deployed_abis: &HashMap<String, JsonAbi>,
     ) -> anyhow::Result<TransactionRequest> {
         let to = match self.method {
             Method::Deployer => Some(TxKind::Create),
@@ -116,6 +189,8 @@ impl Input {
             )),
         };
 
+        let input_data = self.encoded_input(deployed_abis, deployed_contracts)?;
+
         Ok(TransactionRequest {
             from: Some(self.caller),
             to,
@@ -123,6 +198,7 @@ impl Input {
             chain_id: Some(chain_id),
             gas_price: Some(5_000_000),
             gas: Some(5_000_000),
+            input: TransactionInput::new(input_data),
             ..Default::default()
         })
     }
