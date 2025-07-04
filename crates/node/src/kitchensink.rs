@@ -14,7 +14,7 @@ use std::{
 use alloy::{
     hex,
     network::EthereumWallet,
-    primitives::{Address, map::HashMap},
+    primitives::{Address},
     providers::{Provider, ProviderBuilder, ext::DebugApi},
     rpc::types::{
         TransactionReceipt,

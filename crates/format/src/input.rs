@@ -126,6 +126,8 @@ impl Input {
             .get(&self.instance)
             .ok_or_else(|| anyhow::anyhow!("ABI for instance '{}' not found", &self.instance))?;
 
+        log::trace!("ABI found for instance: {}", &self.instance);
+
         // Find function by selector
         let function = abi
             .functions()
@@ -137,6 +139,8 @@ impl Input {
                     &self.instance
                 )
             })?;
+
+        log::trace!("Functions found for instance: {}", &self.instance);
 
         // Parse calldata
         let calldata_args = match &self.calldata {
@@ -151,6 +155,8 @@ impl Input {
                 calldata_args.len()
             );
         }
+
+        log::trace!("Starting encoding ABI's paramters for instance: {}", &self.instance);
 
         let mut encoded = selector.to_vec();
 
