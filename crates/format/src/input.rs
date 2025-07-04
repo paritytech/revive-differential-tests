@@ -6,6 +6,8 @@ use alloy::{
     primitives::{Address, Bytes, TxKind},
     rpc::types::{TransactionInput, TransactionRequest},
 };
+use alloy_primitives::U256;
+use alloy_sol_types::SolValue;
 use semver::VersionReq;
 use serde::{Deserialize, de::Deserializer};
 use serde_json::Value;
@@ -142,35 +144,68 @@ impl Input {
             _ => anyhow::bail!("Expected compound calldata for function call"),
         };
 
-        // Convert each argument
-        let mut tokens = Vec::new();
-        for (i, param) in function.inputs.iter().enumerate() {
-            let arg = calldata_args
-                .get(i)
-                .ok_or_else(|| anyhow::anyhow!("Missing calldata argument {}", i))?;
-            let token = match arg {
-                CalldataArg::Literal(value) => match param.ty.to_string().as_str() {
-                    "uint256" | "uint" => Token::Uint(value.parse()?),
-                    "address" => Token::Address(value.parse()?),
-                    _ => anyhow::bail!("Unsupported literal type {}", param.ty),
-                },
-                CalldataArg::AddressRef(name) => {
-                    let addr = if name.ends_with(".address") {
-                        let contract_name = name.trim_end_matches(".address");
-                        deployed_contracts.get(contract_name).copied()
-                    } else {
-                        None
-                    };
-                    Token::Address(
-                        addr.ok_or_else(|| anyhow::anyhow!("Address for '{}' not found", name))?,
-                    )
-                }
-            };
-            tokens.push(token);
+        if calldata_args.len() != function.inputs.len() {
+            anyhow::bail!(
+                "Function expects {} args, but got {}",
+                function.inputs.len(),
+                calldata_args.len()
+            );
         }
 
-        // Encode
-        let encoded = function.encode_input(&tokens)?;
+        let mut encoded = selector.to_vec();
+
+        for (i, param) in function.inputs.iter().enumerate() {
+            let arg = calldata_args.get(i).unwrap();
+            let encoded_arg = match arg {
+                CalldataArg::Literal(value) => match param.ty.as_str() {
+                    "uint256" | "uint" => {
+                        let val: U256 = value.parse()?;
+                        val.abi_encode()
+                    }
+                    "uint24" => {
+                        let val: u32 = value.parse()?;
+                        (val & 0xFFFFFF).abi_encode()
+                    }
+                    "bool" => {
+                        let val: bool = value.parse()?;
+                        val.abi_encode()
+                    }
+                    "address" => {
+                        let addr: Address = value.parse()?;
+                        addr.abi_encode()
+                    }
+                    "string" => value.abi_encode(),
+                    "bytes32" => {
+                        let val = hex::decode(value.trim_start_matches("0x"))?;
+                        let mut fixed = [0u8; 32];
+                        fixed[..val.len()].copy_from_slice(&val);
+                        fixed.abi_encode()
+                    }
+                    "uint256[]" | "uint[]" => {
+                        let nums: Vec<u64> = serde_json::from_str(value)?;
+                        nums.abi_encode()
+                    }
+                    "bytes" => {
+                        let val = hex::decode(value.trim_start_matches("0x"))?;
+                        val.abi_encode()
+                    }
+                    _ => anyhow::bail!("Unsupported type: {}", param.ty),
+                },
+                CalldataArg::AddressRef(name) => {
+                    let contract_name = name.trim_end_matches(".address");
+                    let addr = deployed_contracts
+                        .get(contract_name)
+                        .copied()
+                        .ok_or_else(|| {
+                            anyhow::anyhow!("Address for '{}' not found", contract_name)
+                        })?;
+                    addr.abi_encode()
+                }
+            };
+
+            encoded.extend(encoded_arg);
+        }
+
         Ok(Bytes::from(encoded))
     }
 

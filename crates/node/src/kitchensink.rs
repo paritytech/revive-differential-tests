@@ -1,4 +1,5 @@
 use std::{
+    collections::HashMap as StdHashMap,
     fs::create_dir_all,
     io::BufRead,
     path::PathBuf,
@@ -44,7 +45,7 @@ pub struct KitchensinkNode {
     base_directory: PathBuf,
     process_substrate: Option<Child>,
     process_proxy: Option<Child>,
-    nonces: Mutex<HashMap<Address, u64>>,
+    nonces: Mutex<StdHashMap<Address, u64>>,
 }
 
 impl KitchensinkNode {
@@ -251,6 +252,8 @@ impl EthereumNode for KitchensinkNode {
         let url = self.rpc_url.clone();
         let wallet = self.wallet.clone();
 
+        log::debug!("Submitting transaction: {:#?}", transaction);
+
         execute_transaction(Box::pin(async move {
             Ok(ProviderBuilder::new()
                 .wallet(wallet)
@@ -325,7 +328,7 @@ impl Node for KitchensinkNode {
             base_directory,
             process_substrate: None,
             process_proxy: None,
-            nonces: Mutex::new(HashMap::new()),
+            nonces: Mutex::new(StdHashMap::new()),
         }
     }
 

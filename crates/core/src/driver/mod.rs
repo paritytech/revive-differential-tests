@@ -2,7 +2,8 @@
 
 use alloy::json_abi::JsonAbi;
 use alloy::primitives::Bytes;
-use alloy::rpc::types::TransactionInput;
+use alloy::rpc::types::trace::geth::GethTrace;
+use alloy::rpc::types::{TransactionInput, TransactionReceipt};
 use alloy::{
     primitives::{Address, TxKind, map::HashMap},
     rpc::types::{
@@ -17,6 +18,7 @@ use revive_dt_node_interaction::EthereumNode;
 use revive_dt_report::reporter::{CompilationTask, Report, Span};
 use revive_solc_json_interface::SolcStandardJsonOutput;
 use serde_json::Value;
+use std::collections::HashMap as StdHashMap;
 
 use crate::Platform;
 
@@ -29,8 +31,8 @@ pub struct State<'a, T: Platform> {
     config: &'a Arguments,
     span: Span,
     contracts: Contracts<T>,
-    deployed_contracts: HashMap<String, Address>,
-    deployed_abis: HashMap<String, JsonAbi>,
+    deployed_contracts: StdHashMap<String, Address>,
+    deployed_abis: StdHashMap<String, JsonAbi>,
 }
 
 impl<'a, T> State<'a, T>
