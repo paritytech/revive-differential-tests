@@ -10,6 +10,24 @@ The revive differential testing framework allows to define smart contract tests 
 
 For now, the format used to write tests is the [matter-labs era compiler format](https://github.com/matter-labs/era-compiler-tests?tab=readme-ov-file#matter-labs-simplecomplex-format). This allows us to re-use many tests from their corpora.
 
+# Dependencies
+
+The following is needed to execute `geth` vs. substrate node differential tests:
+- [`geth` node](https://github.com/ethereum/go-ethereum/)
+- `kitchensink` node and revive ETH RPC binary
+- [`solc` compiler](https://github.com/ethereum/solidity)
+- [`resolc` compiler](https://github.com/paritytech/revive)
+
+For the compilers and `geth` node please check the project help on how to obtain them.
+
+To install the `kitchensink` node and the ETH RPC binary:
+```
+git submodule update --init --recursive
+cd polkadot-sdk
+cargo install --locked --force --profile=production --path substrate/bin/node/cli --bin substrate-node --features cli
+cargo install --path substrate/frame/revive/rpc --bin eth-rpc
+```
+
 # The `retester` utility
 
 The `retester` helper utilty is used to run the tests. To get an idea of what `retester` can do, please consults its command line help: 
