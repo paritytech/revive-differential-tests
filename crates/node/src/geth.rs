@@ -1,7 +1,7 @@
 //! The go-ethereum node implementation.
 
 use std::{
-    collections::HashMap as StdHashMap,
+    collections::HashMap,
     fs::{File, create_dir_all, remove_dir_all},
     io::{BufRead, BufReader, Read, Write},
     path::PathBuf,
@@ -16,7 +16,7 @@ use std::{
 
 use alloy::{
     network::EthereumWallet,
-    primitives::{Address},
+    primitives::Address,
     providers::{Provider, ProviderBuilder, ext::DebugApi},
     rpc::types::{
         TransactionReceipt, TransactionRequest,
@@ -51,7 +51,7 @@ pub struct Instance {
     network_id: u64,
     start_timeout: u64,
     wallet: EthereumWallet,
-    nonces: Mutex<StdHashMap<Address, u64>>,
+    nonces: Mutex<HashMap<Address, u64>>,
 }
 
 impl Instance {
@@ -238,7 +238,7 @@ impl Node for Instance {
             network_id: config.network_id,
             start_timeout: config.geth_start_timeout,
             wallet: config.wallet(),
-            nonces: Mutex::new(StdHashMap::new()),
+            nonces: Mutex::new(HashMap::new()),
         }
     }
 

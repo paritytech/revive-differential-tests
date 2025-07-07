@@ -1,5 +1,5 @@
 use std::{
-    collections::HashMap as StdHashMap,
+    collections::HashMap,
     fs::create_dir_all,
     io::BufRead,
     path::PathBuf,
@@ -14,7 +14,7 @@ use std::{
 use alloy::{
     hex,
     network::EthereumWallet,
-    primitives::{Address},
+    primitives::Address,
     providers::{Provider, ProviderBuilder, ext::DebugApi},
     rpc::types::{
         TransactionReceipt,
@@ -45,7 +45,7 @@ pub struct KitchensinkNode {
     base_directory: PathBuf,
     process_substrate: Option<Child>,
     process_proxy: Option<Child>,
-    nonces: Mutex<StdHashMap<Address, u64>>,
+    nonces: Mutex<HashMap<Address, u64>>,
 }
 
 impl KitchensinkNode {
@@ -328,7 +328,7 @@ impl Node for KitchensinkNode {
             base_directory,
             process_substrate: None,
             process_proxy: None,
-            nonces: Mutex::new(StdHashMap::new()),
+            nonces: Mutex::new(HashMap::new()),
         }
     }
 
