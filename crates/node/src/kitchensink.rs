@@ -252,7 +252,7 @@ impl EthereumNode for KitchensinkNode {
         let url = self.rpc_url.clone();
         let wallet = self.wallet.clone();
 
-        log::debug!("Submitting transaction: {:#?}", transaction);
+        log::debug!("Submitting transaction: {transaction:#?}");
 
         execute_transaction(Box::pin(async move {
             Ok(ProviderBuilder::new()

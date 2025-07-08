@@ -159,7 +159,7 @@ impl EthereumNode for Instance {
         let connection_string = self.connection_string();
         let wallet = self.wallet.clone();
 
-        log::debug!("Submitting transaction: {:#?}", transaction);
+        log::debug!("Submitting transaction: {transaction:#?}");
 
         execute_transaction(Box::pin(async move {
             Ok(ProviderBuilder::new()
