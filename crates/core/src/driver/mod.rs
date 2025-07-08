@@ -139,7 +139,7 @@ where
             &self.deployed_abis,
         ) {
             Ok(tx) => {
-                log::debug!("Legacy transaction data: {:#?}", tx);
+                log::debug!("Legacy transaction data: {tx:#?}");
                 tx
             }
             Err(err) => {
@@ -281,11 +281,7 @@ where
                     );
 
                     if let Some(Value::String(metadata_json_str)) = &contract.metadata {
-                        log::trace!(
-                            "metadata found for contract {}, {}",
-                            contract_name,
-                            metadata_json_str
-                        );
+                        log::trace!("metadata found for contract {contract_name}, {metadata_json_str}");
 
                         match serde_json::from_str::<serde_json::Value>(metadata_json_str) {
                             Ok(metadata_json) => {
@@ -302,26 +298,17 @@ where
                                                 .insert(contract_name.clone(), parsed_abi);
                                         }
                                         Err(err) => {
-                                            log::debug!(
-                                                "Failed to parse ABI from metadata for {}: {}",
-                                                contract_name,
-                                                err
-                                            );
+                                            log::debug!("Failed to parse ABI from metadata for {contract_name}: {err}");
                                         }
                                     }
                                 } else {
                                     log::debug!(
-                                        "No ABI found in metadata for contract {}",
-                                        contract_name
-                                    );
+                                        "No ABI found in metadata for contract {contract_name}");
                                 }
                             }
                             Err(err) => {
                                 log::debug!(
-                                    "Failed to parse metadata JSON string for contract {}: {}",
-                                    contract_name,
-                                    err
-                                );
+                                    "Failed to parse metadata JSON string for contract {contract_name}: {err}");
                             }
                         }
                     } else {
