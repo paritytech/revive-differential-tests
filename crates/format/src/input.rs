@@ -121,7 +121,6 @@ impl Input {
             return Ok(Bytes::default()); // fallback or deployer — no input
         };
 
-        // ABI
         let abi = deployed_abis
             .get(&self.instance)
             .ok_or_else(|| anyhow::anyhow!("ABI for instance '{}' not found", &self.instance))?;
@@ -142,7 +141,6 @@ impl Input {
 
         log::trace!("Functions found for instance: {}", &self.instance);
 
-        // Parse calldata
         let calldata_args = match &self.calldata {
             Some(Calldata::Compound(args)) => args,
             _ => anyhow::bail!("Expected compound calldata for function call"),
@@ -156,7 +154,10 @@ impl Input {
             );
         }
 
-        log::trace!("Starting encoding ABI's paramters for instance: {}", &self.instance);
+        log::trace!(
+            "Starting encoding ABI's parameters for instance: {}",
+            &self.instance
+        );
 
         let mut encoded = selector.to_vec();
 
@@ -251,4 +252,202 @@ fn default_instance() -> String {
 
 fn default_caller() -> Address {
     "90F8bf6A479f320ead074411a4B0e7944Ea8c9C1".parse().unwrap()
+}
+
+#[cfg(test)]
+mod tests {
+
+    use super::*;
+    use alloy::json_abi::JsonAbi;
+    use alloy_primitives::{address, keccak256};
+    use std::collections::HashMap;
+
+    #[test]
+    fn test_encoded_input_uint256() {
+        let raw_metadata = r#"
+            [
+                {
+                    "inputs": [{"name": "value", "type": "uint256"}],
+                    "name": "store",
+                    "outputs": [],
+                    "stateMutability": "nonpayable",
+                    "type": "function"
+                }
+            ]
+        "#;
+
+        let parsed_abi: JsonAbi = serde_json::from_str(raw_metadata).unwrap();
+        let selector = keccak256("store(uint256)".as_bytes())[0..4]
+            .try_into()
+            .unwrap();
+
+        let input = Input {
+            instance: "Contract".to_string(),
+            method: Method::Function(selector),
+            calldata: Some(Calldata::Compound(vec![CalldataArg::Literal(
+                "42".to_string(),
+            )])),
+            ..Default::default()
+        };
+
+        let mut deployed_abis = HashMap::new();
+        deployed_abis.insert("Contract".to_string(), parsed_abi);
+        let deployed_contracts = HashMap::new();
+
+        let encoded = input
+            .encoded_input(&deployed_abis, &deployed_contracts)
+            .unwrap();
+        assert!(encoded.0.starts_with(&selector));
+
+        type T = (u64,);
+        let decoded: T = T::abi_decode(&encoded.0[4..]).unwrap();
+        assert_eq!(decoded.0, 42);
+    }
+
+    #[test]
+    fn test_encoded_input_bool() {
+        let raw_abi = r#"[
+            {
+                "inputs": [{"name": "flag", "type": "bool"}],
+                "name": "toggle",
+                "outputs": [],
+                "stateMutability": "nonpayable",
+                "type": "function"
+            }
+        ]"#;
+
+        let parsed_abi: JsonAbi = serde_json::from_str(raw_abi).unwrap();
+        let selector = keccak256("toggle(bool)".as_bytes())[0..4]
+            .try_into()
+            .unwrap();
+
+        let input = Input {
+            instance: "Contract".to_string(),
+            method: Method::Function(selector),
+            calldata: Some(Calldata::Compound(vec![CalldataArg::Literal(
+                "true".to_string(),
+            )])),
+            ..Default::default()
+        };
+
+        let mut abis = HashMap::new();
+        abis.insert("Contract".to_string(), parsed_abi);
+        let contracts = HashMap::new();
+
+        let encoded = input.encoded_input(&abis, &contracts).unwrap();
+        assert!(encoded.0.starts_with(&selector));
+
+        type T = (bool,);
+        let decoded: T = T::abi_decode(&encoded.0[4..]).unwrap();
+        assert_eq!(decoded.0, true);
+    }
+
+    #[test]
+    fn test_encoded_input_string() {
+        let raw_abi = r#"[
+            {
+                "inputs": [{"name": "msg", "type": "string"}],
+                "name": "echo",
+                "outputs": [],
+                "stateMutability": "nonpayable",
+                "type": "function"
+            }
+        ]"#;
+
+        let parsed_abi: JsonAbi = serde_json::from_str(raw_abi).unwrap();
+        let selector = keccak256("echo(string)".as_bytes())[0..4]
+            .try_into()
+            .unwrap();
+
+        let input = Input {
+            instance: "Contract".to_string(),
+            method: Method::Function(selector),
+            calldata: Some(Calldata::Compound(vec![CalldataArg::Literal(
+                "hello".to_string(),
+            )])),
+            ..Default::default()
+        };
+
+        let mut abis = HashMap::new();
+        abis.insert("Contract".to_string(), parsed_abi);
+        let contracts = HashMap::new();
+
+        let encoded = input.encoded_input(&abis, &contracts).unwrap();
+        assert!(encoded.0.starts_with(&selector));
+    }
+
+    #[test]
+    fn test_encoded_input_uint256_array() {
+        let raw_abi = r#"[
+        {
+            "inputs": [{"name": "arr", "type": "uint256[]"}],
+            "name": "sum",
+            "outputs": [],
+            "stateMutability": "nonpayable",
+            "type": "function"
+        }
+        ]"#;
+
+        let parsed_abi: JsonAbi = serde_json::from_str(raw_abi).unwrap();
+        let selector = keccak256("sum(uint256[])".as_bytes())[0..4]
+            .try_into()
+            .unwrap();
+
+        let input = Input {
+            instance: "Contract".to_string(),
+            method: Method::Function(selector),
+            calldata: Some(Calldata::Compound(vec![CalldataArg::Literal(
+                "[1,2,3]".to_string(),
+            )])),
+            ..Default::default()
+        };
+
+        let mut abis = HashMap::new();
+        abis.insert("Contract".to_string(), parsed_abi);
+        let contracts = HashMap::new();
+
+        let encoded = input.encoded_input(&abis, &contracts).unwrap();
+        assert!(encoded.0.starts_with(&selector));
+    }
+
+    #[test]
+    fn test_encoded_input_address() {
+        let raw_abi = r#"[
+        {
+            "inputs": [{"name": "recipient", "type": "address"}],
+            "name": "send",
+            "outputs": [],
+            "stateMutability": "nonpayable",
+            "type": "function"
+        }
+        ]"#;
+
+        let parsed_abi: JsonAbi = serde_json::from_str(raw_abi).unwrap();
+        let selector = keccak256("send(address)".as_bytes())[0..4]
+            .try_into()
+            .unwrap();
+
+        let input = Input {
+            instance: "Contract".to_string(),
+            method: Method::Function(selector),
+            calldata: Some(Calldata::Compound(vec![CalldataArg::Literal(
+                "0x1000000000000000000000000000000000000001".to_string(),
+            )])),
+            ..Default::default()
+        };
+
+        let mut abis = HashMap::new();
+        abis.insert("Contract".to_string(), parsed_abi);
+        let contracts = HashMap::new();
+
+        let encoded = input.encoded_input(&abis, &contracts).unwrap();
+        assert!(encoded.0.starts_with(&selector));
+
+        type T = (alloy_primitives::Address,);
+        let decoded: T = T::abi_decode(&encoded.0[4..]).unwrap();
+        assert_eq!(
+            decoded.0,
+            address!("0x1000000000000000000000000000000000000001")
+        );
+    }
 }

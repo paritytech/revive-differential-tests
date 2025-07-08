@@ -325,7 +325,7 @@ where
                             }
                         }
                     } else {
-                        log::debug!("No metadata found for contract {}", contract_name);
+                        anyhow::bail!("No metadata found for contract {}", contract_name);
                     }
                 }
             }
@@ -400,14 +400,41 @@ where
             for case in &self.metadata.cases {
                 for input in &case.inputs {
                     log::debug!("Starting deploying contract {}", &input.instance);
-                    leader_state.deploy_contracts(input, self.leader_node)?;
-                    follower_state.deploy_contracts(input, self.follower_node)?;
+                    if let Err(err) = leader_state.deploy_contracts(input, self.leader_node) {
+                        log::error!("Leader deployment failed for {}: {err}", input.instance);
+                        continue;
+                    } else {
+                        log::debug!("Leader deployment succeeded for {}", &input.instance);
+                    }
+
+                    if let Err(err) = follower_state.deploy_contracts(input, self.follower_node) {
+                        log::error!("Follower deployment failed for {}: {err}", input.instance);
+                        continue;
+                    } else {
+                        log::debug!("Follower deployment succeeded for {}", &input.instance);
+                    }
 
                     log::debug!("Starting executing contract {}", &input.instance);
-                    let (leader_receipt, _, leader_diff) =
-                        leader_state.execute_input(input, self.leader_node)?;
-                    let (follower_receipt, _, follower_diff) =
-                        follower_state.execute_input(input, self.follower_node)?;
+
+                    let (leader_receipt, _, leader_diff) = match leader_state
+                        .execute_input(input, self.leader_node)
+                    {
+                        Ok(result) => result,
+                        Err(err) => {
+                            log::error!("Leader execution failed for {}: {err}", input.instance);
+                            continue;
+                        }
+                    };
+
+                    let (follower_receipt, _, follower_diff) = match follower_state
+                        .execute_input(input, self.follower_node)
+                    {
+                        Ok(result) => result,
+                        Err(err) => {
+                            log::error!("Follower execution failed for {}: {err}", input.instance);
+                            continue;
+                        }
+                    };
 
                     if leader_diff == follower_diff {
                         log::debug!("State diffs match between leader and follower.");
