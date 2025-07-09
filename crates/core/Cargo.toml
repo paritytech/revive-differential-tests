@@ -27,4 +27,5 @@ log = { workspace = true }
 env_logger = { workspace = true }
 rayon = { workspace = true }
 revive-solc-json-interface = { workspace = true }
+serde_json = { workspace = true }
 temp-dir = { workspace = true }
