@@ -300,20 +300,25 @@ where
                                                 .insert(contract_name.clone(), parsed_abi);
                                         }
                                         Err(err) => {
-                                            log::debug!(
-                                                "Failed to parse ABI from metadata for {contract_name}: {err}"
+                                            anyhow::bail!(
+                                                "Failed to parse ABI from metadata for contract {}: {}",
+                                                contract_name,
+                                                err
                                             );
                                         }
                                     }
                                 } else {
-                                    log::debug!(
-                                        "No ABI found in metadata for contract {contract_name}"
+                                    anyhow::bail!(
+                                        "No ABI found in metadata for contract {}",
+                                        contract_name
                                     );
                                 }
                             }
                             Err(err) => {
-                                log::debug!(
-                                    "Failed to parse metadata JSON string for contract {contract_name}: {err}"
+                                anyhow::bail!(
+                                    "Failed to parse metadata JSON string for contract {}: {}",
+                                    contract_name,
+                                    err
                                 );
                             }
                         }

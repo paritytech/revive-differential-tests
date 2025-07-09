@@ -54,7 +54,8 @@ pub enum Calldata {
 #[serde(untagged)]
 pub enum CalldataArg {
     Literal(String),
-    AddressRef(String), // will be "Contract.address"
+    /// For example: `Contract.address`
+    AddressRef(String),
 }
 
 /// Specify how the contract is called.
