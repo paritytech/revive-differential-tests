@@ -11,7 +11,7 @@ rust-version.workspace = true
 [dependencies]
 anyhow = { workspace = true }
 hex = { workspace = true }
-log = { workspace = true }
+tracing = { workspace = true }
 reqwest = { workspace = true }
 semver = { workspace = true }
 serde = { workspace = true }

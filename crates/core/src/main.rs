@@ -8,10 +8,12 @@ use revive_dt_core::{
     Geth, Kitchensink, Platform,
     driver::{Driver, State},
 };
-use revive_dt_format::{corpus::Corpus, metadata::Metadata};
+use revive_dt_format::{corpus::Corpus, metadata::MetadataFile};
 use revive_dt_node::pool::NodePool;
 use revive_dt_report::reporter::{Report, Span};
 use temp_dir::TempDir;
+use tracing::{Level, span};
+use tracing_subscriber::{EnvFilter, FmtSubscriber};
 
 static TEMP_DIR: LazyLock<TempDir> = LazyLock::new(|| TempDir::new().unwrap());
 
@@ -33,7 +35,10 @@ fn main() -> anyhow::Result<()> {
 }
 
 fn init_cli() -> anyhow::Result<Arguments> {
-    env_logger::init();
+    let subscriber = FmtSubscriber::builder()
+        .with_env_filter(EnvFilter::from_default_env())
+        .finish();
+    tracing::subscriber::set_global_default(subscriber)?;
 
     let mut args = Arguments::parse();
 
@@ -51,7 +56,7 @@ fn init_cli() -> anyhow::Result<Arguments> {
             args.temp_dir = Some(&TEMP_DIR);
         }
     }
-    log::info!("workdir: {}", args.directory().display());
+    tracing::info!("workdir: {}", args.directory().display());
 
     ThreadPoolBuilder::new()
         .num_threads(args.workers)
@@ -60,21 +65,21 @@ fn init_cli() -> anyhow::Result<Arguments> {
     Ok(args)
 }
 
-fn collect_corpora(args: &Arguments) -> anyhow::Result<HashMap<Corpus, Vec<Metadata>>> {
+fn collect_corpora(args: &Arguments) -> anyhow::Result<HashMap<Corpus, Vec<MetadataFile>>> {
     let mut corpora = HashMap::new();
 
     for path in &args.corpus {
         let corpus = Corpus::try_from_path(path)?;
-        log::info!("found corpus: {}", path.display());
+        tracing::info!("found corpus: {}", path.display());
         let tests = corpus.enumerate_tests();
-        log::info!("corpus '{}' contains {} tests", &corpus.name, tests.len());
+        tracing::info!("corpus '{}' contains {} tests", &corpus.name, tests.len());
         corpora.insert(corpus, tests);
     }
 
     Ok(corpora)
 }
 
-fn run_driver<L, F>(args: &Arguments, tests: &[Metadata], span: Span) -> anyhow::Result<()>
+fn run_driver<L, F>(args: &Arguments, tests: &[MetadataFile], span: Span) -> anyhow::Result<()>
 where
     L: Platform,
     F: Platform,
@@ -84,34 +89,50 @@ where
     let leader_nodes = NodePool::<L::Blockchain>::new(args)?;
     let follower_nodes = NodePool::<F::Blockchain>::new(args)?;
 
-    tests.par_iter().for_each(|metadata| {
-        let mut driver = Driver::<L, F>::new(
-            metadata,
-            args,
-            leader_nodes.round_robbin(),
-            follower_nodes.round_robbin(),
-        );
+    tests.par_iter().for_each(
+        |MetadataFile {
+             content: metadata,
+             path: metadata_file_path,
+         }| {
+            // Starting a new tracing span for this metadata file. This allows our logs to be clear
+            // about which metadata file the logs belong to. We can add other information into this
+            // as well to be able to associate the logs with the correct metadata file and case
+            // that's being executed.
+            let tracing_span = span!(
+                Level::INFO,
+                "Running driver",
+                metadata_file_path = metadata_file_path.display().to_string(),
+            );
+            let _guard = tracing_span.enter();
 
-        match driver.execute(span) {
-            Ok(_) => {
-                log::info!(
-                    "metadata {} success",
-                    metadata.directory().as_ref().unwrap().display()
-                );
+            let mut driver = Driver::<L, F>::new(
+                metadata,
+                args,
+                leader_nodes.round_robbin(),
+                follower_nodes.round_robbin(),
+            );
+
+            match driver.execute(span) {
+                Ok(_) => {
+                    tracing::info!(
+                        "metadata {} success",
+                        metadata.directory().as_ref().unwrap().display()
+                    );
+                }
+                Err(error) => {
+                    tracing::warn!(
+                        "metadata {} failure: {error:?}",
+                        metadata.file_path.as_ref().unwrap().display()
+                    );
+                }
             }
-            Err(error) => {
-                log::warn!(
-                    "metadata {} failure: {error:?}",
-                    metadata.file_path.as_ref().unwrap().display()
-                );
-            }
-        }
-    });
+        },
+    );
 
     Ok(())
 }
 
-fn execute_corpus(args: &Arguments, tests: &[Metadata], span: Span) -> anyhow::Result<()> {
+fn execute_corpus(args: &Arguments, tests: &[MetadataFile], span: Span) -> anyhow::Result<()> {
     match (&args.leader, &args.follower) {
         (TestingPlatform::Geth, TestingPlatform::Kitchensink) => {
             run_driver::<Geth, Kitchensink>(args, tests, span)?
@@ -125,7 +146,12 @@ fn execute_corpus(args: &Arguments, tests: &[Metadata], span: Span) -> anyhow::R
     Ok(())
 }
 
-fn compile_corpus(config: &Arguments, tests: &[Metadata], platform: &TestingPlatform, span: Span) {
+fn compile_corpus(
+    config: &Arguments,
+    tests: &[MetadataFile],
+    platform: &TestingPlatform,
+    span: Span,
+) {
     tests.par_iter().for_each(|metadata| {
         for mode in &metadata.solc_modes() {
             match platform {

@@ -34,7 +34,7 @@ impl SolidityCompiler for Solc {
 
         if !output.status.success() {
             let message = String::from_utf8_lossy(&output.stderr);
-            log::error!("solc failed exit={} stderr={}", output.status, &message);
+            tracing::error!("solc failed exit={} stderr={}", output.status, &message);
             return Ok(CompilerOutput {
                 input,
                 output: Default::default(),

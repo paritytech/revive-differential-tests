@@ -11,13 +11,13 @@ rust-version.workspace = true
 [dependencies]
 anyhow = { workspace = true }
 alloy = { workspace = true }
-log = { workspace = true }
+tracing = { workspace = true }
 
 revive-dt-node-interaction = { workspace = true }
 revive-dt-config = { workspace = true }
 
 serde_json = { workspace = true }
- 
+
 sp-core = { workspace = true }
 sp-runtime = { workspace = true }
 

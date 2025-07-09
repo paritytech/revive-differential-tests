@@ -192,7 +192,7 @@ impl Report {
         let file = File::create(&path).context(path.display().to_string())?;
         serde_json::to_writer_pretty(file, &self)?;
 
-        log::info!("report written to: {}", path.display());
+        tracing::info!("report written to: {}", path.display());
 
         Ok(())
     }

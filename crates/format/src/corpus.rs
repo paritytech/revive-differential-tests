@@ -5,7 +5,7 @@ use std::{
 
 use serde::{Deserialize, Serialize};
 
-use crate::metadata::Metadata;
+use crate::metadata::MetadataFile;
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, Eq, PartialEq, Hash)]
 pub struct Corpus {
@@ -21,7 +21,7 @@ impl Corpus {
     }
 
     /// Scan the corpus base directory and return all tests found.
-    pub fn enumerate_tests(&self) -> Vec<Metadata> {
+    pub fn enumerate_tests(&self) -> Vec<MetadataFile> {
         let mut tests = Vec::new();
         collect_metadata(&self.path, &mut tests);
         tests
@@ -34,11 +34,11 @@ impl Corpus {
 /// Found tests are inserted into `tests`.
 ///
 /// `path` is expected to be a directory.
-pub fn collect_metadata(path: &Path, tests: &mut Vec<Metadata>) {
+pub fn collect_metadata(path: &Path, tests: &mut Vec<MetadataFile>) {
     let dir_entry = match std::fs::read_dir(path) {
         Ok(dir_entry) => dir_entry,
         Err(error) => {
-            log::error!("failed to read dir '{}': {error}", path.display());
+            tracing::error!("failed to read dir '{}': {error}", path.display());
             return;
         }
     };
@@ -47,7 +47,7 @@ pub fn collect_metadata(path: &Path, tests: &mut Vec<Metadata>) {
         let entry = match entry {
             Ok(entry) => entry,
             Err(error) => {
-                log::error!("error reading dir entry: {error}");
+                tracing::error!("error reading dir entry: {error}");
                 continue;
             }
         };
@@ -59,7 +59,7 @@ pub fn collect_metadata(path: &Path, tests: &mut Vec<Metadata>) {
         }
 
         if path.is_file() {
-            if let Some(metadata) = Metadata::try_from_file(&path) {
+            if let Some(metadata) = MetadataFile::try_from_file(&path) {
                 tests.push(metadata)
             }
         }
