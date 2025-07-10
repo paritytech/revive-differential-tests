@@ -108,8 +108,17 @@ jobs:
           # Download and install Geth all-tools from the geth store website as the PPA only has the
           # latest versions of Geth.
           sudo apt-get install -y wget ca-certificates tar
-          wget -qO- https://gethstore.blob.core.windows.net/builds/geth-alltools-linux-arm64-1.15.11-36b2371c.tar.gz \
-            | sudo tar xz -C /usr/local/bin --strip-components=1
+          ARCH=$(uname -m)
+          if [ "$ARCH" = "x86_64" ]; then
+            URL="https://gethstore.blob.core.windows.net/builds/geth-alltools-linux-amd64-1.15.11-36b2371c.tar.gz"
+          elif [ "$ARCH" = "aarch64" ]; then
+            URL="https://gethstore.blob.core.windows.net/builds/geth-alltools-linux-arm64-1.15.11-36b2371c.tar.gz"
+          else
+            echo "Unsupported architecture: $ARCH"
+            exit 1
+          fi
+          wget -qO- "$URL" | sudo tar xz -C /usr/local/bin --strip-components=1
+          geth --version
 
       - name: Install Geth on macOS
         if: matrix.os == 'macos-14'
