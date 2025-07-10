@@ -159,17 +159,82 @@ impl EthereumNode for Instance {
         let connection_string = self.connection_string();
         let wallet = self.wallet.clone();
 
-        tracing::debug!("Submitting transaction: {transaction:#?}");
-
         execute_transaction(Box::pin(async move {
-            Ok(ProviderBuilder::new()
+            let outer_span = tracing::debug_span!("Submitting transaction", ?transaction,);
+            let _outer_guard = outer_span.enter();
+
+            let provider = ProviderBuilder::new()
                 .wallet(wallet)
                 .connect(&connection_string)
-                .await?
-                .send_transaction(transaction)
-                .await?
-                .get_receipt()
-                .await?)
+                .await?;
+
+            let pending_transaction = provider.send_transaction(transaction).await?;
+            let transaction_hash = pending_transaction.tx_hash();
+
+            let span = tracing::info_span!("Awaiting transaction receipt", ?transaction_hash);
+            let _guard = span.enter();
+
+            // The following is a fix for the "transaction indexing is in progress" error that we
+            // used to get. You can find more information on this in the following GH issue in geth
+            // https://github.com/ethereum/go-ethereum/issues/28877. To summarize what's going on,
+            // before we can get the receipt of the transaction it needs to have been indexed by the
+            // node's indexer. Just because the transaction has been confirmed it doesn't mean that
+            // it has been indexed. When we call alloy's `get_receipt` it checks if the transaction
+            // was confirmed. If it has been, then it will call `eth_getTransactionReceipt` method
+            // which _might_ return the above error if the tx has not yet been indexed yet. So, we
+            // need to implement a retry mechanism for the receipt to keep retrying to get it until
+            // it eventually works, but we only do that if the error we get back is the "transaction
+            // indexing is in progress" error or if the receipt is None.
+            //
+            // At the moment we do not allow for the 60 seconds to be modified and we take it as
+            // being an implementation detail that's invisible to anything outside of this module.
+            //
+            // We allow a total of 60 retries for getting the receipt with one second between each
+            // retry and the next which means that we allow for a total of 60 seconds of waiting
+            // before we consider that we're unable to get the transaction receipt.
+            let mut retries = 0;
+            loop {
+                match provider.get_transaction_receipt(*transaction_hash).await {
+                    Ok(Some(receipt)) => {
+                        tracing::info!("Obtained the transaction receipt");
+                        break Ok(receipt);
+                    }
+                    Ok(None) => {
+                        if retries == 60 {
+                            tracing::error!(
+                                "Polled for transaction receipt for 60 seconds but failed to get it"
+                            );
+                            break Err(anyhow::anyhow!("Failed to get the transaction receipt"));
+                        } else {
+                            tracing::trace!(
+                                retries,
+                                "Sleeping for 1 second and trying to get the receipt again"
+                            );
+                            retries += 1;
+                            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                            continue;
+                        }
+                    }
+                    Err(error) => {
+                        let error_string = error.to_string();
+                        if error_string.contains("transaction indexing is in progress") {
+                            if retries == 60 {
+                                break Err(error.into());
+                            } else {
+                                tracing::trace!(
+                                    retries,
+                                    "Sleeping for 1 second and trying to get the receipt again"
+                                );
+                                retries += 1;
+                                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                                continue;
+                            }
+                        } else {
+                            break Err(error.into());
+                        }
+                    }
+                }
+            }
         }))
     }
 
@@ -270,6 +335,7 @@ impl Node for Instance {
 
 impl Drop for Instance {
     fn drop(&mut self) {
+        tracing::info!(id = self.id, "Dropping node");
         if let Some(child) = self.handle.as_mut() {
             let _ = child.kill();
         }
