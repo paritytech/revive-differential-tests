@@ -103,6 +103,10 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y ethereum=1.15.11+build31083+noble protobuf-compiler
 
+          # This pins the version of `ethereum` so that it can't be upgraded by mistake if we run
+          # apt update in a later step.
+          sudo apt-mark hold ethereum
+
       - name: Install Geth on macOS
         if: matrix.os == 'macos-14'
         run: |
