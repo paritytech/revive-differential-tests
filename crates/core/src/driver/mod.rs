@@ -1,12 +1,14 @@
 //! The test driver handles the compilation and execution of the test cases.
 
+use alloy::json_abi::JsonAbi;
 use alloy::primitives::Bytes;
-use alloy::rpc::types::TransactionInput;
+use alloy::rpc::types::trace::geth::GethTrace;
+use alloy::rpc::types::{TransactionInput, TransactionReceipt};
 use alloy::{
     primitives::{Address, TxKind, map::HashMap},
     rpc::types::{
-        TransactionReceipt, TransactionRequest,
-        trace::geth::{AccountState, DiffMode, GethTrace},
+        TransactionRequest,
+        trace::geth::{AccountState, DiffMode},
     },
 };
 use revive_dt_compiler::{Compiler, CompilerInput, SolidityCompiler};
@@ -15,7 +17,9 @@ use revive_dt_format::{input::Input, metadata::Metadata, mode::SolcMode};
 use revive_dt_node_interaction::EthereumNode;
 use revive_dt_report::reporter::{CompilationTask, Report, Span};
 use revive_solc_json_interface::SolcStandardJsonOutput;
-use tracing::{Level, span};
+use serde_json::Value;
+use std::collections::HashMap as StdHashMap;
+use tracing::Level;
 
 use crate::Platform;
 
@@ -28,7 +32,8 @@ pub struct State<'a, T: Platform> {
     config: &'a Arguments,
     span: Span,
     contracts: Contracts<T>,
-    deployed_contracts: HashMap<String, Address>,
+    deployed_contracts: StdHashMap<String, Address>,
+    deployed_abis: StdHashMap<String, JsonAbi>,
 }
 
 impl<'a, T> State<'a, T>
@@ -41,6 +46,7 @@ where
             span,
             contracts: Default::default(),
             deployed_contracts: Default::default(),
+            deployed_abis: Default::default(),
         }
     }
 
@@ -129,15 +135,21 @@ where
             std::any::type_name::<T>()
         );
 
-        let tx =
-            match input.legacy_transaction(self.config.network_id, nonce, &self.deployed_contracts)
-            {
-                Ok(tx) => tx,
-                Err(err) => {
-                    tracing::error!("Failed to construct legacy transaction: {err:?}");
-                    return Err(err);
-                }
-            };
+        let tx = match input.legacy_transaction(
+            self.config.network_id,
+            nonce,
+            &self.deployed_contracts,
+            &self.deployed_abis,
+        ) {
+            Ok(tx) => {
+                tracing::debug!("Legacy transaction data: {tx:#?}");
+                tx
+            }
+            Err(err) => {
+                tracing::error!("Failed to construct legacy transaction: {err:?}");
+                return Err(err);
+            }
+        };
 
         tracing::trace!("Executing transaction for input: {input:?}");
 
@@ -194,9 +206,6 @@ where
                         &contract_name,
                         &input.instance
                     );
-                    if contract_name != &input.instance {
-                        continue;
-                    }
 
                     let bytecode = contract
                         .evm
@@ -273,6 +282,52 @@ where
                         address,
                         std::any::type_name::<T>()
                     );
+
+                    if let Some(Value::String(metadata_json_str)) = &contract.metadata {
+                        tracing::trace!(
+                            "metadata found for contract {contract_name}, {metadata_json_str}"
+                        );
+
+                        match serde_json::from_str::<serde_json::Value>(metadata_json_str) {
+                            Ok(metadata_json) => {
+                                if let Some(abi_value) =
+                                    metadata_json.get("output").and_then(|o| o.get("abi"))
+                                {
+                                    match serde_json::from_value::<JsonAbi>(abi_value.clone()) {
+                                        Ok(parsed_abi) => {
+                                            tracing::trace!(
+                                                "ABI found in metadata for contract {}",
+                                                &contract_name
+                                            );
+                                            self.deployed_abis
+                                                .insert(contract_name.clone(), parsed_abi);
+                                        }
+                                        Err(err) => {
+                                            anyhow::bail!(
+                                                "Failed to parse ABI from metadata for contract {}: {}",
+                                                contract_name,
+                                                err
+                                            );
+                                        }
+                                    }
+                                } else {
+                                    anyhow::bail!(
+                                        "No ABI found in metadata for contract {}",
+                                        contract_name
+                                    );
+                                }
+                            }
+                            Err(err) => {
+                                anyhow::bail!(
+                                    "Failed to parse metadata JSON string for contract {}: {}",
+                                    contract_name,
+                                    err
+                                );
+                            }
+                        }
+                    } else {
+                        anyhow::bail!("No metadata found for contract {}", contract_name);
+                    }
                 }
             }
         }
@@ -346,7 +401,7 @@ where
             for (case_idx, case) in self.metadata.cases.iter().enumerate() {
                 // Creating a tracing span to know which case within the metadata is being executed
                 // and which one we're getting logs for.
-                let tracing_span = span!(
+                let tracing_span = tracing::span!(
                     Level::INFO,
                     "Executing case",
                     case = case.name,
@@ -356,14 +411,45 @@ where
 
                 for input in &case.inputs {
                     tracing::debug!("Starting deploying contract {}", &input.instance);
-                    leader_state.deploy_contracts(input, self.leader_node)?;
-                    follower_state.deploy_contracts(input, self.follower_node)?;
+                    if let Err(err) = leader_state.deploy_contracts(input, self.leader_node) {
+                        tracing::error!("Leader deployment failed for {}: {err}", input.instance);
+                        continue;
+                    } else {
+                        tracing::debug!("Leader deployment succeeded for {}", &input.instance);
+                    }
+
+                    if let Err(err) = follower_state.deploy_contracts(input, self.follower_node) {
+                        tracing::error!("Follower deployment failed for {}: {err}", input.instance);
+                        continue;
+                    } else {
+                        tracing::debug!("Follower deployment succeeded for {}", &input.instance);
+                    }
 
                     tracing::debug!("Starting executing contract {}", &input.instance);
+
                     let (leader_receipt, _, leader_diff) =
-                        leader_state.execute_input(input, self.leader_node)?;
+                        match leader_state.execute_input(input, self.leader_node) {
+                            Ok(result) => result,
+                            Err(err) => {
+                                tracing::error!(
+                                    "Leader execution failed for {}: {err}",
+                                    input.instance
+                                );
+                                continue;
+                            }
+                        };
+
                     let (follower_receipt, _, follower_diff) =
-                        follower_state.execute_input(input, self.follower_node)?;
+                        match follower_state.execute_input(input, self.follower_node) {
+                            Ok(result) => result,
+                            Err(err) => {
+                                tracing::error!(
+                                    "Follower execution failed for {}: {err}",
+                                    input.instance
+                                );
+                                continue;
+                            }
+                        };
 
                     if leader_diff == follower_diff {
                         tracing::debug!("State diffs match between leader and follower.");

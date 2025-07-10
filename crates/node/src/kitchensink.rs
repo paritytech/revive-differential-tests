@@ -1,4 +1,5 @@
 use std::{
+    collections::HashMap,
     fs::create_dir_all,
     io::BufRead,
     path::PathBuf,
@@ -13,7 +14,7 @@ use std::{
 use alloy::{
     hex,
     network::EthereumWallet,
-    primitives::{Address, map::HashMap},
+    primitives::Address,
     providers::{Provider, ProviderBuilder, ext::DebugApi},
     rpc::types::{
         TransactionReceipt,
@@ -250,6 +251,8 @@ impl EthereumNode for KitchensinkNode {
     ) -> anyhow::Result<TransactionReceipt> {
         let url = self.rpc_url.clone();
         let wallet = self.wallet.clone();
+
+        tracing::debug!("Submitting transaction: {transaction:#?}");
 
         execute_transaction(Box::pin(async move {
             Ok(ProviderBuilder::new()

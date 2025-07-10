@@ -1,6 +1,7 @@
 //! The go-ethereum node implementation.
 
 use std::{
+    collections::HashMap,
     fs::{File, create_dir_all, remove_dir_all},
     io::{BufRead, BufReader, Read, Write},
     path::PathBuf,
@@ -15,7 +16,7 @@ use std::{
 
 use alloy::{
     network::EthereumWallet,
-    primitives::{Address, map::HashMap},
+    primitives::Address,
     providers::{Provider, ProviderBuilder, ext::DebugApi},
     rpc::types::{
         TransactionReceipt, TransactionRequest,
@@ -157,6 +158,8 @@ impl EthereumNode for Instance {
     ) -> anyhow::Result<alloy::rpc::types::TransactionReceipt> {
         let connection_string = self.connection_string();
         let wallet = self.wallet.clone();
+
+        tracing::debug!("Submitting transaction: {transaction:#?}");
 
         execute_transaction(Box::pin(async move {
             Ok(ProviderBuilder::new()

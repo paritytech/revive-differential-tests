@@ -21,6 +21,8 @@ revive-dt-node-pool = { version = "0.1.0", path = "crates/node-pool" }
 revive-dt-report = { version = "0.1.0", path = "crates/report" }
 revive-dt-solc-binaries = { version = "0.1.0", path = "crates/solc-binaries" }
 
+alloy-primitives = "1.2.1"
+alloy-sol-types = "1.2.1"
 anyhow = "1.0"
 clap = { version = "4", features = ["derive"] }
 hex = "0.4.3"

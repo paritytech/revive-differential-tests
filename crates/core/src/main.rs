@@ -12,8 +12,8 @@ use revive_dt_format::{corpus::Corpus, metadata::MetadataFile};
 use revive_dt_node::pool::NodePool;
 use revive_dt_report::reporter::{Report, Span};
 use temp_dir::TempDir;
-use tracing::{Level, span};
-use tracing_subscriber::{EnvFilter, FmtSubscriber};
+use tracing::Level;
+use tracing_subscriber::{EnvFilter, FmtSubscriber, fmt::format::FmtSpan};
 
 static TEMP_DIR: LazyLock<TempDir> = LazyLock::new(|| TempDir::new().unwrap());
 
@@ -36,7 +36,11 @@ fn main() -> anyhow::Result<()> {
 
 fn init_cli() -> anyhow::Result<Arguments> {
     let subscriber = FmtSubscriber::builder()
+        .with_thread_ids(true)
+        .with_thread_names(true)
         .with_env_filter(EnvFilter::from_default_env())
+        .with_span_events(FmtSpan::ENTER | FmtSpan::CLOSE)
+        .pretty()
         .finish();
     tracing::subscriber::set_global_default(subscriber)?;
 
@@ -98,7 +102,7 @@ where
             // about which metadata file the logs belong to. We can add other information into this
             // as well to be able to associate the logs with the correct metadata file and case
             // that's being executed.
-            let tracing_span = span!(
+            let tracing_span = tracing::span!(
                 Level::INFO,
                 "Running driver",
                 metadata_file_path = metadata_file_path.display().to_string(),
