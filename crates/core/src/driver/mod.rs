@@ -19,6 +19,7 @@ use revive_dt_report::reporter::{CompilationTask, Report, Span};
 use revive_solc_json_interface::SolcStandardJsonOutput;
 use serde_json::Value;
 use std::collections::HashMap as StdHashMap;
+use tracing::Level;
 
 use crate::Platform;
 
@@ -73,7 +74,7 @@ where
             .solc_optimizer(mode.solc_optimize());
 
         for (file, _contract) in metadata.contract_sources()?.values() {
-            log::debug!("contract source {}", file.display());
+            tracing::debug!("contract source {}", file.display());
             compiler = compiler.with_source(file)?;
         }
 
@@ -96,11 +97,13 @@ where
                     if let Some(contracts) = &last_output.contracts {
                         for (file, contracts_map) in contracts {
                             for contract_name in contracts_map.keys() {
-                                log::debug!("Compiled contract: {contract_name} from file: {file}");
+                                tracing::debug!(
+                                    "Compiled contract: {contract_name} from file: {file}"
+                                );
                             }
                         }
                     } else {
-                        log::warn!("Compiled contracts field is None");
+                        tracing::warn!("Compiled contracts field is None");
                     }
                 }
 
@@ -108,7 +111,7 @@ where
                 Ok(())
             }
             Err(error) => {
-                log::error!("Failed to compile contract: {:?}", error.to_string());
+                tracing::error!("Failed to compile contract: {:?}", error.to_string());
                 task.error = Some(error.to_string());
                 Err(error)
             }
@@ -120,11 +123,11 @@ where
         input: &Input,
         node: &T::Blockchain,
     ) -> anyhow::Result<(TransactionReceipt, GethTrace, DiffMode)> {
-        log::trace!("Calling execute_input for input: {input:?}");
+        tracing::trace!("Calling execute_input for input: {input:?}");
 
         let nonce = node.fetch_add_nonce(input.caller)?;
 
-        log::debug!(
+        tracing::debug!(
             "Nonce calculated on the execute contract, calculated nonce {}, for contract {}, having address {} on node: {}",
             &nonce,
             &input.instance,
@@ -139,21 +142,21 @@ where
             &self.deployed_abis,
         ) {
             Ok(tx) => {
-                log::debug!("Legacy transaction data: {tx:#?}");
+                tracing::debug!("Legacy transaction data: {tx:#?}");
                 tx
             }
             Err(err) => {
-                log::error!("Failed to construct legacy transaction: {err:?}");
+                tracing::error!("Failed to construct legacy transaction: {err:?}");
                 return Err(err);
             }
         };
 
-        log::trace!("Executing transaction for input: {input:?}");
+        tracing::trace!("Executing transaction for input: {input:?}");
 
         let receipt = match node.execute_transaction(tx) {
             Ok(receipt) => receipt,
             Err(err) => {
-                log::error!(
+                tracing::error!(
                     "Failed to execute transaction when executing the contract: {}, {:?}",
                     &input.instance,
                     err
@@ -162,14 +165,14 @@ where
             }
         };
 
-        log::trace!(
+        tracing::trace!(
             "Transaction receipt for executed contract: {} - {:?}",
             &input.instance,
             receipt,
         );
 
         let trace = node.trace_transaction(receipt.clone())?;
-        log::trace!(
+        tracing::trace!(
             "Trace result for contract: {} - {:?}",
             &input.instance,
             trace
@@ -181,7 +184,7 @@ where
     }
 
     pub fn deploy_contracts(&mut self, input: &Input, node: &T::Blockchain) -> anyhow::Result<()> {
-        log::debug!(
+        tracing::debug!(
             "Deploying contracts {}, having address {} on node: {}",
             &input.instance,
             &input.caller,
@@ -189,7 +192,7 @@ where
         );
         for output in self.contracts.values() {
             let Some(contract_map) = &output.contracts else {
-                log::debug!(
+                tracing::debug!(
                     "No contracts in output — skipping deployment for this input {}",
                     &input.instance
                 );
@@ -198,7 +201,7 @@ where
 
             for contracts in contract_map.values() {
                 for (contract_name, contract) in contracts {
-                    log::debug!(
+                    tracing::debug!(
                         "Contract name is: {:?} and the input name is: {:?}",
                         &contract_name,
                         &input.instance
@@ -211,13 +214,13 @@ where
                         .map(|b| b.object.clone());
 
                     let Some(code) = bytecode else {
-                        log::error!("no bytecode for contract {contract_name}");
+                        tracing::error!("no bytecode for contract {contract_name}");
                         continue;
                     };
 
                     let nonce = node.fetch_add_nonce(input.caller)?;
 
-                    log::debug!(
+                    tracing::debug!(
                         "Calculated nonce {}, for contract {}, having address {} on node: {}",
                         &nonce,
                         &input.instance,
@@ -239,7 +242,7 @@ where
                     let receipt = match node.execute_transaction(tx) {
                         Ok(receipt) => receipt,
                         Err(err) => {
-                            log::error!(
+                            tracing::error!(
                                 "Failed to execute transaction when deploying the contract on node : {:?}, {:?}, {:?}",
                                 std::any::type_name::<T>(),
                                 &contract_name,
@@ -249,7 +252,7 @@ where
                         }
                     };
 
-                    log::debug!(
+                    tracing::debug!(
                         "Deployment tx sent for {} with nonce {} → tx hash: {:?}, on node: {:?}",
                         contract_name,
                         nonce,
@@ -257,7 +260,7 @@ where
                         std::any::type_name::<T>(),
                     );
 
-                    log::trace!(
+                    tracing::trace!(
                         "Deployed transaction receipt for contract: {} - {:?}, on node: {:?}",
                         &contract_name,
                         receipt,
@@ -265,7 +268,7 @@ where
                     );
 
                     let Some(address) = receipt.contract_address else {
-                        log::error!(
+                        tracing::error!(
                             "contract {contract_name} deployment did not return an address"
                         );
                         continue;
@@ -273,7 +276,7 @@ where
 
                     self.deployed_contracts
                         .insert(contract_name.clone(), address);
-                    log::trace!(
+                    tracing::trace!(
                         "deployed contract `{}` at {:?}, on node {:?}",
                         contract_name,
                         address,
@@ -281,7 +284,7 @@ where
                     );
 
                     if let Some(Value::String(metadata_json_str)) = &contract.metadata {
-                        log::trace!(
+                        tracing::trace!(
                             "metadata found for contract {contract_name}, {metadata_json_str}"
                         );
 
@@ -292,7 +295,7 @@ where
                                 {
                                     match serde_json::from_value::<JsonAbi>(abi_value.clone()) {
                                         Ok(parsed_abi) => {
-                                            log::trace!(
+                                            tracing::trace!(
                                                 "ABI found in metadata for contract {}",
                                                 &contract_name
                                             );
@@ -329,7 +332,7 @@ where
             }
         }
 
-        log::debug!("Available contracts: {:?}", self.deployed_contracts.keys());
+        tracing::debug!("Available contracts: {:?}", self.deployed_contracts.keys());
 
         Ok(())
     }
@@ -362,28 +365,28 @@ where
     }
 
     pub fn trace_diff_mode(label: &str, diff: &DiffMode) {
-        log::trace!("{label} - PRE STATE:");
+        tracing::trace!("{label} - PRE STATE:");
         for (addr, state) in &diff.pre {
             Self::trace_account_state("  [pre]", addr, state);
         }
 
-        log::trace!("{label} - POST STATE:");
+        tracing::trace!("{label} - POST STATE:");
         for (addr, state) in &diff.post {
             Self::trace_account_state("  [post]", addr, state);
         }
     }
 
     fn trace_account_state(prefix: &str, addr: &Address, state: &AccountState) {
-        log::trace!("{prefix} 0x{addr:x}");
+        tracing::trace!("{prefix} 0x{addr:x}");
 
         if let Some(balance) = &state.balance {
-            log::trace!("{prefix}   balance: {balance}");
+            tracing::trace!("{prefix}   balance: {balance}");
         }
         if let Some(nonce) = &state.nonce {
-            log::trace!("{prefix}   nonce: {nonce}");
+            tracing::trace!("{prefix}   nonce: {nonce}");
         }
         if let Some(code) = &state.code {
-            log::trace!("{prefix}   code: {code}");
+            tracing::trace!("{prefix}   code: {code}");
         }
     }
 
@@ -395,61 +398,75 @@ where
             let mut follower_state = State::<F>::new(self.config, span);
             follower_state.build_contracts(&mode, self.metadata)?;
 
-            for case in &self.metadata.cases {
+            for (case_idx, case) in self.metadata.cases.iter().enumerate() {
+                // Creating a tracing span to know which case within the metadata is being executed
+                // and which one we're getting logs for.
+                let tracing_span = tracing::span!(
+                    Level::INFO,
+                    "Executing case",
+                    case = case.name,
+                    case_idx = case_idx
+                );
+                let _guard = tracing_span.enter();
+
                 for input in &case.inputs {
-                    log::debug!("Starting deploying contract {}", &input.instance);
+                    tracing::debug!("Starting deploying contract {}", &input.instance);
                     if let Err(err) = leader_state.deploy_contracts(input, self.leader_node) {
-                        log::error!("Leader deployment failed for {}: {err}", input.instance);
+                        tracing::error!("Leader deployment failed for {}: {err}", input.instance);
                         continue;
                     } else {
-                        log::debug!("Leader deployment succeeded for {}", &input.instance);
+                        tracing::debug!("Leader deployment succeeded for {}", &input.instance);
                     }
 
                     if let Err(err) = follower_state.deploy_contracts(input, self.follower_node) {
-                        log::error!("Follower deployment failed for {}: {err}", input.instance);
+                        tracing::error!("Follower deployment failed for {}: {err}", input.instance);
                         continue;
                     } else {
-                        log::debug!("Follower deployment succeeded for {}", &input.instance);
+                        tracing::debug!("Follower deployment succeeded for {}", &input.instance);
                     }
 
-                    log::debug!("Starting executing contract {}", &input.instance);
+                    tracing::debug!("Starting executing contract {}", &input.instance);
 
-                    let (leader_receipt, _, leader_diff) = match leader_state
-                        .execute_input(input, self.leader_node)
-                    {
-                        Ok(result) => result,
-                        Err(err) => {
-                            log::error!("Leader execution failed for {}: {err}", input.instance);
-                            continue;
-                        }
-                    };
+                    let (leader_receipt, _, leader_diff) =
+                        match leader_state.execute_input(input, self.leader_node) {
+                            Ok(result) => result,
+                            Err(err) => {
+                                tracing::error!(
+                                    "Leader execution failed for {}: {err}",
+                                    input.instance
+                                );
+                                continue;
+                            }
+                        };
 
-                    let (follower_receipt, _, follower_diff) = match follower_state
-                        .execute_input(input, self.follower_node)
-                    {
-                        Ok(result) => result,
-                        Err(err) => {
-                            log::error!("Follower execution failed for {}: {err}", input.instance);
-                            continue;
-                        }
-                    };
+                    let (follower_receipt, _, follower_diff) =
+                        match follower_state.execute_input(input, self.follower_node) {
+                            Ok(result) => result,
+                            Err(err) => {
+                                tracing::error!(
+                                    "Follower execution failed for {}: {err}",
+                                    input.instance
+                                );
+                                continue;
+                            }
+                        };
 
                     if leader_diff == follower_diff {
-                        log::debug!("State diffs match between leader and follower.");
+                        tracing::debug!("State diffs match between leader and follower.");
                     } else {
-                        log::debug!("State diffs mismatch between leader and follower.");
+                        tracing::debug!("State diffs mismatch between leader and follower.");
                         Self::trace_diff_mode("Leader", &leader_diff);
                         Self::trace_diff_mode("Follower", &follower_diff);
                     }
 
                     if leader_receipt.logs() != follower_receipt.logs() {
-                        log::debug!("Log/event mismatch between leader and follower.");
-                        log::trace!("Leader logs: {:?}", leader_receipt.logs());
-                        log::trace!("Follower logs: {:?}", follower_receipt.logs());
+                        tracing::debug!("Log/event mismatch between leader and follower.");
+                        tracing::trace!("Leader logs: {:?}", leader_receipt.logs());
+                        tracing::trace!("Follower logs: {:?}", follower_receipt.logs());
                     }
 
                     if leader_receipt.status() != follower_receipt.status() {
-                        log::debug!(
+                        tracing::debug!(
                             "Mismatch in status: leader = {}, follower = {}",
                             leader_receipt.status(),
                             follower_receipt.status()

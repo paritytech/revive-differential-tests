@@ -126,7 +126,7 @@ impl Input {
             .get(&self.instance)
             .ok_or_else(|| anyhow::anyhow!("ABI for instance '{}' not found", &self.instance))?;
 
-        log::trace!("ABI found for instance: {}", &self.instance);
+        tracing::trace!("ABI found for instance: {}", &self.instance);
 
         // Find function by selector
         let function = abi
@@ -140,7 +140,7 @@ impl Input {
                 )
             })?;
 
-        log::trace!("Functions found for instance: {}", &self.instance);
+        tracing::trace!("Functions found for instance: {}", &self.instance);
 
         let calldata_args = match &self.calldata {
             Some(Calldata::Compound(args)) => args,
@@ -155,7 +155,7 @@ impl Input {
             );
         }
 
-        log::trace!(
+        tracing::trace!(
             "Starting encoding ABI's parameters for instance: {}",
             &self.instance
         );

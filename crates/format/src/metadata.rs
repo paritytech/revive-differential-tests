@@ -1,6 +1,7 @@
 use std::{
     collections::BTreeMap,
     fs::{File, read_to_string},
+    ops::Deref,
     path::{Path, PathBuf},
 };
 
@@ -14,6 +15,29 @@ use crate::{
 pub const METADATA_FILE_EXTENSION: &str = "json";
 pub const SOLIDITY_CASE_FILE_EXTENSION: &str = "sol";
 pub const SOLIDITY_CASE_COMMENT_MARKER: &str = "//!";
+
+#[derive(Debug, Default, Deserialize, Clone, Eq, PartialEq)]
+pub struct MetadataFile {
+    pub path: PathBuf,
+    pub content: Metadata,
+}
+
+impl MetadataFile {
+    pub fn try_from_file(path: &Path) -> Option<Self> {
+        Metadata::try_from_file(path).map(|metadata| Self {
+            path: path.to_owned(),
+            content: metadata,
+        })
+    }
+}
+
+impl Deref for MetadataFile {
+    type Target = Metadata;
+
+    fn deref(&self) -> &Self::Target {
+        &self.content
+    }
+}
 
 #[derive(Debug, Default, Deserialize, Clone, Eq, PartialEq)]
 pub struct Metadata {
@@ -35,7 +59,7 @@ impl Metadata {
             .filter_map(|mode| match mode {
                 Mode::Solidity(solc_mode) => Some(solc_mode),
                 Mode::Unknown(mode) => {
-                    log::debug!("compiler: ignoring unknown mode '{mode}'");
+                    tracing::debug!("compiler: ignoring unknown mode '{mode}'");
                     None
                 }
             })
@@ -90,7 +114,7 @@ impl Metadata {
         assert!(path.is_file(), "not a file: {}", path.display());
 
         let Some(file_extension) = path.extension() else {
-            log::debug!("skipping corpus file: {}", path.display());
+            tracing::debug!("skipping corpus file: {}", path.display());
             return None;
         };
 
@@ -102,14 +126,14 @@ impl Metadata {
             return Self::try_from_solidity(path);
         }
 
-        log::debug!("ignoring invalid corpus file: {}", path.display());
+        tracing::debug!("ignoring invalid corpus file: {}", path.display());
         None
     }
 
     fn try_from_json(path: &Path) -> Option<Self> {
         let file = File::open(path)
             .inspect_err(|error| {
-                log::error!(
+                tracing::error!(
                     "opening JSON test metadata file '{}' error: {error}",
                     path.display()
                 );
@@ -122,7 +146,7 @@ impl Metadata {
                 Some(metadata)
             }
             Err(error) => {
-                log::error!(
+                tracing::error!(
                     "parsing JSON test metadata file '{}' error: {error}",
                     path.display()
                 );
@@ -134,7 +158,7 @@ impl Metadata {
     fn try_from_solidity(path: &Path) -> Option<Self> {
         let spec = read_to_string(path)
             .inspect_err(|error| {
-                log::error!(
+                tracing::error!(
                     "opening JSON test metadata file '{}' error: {error}",
                     path.display()
                 );
@@ -163,7 +187,7 @@ impl Metadata {
                 Some(metadata)
             }
             Err(error) => {
-                log::error!(
+                tracing::error!(
                     "parsing Solidity test metadata file '{}' error: '{error}' from data: {spec}",
                     path.display()
                 );

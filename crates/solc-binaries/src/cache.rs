@@ -25,7 +25,7 @@ pub(crate) fn get_or_download(
 
     let mut cache = SOLC_CACHER.lock().unwrap();
     if cache.contains(&target_file) {
-        log::debug!("using cached solc: {}", target_file.display());
+        tracing::debug!("using cached solc: {}", target_file.display());
         return Ok(target_file);
     }
 
@@ -37,10 +37,10 @@ pub(crate) fn get_or_download(
 }
 
 fn download_to_file(path: &Path, downloader: &GHDownloader) -> anyhow::Result<()> {
-    log::info!("caching file: {}", path.display());
+    tracing::info!("caching file: {}", path.display());
 
     let Ok(file) = File::create_new(path) else {
-        log::debug!("cache file already exists: {}", path.display());
+        tracing::debug!("cache file already exists: {}", path.display());
         return Ok(());
     };
 

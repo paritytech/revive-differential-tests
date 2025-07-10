@@ -42,7 +42,7 @@ impl SolidityCompiler for Resolc {
 
         if !output.status.success() {
             let message = String::from_utf8_lossy(&stderr);
-            log::error!(
+            tracing::error!(
                 "resolc failed exit={} stderr={} JSON-in={} ",
                 output.status,
                 &message,

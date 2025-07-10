@@ -51,13 +51,13 @@ impl TokioRuntime {
                 let nonce_task = spawn(interaction::<Nonce>(nonce_receiver));
 
                 if let Err(error) = transaction_task.await {
-                    log::error!("tokio transaction task failed: {error}");
+                    tracing::error!("tokio transaction task failed: {error}");
                 }
                 if let Err(error) = trace_task.await {
-                    log::error!("tokio trace transaction task failed: {error}");
+                    tracing::error!("tokio trace transaction task failed: {error}");
                 }
                 if let Err(error) = nonce_task.await {
-                    log::error!("tokio nonce task failed: {error}");
+                    tracing::error!("tokio nonce task failed: {error}");
                 }
             });
         });

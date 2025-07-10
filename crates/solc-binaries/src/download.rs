@@ -86,7 +86,7 @@ impl GHDownloader {
     /// Errors out if the download fails or the digest of the downloaded file
     /// mismatches the expected digest from the release [List].
     pub fn download(&self) -> anyhow::Result<Vec<u8>> {
-        log::info!("downloading solc: {self:?}");
+        tracing::info!("downloading solc: {self:?}");
         let expected_digest = List::download(self.list)?
             .builds
             .iter()
