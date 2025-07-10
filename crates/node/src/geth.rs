@@ -219,6 +219,9 @@ impl EthereumNode for Instance {
                         let error_string = error.to_string();
                         if error_string.contains("transaction indexing is in progress") {
                             if retries == 60 {
+                                tracing::error!(
+                                    "Polled for transaction receipt for 60 seconds but failed to get it"
+                                );
                                 break Err(error.into());
                             } else {
                                 tracing::trace!(
