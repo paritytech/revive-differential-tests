@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - main
+      # This is temporary and added so that all pushes to this branch would trigger the CI to run
+      # which allows us to debug it.
+      - bugfix/fix-ci-geth-on-ubuntu
   pull_request:
     branches:
       - main
