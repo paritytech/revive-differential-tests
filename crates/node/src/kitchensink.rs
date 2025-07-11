@@ -582,7 +582,7 @@ impl TransactionBuilder<KitchenSinkNetwork> for <Ethereum as Network>::Transacti
             Ok(unsigned_tx) => Ok(unsigned_tx),
             Err(UnbuiltTransactionError { request, error }) => {
                 Err(UnbuiltTransactionError::<KitchenSinkNetwork> {
-                    request: request,
+                    request,
                     error: match error {
                         TransactionBuilderError::InvalidTransactionRequest(tx_type, items) => {
                             TransactionBuilderError::InvalidTransactionRequest(tx_type, items)
