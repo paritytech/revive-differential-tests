@@ -128,6 +128,7 @@ impl KitchensinkNode {
 
         // Start Substrate node
         let mut substrate_process = Command::new(&self.substrate_binary)
+            .arg("--dev")
             .arg("--chain")
             .arg(chainspec_path)
             .arg("--base-path")
@@ -808,13 +809,14 @@ impl BlockHeader for KitchenSinkHeader {
 
 #[cfg(test)]
 mod tests {
+    use alloy::rpc::types::TransactionRequest;
     use revive_dt_config::Arguments;
     use std::path::PathBuf;
     use temp_dir::TempDir;
 
     use std::fs;
 
-    use super::KitchensinkNode;
+    use super::*;
     use crate::{GENESIS_JSON, Node};
 
     fn test_config() -> (Arguments, TempDir) {
@@ -827,6 +829,37 @@ mod tests {
         config.eth_proxy = PathBuf::from("eth-rpc");
 
         (config, temp_dir)
+    }
+
+    #[tokio::test]
+    async fn node_mines_simple_transfer_transaction_and_returns_receipt() {
+        // Arrange
+        let (args, _temp_dir) = test_config();
+        let mut node = KitchensinkNode::new(&args);
+        node.spawn(GENESIS_JSON.to_owned())
+            .expect("Failed to spawn the node");
+
+        let provider = ProviderBuilder::new()
+            .network::<KitchenSinkNetwork>()
+            .wallet(args.wallet())
+            .connect(&node.rpc_url)
+            .await
+            .expect("Failed to create provider");
+
+        let account_address = args.wallet().default_signer().address();
+        let transaction = TransactionRequest::default()
+            .to(account_address)
+            .value(U256::from(100_000_000_000_000u128));
+
+        // Act
+        let receipt = provider.send_transaction(transaction).await;
+
+        // Assert
+        let _ = receipt
+            .expect("Failed to send the transfer transaction")
+            .get_receipt()
+            .await
+            .expect("Failed to get the receipt for the transfer");
     }
 
     #[test]
