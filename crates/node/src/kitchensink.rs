@@ -12,15 +12,22 @@ use std::{
 };
 
 use alloy::{
-    consensus::{BlockHeader, TxEnvelope}, hex, network::{
+    consensus::{BlockHeader, TxEnvelope},
+    hex,
+    network::{
         Ethereum, EthereumWallet, Network, TransactionBuilder, TransactionBuilderError,
         UnbuiltTransactionError,
-    }, primitives::{Address, BlockNumber, Bloom, Bytes, B256, B64, U256}, providers::{ext::DebugApi, Provider, ProviderBuilder}, rpc::types::{
-        eth::{Block, Header, Transaction}, trace::geth::{DiffMode, GethDebugTracingOptions, PreStateConfig, PreStateFrame}, TransactionReceipt
-    }
+    },
+    primitives::{Address, B64, B256, BlockNumber, Bloom, Bytes, U256},
+    providers::{Provider, ProviderBuilder, ext::DebugApi},
+    rpc::types::{
+        TransactionReceipt,
+        eth::{Block, Header, Transaction},
+        trace::geth::{DiffMode, GethDebugTracingOptions, PreStateConfig, PreStateFrame},
+    },
 };
+use serde::{Deserialize, Serialize};
 use serde_json::{Value as JsonValue, json};
-use serde::{Serialize, Deserialize};
 use sp_core::crypto::Ss58Codec;
 use sp_runtime::AccountId32;
 
@@ -435,21 +442,17 @@ impl TransactionBuilder<KitchenSinkNetwork> for <Ethereum as Network>::Transacti
     }
 
     fn from(&self) -> Option<Address> {
-        <<Ethereum as Network>::TransactionRequest as TransactionBuilder<Ethereum>>::from(
-            self,
-        )
+        <<Ethereum as Network>::TransactionRequest as TransactionBuilder<Ethereum>>::from(self)
     }
 
     fn set_from(&mut self, from: Address) {
         <<Ethereum as Network>::TransactionRequest as TransactionBuilder<Ethereum>>::set_from(
-            self, from
+            self, from,
         )
     }
 
     fn kind(&self) -> Option<alloy::primitives::TxKind> {
-        <<Ethereum as Network>::TransactionRequest as TransactionBuilder<Ethereum>>::kind(
-            self,
-        )
+        <<Ethereum as Network>::TransactionRequest as TransactionBuilder<Ethereum>>::kind(self)
     }
 
     fn clear_kind(&mut self) {
@@ -460,37 +463,33 @@ impl TransactionBuilder<KitchenSinkNetwork> for <Ethereum as Network>::Transacti
 
     fn set_kind(&mut self, kind: alloy::primitives::TxKind) {
         <<Ethereum as Network>::TransactionRequest as TransactionBuilder<Ethereum>>::set_kind(
-            self, kind
+            self, kind,
         )
     }
 
     fn value(&self) -> Option<alloy::primitives::U256> {
-        <<Ethereum as Network>::TransactionRequest as TransactionBuilder<Ethereum>>::value(
-            self
-        )
+        <<Ethereum as Network>::TransactionRequest as TransactionBuilder<Ethereum>>::value(self)
     }
 
     fn set_value(&mut self, value: alloy::primitives::U256) {
         <<Ethereum as Network>::TransactionRequest as TransactionBuilder<Ethereum>>::set_value(
-            self, value
+            self, value,
         )
     }
 
     fn gas_price(&self) -> Option<u128> {
-        <<Ethereum as Network>::TransactionRequest as TransactionBuilder<Ethereum>>::gas_price(
-            self,
-        )
+        <<Ethereum as Network>::TransactionRequest as TransactionBuilder<Ethereum>>::gas_price(self)
     }
 
     fn set_gas_price(&mut self, gas_price: u128) {
         <<Ethereum as Network>::TransactionRequest as TransactionBuilder<Ethereum>>::set_gas_price(
-            self, gas_price
+            self, gas_price,
         )
     }
 
     fn max_fee_per_gas(&self) -> Option<u128> {
         <<Ethereum as Network>::TransactionRequest as TransactionBuilder<Ethereum>>::max_fee_per_gas(
-            self, 
+            self,
         )
     }
 
@@ -502,7 +501,7 @@ impl TransactionBuilder<KitchenSinkNetwork> for <Ethereum as Network>::Transacti
 
     fn max_priority_fee_per_gas(&self) -> Option<u128> {
         <<Ethereum as Network>::TransactionRequest as TransactionBuilder<Ethereum>>::max_priority_fee_per_gas(
-            self, 
+            self,
         )
     }
 
@@ -513,26 +512,25 @@ impl TransactionBuilder<KitchenSinkNetwork> for <Ethereum as Network>::Transacti
     }
 
     fn gas_limit(&self) -> Option<u64> {
-        <<Ethereum as Network>::TransactionRequest as TransactionBuilder<Ethereum>>::gas_limit(
-            self, 
-        )
+        <<Ethereum as Network>::TransactionRequest as TransactionBuilder<Ethereum>>::gas_limit(self)
     }
 
     fn set_gas_limit(&mut self, gas_limit: u64) {
         <<Ethereum as Network>::TransactionRequest as TransactionBuilder<Ethereum>>::set_gas_limit(
-            self, gas_limit
+            self, gas_limit,
         )
     }
 
     fn access_list(&self) -> Option<&alloy::rpc::types::AccessList> {
         <<Ethereum as Network>::TransactionRequest as TransactionBuilder<Ethereum>>::access_list(
-            self, 
+            self,
         )
     }
 
     fn set_access_list(&mut self, access_list: alloy::rpc::types::AccessList) {
         <<Ethereum as Network>::TransactionRequest as TransactionBuilder<Ethereum>>::set_access_list(
-            self, access_list
+            self,
+            access_list,
         )
     }
 
@@ -541,37 +539,35 @@ impl TransactionBuilder<KitchenSinkNetwork> for <Ethereum as Network>::Transacti
         ty: <KitchenSinkNetwork as Network>::TxType,
     ) -> Result<(), Vec<&'static str>> {
         <<Ethereum as Network>::TransactionRequest as TransactionBuilder<Ethereum>>::complete_type(
-            self, ty
+            self, ty,
         )
     }
 
     fn can_submit(&self) -> bool {
         <<Ethereum as Network>::TransactionRequest as TransactionBuilder<Ethereum>>::can_submit(
-            self, 
+            self,
         )
     }
 
     fn can_build(&self) -> bool {
-        <<Ethereum as Network>::TransactionRequest as TransactionBuilder<Ethereum>>::can_build(
-            self, 
-        )
+        <<Ethereum as Network>::TransactionRequest as TransactionBuilder<Ethereum>>::can_build(self)
     }
 
     fn output_tx_type(&self) -> <KitchenSinkNetwork as Network>::TxType {
         <<Ethereum as Network>::TransactionRequest as TransactionBuilder<Ethereum>>::output_tx_type(
-            self, 
+            self,
         )
     }
 
     fn output_tx_type_checked(&self) -> Option<<KitchenSinkNetwork as Network>::TxType> {
         <<Ethereum as Network>::TransactionRequest as TransactionBuilder<Ethereum>>::output_tx_type_checked(
-            self, 
+            self,
         )
     }
 
     fn prep_for_submission(&mut self) {
         <<Ethereum as Network>::TransactionRequest as TransactionBuilder<Ethereum>>::prep_for_submission(
-            self, 
+            self,
         )
     }
 
@@ -617,8 +613,7 @@ impl TransactionBuilder<KitchenSinkNetwork> for <Ethereum as Network>::Transacti
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct KitchenSinkHeader {
     /// The Keccak 256-bit hash of the parent
@@ -652,7 +647,7 @@ pub struct KitchenSinkHeader {
     #[serde(with = "alloy::serde::quantity")]
     pub number: BlockNumber,
     /// A scalar value equal to the current limit of gas expenditure per block; formally Hl.
-    // This is the main difference over the Ethereum network implementation. We use u128 here and 
+    // This is the main difference over the Ethereum network implementation. We use u128 here and
     // not u64.
     #[serde(with = "alloy::serde::quantity")]
     pub gas_limit: u128,
@@ -764,8 +759,8 @@ impl BlockHeader for KitchenSinkHeader {
         self.number
     }
 
-    // There's sadly nothing that we can do about this. We're required to implement this trait on 
-    // any type that represents a header and the gas limit type used here is a u64. 
+    // There's sadly nothing that we can do about this. We're required to implement this trait on
+    // any type that represents a header and the gas limit type used here is a u64.
     fn gas_limit(&self) -> u64 {
         self.gas_limit.try_into().unwrap_or(u64::MAX)
     }
