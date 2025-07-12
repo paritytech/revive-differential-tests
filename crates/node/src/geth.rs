@@ -68,7 +68,7 @@ impl Instance {
     #[tracing::instrument(skip_all, fields(geth_node_id = self.id))]
     fn init(&mut self, genesis: String) -> anyhow::Result<&mut Self> {
         create_dir_all(&self.base_directory)?;
-        create_dir_all(&self.base_directory.join("logs"))?;
+        create_dir_all(self.base_directory.join("logs"))?;
 
         let genesis_path = self.base_directory.join(Self::GENESIS_JSON_FILE);
         File::create(&genesis_path)?.write_all(genesis.as_bytes())?;

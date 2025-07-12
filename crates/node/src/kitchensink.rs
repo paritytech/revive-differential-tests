@@ -63,7 +63,7 @@ impl KitchensinkNode {
     #[tracing::instrument(skip_all, fields(kitchensink_node_id = self.id))]
     fn init(&mut self, genesis: &str) -> anyhow::Result<&mut Self> {
         create_dir_all(&self.base_directory)?;
-        create_dir_all(&self.base_directory.join("logs"))?;
+        create_dir_all(self.base_directory.join("logs"))?;
 
         let template_chainspec_path = self.base_directory.join(Self::CHAIN_SPEC_JSON_FILE);
 
