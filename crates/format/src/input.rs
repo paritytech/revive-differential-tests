@@ -3,8 +3,9 @@ use std::collections::HashMap;
 use alloy::{
     hex,
     json_abi::{Function, JsonAbi},
-    primitives::{Address, Bytes, TxKind},
-    rpc::types::{TransactionInput, TransactionRequest},
+    network::TransactionBuilder,
+    primitives::{Address, Bytes},
+    rpc::types::TransactionRequest,
 };
 use alloy_primitives::U256;
 use alloy_sol_types::SolValue;
@@ -220,30 +221,18 @@ impl Input {
     /// Parse this input into a legacy transaction.
     pub fn legacy_transaction(
         &self,
-        chain_id: u64,
         nonce: u64,
         deployed_contracts: &HashMap<String, Address>,
         deployed_abis: &HashMap<String, JsonAbi>,
     ) -> anyhow::Result<TransactionRequest> {
-        let to = match self.method {
-            Method::Deployer => Some(TxKind::Create),
-            _ => Some(TxKind::Call(
-                self.instance_to_address(&self.instance, deployed_contracts)?,
-            )),
-        };
-
         let input_data = self.encoded_input(deployed_abis, deployed_contracts)?;
-
-        Ok(TransactionRequest {
-            from: Some(self.caller),
-            to,
-            nonce: Some(nonce),
-            chain_id: Some(chain_id),
-            gas_price: Some(5_000_000),
-            gas: Some(5_000_000),
-            input: TransactionInput::new(input_data),
-            ..Default::default()
-        })
+        let transaction_request = TransactionRequest::default().nonce(nonce);
+        match self.method {
+            Method::Deployer => Ok(transaction_request.with_deploy_code(input_data)),
+            _ => Ok(transaction_request
+                .to(self.instance_to_address(&self.instance, deployed_contracts)?)
+                .input(input_data.into())),
+        }
     }
 }
 
