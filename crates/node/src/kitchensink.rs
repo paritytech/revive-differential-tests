@@ -412,8 +412,10 @@ impl Node for KitchensinkNode {
             })?;
         }
 
-        // Remove the node's database so that subsequent runs do not run on the same database.
-        remove_dir_all(self.base_directory.join("chains"))?;
+        // Remove the node's database so that subsequent runs do not run on the same database. We
+        // ignore the error just in case the directory didn't exist in the first place and therefore
+        // there's nothing to be deleted.
+        let _ = remove_dir_all(self.base_directory.join("data"));
 
         Ok(())
     }
