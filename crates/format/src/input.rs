@@ -133,15 +133,24 @@ impl Input {
         // Allocating a vector that we will be using for the calldata. The vector size will be:
         // 4 bytes for the function selector.
         // function.inputs.len() * 32 bytes for the arguments (each argument is a U256).
-        let mut calldata = Vec::<u8>::with_capacity(4 + calldata_args.len() * 32);
-        calldata.extend(&function.selector().0);
+        //
+        // We're using indices in the following code in order to avoid the need for us to allocate
+        // a new buffer for each one of the resolved arguments.
+        let mut calldata = vec![0u8; 4 + calldata_args.len() * 32];
+        calldata[0..4].copy_from_slice(&function.selector().0);
 
         for (arg_idx, arg) in calldata_args.iter().enumerate() {
             match resolve_argument(arg, deployed_contracts) {
                 Ok(resolved) => {
-                    let mut buffer = [0u8; 32];
-                    resolved.to_big_endian(&mut buffer);
-                    calldata.extend(buffer);
+                    // Compute where the resolved argument will go in the call-data. Again, we're
+                    // doing this in order to avoid performing an extra allocation for an interim
+                    // buffer that is then just used to extend the calldata vector. In here, the 4
+                    // is the size of the selector which we already wrote to the calldata and the 32
+                    // is the size of each `U256` we're writing to the calldata.
+                    let start_inclusive = 4 + arg_idx * 32;
+                    let end_exclusive = start_inclusive + 32;
+                    let slot = &mut calldata[start_inclusive..end_exclusive];
+                    resolved.to_big_endian(slot);
                 }
                 Err(error) => {
                     tracing::error!(arg, arg_idx, ?error, "Failed to resolve argument");
