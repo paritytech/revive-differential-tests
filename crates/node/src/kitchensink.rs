@@ -1,6 +1,6 @@
 use std::{
     collections::HashMap,
-    fs::{OpenOptions, create_dir_all},
+    fs::{OpenOptions, create_dir_all, remove_dir_all},
     io::BufRead,
     path::{Path, PathBuf},
     process::{Command, Stdio},
@@ -390,6 +390,7 @@ impl Node for KitchensinkNode {
 
     #[tracing::instrument(skip_all, fields(kitchensink_node_id = self.id))]
     fn shutdown(&mut self) -> anyhow::Result<()> {
+        // Terminate the processes in a graceful manner to allow for the output to be flushed.
         if let Some(mut child) = self.process_proxy.take() {
             child.terminate().map_err(|error| {
                 anyhow::anyhow!("Failed to terminate the proxy process: {error:?}")
@@ -410,6 +411,10 @@ impl Node for KitchensinkNode {
                 )
             })?;
         }
+
+        // Remove the node's database so that subsequent runs do not run on the same database.
+        remove_dir_all(self.base_directory.join("chains"))?;
+
         Ok(())
     }
 

@@ -2,7 +2,7 @@
 
 use std::{
     collections::HashMap,
-    fs::{File, OpenOptions, create_dir_all},
+    fs::{File, OpenOptions, create_dir_all, remove_dir_all},
     io::{BufRead, BufReader, Read, Write},
     path::PathBuf,
     process::{Command, Stdio},
@@ -273,6 +273,7 @@ impl Node for Instance {
 
     #[tracing::instrument(skip_all, fields(geth_node_id = self.id))]
     fn shutdown(&mut self) -> anyhow::Result<()> {
+        // Terminate the processes in a graceful manner to allow for the output to be flushed.
         if let Some(mut child) = self.handle.take() {
             child.terminate().map_err(|error| {
                 anyhow::anyhow!("Failed to terminate the geth process: {error:?}")
@@ -281,6 +282,10 @@ impl Node for Instance {
                 anyhow::anyhow!("Failed to wait for the termination of the geth process: {error:?}")
             })?;
         }
+
+        // Remove the node's database so that subsequent runs do not run on the same database.
+        remove_dir_all(self.base_directory.join("data"))?;
+
         Ok(())
     }
 
