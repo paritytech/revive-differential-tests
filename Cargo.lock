@@ -4012,6 +4012,7 @@ version = "0.1.0"
 dependencies = [
  "alloy",
  "anyhow",
+ "futures",
  "once_cell",
  "tokio",
  "tracing",

@@ -27,10 +27,7 @@ use sp_runtime::AccountId32;
 use tracing::Level;
 
 use revive_dt_config::Arguments;
-use revive_dt_node_interaction::{
-    EthereumNode, nonce::fetch_onchain_nonce, trace::trace_transaction,
-    transaction::execute_transaction,
-};
+use revive_dt_node_interaction::{BlockingExecutor, EthereumNode};
 
 use crate::Node;
 
@@ -340,7 +337,7 @@ impl EthereumNode for KitchensinkNode {
         tracing::debug!("Submitting transaction: {transaction:#?}");
 
         tracing::info!("Submitting tx to kitchensink");
-        let receipt = execute_transaction(Box::pin(async move {
+        let receipt = BlockingExecutor::execute(async move {
             Ok(ProviderBuilder::new()
                 .wallet(wallet)
                 .connect(&url)
@@ -349,7 +346,7 @@ impl EthereumNode for KitchensinkNode {
                 .await?
                 .get_receipt()
                 .await?)
-        }));
+        })?;
         tracing::info!(?receipt, "Submitted tx to kitchensink");
         receipt
     }
@@ -368,14 +365,14 @@ impl EthereumNode for KitchensinkNode {
 
         let wallet = self.wallet.clone();
 
-        trace_transaction(Box::pin(async move {
+        BlockingExecutor::execute(async move {
             Ok(ProviderBuilder::new()
                 .wallet(wallet)
                 .connect(&url)
                 .await?
                 .debug_trace_transaction(transaction.transaction_hash, trace_options)
                 .await?)
-        }))
+        })?
     }
 
     #[tracing::instrument(skip_all, fields(kitchensink_node_id = self.id))]
@@ -394,7 +391,15 @@ impl EthereumNode for KitchensinkNode {
         let url = self.rpc_url.clone();
         let wallet = self.wallet.clone();
 
-        let onchain_nonce = fetch_onchain_nonce(url, wallet, address)?;
+        let onchain_nonce = BlockingExecutor::execute::<anyhow::Result<_>>(async move {
+            ProviderBuilder::new()
+                .wallet(wallet)
+                .connect(&url)
+                .await?
+                .get_transaction_count(address)
+                .await
+                .map_err(Into::into)
+        })??;
 
         let mut nonces = self.nonces.lock().unwrap();
         let current = nonces.entry(address).or_insert(onchain_nonce);
