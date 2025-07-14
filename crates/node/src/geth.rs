@@ -363,12 +363,12 @@ impl EthereumNode for Instance {
     }
 
     #[tracing::instrument(skip_all, fields(geth_node_id = self.id))]
-    fn block_gas_limit(&self) -> anyhow::Result<u128> {
+    fn block_gas_limit(&self, number: BlockNumberOrTag) -> anyhow::Result<u128> {
         let provider = self.provider();
         BlockingExecutor::execute(async move {
             provider
                 .await?
-                .get_block_by_number(BlockNumberOrTag::Latest)
+                .get_block_by_number(number)
                 .await?
                 .ok_or(anyhow::Error::msg("Blockchain has no blocks"))
                 .map(|block| block.header.gas_limit as _)
@@ -376,12 +376,12 @@ impl EthereumNode for Instance {
     }
 
     #[tracing::instrument(skip_all, fields(geth_node_id = self.id))]
-    fn block_coinbase(&self) -> anyhow::Result<Address> {
+    fn block_coinbase(&self, number: BlockNumberOrTag) -> anyhow::Result<Address> {
         let provider = self.provider();
         BlockingExecutor::execute(async move {
             provider
                 .await?
-                .get_block_by_number(BlockNumberOrTag::Latest)
+                .get_block_by_number(number)
                 .await?
                 .ok_or(anyhow::Error::msg("Blockchain has no blocks"))
                 .map(|block| block.header.beneficiary)
@@ -389,12 +389,12 @@ impl EthereumNode for Instance {
     }
 
     #[tracing::instrument(skip_all, fields(geth_node_id = self.id))]
-    fn block_difficulty(&self) -> anyhow::Result<U256> {
+    fn block_difficulty(&self, number: BlockNumberOrTag) -> anyhow::Result<U256> {
         let provider = self.provider();
         BlockingExecutor::execute(async move {
             provider
                 .await?
-                .get_block_by_number(BlockNumberOrTag::Latest)
+                .get_block_by_number(number)
                 .await?
                 .ok_or(anyhow::Error::msg("Blockchain has no blocks"))
                 .map(|block| block.header.difficulty)
@@ -402,12 +402,12 @@ impl EthereumNode for Instance {
     }
 
     #[tracing::instrument(skip_all, fields(geth_node_id = self.id))]
-    fn block_hash(&self) -> anyhow::Result<BlockHash> {
+    fn block_hash(&self, number: BlockNumberOrTag) -> anyhow::Result<BlockHash> {
         let provider = self.provider();
         BlockingExecutor::execute(async move {
             provider
                 .await?
-                .get_block_by_number(BlockNumberOrTag::Latest)
+                .get_block_by_number(number)
                 .await?
                 .ok_or(anyhow::Error::msg("Blockchain has no blocks"))
                 .map(|block| block.header.hash)
@@ -415,12 +415,12 @@ impl EthereumNode for Instance {
     }
 
     #[tracing::instrument(skip_all, fields(geth_node_id = self.id))]
-    fn block_timestamp(&self) -> anyhow::Result<BlockTimestamp> {
+    fn block_timestamp(&self, number: BlockNumberOrTag) -> anyhow::Result<BlockTimestamp> {
         let provider = self.provider();
         BlockingExecutor::execute(async move {
             provider
                 .await?
-                .get_block_by_number(BlockNumberOrTag::Latest)
+                .get_block_by_number(number)
                 .await?
                 .ok_or(anyhow::Error::msg("Blockchain has no blocks"))
                 .map(|block| block.header.timestamp)
@@ -583,7 +583,7 @@ mod tests {
         let (node, _temp_dir) = new_node();
 
         // Act
-        let gas_limit = node.block_gas_limit();
+        let gas_limit = node.block_gas_limit(BlockNumberOrTag::Latest);
 
         // Assert
         let gas_limit = gas_limit.expect("Failed to get the gas limit");
@@ -596,7 +596,7 @@ mod tests {
         let (node, _temp_dir) = new_node();
 
         // Act
-        let coinbase = node.block_coinbase();
+        let coinbase = node.block_coinbase(BlockNumberOrTag::Latest);
 
         // Assert
         let coinbase = coinbase.expect("Failed to get the coinbase");
@@ -609,7 +609,7 @@ mod tests {
         let (node, _temp_dir) = new_node();
 
         // Act
-        let block_difficulty = node.block_difficulty();
+        let block_difficulty = node.block_difficulty(BlockNumberOrTag::Latest);
 
         // Assert
         let block_difficulty = block_difficulty.expect("Failed to get the block difficulty");
@@ -622,7 +622,7 @@ mod tests {
         let (node, _temp_dir) = new_node();
 
         // Act
-        let block_hash = node.block_hash();
+        let block_hash = node.block_hash(BlockNumberOrTag::Latest);
 
         // Assert
         let _ = block_hash.expect("Failed to get the block hash");
@@ -634,7 +634,7 @@ mod tests {
         let (node, _temp_dir) = new_node();
 
         // Act
-        let block_timestamp = node.block_timestamp();
+        let block_timestamp = node.block_timestamp(BlockNumberOrTag::Latest);
 
         // Assert
         let _ = block_timestamp.expect("Failed to get the block timestamp");

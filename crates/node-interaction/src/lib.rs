@@ -1,5 +1,6 @@
 //! This crate implements all node interactions.
 
+use alloy::eips::BlockNumberOrTag;
 use alloy::primitives::{Address, BlockHash, BlockNumber, BlockTimestamp, ChainId, U256};
 use alloy::rpc::types::trace::geth::{DiffMode, GethTrace};
 use alloy::rpc::types::{TransactionReceipt, TransactionRequest};
@@ -27,20 +28,20 @@ pub trait EthereumNode {
 
     // TODO: This is currently a u128 due to Kitchensink needing more than 64 bits for its gas limit
     // when we implement the changes to the gas we need to adjust this to be a u64.
-    /// Returns the gas limit of the last block.
-    fn block_gas_limit(&self) -> Result<u128>;
+    /// Returns the gas limit of the specified block.
+    fn block_gas_limit(&self, number: BlockNumberOrTag) -> Result<u128>;
 
-    /// Returns the coinbase of the last block.
-    fn block_coinbase(&self) -> Result<Address>;
+    /// Returns the coinbase of the specified block.
+    fn block_coinbase(&self, number: BlockNumberOrTag) -> Result<Address>;
 
-    /// Returns the difficulty of the last block.
-    fn block_difficulty(&self) -> Result<U256>;
+    /// Returns the difficulty of the specified block.
+    fn block_difficulty(&self, number: BlockNumberOrTag) -> Result<U256>;
 
-    /// Returns the hash of the last block.
-    fn block_hash(&self) -> Result<BlockHash>;
+    /// Returns the hash of the specified block.
+    fn block_hash(&self, number: BlockNumberOrTag) -> Result<BlockHash>;
 
-    /// Returns the timestamp of the last block,
-    fn block_timestamp(&self) -> Result<BlockTimestamp>;
+    /// Returns the timestamp of the specified block,
+    fn block_timestamp(&self, number: BlockNumberOrTag) -> Result<BlockTimestamp>;
 
     /// Returns the number of the last block.
     fn last_block_number(&self) -> Result<BlockNumber>;
