@@ -99,9 +99,28 @@ jobs:
       - name: Install Geth on Ubuntu
         if: matrix.os == 'ubuntu-24.04'
         run: |
-          sudo add-apt-repository -y ppa:ethereum/ethereum
           sudo apt-get update
-          sudo apt-get install -y ethereum protobuf-compiler
+          sudo apt-get install -y protobuf-compiler
+
+          # We were facing some issues in CI with the 1.16.* versions of geth, and specifically on
+          # Ubuntu. Eventually, we found out that the last version of geth that worked in our CI was
+          # version 1.15.11. Thus, this is the version that we want to use in CI. The PPA sadly does
+          # not have historic versions of Geth and therefore we need to resort to downloading pre
+          # built binaries for Geth and the surrounding tools which is what the following parts of 
+          # the script do.
+
+          sudo apt-get install -y wget ca-certificates tar
+          ARCH=$(uname -m)
+          if [ "$ARCH" = "x86_64" ]; then
+            URL="https://gethstore.blob.core.windows.net/builds/geth-alltools-linux-amd64-1.15.11-36b2371c.tar.gz"
+          elif [ "$ARCH" = "aarch64" ]; then
+            URL="https://gethstore.blob.core.windows.net/builds/geth-alltools-linux-arm64-1.15.11-36b2371c.tar.gz"
+          else
+            echo "Unsupported architecture: $ARCH"
+            exit 1
+          fi
+          wget -qO- "$URL" | sudo tar xz -C /usr/local/bin --strip-components=1
+          geth --version
 
       - name: Install Geth on macOS
         if: matrix.os == 'macos-14'
