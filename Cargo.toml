@@ -68,6 +68,9 @@ features = [
     "rpc-types",
     "signer-local",
     "std",
+    "network",
+    "serde",
+    "rpc-types-eth",
 ]
 
 [profile.bench]
