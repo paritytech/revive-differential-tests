@@ -1,4 +1,4 @@
-use std::{collections::HashMap, str::FromStr};
+use std::collections::HashMap;
 
 use alloy::{
     json_abi::JsonAbi,
@@ -210,7 +210,7 @@ fn resolve_argument(
             .ok_or_else(|| anyhow::anyhow!("`-0` is invalid literal"))?;
         Ok(U256::MAX.checked_sub(value).expect("Always valid"))
     } else if let Some(value) = value.strip_prefix("0x") {
-        Ok(U256::from_str(value)
+        Ok(U256::from_str_radix(value, 16)
             .map_err(|error| anyhow::anyhow!("Invalid hexadecimal literal: {}", error))?)
     } else {
         // TODO: This is a set of "variables" that we need to be able to resolve to be fully in
@@ -313,7 +313,7 @@ mod tests {
             .selector()
             .0;
 
-        let input = Input {
+        let input: Input = Input {
             instance: "Contract".to_string(),
             method: Method::FunctionName("send".to_owned()),
             calldata: Some(Calldata::Compound(vec![
