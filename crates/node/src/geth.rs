@@ -107,19 +107,21 @@ impl Instance {
     /// [Instance::init] must be called prior.
     #[tracing::instrument(skip_all, fields(geth_node_id = self.id))]
     fn spawn_process(&mut self) -> anyhow::Result<&mut Self> {
-        // Options to re-create and re-write to the file starting at offset zero. We do not want to
-        // re-use log files between runs. Users that want to keep their log files should pass in a
-        // different working directory between runs.
-        let stdout_logs_file = OpenOptions::new()
-            .create(true)
-            .truncate(true)
-            .write(true)
+        // This is the `OpenOptions` that we wish to use for all of the log files that we will be
+        // opening in this method. We need to construct it in this way to:
+        // 1. Be consistent
+        // 2. Less verbose and more dry
+        // 3. Because the builder pattern uses mutable references so we need to get around that.
+        let open_options = {
+            let mut options = OpenOptions::new();
+            options.create(true).truncate(true).write(true);
+            options
+        };
+
+        let stdout_logs_file = open_options
+            .clone()
             .open(self.geth_stdout_log_file_path())?;
-        let stderr_logs_file = OpenOptions::new()
-            .create(true)
-            .truncate(true)
-            .write(true)
-            .open(self.geth_stderr_log_file_path())?;
+        let stderr_logs_file = open_options.open(self.geth_stderr_log_file_path())?;
         self.handle = Exec::cmd(&self.geth)
             .arg("--dev")
             .arg("--datadir")
