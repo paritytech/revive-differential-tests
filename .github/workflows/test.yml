@@ -102,8 +102,13 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y protobuf-compiler
 
-          # Download and install Geth all-tools from the geth store website as the PPA only has the
-          # latest versions of Geth.
+          # We were facing some issues in CI with the 1.16.* versions of geth, and specifically on
+          # Ubuntu. Eventually, we found out that the last version of geth that worked in our CI was
+          # version 1.15.11. Thus, this is the version that we want to use in CI. The PPA sadly does
+          # not have historic versions of Geth and therefore we need to resort to downloading pre
+          # built binaries for Geth and the surrounding tools which is what the following parts of 
+          # the script do.
+
           sudo apt-get install -y wget ca-certificates tar
           ARCH=$(uname -m)
           if [ "$ARCH" = "x86_64" ]; then
