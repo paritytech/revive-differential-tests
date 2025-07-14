@@ -28,6 +28,7 @@ use revive_dt_node_interaction::{
     transaction::execute_transaction,
 };
 use subprocess::{Exec, Popen};
+use tracing::Level;
 
 use crate::Node;
 
@@ -45,6 +46,7 @@ pub struct Instance {
     connection_string: String,
     base_directory: PathBuf,
     data_directory: PathBuf,
+    logs_directory: PathBuf,
     geth: PathBuf,
     id: u32,
     handle: Option<Popen>,
@@ -57,6 +59,7 @@ pub struct Instance {
 impl Instance {
     const BASE_DIRECTORY: &str = "geth";
     const DATA_DIRECTORY: &str = "data";
+    const LOGS_DIRECTORY: &str = "logs";
 
     const IPC_FILE: &str = "geth.ipc";
     const GENESIS_JSON_FILE: &str = "genesis.json";
@@ -64,11 +67,14 @@ impl Instance {
     const READY_MARKER: &str = "IPC endpoint opened";
     const ERROR_MARKER: &str = "Fatal:";
 
+    const GETH_STDOUT_LOG_FILE_NAME: &str = "node_stdout.log";
+    const GETH_STDERR_LOG_FILE_NAME: &str = "node_stderr.log";
+
     /// Create the node directory and call `geth init` to configure the genesis.
     #[tracing::instrument(skip_all, fields(geth_node_id = self.id))]
     fn init(&mut self, genesis: String) -> anyhow::Result<&mut Self> {
         create_dir_all(&self.base_directory)?;
-        create_dir_all(self.base_directory.join("logs"))?;
+        create_dir_all(&self.logs_directory)?;
 
         let genesis_path = self.base_directory.join(Self::GENESIS_JSON_FILE);
         File::create(&genesis_path)?.write_all(genesis.as_bytes())?;
@@ -101,15 +107,19 @@ impl Instance {
     /// [Instance::init] must be called prior.
     #[tracing::instrument(skip_all, fields(geth_node_id = self.id))]
     fn spawn_process(&mut self) -> anyhow::Result<&mut Self> {
-        let node_logs_file_path = self.base_directory.join("logs").join("node.log");
-        let node_logs_file = OpenOptions::new()
-            // Options to re-create and re-write to the file starting at offset zero. We do not want
-            // to re-use log files between runs. Users that want to keep their log files should pass
-            // in a different working directory between runs.
+        // Options to re-create and re-write to the file starting at offset zero. We do not want to
+        // re-use log files between runs. Users that want to keep their log files should pass in a
+        // different working directory between runs.
+        let stdout_logs_file = OpenOptions::new()
             .create(true)
             .truncate(true)
             .write(true)
-            .open(&node_logs_file_path)?;
+            .open(self.geth_stdout_log_file_path())?;
+        let stderr_logs_file = OpenOptions::new()
+            .create(true)
+            .truncate(true)
+            .write(true)
+            .open(self.geth_stderr_log_file_path())?;
         self.handle = Exec::cmd(&self.geth)
             .arg("--dev")
             .arg("--datadir")
@@ -121,12 +131,8 @@ impl Instance {
             .arg("--nodiscover")
             .arg("--maxpeers")
             .arg("0")
-            // We pipe both stdout and stderr to the same log file and therefore we're persisting
-            // both. In the implementation of [`std::fs::File`] the `try_clone` method will ensure
-            // that both [`std::fs::File`] objects have the same seeks and offsets and therefore we
-            // don't have to worry about either streams overriding each other.
-            .stderr(node_logs_file.try_clone()?)
-            .stdout(node_logs_file)
+            .stderr(stderr_logs_file)
+            .stdout(stdout_logs_file)
             .popen()?
             .into();
 
@@ -151,7 +157,7 @@ impl Instance {
             .write(false)
             .append(false)
             .truncate(false)
-            .open(self.base_directory.join("logs").join("node.log"))?;
+            .open(self.geth_stderr_log_file_path())?;
 
         let maximum_wait_time = Duration::from_millis(self.start_timeout);
         let mut stderr = BufReader::new(logs_file).lines();
@@ -168,6 +174,16 @@ impl Instance {
                 anyhow::bail!("Timeout in starting geth");
             }
         }
+    }
+
+    #[tracing::instrument(skip_all, fields(geth_node_id = self.id), level = Level::TRACE)]
+    fn geth_stdout_log_file_path(&self) -> PathBuf {
+        self.logs_directory.join(Self::GETH_STDOUT_LOG_FILE_NAME)
+    }
+
+    #[tracing::instrument(skip_all, fields(geth_node_id = self.id), level = Level::TRACE)]
+    fn geth_stderr_log_file_path(&self) -> PathBuf {
+        self.logs_directory.join(Self::GETH_STDERR_LOG_FILE_NAME)
     }
 }
 
@@ -323,6 +339,7 @@ impl Node for Instance {
         Self {
             connection_string: base_directory.join(Self::IPC_FILE).display().to_string(),
             data_directory: base_directory.join(Self::DATA_DIRECTORY),
+            logs_directory: base_directory.join(Self::LOGS_DIRECTORY),
             base_directory,
             geth: config.geth.clone(),
             id,

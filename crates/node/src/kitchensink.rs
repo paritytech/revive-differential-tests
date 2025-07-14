@@ -30,13 +30,14 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value as JsonValue, json};
 use sp_core::crypto::Ss58Codec;
 use sp_runtime::AccountId32;
+use subprocess::{Exec, Popen};
+use tracing::Level;
 
 use revive_dt_config::Arguments;
 use revive_dt_node_interaction::{
     EthereumNode, nonce::fetch_onchain_nonce, trace::trace_transaction,
     transaction::execute_transaction,
 };
-use subprocess::{Exec, Popen};
 
 use crate::Node;
 
@@ -50,6 +51,7 @@ pub struct KitchensinkNode {
     rpc_url: String,
     wallet: EthereumWallet,
     base_directory: PathBuf,
+    logs_directory: PathBuf,
     process_substrate: Option<Popen>,
     process_proxy: Option<Popen>,
     nonces: Mutex<HashMap<Address, u64>>,
@@ -57,6 +59,8 @@ pub struct KitchensinkNode {
 
 impl KitchensinkNode {
     const BASE_DIRECTORY: &str = "kitchensink";
+    const LOGS_DIRECTORY: &str = "logs";
+
     const SUBSTRATE_READY_MARKER: &str = "Running JSON-RPC server";
     const ETH_PROXY_READY_MARKER: &str = "Running JSON-RPC server";
     const CHAIN_SPEC_JSON_FILE: &str = "template_chainspec.json";
@@ -66,10 +70,16 @@ impl KitchensinkNode {
     const SUBSTRATE_LOG_ENV: &str = "error,evm=debug,sc_rpc_server=info,runtime::revive=debug";
     const PROXY_LOG_ENV: &str = "info,eth-rpc=debug";
 
+    const KITCHENSINK_STDOUT_LOG_FILE_NAME: &str = "node_stdout.log";
+    const KITCHENSINK_STDERR_LOG_FILE_NAME: &str = "node_stderr.log";
+
+    const PROXY_STDOUT_LOG_FILE_NAME: &str = "proxy_stdout.log";
+    const PROXY_STDERR_LOG_FILE_NAME: &str = "proxy_stderr.log";
+
     #[tracing::instrument(skip_all, fields(kitchensink_node_id = self.id))]
     fn init(&mut self, genesis: &str) -> anyhow::Result<&mut Self> {
         create_dir_all(&self.base_directory)?;
-        create_dir_all(self.base_directory.join("logs"))?;
+        create_dir_all(&self.logs_directory)?;
 
         let template_chainspec_path = self.base_directory.join(Self::CHAIN_SPEC_JSON_FILE);
 
@@ -132,18 +142,24 @@ impl KitchensinkNode {
 
         let chainspec_path = self.base_directory.join(Self::CHAIN_SPEC_JSON_FILE);
 
-        let logs_directory_path = self.base_directory.join("logs");
+        // This is the `OpenOptions` that we wish to use for all of the log files that we will be
+        // opening in this method. We need to construct it in this way to:
+        // 1. Be consistent
+        // 2. Less verbose and more dry
+        // 3. Because the builder pattern uses mutable references so we need to get around that.
+        let open_options = {
+            let mut options = OpenOptions::new();
+            options.create(true).truncate(true).write(true);
+            options
+        };
 
         // Start Substrate node
-        let substrate_logs_file_path = logs_directory_path.join("node.log");
-        let substrate_logs_file = OpenOptions::new()
-            // Options to re-create and re-write to the file starting at offset zero. We do not want
-            // to re-use log files between runs. Users that want to keep their log files should pass
-            // in a different working directory between runs.
-            .create(true)
-            .truncate(true)
-            .write(true)
-            .open(&substrate_logs_file_path)?;
+        let stdout_logs_file = open_options
+            .clone()
+            .open(self.kitchensink_stdout_log_file_path())?;
+        let stderr_logs_file = open_options
+            .clone()
+            .open(self.kitchensink_stderr_log_file_path())?;
         self.process_substrate = Exec::cmd(&self.substrate_binary)
             .arg("--chain")
             .arg(chainspec_path)
@@ -159,18 +175,14 @@ impl KitchensinkNode {
             .arg("--rpc-cors")
             .arg("all")
             .env("RUST_LOG", Self::SUBSTRATE_LOG_ENV)
-            // We pipe both stdout and stderr to the same log file and therefore we're persisting
-            // both. In the implementation of [`std::fs::File`] the `try_clone` method will ensure
-            // that both [`std::fs::File`] objects have the same seeks and offsets and therefore we
-            // don't have to worry about either streams overriding each other.
-            .stdout(substrate_logs_file.try_clone()?)
-            .stderr(substrate_logs_file)
+            .stdout(stdout_logs_file)
+            .stderr(stderr_logs_file)
             .popen()?
             .into();
 
         // Give the node a moment to boot
         if let Err(error) = Self::wait_ready(
-            substrate_logs_file_path.as_path(),
+            self.kitchensink_stderr_log_file_path().as_path(),
             Self::SUBSTRATE_READY_MARKER,
             Duration::from_secs(30),
         ) {
@@ -182,15 +194,10 @@ impl KitchensinkNode {
             return Err(error);
         };
 
-        let proxy_logs_file_path = logs_directory_path.join("proxy.log");
-        let proxy_logs_file = OpenOptions::new()
-            // Options to re-create and re-write to the file starting at offset zero. We do not want
-            // to re-use log files between runs. Users that want to keep their log files should pass
-            // in a different working directory between runs.
-            .create(true)
-            .truncate(true)
-            .write(true)
-            .open(&proxy_logs_file_path)?;
+        let stdout_logs_file = open_options
+            .clone()
+            .open(self.proxy_stdout_log_file_path())?;
+        let stderr_logs_file = open_options.open(self.proxy_stderr_log_file_path())?;
         self.process_proxy = Exec::cmd(&self.eth_proxy_binary)
             .arg("--dev")
             .arg("--rpc-port")
@@ -202,13 +209,13 @@ impl KitchensinkNode {
             // both. In the implementation of [`std::fs::File`] the `try_clone` method will ensure
             // that both [`std::fs::File`] objects have the same seeks and offsets and therefore we
             // don't have to worry about either streams overriding each other.
-            .stdout(proxy_logs_file.try_clone()?)
-            .stderr(proxy_logs_file)
+            .stdout(stdout_logs_file)
+            .stderr(stderr_logs_file)
             .popen()?
             .into();
 
         if let Err(error) = Self::wait_ready(
-            proxy_logs_file_path.as_path(),
+            self.proxy_stderr_log_file_path().as_path(),
             Self::ETH_PROXY_READY_MARKER,
             Duration::from_secs(30),
         ) {
@@ -295,6 +302,28 @@ impl KitchensinkNode {
             .stdout;
         Ok(String::from_utf8_lossy(&output).trim().to_string())
     }
+
+    #[tracing::instrument(skip_all, fields(kitchensink_node_id = self.id), level = Level::TRACE)]
+    fn kitchensink_stdout_log_file_path(&self) -> PathBuf {
+        self.logs_directory
+            .join(Self::KITCHENSINK_STDOUT_LOG_FILE_NAME)
+    }
+
+    #[tracing::instrument(skip_all, fields(kitchensink_node_id = self.id), level = Level::TRACE)]
+    fn kitchensink_stderr_log_file_path(&self) -> PathBuf {
+        self.logs_directory
+            .join(Self::KITCHENSINK_STDERR_LOG_FILE_NAME)
+    }
+
+    #[tracing::instrument(skip_all, fields(kitchensink_node_id = self.id), level = Level::TRACE)]
+    fn proxy_stdout_log_file_path(&self) -> PathBuf {
+        self.logs_directory.join(Self::PROXY_STDOUT_LOG_FILE_NAME)
+    }
+
+    #[tracing::instrument(skip_all, fields(kitchensink_node_id = self.id), level = Level::TRACE)]
+    fn proxy_stderr_log_file_path(&self) -> PathBuf {
+        self.logs_directory.join(Self::PROXY_STDERR_LOG_FILE_NAME)
+    }
 }
 
 impl EthereumNode for KitchensinkNode {
@@ -380,6 +409,7 @@ impl Node for KitchensinkNode {
         let kitchensink_directory = config.directory().join(Self::BASE_DIRECTORY);
         let id = NODE_COUNT.fetch_add(1, Ordering::SeqCst);
         let base_directory = kitchensink_directory.join(id.to_string());
+        let logs_directory = base_directory.join(Self::LOGS_DIRECTORY);
 
         Self {
             id,
@@ -388,6 +418,7 @@ impl Node for KitchensinkNode {
             rpc_url: String::new(),
             wallet: config.wallet(),
             base_directory,
+            logs_directory,
             process_substrate: None,
             process_proxy: None,
             nonces: Mutex::new(HashMap::new()),
