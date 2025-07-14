@@ -1,6 +1,6 @@
 //! This crate implements all node interactions.
 
-use alloy::primitives::Address;
+use alloy::primitives::{Address, ChainId};
 use alloy::rpc::types::trace::geth::{DiffMode, GethTrace};
 use alloy::rpc::types::{TransactionReceipt, TransactionRequest};
 
@@ -23,4 +23,7 @@ pub trait EthereumNode {
 
     /// Returns the next available nonce for the given [Address].
     fn fetch_add_nonce(&self, address: Address) -> anyhow::Result<u64>;
+
+    /// Returns the ID of the chain that the node is on.
+    fn chain_id(&self) -> anyhow::Result<ChainId>;
 }

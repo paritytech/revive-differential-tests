@@ -229,6 +229,7 @@ impl KitchensinkNode {
 
         Ok(())
     }
+
     #[tracing::instrument(skip_all, fields(kitchensink_node_id = self.id))]
     fn extract_balance_from_genesis_file(
         &self,
@@ -415,6 +416,14 @@ impl EthereumNode for KitchensinkNode {
         *current += 1;
         Ok(value)
     }
+
+    #[tracing::instrument(skip_all, fields(geth_node_id = self.id))]
+    fn chain_id(&self) -> anyhow::Result<alloy::primitives::ChainId> {
+        let provider = self.provider();
+        BlockingExecutor::execute(async move {
+            provider.await?.get_chain_id().await.map_err(Into::into)
+        })?
+    }
 }
 
 impl Node for KitchensinkNode {
@@ -507,7 +516,7 @@ mod tests {
 
     use std::fs;
 
-    use super::KitchensinkNode;
+    use super::*;
     use crate::{GENESIS_JSON, Node};
 
     fn test_config() -> (Arguments, TempDir) {
@@ -520,6 +529,16 @@ mod tests {
         config.eth_proxy = PathBuf::from("eth-rpc");
 
         (config, temp_dir)
+    }
+
+    fn new_node() -> (KitchensinkNode, TempDir) {
+        let (args, temp_dir) = test_config();
+        let mut node = KitchensinkNode::new(&args);
+        node.init(GENESIS_JSON)
+            .expect("Failed to initialize the node")
+            .spawn_process()
+            .expect("Failed to spawn the node process");
+        (node, temp_dir)
     }
 
     #[test]
@@ -682,5 +701,18 @@ mod tests {
             version.starts_with("pallet-revive-eth-rpc"),
             "Expected eth-rpc version string, got: {version}"
         );
+    }
+
+    #[test]
+    fn can_get_chain_id_from_node() {
+        // Arrange
+        let (node, _temp_dir) = new_node();
+
+        // Act
+        let chain_id = node.chain_id();
+
+        // Assert
+        let chain_id = chain_id.expect("Failed to get the chain id");
+        assert_eq!(chain_id, 420_420_420);
     }
 }

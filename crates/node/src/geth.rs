@@ -352,6 +352,14 @@ impl EthereumNode for Instance {
         *current += 1;
         Ok(value)
     }
+
+    #[tracing::instrument(skip_all, fields(geth_node_id = self.id))]
+    fn chain_id(&self) -> anyhow::Result<alloy::primitives::ChainId> {
+        let provider = self.provider();
+        BlockingExecutor::execute(async move {
+            provider.await?.get_chain_id().await.map_err(Into::into)
+        })?
+    }
 }
 
 impl Node for Instance {
@@ -439,7 +447,7 @@ mod tests {
 
     use crate::{GENESIS_JSON, Node};
 
-    use super::Instance;
+    use super::*;
 
     fn test_config() -> (Arguments, TempDir) {
         let mut config = Arguments::default();
@@ -447,6 +455,16 @@ mod tests {
         config.working_directory = temp_dir.path().to_path_buf().into();
 
         (config, temp_dir)
+    }
+
+    fn new_node() -> (Instance, TempDir) {
+        let (args, temp_dir) = test_config();
+        let mut node = Instance::new(&args);
+        node.init(GENESIS_JSON.to_owned())
+            .expect("Failed to initialize the node")
+            .spawn_process()
+            .expect("Failed to spawn the node process");
+        (node, temp_dir)
     }
 
     #[test]
@@ -470,5 +488,18 @@ mod tests {
             version.starts_with("geth version"),
             "expected version string, got: '{version}'"
         );
+    }
+
+    #[test]
+    fn can_get_chain_id_from_node() {
+        // Arrange
+        let (node, _temp_dir) = new_node();
+
+        // Act
+        let chain_id = node.chain_id();
+
+        // Assert
+        let chain_id = chain_id.expect("Failed to get the chain id");
+        assert_eq!(chain_id, 420_420_420);
     }
 }
