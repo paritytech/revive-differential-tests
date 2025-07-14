@@ -53,6 +53,11 @@ pub struct Instance {
     start_timeout: u64,
     wallet: EthereumWallet,
     nonces: Mutex<HashMap<Address, u64>>,
+    /// This vector stores [`File`] objects that we use for logging which we want to flush when the
+    /// node object is dropped. We do not store them in a structured fashion at the moment (in
+    /// separate fields) as the logic that we need to apply to them is all the same regardless of
+    /// what it belongs to, we just want to flush them on [`Drop`] of the node.
+    log_files: Vec<File>,
 }
 
 impl Instance {
@@ -132,8 +137,8 @@ impl Instance {
             .arg("--nodiscover")
             .arg("--maxpeers")
             .arg("0")
-            .stderr(stderr_logs_file)
-            .stdout(stdout_logs_file)
+            .stderr(stderr_logs_file.try_clone()?)
+            .stdout(stdout_logs_file.try_clone()?)
             .spawn()?
             .into();
 
@@ -142,6 +147,8 @@ impl Instance {
             self.shutdown()?;
             return Err(error);
         }
+
+        self.log_files.extend([stderr_logs_file, stdout_logs_file]);
 
         Ok(self)
     }
@@ -349,6 +356,9 @@ impl Node for Instance {
             start_timeout: config.geth_start_timeout,
             wallet: config.wallet(),
             nonces: Mutex::new(HashMap::new()),
+            // We know that we only need to be storing 2 files so we can specify that when creating
+            // the vector. It's the stdout and stderr of the geth node.
+            log_files: Vec::with_capacity(2),
         }
     }
 
@@ -366,10 +376,15 @@ impl Node for Instance {
                 .map_err(|error| anyhow::anyhow!("Failed to kill the geth process: {error:?}"))?;
         }
 
+        // Flushing the files that we're using for keeping the logs before shutdown.
+        for file in self.log_files.iter_mut() {
+            file.flush()?
+        }
+
         // Remove the node's database so that subsequent runs do not run on the same database. We
         // ignore the error just in case the directory didn't exist in the first place and therefore
         // there's nothing to be deleted.
-        let _ = remove_dir_all(self.base_directory.join("data"));
+        let _ = remove_dir_all(self.base_directory.join(Self::DATA_DIRECTORY));
 
         Ok(())
     }

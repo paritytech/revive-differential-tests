@@ -1,7 +1,7 @@
 use std::{
     collections::HashMap,
-    fs::{OpenOptions, create_dir_all, remove_dir_all},
-    io::BufRead,
+    fs::{File, OpenOptions, create_dir_all, remove_dir_all},
+    io::{BufRead, Write},
     path::{Path, PathBuf},
     process::{Child, Command, Stdio},
     sync::{
@@ -54,11 +54,17 @@ pub struct KitchensinkNode {
     process_substrate: Option<Child>,
     process_proxy: Option<Child>,
     nonces: Mutex<HashMap<Address, u64>>,
+    /// This vector stores [`File`] objects that we use for logging which we want to flush when the
+    /// node object is dropped. We do not store them in a structured fashion at the moment (in
+    /// separate fields) as the logic that we need to apply to them is all the same regardless of
+    /// what it belongs to, we just want to flush them on [`Drop`] of the node.
+    log_files: Vec<File>,
 }
 
 impl KitchensinkNode {
     const BASE_DIRECTORY: &str = "kitchensink";
     const LOGS_DIRECTORY: &str = "logs";
+    const DATA_DIRECTORY: &str = "chains";
 
     const SUBSTRATE_READY_MARKER: &str = "Running JSON-RPC server";
     const ETH_PROXY_READY_MARKER: &str = "Running JSON-RPC server";
@@ -153,10 +159,10 @@ impl KitchensinkNode {
         };
 
         // Start Substrate node
-        let stdout_logs_file = open_options
+        let kitchensink_stdout_logs_file = open_options
             .clone()
             .open(self.kitchensink_stdout_log_file_path())?;
-        let stderr_logs_file = open_options
+        let kitchensink_stderr_logs_file = open_options
             .clone()
             .open(self.kitchensink_stderr_log_file_path())?;
         self.process_substrate = Command::new(&self.substrate_binary)
@@ -174,8 +180,8 @@ impl KitchensinkNode {
             .arg("--rpc-cors")
             .arg("all")
             .env("RUST_LOG", Self::SUBSTRATE_LOG_ENV)
-            .stdout(stdout_logs_file)
-            .stderr(stderr_logs_file)
+            .stdout(kitchensink_stdout_logs_file.try_clone()?)
+            .stderr(kitchensink_stderr_logs_file.try_clone()?)
             .spawn()?
             .into();
 
@@ -193,10 +199,10 @@ impl KitchensinkNode {
             return Err(error);
         };
 
-        let stdout_logs_file = open_options
+        let eth_proxy_stdout_logs_file = open_options
             .clone()
             .open(self.proxy_stdout_log_file_path())?;
-        let stderr_logs_file = open_options.open(self.proxy_stderr_log_file_path())?;
+        let eth_proxy_stderr_logs_file = open_options.open(self.proxy_stderr_log_file_path())?;
         self.process_proxy = Command::new(&self.eth_proxy_binary)
             .arg("--dev")
             .arg("--rpc-port")
@@ -204,8 +210,8 @@ impl KitchensinkNode {
             .arg("--node-rpc-url")
             .arg(format!("ws://127.0.0.1:{substrate_rpc_port}"))
             .env("RUST_LOG", Self::PROXY_LOG_ENV)
-            .stdout(stdout_logs_file)
-            .stderr(stderr_logs_file)
+            .stdout(eth_proxy_stdout_logs_file.try_clone()?)
+            .stderr(eth_proxy_stderr_logs_file.try_clone()?)
             .spawn()?
             .into();
 
@@ -218,6 +224,13 @@ impl KitchensinkNode {
             self.shutdown()?;
             return Err(error);
         };
+
+        self.log_files.extend([
+            kitchensink_stdout_logs_file,
+            kitchensink_stderr_logs_file,
+            eth_proxy_stdout_logs_file,
+            eth_proxy_stderr_logs_file,
+        ]);
 
         Ok(())
     }
@@ -417,6 +430,9 @@ impl Node for KitchensinkNode {
             process_substrate: None,
             process_proxy: None,
             nonces: Mutex::new(HashMap::new()),
+            // We know that we only need to be storing 4 files so we can specify that when creating
+            // the vector. It's the stdout and stderr of the substrate-node and the eth-rpc.
+            log_files: Vec::with_capacity(4),
         }
     }
 
@@ -439,10 +455,15 @@ impl Node for KitchensinkNode {
             })?;
         }
 
+        // Flushing the files that we're using for keeping the logs before shutdown.
+        for file in self.log_files.iter_mut() {
+            file.flush()?
+        }
+
         // Remove the node's database so that subsequent runs do not run on the same database. We
         // ignore the error just in case the directory didn't exist in the first place and therefore
         // there's nothing to be deleted.
-        let _ = remove_dir_all(self.base_directory.join("data"));
+        let _ = remove_dir_all(self.base_directory.join(Self::DATA_DIRECTORY));
 
         Ok(())
     }
