@@ -10,6 +10,7 @@ use crate::{CompilerInput, CompilerOutput, SolidityCompiler};
 use revive_dt_config::Arguments;
 use revive_dt_solc_binaries::download_solc;
 
+#[derive(Debug)]
 pub struct Solc {
     solc_path: PathBuf,
 }
@@ -17,6 +18,7 @@ pub struct Solc {
 impl SolidityCompiler for Solc {
     type Options = ();
 
+    #[tracing::instrument(level = "debug", ret)]
     fn build(
         &self,
         input: CompilerInput<Self::Options>,
@@ -41,6 +43,11 @@ impl SolidityCompiler for Solc {
                 error: Some(message.into()),
             });
         }
+
+        tracing::debug!(
+            output = %String::from_utf8_lossy(&output.stdout).to_string(),
+            "Compiled successfully"
+        );
 
         Ok(CompilerOutput {
             input,

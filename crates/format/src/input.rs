@@ -340,7 +340,7 @@ mod tests {
 
         type T = (bool,);
         let decoded: T = T::abi_decode(&encoded.0[4..]).unwrap();
-        assert_eq!(decoded.0, true);
+        assert!(decoded.0);
     }
 
     #[test]
