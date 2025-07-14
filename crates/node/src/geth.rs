@@ -374,6 +374,19 @@ impl EthereumNode for Instance {
                 .map(|block| block.header.gas_limit as _)
         })?
     }
+
+    #[tracing::instrument(skip_all, fields(geth_node_id = self.id))]
+    fn coinbase(&self) -> anyhow::Result<Address> {
+        let provider = self.provider();
+        BlockingExecutor::execute(async move {
+            provider
+                .await?
+                .get_block_by_number(BlockNumberOrTag::Latest)
+                .await?
+                .ok_or(anyhow::Error::msg("Blockchain has no blocks"))
+                .map(|block| block.header.beneficiary)
+        })?
+    }
 }
 
 impl Node for Instance {
@@ -528,5 +541,18 @@ mod tests {
         // Assert
         let gas_limit = gas_limit.expect("Failed to get the gas limit");
         assert_eq!(gas_limit, u32::MAX as u128)
+    }
+
+    #[test]
+    fn can_get_coinbase_from_node() {
+        // Arrange
+        let (node, _temp_dir) = new_node();
+
+        // Act
+        let coinbase = node.coinbase();
+
+        // Assert
+        let coinbase = coinbase.expect("Failed to get the gas limit");
+        assert_eq!(coinbase, Address::new([0xFF; 20]))
     }
 }
