@@ -58,7 +58,7 @@ pub struct KitchensinkNode {
     /// node object is dropped. We do not store them in a structured fashion at the moment (in
     /// separate fields) as the logic that we need to apply to them is all the same regardless of
     /// what it belongs to, we just want to flush them on [`Drop`] of the node.
-    log_files: Vec<File>,
+    logs_file_to_flush: Vec<File>,
 }
 
 impl KitchensinkNode {
@@ -225,7 +225,7 @@ impl KitchensinkNode {
             return Err(error);
         };
 
-        self.log_files.extend([
+        self.logs_file_to_flush.extend([
             kitchensink_stdout_logs_file,
             kitchensink_stderr_logs_file,
             eth_proxy_stdout_logs_file,
@@ -432,7 +432,7 @@ impl Node for KitchensinkNode {
             nonces: Mutex::new(HashMap::new()),
             // We know that we only need to be storing 4 files so we can specify that when creating
             // the vector. It's the stdout and stderr of the substrate-node and the eth-rpc.
-            log_files: Vec::with_capacity(4),
+            logs_file_to_flush: Vec::with_capacity(4),
         }
     }
 
@@ -456,7 +456,7 @@ impl Node for KitchensinkNode {
         }
 
         // Flushing the files that we're using for keeping the logs before shutdown.
-        for file in self.log_files.iter_mut() {
+        for file in self.logs_file_to_flush.iter_mut() {
             file.flush()?
         }
 

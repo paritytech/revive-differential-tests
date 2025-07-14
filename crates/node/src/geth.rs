@@ -57,7 +57,7 @@ pub struct Instance {
     /// node object is dropped. We do not store them in a structured fashion at the moment (in
     /// separate fields) as the logic that we need to apply to them is all the same regardless of
     /// what it belongs to, we just want to flush them on [`Drop`] of the node.
-    log_files: Vec<File>,
+    logs_file_to_flush: Vec<File>,
 }
 
 impl Instance {
@@ -148,7 +148,8 @@ impl Instance {
             return Err(error);
         }
 
-        self.log_files.extend([stderr_logs_file, stdout_logs_file]);
+        self.logs_file_to_flush
+            .extend([stderr_logs_file, stdout_logs_file]);
 
         Ok(self)
     }
@@ -358,7 +359,7 @@ impl Node for Instance {
             nonces: Mutex::new(HashMap::new()),
             // We know that we only need to be storing 2 files so we can specify that when creating
             // the vector. It's the stdout and stderr of the geth node.
-            log_files: Vec::with_capacity(2),
+            logs_file_to_flush: Vec::with_capacity(2),
         }
     }
 
@@ -377,7 +378,7 @@ impl Node for Instance {
         }
 
         // Flushing the files that we're using for keeping the logs before shutdown.
-        for file in self.log_files.iter_mut() {
+        for file in self.logs_file_to_flush.iter_mut() {
             file.flush()?
         }
 
