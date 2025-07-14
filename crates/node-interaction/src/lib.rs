@@ -1,6 +1,6 @@
 //! This crate implements all node interactions.
 
-use alloy::primitives::{Address, ChainId};
+use alloy::primitives::{Address, ChainId, U256};
 use alloy::rpc::types::trace::geth::{DiffMode, GethTrace};
 use alloy::rpc::types::{TransactionReceipt, TransactionRequest};
 use anyhow::Result;
@@ -28,8 +28,11 @@ pub trait EthereumNode {
     // TODO: This is currently a u128 due to Kitchensink needing more than 64 bits for its gas limit
     // when we implement the changes to the gas we need to adjust this to be a u64.
     /// Returns the gas limit of the last block.
-    fn gas_limit(&self) -> Result<u128>;
+    fn block_gas_limit(&self) -> Result<u128>;
 
     /// Returns the coinbase of the last block.
-    fn coinbase(&self) -> Result<Address>;
+    fn block_coinbase(&self) -> Result<Address>;
+
+    /// Returns the difficulty of the last block.
+    fn block_difficulty(&self) -> Result<U256>;
 }

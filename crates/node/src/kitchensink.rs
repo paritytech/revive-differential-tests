@@ -439,7 +439,7 @@ impl EthereumNode for KitchensinkNode {
     }
 
     #[tracing::instrument(skip_all, fields(geth_node_id = self.id))]
-    fn gas_limit(&self) -> anyhow::Result<u128> {
+    fn block_gas_limit(&self) -> anyhow::Result<u128> {
         let provider = self.provider();
         BlockingExecutor::execute(async move {
             provider
@@ -452,7 +452,7 @@ impl EthereumNode for KitchensinkNode {
     }
 
     #[tracing::instrument(skip_all, fields(geth_node_id = self.id))]
-    fn coinbase(&self) -> anyhow::Result<Address> {
+    fn block_coinbase(&self) -> anyhow::Result<Address> {
         let provider = self.provider();
         BlockingExecutor::execute(async move {
             provider
@@ -461,6 +461,19 @@ impl EthereumNode for KitchensinkNode {
                 .await?
                 .ok_or(anyhow::Error::msg("Blockchain has no blocks"))
                 .map(|block| block.header.beneficiary)
+        })?
+    }
+
+    #[tracing::instrument(skip_all, fields(geth_node_id = self.id))]
+    fn block_difficulty(&self) -> anyhow::Result<U256> {
+        let provider = self.provider();
+        BlockingExecutor::execute(async move {
+            provider
+                .await?
+                .get_block_by_number(BlockNumberOrTag::Latest)
+                .await?
+                .ok_or(anyhow::Error::msg("Blockchain has no blocks"))
+                .map(|block| block.header.difficulty)
         })?
     }
 }
@@ -1209,7 +1222,7 @@ mod tests {
         let (node, _temp_dir) = new_node();
 
         // Act
-        let gas_limit = node.gas_limit();
+        let gas_limit = node.block_gas_limit();
 
         // Assert
         let gas_limit = gas_limit.expect("Failed to get the gas limit");
@@ -1222,10 +1235,23 @@ mod tests {
         let (node, _temp_dir) = new_node();
 
         // Act
-        let coinbase = node.coinbase();
+        let coinbase = node.block_coinbase();
 
         // Assert
-        let coinbase = coinbase.expect("Failed to get the gas limit");
+        let coinbase = coinbase.expect("Failed to get the coinbase");
         assert_eq!(coinbase, Address::ZERO)
+    }
+
+    #[test]
+    fn can_get_block_difficulty_from_node() {
+        // Arrange
+        let (node, _temp_dir) = new_node();
+
+        // Act
+        let block_difficulty = node.block_difficulty();
+
+        // Assert
+        let block_difficulty = block_difficulty.expect("Failed to get the block difficulty");
+        assert_eq!(block_difficulty, U256::ZERO)
     }
 }
