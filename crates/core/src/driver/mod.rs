@@ -1,11 +1,11 @@
 //! The test driver handles the compilation and execution of the test cases.
 
 use alloy::json_abi::JsonAbi;
-use alloy::primitives::Bytes;
+use alloy::network::TransactionBuilder;
+use alloy::rpc::types::TransactionReceipt;
 use alloy::rpc::types::trace::geth::GethTrace;
-use alloy::rpc::types::{TransactionInput, TransactionReceipt};
 use alloy::{
-    primitives::{Address, TxKind, map::HashMap},
+    primitives::{Address, map::HashMap},
     rpc::types::{
         TransactionRequest,
         trace::geth::{AccountState, DiffMode},
@@ -135,21 +135,17 @@ where
             std::any::type_name::<T>()
         );
 
-        let tx = match input.legacy_transaction(
-            self.config.network_id,
-            nonce,
-            &self.deployed_contracts,
-            &self.deployed_abis,
-        ) {
-            Ok(tx) => {
-                tracing::debug!("Legacy transaction data: {tx:#?}");
-                tx
-            }
-            Err(err) => {
-                tracing::error!("Failed to construct legacy transaction: {err:?}");
-                return Err(err);
-            }
-        };
+        let tx =
+            match input.legacy_transaction(nonce, &self.deployed_contracts, &self.deployed_abis) {
+                Ok(tx) => {
+                    tracing::debug!("Legacy transaction data: {tx:#?}");
+                    tx
+                }
+                Err(err) => {
+                    tracing::error!("Failed to construct legacy transaction: {err:?}");
+                    return Err(err);
+                }
+            };
 
         tracing::trace!("Executing transaction for input: {input:?}");
 
@@ -201,6 +197,9 @@ where
 
             for contracts in contract_map.values() {
                 for (contract_name, contract) in contracts {
+                    let tracing_span = tracing::info_span!("Deploying contract", contract_name);
+                    let _guard = tracing_span.enter();
+
                     tracing::debug!(
                         "Contract name is: {:?} and the input name is: {:?}",
                         &contract_name,
@@ -228,16 +227,14 @@ where
                         std::any::type_name::<T>()
                     );
 
-                    let tx = TransactionRequest {
-                        from: Some(input.caller),
-                        to: Some(TxKind::Create),
-                        gas_price: Some(5_000_000),
-                        gas: Some(5_000_000),
-                        chain_id: Some(self.config.network_id),
-                        nonce: Some(nonce),
-                        input: TransactionInput::new(Bytes::from(code.into_bytes())),
-                        ..Default::default()
-                    };
+                    // We are using alloy for building and submitting the transactions and it will
+                    // automatically fill in all of the missing fields from the provider that we
+                    // are using.
+                    let code = alloy::hex::decode(&code)?;
+                    let tx = TransactionRequest::default()
+                        .nonce(nonce)
+                        .from(input.caller)
+                        .with_deploy_code(code);
 
                     let receipt = match node.execute_transaction(tx) {
                         Ok(receipt) => receipt,
