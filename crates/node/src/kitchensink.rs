@@ -340,13 +340,18 @@ impl KitchensinkNode {
         &self,
     ) -> impl Future<
         Output = anyhow::Result<
-            FillProvider<impl TxFiller<Ethereum>, impl Provider<Ethereum>, Ethereum>,
+            FillProvider<
+                impl TxFiller<KitchenSinkNetwork>,
+                impl Provider<KitchenSinkNetwork>,
+                KitchenSinkNetwork,
+            >,
         >,
     > + 'static {
         let connection_string = self.connection_string();
         let wallet = self.wallet.clone();
         Box::pin(async move {
             ProviderBuilder::new()
+                .network::<KitchenSinkNetwork>()
                 .wallet(wallet)
                 .connect(&connection_string)
                 .await
