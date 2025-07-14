@@ -26,4 +26,9 @@ pub trait EthereumNode {
 
     /// Returns the ID of the chain that the node is on.
     fn chain_id(&self) -> anyhow::Result<ChainId>;
+
+    // TODO: This is currently a u128 due to Kitchensink needing more than 64 bits for its gas limit
+    // when we implement the changes to the gas we need to adjust this to be a u64.
+    /// Returns the gas limit of the last block.
+    fn gas_limit(&self) -> anyhow::Result<u128>;
 }

@@ -14,6 +14,7 @@ use std::{
 };
 
 use alloy::{
+    eips::BlockNumberOrTag,
     network::{Ethereum, EthereumWallet},
     primitives::Address,
     providers::{
@@ -360,6 +361,19 @@ impl EthereumNode for Instance {
             provider.await?.get_chain_id().await.map_err(Into::into)
         })?
     }
+
+    #[tracing::instrument(skip_all, fields(geth_node_id = self.id))]
+    fn gas_limit(&self) -> anyhow::Result<u128> {
+        let provider = self.provider();
+        BlockingExecutor::execute(async move {
+            provider
+                .await?
+                .get_block_by_number(BlockNumberOrTag::Latest)
+                .await?
+                .ok_or(anyhow::Error::msg("Blockchain has no blocks"))
+                .map(|block| block.header.gas_limit as _)
+        })?
+    }
 }
 
 impl Node for Instance {
@@ -501,5 +515,18 @@ mod tests {
         // Assert
         let chain_id = chain_id.expect("Failed to get the chain id");
         assert_eq!(chain_id, 420_420_420);
+    }
+
+    #[test]
+    fn can_get_gas_limit_from_node() {
+        // Arrange
+        let (node, _temp_dir) = new_node();
+
+        // Act
+        let gas_limit = node.gas_limit();
+
+        // Assert
+        let gas_limit = gas_limit.expect("Failed to get the gas limit");
+        assert_eq!(gas_limit, u32::MAX as u128)
     }
 }
