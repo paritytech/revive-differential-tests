@@ -204,10 +204,6 @@ impl KitchensinkNode {
             .arg("--node-rpc-url")
             .arg(format!("ws://127.0.0.1:{substrate_rpc_port}"))
             .env("RUST_LOG", Self::PROXY_LOG_ENV)
-            // We pipe both stdout and stderr to the same log file and therefore we're persisting
-            // both. In the implementation of [`std::fs::File`] the `try_clone` method will ensure
-            // that both [`std::fs::File`] objects have the same seeks and offsets and therefore we
-            // don't have to worry about either streams overriding each other.
             .stdout(stdout_logs_file)
             .stderr(stderr_logs_file)
             .spawn()?
