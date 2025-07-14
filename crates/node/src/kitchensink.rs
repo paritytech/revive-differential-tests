@@ -13,9 +13,13 @@ use std::{
 
 use alloy::{
     hex,
-    network::EthereumWallet,
+    network::{Ethereum, EthereumWallet},
     primitives::Address,
-    providers::{Provider, ProviderBuilder, ext::DebugApi},
+    providers::{
+        Provider, ProviderBuilder,
+        ext::DebugApi,
+        fillers::{FillProvider, TxFiller},
+    },
     rpc::types::{
         TransactionReceipt,
         trace::geth::{DiffMode, GethDebugTracingOptions, PreStateConfig, PreStateFrame},
@@ -323,6 +327,24 @@ impl KitchensinkNode {
     fn proxy_stderr_log_file_path(&self) -> PathBuf {
         self.logs_directory.join(Self::PROXY_STDERR_LOG_FILE_NAME)
     }
+
+    fn provider(
+        &self,
+    ) -> impl Future<
+        Output = anyhow::Result<
+            FillProvider<impl TxFiller<Ethereum>, impl Provider<Ethereum>, Ethereum>,
+        >,
+    > + 'static {
+        let connection_string = self.connection_string();
+        let wallet = self.wallet.clone();
+        Box::pin(async move {
+            ProviderBuilder::new()
+                .wallet(wallet)
+                .connect(&connection_string)
+                .await
+                .map_err(Into::into)
+        })
+    }
 }
 
 impl EthereumNode for KitchensinkNode {
@@ -331,16 +353,10 @@ impl EthereumNode for KitchensinkNode {
         &self,
         transaction: alloy::rpc::types::TransactionRequest,
     ) -> anyhow::Result<TransactionReceipt> {
-        let url = self.rpc_url.clone();
-        let wallet = self.wallet.clone();
-
-        tracing::debug!("Submitting transaction: {transaction:#?}");
-
-        tracing::info!("Submitting tx to kitchensink");
+        tracing::debug!(?transaction, "Submitting transaction");
+        let provider = self.provider();
         let receipt = BlockingExecutor::execute(async move {
-            Ok(ProviderBuilder::new()
-                .wallet(wallet)
-                .connect(&url)
+            Ok(provider
                 .await?
                 .send_transaction(transaction)
                 .await?
@@ -356,19 +372,15 @@ impl EthereumNode for KitchensinkNode {
         &self,
         transaction: TransactionReceipt,
     ) -> anyhow::Result<alloy::rpc::types::trace::geth::GethTrace> {
-        let url = self.rpc_url.clone();
         let trace_options = GethDebugTracingOptions::prestate_tracer(PreStateConfig {
             diff_mode: Some(true),
             disable_code: None,
             disable_storage: None,
         });
-
-        let wallet = self.wallet.clone();
+        let provider = self.provider();
 
         BlockingExecutor::execute(async move {
-            Ok(ProviderBuilder::new()
-                .wallet(wallet)
-                .connect(&url)
+            Ok(provider
                 .await?
                 .debug_trace_transaction(transaction.transaction_hash, trace_options)
                 .await?)
@@ -388,13 +400,9 @@ impl EthereumNode for KitchensinkNode {
 
     #[tracing::instrument(skip_all, fields(kitchensink_node_id = self.id))]
     fn fetch_add_nonce(&self, address: Address) -> anyhow::Result<u64> {
-        let url = self.rpc_url.clone();
-        let wallet = self.wallet.clone();
-
+        let provider = self.provider();
         let onchain_nonce = BlockingExecutor::execute::<anyhow::Result<_>>(async move {
-            ProviderBuilder::new()
-                .wallet(wallet)
-                .connect(&url)
+            provider
                 .await?
                 .get_transaction_count(address)
                 .await
