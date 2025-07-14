@@ -1,6 +1,6 @@
 //! This crate implements all node interactions.
 
-use alloy::primitives::{Address, ChainId, U256};
+use alloy::primitives::{Address, BlockHash, BlockNumber, BlockTimestamp, ChainId, U256};
 use alloy::rpc::types::trace::geth::{DiffMode, GethTrace};
 use alloy::rpc::types::{TransactionReceipt, TransactionRequest};
 use anyhow::Result;
@@ -35,4 +35,13 @@ pub trait EthereumNode {
 
     /// Returns the difficulty of the last block.
     fn block_difficulty(&self) -> Result<U256>;
+
+    /// Returns the hash of the last block.
+    fn block_hash(&self) -> Result<BlockHash>;
+
+    /// Returns the timestamp of the last block,
+    fn block_timestamp(&self) -> Result<BlockTimestamp>;
+
+    /// Returns the number of the last block.
+    fn last_block_number(&self) -> Result<BlockNumber>;
 }

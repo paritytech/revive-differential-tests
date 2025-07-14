@@ -19,7 +19,7 @@ use alloy::{
         Ethereum, EthereumWallet, Network, TransactionBuilder, TransactionBuilderError,
         UnbuiltTransactionError,
     },
-    primitives::{Address, B64, B256, BlockNumber, Bloom, Bytes, U256},
+    primitives::{Address, B64, B256, BlockHash, BlockNumber, BlockTimestamp, Bloom, Bytes, U256},
     providers::{
         Provider, ProviderBuilder,
         ext::DebugApi,
@@ -474,6 +474,40 @@ impl EthereumNode for KitchensinkNode {
                 .await?
                 .ok_or(anyhow::Error::msg("Blockchain has no blocks"))
                 .map(|block| block.header.difficulty)
+        })?
+    }
+
+    #[tracing::instrument(skip_all, fields(geth_node_id = self.id))]
+    fn block_hash(&self) -> anyhow::Result<BlockHash> {
+        let provider = self.provider();
+        BlockingExecutor::execute(async move {
+            provider
+                .await?
+                .get_block_by_number(BlockNumberOrTag::Latest)
+                .await?
+                .ok_or(anyhow::Error::msg("Blockchain has no blocks"))
+                .map(|block| block.header.hash)
+        })?
+    }
+
+    #[tracing::instrument(skip_all, fields(geth_node_id = self.id))]
+    fn block_timestamp(&self) -> anyhow::Result<BlockTimestamp> {
+        let provider = self.provider();
+        BlockingExecutor::execute(async move {
+            provider
+                .await?
+                .get_block_by_number(BlockNumberOrTag::Latest)
+                .await?
+                .ok_or(anyhow::Error::msg("Blockchain has no blocks"))
+                .map(|block| block.header.timestamp)
+        })?
+    }
+
+    #[tracing::instrument(skip_all, fields(geth_node_id = self.id))]
+    fn last_block_number(&self) -> anyhow::Result<BlockNumber> {
+        let provider = self.provider();
+        BlockingExecutor::execute(async move {
+            provider.await?.get_block_number().await.map_err(Into::into)
         })?
     }
 }
@@ -1253,5 +1287,42 @@ mod tests {
         // Assert
         let block_difficulty = block_difficulty.expect("Failed to get the block difficulty");
         assert_eq!(block_difficulty, U256::ZERO)
+    }
+
+    #[test]
+    fn can_get_block_hash_from_node() {
+        // Arrange
+        let (node, _temp_dir) = new_node();
+
+        // Act
+        let block_hash = node.block_hash();
+
+        // Assert
+        let _ = block_hash.expect("Failed to get the block hash");
+    }
+
+    #[test]
+    fn can_get_block_timestamp_from_node() {
+        // Arrange
+        let (node, _temp_dir) = new_node();
+
+        // Act
+        let block_timestamp = node.block_timestamp();
+
+        // Assert
+        let _ = block_timestamp.expect("Failed to get the block timestamp");
+    }
+
+    #[test]
+    fn can_get_block_number_from_node() {
+        // Arrange
+        let (node, _temp_dir) = new_node();
+
+        // Act
+        let block_number = node.last_block_number();
+
+        // Assert
+        let block_number = block_number.expect("Failed to get the block number");
+        assert_eq!(block_number, 0)
     }
 }
