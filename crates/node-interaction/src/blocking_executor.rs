@@ -21,7 +21,9 @@ use tokio::{
 /// and unbounded to specific tasks or return types. The following is an example of using this
 /// executor to drive an async computation:
 ///
-/// ```rust,no_run
+/// ```rust
+/// use revive_dt_node_interaction::*;
+///
 /// fn blocking_function() {
 ///     let result = BlockingExecutor::execute(async move {
 ///         tokio::time::sleep(std::time::Duration::from_secs(1)).await;
