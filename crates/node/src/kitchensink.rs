@@ -3,7 +3,7 @@ use std::{
     fs::{OpenOptions, create_dir_all, remove_dir_all},
     io::BufRead,
     path::{Path, PathBuf},
-    process::{Command, Stdio},
+    process::{Child, Command, Stdio},
     sync::{
         Mutex,
         atomic::{AtomicU32, Ordering},
@@ -30,7 +30,6 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value as JsonValue, json};
 use sp_core::crypto::Ss58Codec;
 use sp_runtime::AccountId32;
-use subprocess::{Exec, Popen};
 use tracing::Level;
 
 use revive_dt_config::Arguments;
@@ -52,8 +51,8 @@ pub struct KitchensinkNode {
     wallet: EthereumWallet,
     base_directory: PathBuf,
     logs_directory: PathBuf,
-    process_substrate: Option<Popen>,
-    process_proxy: Option<Popen>,
+    process_substrate: Option<Child>,
+    process_proxy: Option<Child>,
     nonces: Mutex<HashMap<Address, u64>>,
 }
 
@@ -160,7 +159,7 @@ impl KitchensinkNode {
         let stderr_logs_file = open_options
             .clone()
             .open(self.kitchensink_stderr_log_file_path())?;
-        self.process_substrate = Exec::cmd(&self.substrate_binary)
+        self.process_substrate = Command::new(&self.substrate_binary)
             .arg("--chain")
             .arg(chainspec_path)
             .arg("--base-path")
@@ -177,7 +176,7 @@ impl KitchensinkNode {
             .env("RUST_LOG", Self::SUBSTRATE_LOG_ENV)
             .stdout(stdout_logs_file)
             .stderr(stderr_logs_file)
-            .popen()?
+            .spawn()?
             .into();
 
         // Give the node a moment to boot
@@ -198,7 +197,7 @@ impl KitchensinkNode {
             .clone()
             .open(self.proxy_stdout_log_file_path())?;
         let stderr_logs_file = open_options.open(self.proxy_stderr_log_file_path())?;
-        self.process_proxy = Exec::cmd(&self.eth_proxy_binary)
+        self.process_proxy = Command::new(&self.eth_proxy_binary)
             .arg("--dev")
             .arg("--rpc-port")
             .arg(proxy_rpc_port.to_string())
@@ -211,7 +210,7 @@ impl KitchensinkNode {
             // don't have to worry about either streams overriding each other.
             .stdout(stdout_logs_file)
             .stderr(stderr_logs_file)
-            .popen()?
+            .spawn()?
             .into();
 
         if let Err(error) = Self::wait_ready(
@@ -434,23 +433,13 @@ impl Node for KitchensinkNode {
     fn shutdown(&mut self) -> anyhow::Result<()> {
         // Terminate the processes in a graceful manner to allow for the output to be flushed.
         if let Some(mut child) = self.process_proxy.take() {
-            child.terminate().map_err(|error| {
-                anyhow::anyhow!("Failed to terminate the proxy process: {error:?}")
-            })?;
-            child.wait().map_err(|error| {
-                anyhow::anyhow!(
-                    "Failed to wait for the termination of the proxy process: {error:?}"
-                )
-            })?;
+            child
+                .kill()
+                .map_err(|error| anyhow::anyhow!("Failed to kill the proxy process: {error:?}"))?;
         }
         if let Some(mut child) = self.process_substrate.take() {
-            child.terminate().map_err(|error| {
-                anyhow::anyhow!("Failed to terminate the substrate process: {error:?}")
-            })?;
-            child.wait().map_err(|error| {
-                anyhow::anyhow!(
-                    "Failed to wait for the termination of the substrate process: {error:?}"
-                )
+            child.kill().map_err(|error| {
+                anyhow::anyhow!("Failed to kill the substrate process: {error:?}")
             })?;
         }
 

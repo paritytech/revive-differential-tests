@@ -5,7 +5,7 @@ use std::{
     fs::{File, OpenOptions, create_dir_all, remove_dir_all},
     io::{BufRead, BufReader, Read, Write},
     path::PathBuf,
-    process::{Command, Stdio},
+    process::{Child, Command, Stdio},
     sync::{
         Mutex,
         atomic::{AtomicU32, Ordering},
@@ -27,7 +27,6 @@ use revive_dt_node_interaction::{
     EthereumNode, nonce::fetch_onchain_nonce, trace::trace_transaction,
     transaction::execute_transaction,
 };
-use subprocess::{Exec, Popen};
 use tracing::Level;
 
 use crate::Node;
@@ -49,7 +48,7 @@ pub struct Instance {
     logs_directory: PathBuf,
     geth: PathBuf,
     id: u32,
-    handle: Option<Popen>,
+    handle: Option<Child>,
     network_id: u64,
     start_timeout: u64,
     wallet: EthereumWallet,
@@ -122,7 +121,7 @@ impl Instance {
             .clone()
             .open(self.geth_stdout_log_file_path())?;
         let stderr_logs_file = open_options.open(self.geth_stderr_log_file_path())?;
-        self.handle = Exec::cmd(&self.geth)
+        self.handle = Command::new(&self.geth)
             .arg("--dev")
             .arg("--datadir")
             .arg(&self.data_directory)
@@ -135,7 +134,7 @@ impl Instance {
             .arg("0")
             .stderr(stderr_logs_file)
             .stdout(stdout_logs_file)
-            .popen()?
+            .spawn()?
             .into();
 
         if let Err(error) = self.wait_ready() {
@@ -362,12 +361,9 @@ impl Node for Instance {
     fn shutdown(&mut self) -> anyhow::Result<()> {
         // Terminate the processes in a graceful manner to allow for the output to be flushed.
         if let Some(mut child) = self.handle.take() {
-            child.terminate().map_err(|error| {
-                anyhow::anyhow!("Failed to terminate the geth process: {error:?}")
-            })?;
-            child.wait().map_err(|error| {
-                anyhow::anyhow!("Failed to wait for the termination of the geth process: {error:?}")
-            })?;
+            child
+                .kill()
+                .map_err(|error| anyhow::anyhow!("Failed to kill the geth process: {error:?}"))?;
         }
 
         // Remove the node's database so that subsequent runs do not run on the same database. We
