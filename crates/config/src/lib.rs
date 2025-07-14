@@ -1,4 +1,4 @@
-//! The global configuration used accross all revive differential testing crates.
+//! The global configuration used across all revive differential testing crates.
 
 use std::{
     fmt::Display,
