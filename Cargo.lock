@@ -3998,7 +3998,6 @@ dependencies = [
  "anyhow",
  "revive-dt-config",
  "revive-dt-node-interaction",
- "serde",
  "serde_json",
  "sp-core",
  "sp-runtime",

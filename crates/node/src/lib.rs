@@ -23,7 +23,7 @@ pub trait Node: EthereumNode {
     /// Prune the node instance and related data.
     ///
     /// Blocking until it's completely stopped.
-    fn shutdown(self) -> anyhow::Result<()>;
+    fn shutdown(&mut self) -> anyhow::Result<()>;
 
     /// Returns the nodes connection string.
     fn connection_string(&self) -> String;
