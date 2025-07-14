@@ -983,12 +983,7 @@ mod tests {
         node.spawn(GENESIS_JSON.to_owned())
             .expect("Failed to spawn the node");
 
-        let provider = ProviderBuilder::new()
-            .network::<KitchenSinkNetwork>()
-            .wallet(args.wallet())
-            .connect(&node.rpc_url)
-            .await
-            .expect("Failed to create provider");
+        let provider = node.provider().await.expect("Failed to create provider");
 
         let account_address = args.wallet().default_signer().address();
         let transaction = TransactionRequest::default()
