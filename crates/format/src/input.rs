@@ -2,7 +2,7 @@ use std::{collections::HashMap, str::FromStr};
 
 use alloy::{
     json_abi::JsonAbi,
-    primitives::{Address, Bytes},
+    primitives::{Address, Bytes, U256},
     rpc::types::{TransactionInput, TransactionRequest},
 };
 use alloy_primitives::TxKind;
@@ -136,21 +136,13 @@ impl Input {
         //
         // We're using indices in the following code in order to avoid the need for us to allocate
         // a new buffer for each one of the resolved arguments.
-        let mut calldata = vec![0u8; 4 + calldata_args.len() * 32];
-        calldata[0..4].copy_from_slice(&function.selector().0);
+        let mut calldata = Vec::<u8>::with_capacity(4 + calldata_args.len() * 32);
+        calldata.extend(function.selector().0);
 
         for (arg_idx, arg) in calldata_args.iter().enumerate() {
             match resolve_argument(arg, deployed_contracts) {
                 Ok(resolved) => {
-                    // Compute where the resolved argument will go in the call-data. Again, we're
-                    // doing this in order to avoid performing an extra allocation for an interim
-                    // buffer that is then just used to extend the calldata vector. In here, the 4
-                    // is the size of the selector which we already wrote to the calldata and the 32
-                    // is the size of each `U256` we're writing to the calldata.
-                    let start_inclusive = 4 + arg_idx * 32;
-                    let end_exclusive = start_inclusive + 32;
-                    let slot = &mut calldata[start_inclusive..end_exclusive];
-                    resolved.to_big_endian(slot);
+                    calldata.extend(resolved.to_be_bytes::<32>());
                 }
                 Err(error) => {
                     tracing::error!(arg, arg_idx, ?error, "Failed to resolve argument");
@@ -208,33 +200,29 @@ fn default_caller() -> Address {
 /// This piece of code is taken from the matter-labs-tester repository which is licensed under MIT
 /// or Apache. The original source code can be found here:
 /// https://github.com/matter-labs/era-compiler-tester/blob/0ed598a27f6eceee7008deab3ff2311075a2ec69/compiler_tester/src/test/case/input/value.rs#L43-L146
-///
-/// [`U256`]: web3::types::U256
 fn resolve_argument(
     value: &str,
     deployed_contracts: &HashMap<String, Address>,
-) -> anyhow::Result<web3::types::U256> {
+) -> anyhow::Result<U256> {
     if let Some(instance) = value.strip_suffix(".address") {
-        Ok(web3::types::U256::from_big_endian(
+        Ok(U256::from_be_slice(
             deployed_contracts
                 .get(instance)
                 .ok_or_else(|| anyhow::anyhow!("Instance `{}` not found", instance))?
                 .as_ref(),
         ))
     } else if let Some(value) = value.strip_prefix('-') {
-        let value = web3::types::U256::from_dec_str(value)
+        let value = U256::from_str_radix(value, 10)
             .map_err(|error| anyhow::anyhow!("Invalid decimal literal after `-`: {}", error))?;
-        if value > web3::types::U256::one() << 255u8 {
+        if value > U256::ONE << 255u8 {
             anyhow::bail!("Decimal literal after `-` is too big");
         }
         let value = value
-            .checked_sub(web3::types::U256::one())
+            .checked_sub(U256::ONE)
             .ok_or_else(|| anyhow::anyhow!("`-0` is invalid literal"))?;
-        Ok(web3::types::U256::max_value()
-            .checked_sub(value)
-            .expect("Always valid"))
+        Ok(U256::MAX.checked_sub(value).expect("Always valid"))
     } else if let Some(value) = value.strip_prefix("0x") {
-        Ok(web3::types::U256::from_str(value)
+        Ok(U256::from_str(value)
             .map_err(|error| anyhow::anyhow!("Invalid hexadecimal literal: {}", error))?)
     } else {
         // TODO: This is a set of "variables" that we need to be able to resolve to be fully in
@@ -257,7 +245,7 @@ fn resolve_argument(
             tracing::error!(value, "Unsupported variable used");
             anyhow::bail!("Encountered {value} which is currently unsupported by the framework");
         } else {
-            Ok(web3::types::U256::from_dec_str(value)
+            Ok(U256::from_str_radix(value, 10)
                 .map_err(|error| anyhow::anyhow!("Invalid decimal literal: {}", error))?)
         }
     }

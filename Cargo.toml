@@ -50,7 +50,6 @@ tracing-subscriber = { version = "0.3.19", default-features = false, features = 
     "json",
     "env-filter",
 ] }
-web3 = { version = "0.19.0", default-features = false }
 
 # revive compiler
 revive-solc-json-interface = { git = "https://github.com/paritytech/revive", rev = "3389865af7c3ff6f29a586d82157e8bc573c1a8e" }
