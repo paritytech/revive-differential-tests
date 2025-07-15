@@ -100,7 +100,6 @@ impl BlockingExecutor {
             anyhow::bail!("Failed to send the task to the blocking executor: {error:?}")
         }
 
-        // Await for the result of the execution to come back over the channel.
         let result = match response_rx.blocking_recv() {
             Ok(result) => result,
             Err(error) => {
