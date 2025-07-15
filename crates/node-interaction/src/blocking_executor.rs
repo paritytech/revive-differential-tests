@@ -56,8 +56,6 @@ impl BlockingExecutor {
 
             let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<TaskMessage>();
 
-            // We spawn a new thread which will house the async runtime and will always be listening
-            // for new tasks coming in and executing them as they come in.
             thread::spawn(move || {
                 let runtime = Builder::new_current_thread()
                     .enable_all()
