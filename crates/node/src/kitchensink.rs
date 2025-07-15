@@ -1039,23 +1039,30 @@ mod tests {
         (config, temp_dir)
     }
 
-    fn new_node() -> (KitchensinkNode, TempDir) {
+    fn new_node() -> (KitchensinkNode, Arguments, TempDir) {
+        // Note: When we run the tests in the CI we found that if they're all
+        // run in parallel then the CI is unable to start all of the nodes in
+        // time and their start up times-out. Therefore, we want all of the
+        // nodes to be started in series and not in parallel. To do this, we use
+        // a dummy mutex here such that there can only be a single node being
+        // started up at any point of time. This will make our tests run slower
+        // but it will allow the node startup to not timeout.
+        static NODE_START_MUTEX: Mutex<()> = Mutex::new(());
+        let _guard = NODE_START_MUTEX.lock().unwrap();
+
         let (args, temp_dir) = test_config();
         let mut node = KitchensinkNode::new(&args);
         node.init(GENESIS_JSON)
             .expect("Failed to initialize the node")
             .spawn_process()
             .expect("Failed to spawn the node process");
-        (node, temp_dir)
+        (node, args, temp_dir)
     }
 
     #[tokio::test]
     async fn node_mines_simple_transfer_transaction_and_returns_receipt() {
         // Arrange
-        let (args, _temp_dir) = test_config();
-        let mut node = KitchensinkNode::new(&args);
-        node.spawn(GENESIS_JSON.to_owned())
-            .expect("Failed to spawn the node");
+        let (node, args, _temp_dir) = new_node();
 
         let provider = node.provider().await.expect("Failed to create provider");
 
@@ -1240,7 +1247,7 @@ mod tests {
     #[test]
     fn can_get_chain_id_from_node() {
         // Arrange
-        let (node, _temp_dir) = new_node();
+        let (node, _args, _temp_dir) = new_node();
 
         // Act
         let chain_id = node.chain_id();
@@ -1253,7 +1260,7 @@ mod tests {
     #[test]
     fn can_get_gas_limit_from_node() {
         // Arrange
-        let (node, _temp_dir) = new_node();
+        let (node, _args, _temp_dir) = new_node();
 
         // Act
         let gas_limit = node.block_gas_limit(BlockNumberOrTag::Latest);
@@ -1266,7 +1273,7 @@ mod tests {
     #[test]
     fn can_get_coinbase_from_node() {
         // Arrange
-        let (node, _temp_dir) = new_node();
+        let (node, _args, _temp_dir) = new_node();
 
         // Act
         let coinbase = node.block_coinbase(BlockNumberOrTag::Latest);
@@ -1279,7 +1286,7 @@ mod tests {
     #[test]
     fn can_get_block_difficulty_from_node() {
         // Arrange
-        let (node, _temp_dir) = new_node();
+        let (node, _args, _temp_dir) = new_node();
 
         // Act
         let block_difficulty = node.block_difficulty(BlockNumberOrTag::Latest);
@@ -1292,7 +1299,7 @@ mod tests {
     #[test]
     fn can_get_block_hash_from_node() {
         // Arrange
-        let (node, _temp_dir) = new_node();
+        let (node, _args, _temp_dir) = new_node();
 
         // Act
         let block_hash = node.block_hash(BlockNumberOrTag::Latest);
@@ -1304,7 +1311,7 @@ mod tests {
     #[test]
     fn can_get_block_timestamp_from_node() {
         // Arrange
-        let (node, _temp_dir) = new_node();
+        let (node, _args, _temp_dir) = new_node();
 
         // Act
         let block_timestamp = node.block_timestamp(BlockNumberOrTag::Latest);
@@ -1316,7 +1323,7 @@ mod tests {
     #[test]
     fn can_get_block_number_from_node() {
         // Arrange
-        let (node, _temp_dir) = new_node();
+        let (node, _args, _temp_dir) = new_node();
 
         // Act
         let block_number = node.last_block_number();
