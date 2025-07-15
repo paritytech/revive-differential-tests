@@ -51,8 +51,6 @@ impl BlockingExecutor {
     where
         R: Send + 'static,
     {
-        // A static of the state associated with the async runtime. This is initialized on the first
-        // access of the state.
         static STATE: Lazy<ExecutorState> = Lazy::new(|| {
             tracing::trace!("Initializing the BlockingExecutor state");
 
