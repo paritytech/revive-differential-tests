@@ -69,7 +69,6 @@ impl BlockingExecutor {
                         response_tx: response_channel,
                     }) = rx.recv().await
                     {
-                        // Spawn off each job so that the receive loop is not blocked.
                         tracing::trace!("Received a new future to execute");
                         tokio::spawn(async move {
                             let task = AssertUnwindSafe(task).catch_unwind();
