@@ -1047,6 +1047,14 @@ mod tests {
         // a dummy mutex here such that there can only be a single node being
         // started up at any point of time. This will make our tests run slower
         // but it will allow the node startup to not timeout.
+        //
+        // Note: an alternative to starting all of the nodes in series and not
+        // in parallel would be for us to reuse the same node between tests
+        // which is not the best thing to do in my opinion as it removes all
+        // of the isolation between tests and makes them depend on what other
+        // tests do. For example, if one test checks what the block number is
+        // and another test submits a transaction then the tx test would have
+        // side effects that affect the block number test.
         static NODE_START_MUTEX: Mutex<()> = Mutex::new(());
         let _guard = NODE_START_MUTEX.lock().unwrap();
 
