@@ -23,13 +23,24 @@ impl SolidityCompiler for Resolc {
         &self,
         input: CompilerInput<Self::Options>,
     ) -> anyhow::Result<CompilerOutput<Self::Options>> {
-        let mut child = Command::new(&self.resolc_path)
-            .arg("--standard-json")
-            .args(&input.extra_options)
+        let mut command = Command::new(&self.resolc_path);
+        command
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
-            .spawn()?;
+            .arg("--standard-json");
+
+        if !input.allow_paths.is_empty() {
+            command.arg("--allow-paths").arg(
+                input
+                    .allow_paths
+                    .iter()
+                    .map(|path| path.display().to_string())
+                    .collect::<Vec<_>>()
+                    .join(","),
+            );
+        }
+        let mut child = command.spawn()?;
 
         let stdin_pipe = child.stdin.as_mut().expect("stdin must be piped");
         serde_json::to_writer(stdin_pipe, &input.input)?;
@@ -55,12 +66,21 @@ impl SolidityCompiler for Resolc {
             });
         }
 
-        let parsed: SolcStandardJsonOutput = serde_json::from_slice(&stdout).map_err(|e| {
+        let parsed = serde_json::from_slice::<SolcStandardJsonOutput>(&stdout).map_err(|e| {
             anyhow::anyhow!(
                 "failed to parse resolc JSON output: {e}\nstderr: {}",
                 String::from_utf8_lossy(&stderr)
             )
         })?;
+
+        // Detecting if the compiler output contained errors and reporting them through logs and
+        // errors instead of returning the compiler output that might contain errors.
+        for error in parsed.errors.iter().flatten() {
+            if error.severity == "error" {
+                tracing::error!(?error, ?input, "Encountered an error in the compilation");
+                anyhow::bail!("Encountered an error in the compilation: {error}")
+            }
+        }
 
         Ok(CompilerOutput {
             input,

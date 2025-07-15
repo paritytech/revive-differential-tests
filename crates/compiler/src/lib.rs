@@ -44,6 +44,8 @@ pub trait SolidityCompiler {
 pub struct CompilerInput<T: PartialEq + Eq + Hash> {
     pub extra_options: T,
     pub input: SolcStandardJsonInput,
+    pub allow_paths: Vec<PathBuf>,
+    pub base_path: Option<PathBuf>,
 }
 
 /// The generic compilation output configuration.
@@ -83,8 +85,8 @@ where
 pub struct Compiler<T: SolidityCompiler> {
     input: SolcStandardJsonInput,
     extra_options: T::Options,
-    allow_paths: Vec<String>,
-    base_path: Option<String>,
+    allow_paths: Vec<PathBuf>,
+    base_path: Option<PathBuf>,
 }
 
 impl Default for Compiler<solc::Solc> {
@@ -145,12 +147,12 @@ where
         self
     }
 
-    pub fn allow_path(mut self, path: String) -> Self {
+    pub fn allow_path(mut self, path: PathBuf) -> Self {
         self.allow_paths.push(path);
         self
     }
 
-    pub fn base_path(mut self, base_path: String) -> Self {
+    pub fn base_path(mut self, base_path: PathBuf) -> Self {
         self.base_path = Some(base_path);
         self
     }
@@ -159,6 +161,8 @@ where
         T::new(solc_path).build(CompilerInput {
             extra_options: self.extra_options,
             input: self.input,
+            allow_paths: self.allow_paths,
+            base_path: self.base_path,
         })
     }
 
