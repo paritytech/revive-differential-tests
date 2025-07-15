@@ -54,8 +54,6 @@ impl BlockingExecutor {
         static STATE: Lazy<ExecutorState> = Lazy::new(|| {
             tracing::trace!("Initializing the BlockingExecutor state");
 
-            // Creating a multiple-producer-single-consumer channel which allows all of the other
-            // threads to communicate with this one async runtime thread.
             let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<TaskMessage>();
 
             // We spawn a new thread which will house the async runtime and will always be listening
