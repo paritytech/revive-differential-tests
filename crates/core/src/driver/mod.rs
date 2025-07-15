@@ -69,14 +69,27 @@ where
             anyhow::bail!("unsupported solc version: {:?}", &mode.solc_version);
         };
 
-        let mut compiler = Compiler::<T::Compiler>::new()
+        let compiler = Compiler::<T::Compiler>::new()
             .base_path(metadata.directory()?.display().to_string())
+            .allow_path(metadata.directory()?.display().to_string())
             .solc_optimizer(mode.solc_optimize());
 
-        for (file, _contract) in metadata.contract_sources()?.values() {
-            tracing::debug!("contract source {}", file.display());
-            compiler = compiler.with_source(file)?;
-        }
+        let compiler = std::fs::read_dir(metadata.directory()?)?
+            .flat_map(|entry| match entry {
+                Ok(entry) => {
+                    if entry
+                        .path()
+                        .extension()
+                        .is_some_and(|ext| ext.eq_ignore_ascii_case("sol"))
+                    {
+                        Some(entry.path())
+                    } else {
+                        None
+                    }
+                }
+                Err(_) => None,
+            })
+            .try_fold(compiler, |compiler, path| compiler.with_source(&path))?;
 
         let mut task = CompilationTask {
             json_input: compiler.input(),
@@ -180,12 +193,15 @@ where
     }
 
     pub fn deploy_contracts(&mut self, input: &Input, node: &T::Blockchain) -> anyhow::Result<()> {
-        tracing::debug!(
-            "Deploying contracts {}, having address {} on node: {}",
-            &input.instance,
-            &input.caller,
-            std::any::type_name::<T>()
+        let tracing_span = tracing::debug_span!(
+            "Deploying contracts",
+            ?input,
+            node = std::any::type_name::<T>()
         );
+        let _guard = tracing_span.enter();
+
+        tracing::debug!(number_of_contracts_to_deploy = self.contracts.len());
+
         for output in self.contracts.values() {
             let Some(contract_map) = &output.contracts else {
                 tracing::debug!(
