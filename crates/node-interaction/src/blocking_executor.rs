@@ -78,7 +78,6 @@ impl BlockingExecutor {
                 })
             });
 
-            // Creating the state of the async runtime.
             ExecutorState { tx }
         });
 
