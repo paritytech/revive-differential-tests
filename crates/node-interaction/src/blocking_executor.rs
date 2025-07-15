@@ -63,7 +63,6 @@ impl BlockingExecutor {
                     .expect("Failed to create the async runtime");
 
                 runtime.block_on(async move {
-                    // Keep getting new task messages from all of the other threads.
                     while let Some(TaskMessage {
                         future: task,
                         response_tx: response_channel,
