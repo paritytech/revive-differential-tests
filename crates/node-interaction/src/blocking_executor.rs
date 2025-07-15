@@ -90,7 +90,6 @@ impl BlockingExecutor {
         // expecting it to be in.
         let future = Box::pin(async move { Box::new(future.await) as Box<dyn Any + Send> });
 
-        // Sending the task to the runtime,
         let task = TaskMessage {
             future,
             response_tx,
