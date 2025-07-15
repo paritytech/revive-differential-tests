@@ -87,6 +87,3 @@ codegen-units = 1
 
 [profile.release]
 panic = "unwind"
-
-[profile.dev]
-panic = "unwind"
