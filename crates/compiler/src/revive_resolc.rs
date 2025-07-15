@@ -30,6 +30,9 @@ impl SolidityCompiler for Resolc {
             .stderr(Stdio::piped())
             .arg("--standard-json");
 
+        if let Some(ref base_path) = input.base_path {
+            command.arg("--base-path").arg(base_path);
+        }
         if !input.allow_paths.is_empty() {
             command.arg("--allow-paths").arg(
                 input

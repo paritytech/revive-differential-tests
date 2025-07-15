@@ -70,7 +70,6 @@ where
         };
 
         let compiler = Compiler::<T::Compiler>::new()
-            .base_path(metadata.directory()?)
             .allow_path(metadata.directory()?)
             .solc_optimizer(mode.solc_optimize());
 
