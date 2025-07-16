@@ -11,6 +11,7 @@ use revive_dt_config::Arguments;
 use revive_dt_solc_binaries::download_solc;
 use revive_solc_json_interface::SolcStandardJsonOutput;
 
+#[derive(Debug)]
 pub struct Solc {
     solc_path: PathBuf,
 }
@@ -18,6 +19,7 @@ pub struct Solc {
 impl SolidityCompiler for Solc {
     type Options = ();
 
+    #[tracing::instrument(level = "debug", ret)]
     fn build(
         &self,
         input: CompilerInput<Self::Options>,
@@ -74,6 +76,11 @@ impl SolidityCompiler for Solc {
                 anyhow::bail!("Encountered an error in the compilation: {error}")
             }
         }
+
+        tracing::debug!(
+            output = %String::from_utf8_lossy(&output.stdout).to_string(),
+            "Compiled successfully"
+        );
 
         Ok(CompilerOutput {
             input,
