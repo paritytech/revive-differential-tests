@@ -89,9 +89,14 @@ impl Input {
             return Ok(Bytes::default()); // fallback or deployer — no input
         };
 
-        let abi = deployed_abis
-            .get(&self.instance)
-            .ok_or_else(|| anyhow::anyhow!("ABI for instance '{}' not found", &self.instance))?;
+        let Some(abi) = deployed_abis.get(&self.instance) else {
+            tracing::error!(
+                contract_name = self.instance,
+                available_abis = ?deployed_abis.keys().collect::<Vec<_>>(),
+                "Attempted to lookup ABI of contract but it wasn't found"
+            );
+            anyhow::bail!("ABI for instance '{}' not found", &self.instance);
+        };
 
         tracing::trace!("ABI found for instance: {}", &self.instance);
 
