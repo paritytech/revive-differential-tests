@@ -14,9 +14,14 @@ use std::{
 };
 
 use alloy::{
-    network::EthereumWallet,
-    primitives::Address,
-    providers::{Provider, ProviderBuilder, ext::DebugApi},
+    eips::BlockNumberOrTag,
+    network::{Ethereum, EthereumWallet},
+    primitives::{Address, BlockHash, BlockNumber, BlockTimestamp, U256},
+    providers::{
+        Provider, ProviderBuilder,
+        ext::DebugApi,
+        fillers::{FillProvider, TxFiller},
+    },
     rpc::types::{
         TransactionReceipt, TransactionRequest,
         trace::geth::{DiffMode, GethDebugTracingOptions, PreStateConfig, PreStateFrame},
@@ -191,6 +196,24 @@ impl Instance {
     fn geth_stderr_log_file_path(&self) -> PathBuf {
         self.logs_directory.join(Self::GETH_STDERR_LOG_FILE_NAME)
     }
+
+    fn provider(
+        &self,
+    ) -> impl Future<
+        Output = anyhow::Result<
+            FillProvider<impl TxFiller<Ethereum>, impl Provider<Ethereum>, Ethereum>,
+        >,
+    > + 'static {
+        let connection_string = self.connection_string();
+        let wallet = self.wallet.clone();
+        Box::pin(async move {
+            ProviderBuilder::new()
+                .wallet(wallet)
+                .connect(&connection_string)
+                .await
+                .map_err(Into::into)
+        })
+    }
 }
 
 impl EthereumNode for Instance {
@@ -199,17 +222,12 @@ impl EthereumNode for Instance {
         &self,
         transaction: TransactionRequest,
     ) -> anyhow::Result<alloy::rpc::types::TransactionReceipt> {
-        let connection_string = self.connection_string();
-        let wallet = self.wallet.clone();
-
+        let provider = self.provider();
         BlockingExecutor::execute(async move {
             let outer_span = tracing::debug_span!("Submitting transaction", ?transaction,);
             let _outer_guard = outer_span.enter();
 
-            let provider = ProviderBuilder::new()
-                .wallet(wallet)
-                .connect(&connection_string)
-                .await?;
+            let provider = provider.await?;
 
             let pending_transaction = provider.send_transaction(transaction).await?;
             let transaction_hash = pending_transaction.tx_hash();
@@ -289,18 +307,15 @@ impl EthereumNode for Instance {
         &self,
         transaction: TransactionReceipt,
     ) -> anyhow::Result<alloy::rpc::types::trace::geth::GethTrace> {
-        let connection_string = self.connection_string();
         let trace_options = GethDebugTracingOptions::prestate_tracer(PreStateConfig {
             diff_mode: Some(true),
             disable_code: None,
             disable_storage: None,
         });
-        let wallet = self.wallet.clone();
+        let provider = self.provider();
 
         BlockingExecutor::execute(async move {
-            Ok(ProviderBuilder::new()
-                .wallet(wallet)
-                .connect(&connection_string)
+            Ok(provider
                 .await?
                 .debug_trace_transaction(transaction.transaction_hash, trace_options)
                 .await?)
@@ -323,13 +338,9 @@ impl EthereumNode for Instance {
 
     #[tracing::instrument(skip_all, fields(geth_node_id = self.id))]
     fn fetch_add_nonce(&self, address: Address) -> anyhow::Result<u64> {
-        let connection_string = self.connection_string.clone();
-        let wallet = self.wallet.clone();
-
+        let provider = self.provider();
         let onchain_nonce = BlockingExecutor::execute::<anyhow::Result<_>>(async move {
-            ProviderBuilder::new()
-                .wallet(wallet)
-                .connect(&connection_string)
+            provider
                 .await?
                 .get_transaction_count(address)
                 .await
@@ -341,6 +352,87 @@ impl EthereumNode for Instance {
         let value = *current;
         *current += 1;
         Ok(value)
+    }
+
+    #[tracing::instrument(skip_all, fields(geth_node_id = self.id))]
+    fn chain_id(&self) -> anyhow::Result<alloy::primitives::ChainId> {
+        let provider = self.provider();
+        BlockingExecutor::execute(async move {
+            provider.await?.get_chain_id().await.map_err(Into::into)
+        })?
+    }
+
+    #[tracing::instrument(skip_all, fields(geth_node_id = self.id))]
+    fn block_gas_limit(&self, number: BlockNumberOrTag) -> anyhow::Result<u128> {
+        let provider = self.provider();
+        BlockingExecutor::execute(async move {
+            provider
+                .await?
+                .get_block_by_number(number)
+                .await?
+                .ok_or(anyhow::Error::msg("Blockchain has no blocks"))
+                .map(|block| block.header.gas_limit as _)
+        })?
+    }
+
+    #[tracing::instrument(skip_all, fields(geth_node_id = self.id))]
+    fn block_coinbase(&self, number: BlockNumberOrTag) -> anyhow::Result<Address> {
+        let provider = self.provider();
+        BlockingExecutor::execute(async move {
+            provider
+                .await?
+                .get_block_by_number(number)
+                .await?
+                .ok_or(anyhow::Error::msg("Blockchain has no blocks"))
+                .map(|block| block.header.beneficiary)
+        })?
+    }
+
+    #[tracing::instrument(skip_all, fields(geth_node_id = self.id))]
+    fn block_difficulty(&self, number: BlockNumberOrTag) -> anyhow::Result<U256> {
+        let provider = self.provider();
+        BlockingExecutor::execute(async move {
+            provider
+                .await?
+                .get_block_by_number(number)
+                .await?
+                .ok_or(anyhow::Error::msg("Blockchain has no blocks"))
+                .map(|block| block.header.difficulty)
+        })?
+    }
+
+    #[tracing::instrument(skip_all, fields(geth_node_id = self.id))]
+    fn block_hash(&self, number: BlockNumberOrTag) -> anyhow::Result<BlockHash> {
+        let provider = self.provider();
+        BlockingExecutor::execute(async move {
+            provider
+                .await?
+                .get_block_by_number(number)
+                .await?
+                .ok_or(anyhow::Error::msg("Blockchain has no blocks"))
+                .map(|block| block.header.hash)
+        })?
+    }
+
+    #[tracing::instrument(skip_all, fields(geth_node_id = self.id))]
+    fn block_timestamp(&self, number: BlockNumberOrTag) -> anyhow::Result<BlockTimestamp> {
+        let provider = self.provider();
+        BlockingExecutor::execute(async move {
+            provider
+                .await?
+                .get_block_by_number(number)
+                .await?
+                .ok_or(anyhow::Error::msg("Blockchain has no blocks"))
+                .map(|block| block.header.timestamp)
+        })?
+    }
+
+    #[tracing::instrument(skip_all, fields(geth_node_id = self.id))]
+    fn last_block_number(&self) -> anyhow::Result<BlockNumber> {
+        let provider = self.provider();
+        BlockingExecutor::execute(async move {
+            provider.await?.get_block_number().await.map_err(Into::into)
+        })?
     }
 }
 
@@ -429,7 +521,7 @@ mod tests {
 
     use crate::{GENESIS_JSON, Node};
 
-    use super::Instance;
+    use super::*;
 
     fn test_config() -> (Arguments, TempDir) {
         let mut config = Arguments::default();
@@ -437,6 +529,16 @@ mod tests {
         config.working_directory = temp_dir.path().to_path_buf().into();
 
         (config, temp_dir)
+    }
+
+    fn new_node() -> (Instance, TempDir) {
+        let (args, temp_dir) = test_config();
+        let mut node = Instance::new(&args);
+        node.init(GENESIS_JSON.to_owned())
+            .expect("Failed to initialize the node")
+            .spawn_process()
+            .expect("Failed to spawn the node process");
+        (node, temp_dir)
     }
 
     #[test]
@@ -460,5 +562,94 @@ mod tests {
             version.starts_with("geth version"),
             "expected version string, got: '{version}'"
         );
+    }
+
+    #[test]
+    fn can_get_chain_id_from_node() {
+        // Arrange
+        let (node, _temp_dir) = new_node();
+
+        // Act
+        let chain_id = node.chain_id();
+
+        // Assert
+        let chain_id = chain_id.expect("Failed to get the chain id");
+        assert_eq!(chain_id, 420_420_420);
+    }
+
+    #[test]
+    fn can_get_gas_limit_from_node() {
+        // Arrange
+        let (node, _temp_dir) = new_node();
+
+        // Act
+        let gas_limit = node.block_gas_limit(BlockNumberOrTag::Latest);
+
+        // Assert
+        let gas_limit = gas_limit.expect("Failed to get the gas limit");
+        assert_eq!(gas_limit, u32::MAX as u128)
+    }
+
+    #[test]
+    fn can_get_coinbase_from_node() {
+        // Arrange
+        let (node, _temp_dir) = new_node();
+
+        // Act
+        let coinbase = node.block_coinbase(BlockNumberOrTag::Latest);
+
+        // Assert
+        let coinbase = coinbase.expect("Failed to get the coinbase");
+        assert_eq!(coinbase, Address::new([0xFF; 20]))
+    }
+
+    #[test]
+    fn can_get_block_difficulty_from_node() {
+        // Arrange
+        let (node, _temp_dir) = new_node();
+
+        // Act
+        let block_difficulty = node.block_difficulty(BlockNumberOrTag::Latest);
+
+        // Assert
+        let block_difficulty = block_difficulty.expect("Failed to get the block difficulty");
+        assert_eq!(block_difficulty, U256::ZERO)
+    }
+
+    #[test]
+    fn can_get_block_hash_from_node() {
+        // Arrange
+        let (node, _temp_dir) = new_node();
+
+        // Act
+        let block_hash = node.block_hash(BlockNumberOrTag::Latest);
+
+        // Assert
+        let _ = block_hash.expect("Failed to get the block hash");
+    }
+
+    #[test]
+    fn can_get_block_timestamp_from_node() {
+        // Arrange
+        let (node, _temp_dir) = new_node();
+
+        // Act
+        let block_timestamp = node.block_timestamp(BlockNumberOrTag::Latest);
+
+        // Assert
+        let _ = block_timestamp.expect("Failed to get the block timestamp");
+    }
+
+    #[test]
+    fn can_get_block_number_from_node() {
+        // Arrange
+        let (node, _temp_dir) = new_node();
+
+        // Act
+        let block_number = node.last_block_number();
+
+        // Assert
+        let block_number = block_number.expect("Failed to get the block number");
+        assert_eq!(block_number, 0)
     }
 }
