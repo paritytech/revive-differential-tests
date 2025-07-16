@@ -23,10 +23,7 @@ use alloy::{
     },
 };
 use revive_dt_config::Arguments;
-use revive_dt_node_interaction::{
-    EthereumNode, nonce::fetch_onchain_nonce, trace::trace_transaction,
-    transaction::execute_transaction,
-};
+use revive_dt_node_interaction::{BlockingExecutor, EthereumNode};
 use tracing::Level;
 
 use crate::Node;
@@ -205,7 +202,7 @@ impl EthereumNode for Instance {
         let connection_string = self.connection_string();
         let wallet = self.wallet.clone();
 
-        execute_transaction(Box::pin(async move {
+        BlockingExecutor::execute(async move {
             let outer_span = tracing::debug_span!("Submitting transaction", ?transaction,);
             let _outer_guard = outer_span.enter();
 
@@ -284,7 +281,7 @@ impl EthereumNode for Instance {
                     }
                 }
             }
-        }))
+        })?
     }
 
     #[tracing::instrument(skip_all, fields(geth_node_id = self.id))]
@@ -300,14 +297,14 @@ impl EthereumNode for Instance {
         });
         let wallet = self.wallet.clone();
 
-        trace_transaction(Box::pin(async move {
+        BlockingExecutor::execute(async move {
             Ok(ProviderBuilder::new()
                 .wallet(wallet)
                 .connect(&connection_string)
                 .await?
                 .debug_trace_transaction(transaction.transaction_hash, trace_options)
                 .await?)
-        }))
+        })?
     }
 
     #[tracing::instrument(skip_all, fields(geth_node_id = self.id))]
@@ -329,7 +326,15 @@ impl EthereumNode for Instance {
         let connection_string = self.connection_string.clone();
         let wallet = self.wallet.clone();
 
-        let onchain_nonce = fetch_onchain_nonce(connection_string, wallet, address)?;
+        let onchain_nonce = BlockingExecutor::execute::<anyhow::Result<_>>(async move {
+            ProviderBuilder::new()
+                .wallet(wallet)
+                .connect(&connection_string)
+                .await?
+                .get_transaction_count(address)
+                .await
+                .map_err(Into::into)
+        })??;
 
         let mut nonces = self.nonces.lock().unwrap();
         let current = nonces.entry(address).or_insert(onchain_nonce);
