@@ -253,7 +253,6 @@ where
                             return Err(error.into());
                         }
                     };
-                    let code = alloy::hex::decode(&code)?;
                     let tx = TransactionRequest::default()
                         .nonce(nonce)
                         .from(input.caller)
