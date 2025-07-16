@@ -1020,6 +1020,7 @@ mod tests {
     use alloy::rpc::types::TransactionRequest;
     use revive_dt_config::Arguments;
     use std::path::PathBuf;
+    use std::sync::LazyLock;
     use temp_dir::TempDir;
 
     use std::fs;
@@ -1065,6 +1066,15 @@ mod tests {
             .spawn_process()
             .expect("Failed to spawn the node process");
         (node, args, temp_dir)
+    }
+
+    /// A shared node that multiple tests can use. It starts up once.
+    fn shared_node() -> &'static KitchensinkNode {
+        static NODE: LazyLock<(KitchensinkNode, TempDir)> = LazyLock::new(|| {
+            let (node, _, temp_dir) = new_node();
+            (node, temp_dir)
+        });
+        &NODE.0
     }
 
     #[tokio::test]
@@ -1255,7 +1265,7 @@ mod tests {
     #[test]
     fn can_get_chain_id_from_node() {
         // Arrange
-        let (node, _args, _temp_dir) = new_node();
+        let node = shared_node();
 
         // Act
         let chain_id = node.chain_id();
@@ -1268,7 +1278,7 @@ mod tests {
     #[test]
     fn can_get_gas_limit_from_node() {
         // Arrange
-        let (node, _args, _temp_dir) = new_node();
+        let node = shared_node();
 
         // Act
         let gas_limit = node.block_gas_limit(BlockNumberOrTag::Latest);
@@ -1280,7 +1290,7 @@ mod tests {
     #[test]
     fn can_get_coinbase_from_node() {
         // Arrange
-        let (node, _args, _temp_dir) = new_node();
+        let node = shared_node();
 
         // Act
         let coinbase = node.block_coinbase(BlockNumberOrTag::Latest);
@@ -1293,7 +1303,7 @@ mod tests {
     #[test]
     fn can_get_block_difficulty_from_node() {
         // Arrange
-        let (node, _args, _temp_dir) = new_node();
+        let node = shared_node();
 
         // Act
         let block_difficulty = node.block_difficulty(BlockNumberOrTag::Latest);
@@ -1306,7 +1316,7 @@ mod tests {
     #[test]
     fn can_get_block_hash_from_node() {
         // Arrange
-        let (node, _args, _temp_dir) = new_node();
+        let node = shared_node();
 
         // Act
         let block_hash = node.block_hash(BlockNumberOrTag::Latest);
@@ -1318,7 +1328,7 @@ mod tests {
     #[test]
     fn can_get_block_timestamp_from_node() {
         // Arrange
-        let (node, _args, _temp_dir) = new_node();
+        let node = shared_node();
 
         // Act
         let block_timestamp = node.block_timestamp(BlockNumberOrTag::Latest);
@@ -1330,7 +1340,7 @@ mod tests {
     #[test]
     fn can_get_block_number_from_node() {
         // Arrange
-        let (node, _args, _temp_dir) = new_node();
+        let node = shared_node();
 
         // Act
         let block_number = node.last_block_number();
