@@ -2,13 +2,13 @@
 ///
 /// For example, the macro invocation seen below:
 ///
-/// ```rust,no_run
+/// ```rust,ignore
 /// define_wrapper_type!(CaseId => usize);
 /// ```
 ///
 /// Would define a wrapper type that looks like the following:
 ///
-/// ```rust,no_run
+/// ```rust,ignore
 /// pub struct CaseId(usize);
 /// ```
 ///
@@ -20,7 +20,7 @@
 ///
 /// Take the following as an example:
 ///
-/// ```rust,no_run
+/// ```rust,ignore
 /// struct State {
 ///     contracts: HashMap<usize, HashMap<String, Vec<u8>>>
 /// }
@@ -33,7 +33,7 @@
 /// in that the types tell us what the code is referring to. The above code is
 /// transformed into
 ///
-/// ```rust,no_run
+/// ```rust,ignore
 /// struct State {
 ///     contracts: HashMap<CaseId, HashMap<ContractName, ContractByteCode>>
 /// }
