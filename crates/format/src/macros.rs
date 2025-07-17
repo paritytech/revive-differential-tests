@@ -42,7 +42,7 @@
 macro_rules! define_wrapper_type {
     (
         $(#[$meta: meta])*
-        $ident: ident => $ty: ty
+        $ident: ident($ty: ty) $(;)?
     ) => {
         $(#[$meta])*
         pub struct $ident($ty);

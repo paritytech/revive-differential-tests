@@ -45,7 +45,7 @@ impl Deref for MetadataFile {
 #[derive(Debug, Default, Deserialize, Clone, Eq, PartialEq)]
 pub struct Metadata {
     pub cases: Vec<Case>,
-    pub contracts: Option<BTreeMap<ContractAlias, ContractPathAndIdentifier>>,
+    pub contracts: Option<BTreeMap<ContractInstance, ContractPathAndIdentifier>>,
     // TODO: Convert into wrapper types for clarity.
     pub libraries: Option<BTreeMap<String, BTreeMap<String, String>>>,
     pub ignore: Option<bool>,
@@ -84,7 +84,7 @@ impl Metadata {
     /// Returns the contract sources with canonicalized paths for the files
     pub fn contract_sources(
         &self,
-    ) -> anyhow::Result<BTreeMap<ContractAlias, ContractPathAndIdentifier>> {
+    ) -> anyhow::Result<BTreeMap<ContractInstance, ContractPathAndIdentifier>> {
         let directory = self.directory()?;
         let mut sources = BTreeMap::new();
         let Some(contracts) = &self.contracts else {
@@ -191,7 +191,7 @@ impl Metadata {
                 metadata.file_path = Some(path.to_path_buf());
                 metadata.contracts = Some(
                     [(
-                        ContractAlias::new_from("test"),
+                        ContractInstance::new_from("test"),
                         ContractPathAndIdentifier {
                             contract_source_path: path.to_path_buf(),
                             contract_ident: ContractIdent::new_from("Test"),
@@ -213,21 +213,21 @@ impl Metadata {
 }
 
 define_wrapper_type!(
-    /// Represents a contract alias found a metadata file.
+    /// Represents a contract instance found a metadata file.
     ///
     /// Typically, this is used as the key to the "contracts" field of metadata files.
-    #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+    #[derive(Clone, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
     #[serde(transparent)]
-    ContractAlias => String
+    ContractInstance(String);
 );
 
 define_wrapper_type!(
     /// Represents a contract identifier found a metadata file.
     ///
     /// A contract identifier is the name of the contract in the source code.
-    #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+    #[derive(Clone, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
     #[serde(transparent)]
-    ContractIdent => String
+    ContractIdent(String);
 );
 
 /// Represents an identifier used for contracts.
