@@ -43,7 +43,7 @@ pub struct State<'a, T: Platform> {
     /// A vector of all of the compiled contracts. Each call to [`build_contracts`] adds a new entry
     /// to this vector.
     ///
-    /// [`build_contracts`]: StateV2::build_contracts
+    /// [`build_contracts`]: State::build_contracts
     contracts: Vec<SolcStandardJsonOutput>,
 
     /// This map stores the contracts deployments that have been made for each case within a
