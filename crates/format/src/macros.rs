@@ -52,6 +52,10 @@ macro_rules! define_wrapper_type {
                 Self(value)
             }
 
+            pub fn new_from<T: Into<$ty>>(value: T) -> Self {
+                Self(value.into())
+            }
+
             pub fn into_inner(self) -> $ty {
                 self.0
             }

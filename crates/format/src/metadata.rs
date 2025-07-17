@@ -191,10 +191,10 @@ impl Metadata {
                 metadata.file_path = Some(path.to_path_buf());
                 metadata.contracts = Some(
                     [(
-                        ContractAlias::new("test".into()),
+                        ContractAlias::new_from("test"),
                         ContractPathAndIdentifier {
                             contract_source_path: path.to_path_buf(),
-                            contract_ident: ContractIdent::new("Test".into()),
+                            contract_ident: ContractIdent::new_from("Test"),
                         },
                     )]
                     .into(),
