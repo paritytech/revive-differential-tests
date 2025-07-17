@@ -107,7 +107,7 @@ impl Input {
         deployed_contracts: &HashMap<ContractInstance, (Address, JsonAbi)>,
     ) -> anyhow::Result<Bytes> {
         match self.method {
-            Method::Deployer => {
+            Method::Deployer | Method::Fallback => {
                 let calldata_args = match &self.calldata {
                     Some(Calldata::Compound(args)) => args,
                     _ => anyhow::bail!("Expected compound calldata for function call"),
@@ -128,7 +128,6 @@ impl Input {
 
                 Ok(calldata.into())
             }
-            Method::Fallback => Ok(Default::default()),
             Method::FunctionName(ref function_name) => {
                 let Some(abi) = deployed_contracts.get(&self.instance).map(|(_, a)| a) else {
                     tracing::error!(

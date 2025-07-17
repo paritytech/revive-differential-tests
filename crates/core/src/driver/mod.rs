@@ -15,6 +15,7 @@ use alloy::{
     },
 };
 use anyhow::Context;
+use indexmap::IndexMap;
 use revive_dt_compiler::{Compiler, SolidityCompiler};
 use revive_dt_config::Arguments;
 use revive_dt_format::case::CaseIdx;
@@ -162,11 +163,12 @@ where
         );
         let _guard = span.enter();
 
-        let mut instances_we_must_deploy = HashMap::<ContractInstance, bool>::new();
-        if let Method::Deployer = input.method {
-            instances_we_must_deploy.insert(input.instance.clone(), true);
-        }
-
+        // The ordering of the following statements and the use of the IndexMap is very intentional
+        // here. The order in which we do the deployments matters. For example, say that this is
+        // a `#deployer` call and the first argument is `Callable.address` which has not yet been
+        // deployed. This means that we need to deploy it first and then deploy then deploy the one
+        // from the input.
+        let mut instances_we_must_deploy = IndexMap::<ContractInstance, bool>::new();
         for instance in input.find_all_contract_instances().into_iter() {
             if !self
                 .deployed_contracts
@@ -176,6 +178,10 @@ where
             {
                 instances_we_must_deploy.entry(instance).or_insert(false);
             }
+        }
+        if let Method::Deployer = input.method {
+            instances_we_must_deploy.swap_remove(&input.instance);
+            instances_we_must_deploy.insert(input.instance.clone(), true);
         }
 
         tracing::debug!(
