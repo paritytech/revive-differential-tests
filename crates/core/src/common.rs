@@ -111,8 +111,6 @@ pub struct FilesWithExtensionIterator {
     /// The set of files matching the allowed extensions that were found. If there are entries in
     /// this vector then they will be returned when the [`Iterator::next`] method is called. If not
     /// then we visit one of the next directories to visit.
-    ///
-    /// [`Iterator`]: std::iter::Iterator
     files_matching_allowed_extensions: Vec<PathBuf>,
 }
 
