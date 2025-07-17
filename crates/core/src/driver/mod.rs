@@ -223,7 +223,17 @@ where
                         continue;
                     };
 
-                    let nonce = node.fetch_add_nonce(input.caller)?;
+                    let nonce = match node.fetch_add_nonce(input.caller) {
+                        Ok(nonce) => nonce,
+                        Err(error) => {
+                            tracing::error!(
+                                caller = ?input.caller,
+                                ?error,
+                                "Failed to get the nonce for the caller"
+                            );
+                            return Err(error);
+                        }
+                    };
 
                     tracing::debug!(
                         "Calculated nonce {}, for contract {}, having address {} on node: {}",
@@ -236,7 +246,17 @@ where
                     // We are using alloy for building and submitting the transactions and it will
                     // automatically fill in all of the missing fields from the provider that we
                     // are using.
-                    let code = alloy::hex::decode(&code)?;
+                    let code = match alloy::hex::decode(&code) {
+                        Ok(code) => code,
+                        Err(error) => {
+                            tracing::error!(
+                                code,
+                                ?error,
+                                "Failed to hex-decode the code of the contract. (This could possibly mean that it contains '_' and therefore it requires linking to be performed)"
+                            );
+                            return Err(error.into());
+                        }
+                    };
                     let tx = {
                         let tx = TransactionRequest::default()
                             .nonce(nonce)
