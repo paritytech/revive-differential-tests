@@ -14,6 +14,7 @@ use alloy::{
         trace::geth::{AccountState, DiffMode},
     },
 };
+use anyhow::Context;
 use revive_dt_compiler::{Compiler, SolidityCompiler};
 use revive_dt_config::Arguments;
 use revive_dt_format::case::CaseIdx;
@@ -141,8 +142,9 @@ where
         input: &Input,
         node: &T::Blockchain,
     ) -> anyhow::Result<(TransactionReceipt, GethTrace, DiffMode)> {
-        self.handle_contract_deployment(metadata, case_idx, input, node)?;
-        self.handle_input_execution(case_idx, input, node)
+        let deployment_receipts =
+            self.handle_contract_deployment(metadata, case_idx, input, node)?;
+        self.handle_input_execution(case_idx, input, deployment_receipts, node)
     }
 
     /// Handles the contract deployment for a given input performing it if it needs to be performed.
@@ -152,7 +154,7 @@ where
         case_idx: CaseIdx,
         input: &Input,
         node: &T::Blockchain,
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<HashMap<ContractInstance, TransactionReceipt>> {
         let span = tracing::debug_span!(
             "Handling contract deployment",
             ?case_idx,
@@ -181,6 +183,7 @@ where
             "Computed the number of required deployments for input"
         );
 
+        let mut receipts = HashMap::new();
         for (instance, deploy_with_constructor_arguments) in instances_we_must_deploy.into_iter() {
             // What we have at this moment is just a contract instance which is kind of like a variable
             // name for an actual underlying contract. So, we need to resolve this instance to the info
@@ -291,9 +294,11 @@ where
                 .entry(case_idx)
                 .or_default()
                 .insert(instance.clone(), (address, abi));
+
+            receipts.insert(instance.clone(), receipt);
         }
 
-        Ok(())
+        Ok(receipts)
     }
 
     /// Handles the execution of the input in terms of the calls that need to be made.
@@ -301,40 +306,45 @@ where
         &mut self,
         case_idx: CaseIdx,
         input: &Input,
+        deployment_receipts: HashMap<ContractInstance, TransactionReceipt>,
         node: &T::Blockchain,
     ) -> anyhow::Result<(TransactionReceipt, GethTrace, DiffMode)> {
         tracing::trace!("Calling execute_input for input: {input:?}");
 
-        tracing::debug!(
-            "Nonce calculated on the execute contract, for contract {}, having address {} on node: {}",
-            &*input.instance,
-            &input.caller,
-            std::any::type_name::<T>()
-        );
+        let receipt = match input.method {
+            // This input was already executed when `handle_input` was called. We just need to
+            // lookup the transaction receipt in this case and continue on.
+            Method::Deployer => deployment_receipts
+                .get(&input.instance)
+                .context("Failed to find deployment receipt")?
+                .clone(),
+            Method::Fallback | Method::FunctionName(_) => {
+                let tx = match input
+                    .legacy_transaction(self.deployed_contracts.entry(case_idx).or_default())
+                {
+                    Ok(tx) => {
+                        tracing::debug!("Legacy transaction data: {tx:#?}");
+                        tx
+                    }
+                    Err(err) => {
+                        tracing::error!("Failed to construct legacy transaction: {err:?}");
+                        return Err(err);
+                    }
+                };
 
-        let tx =
-            match input.legacy_transaction(self.deployed_contracts.entry(case_idx).or_default()) {
-                Ok(tx) => {
-                    tracing::debug!("Legacy transaction data: {tx:#?}");
-                    tx
+                tracing::trace!("Executing transaction for input: {input:?}");
+
+                match node.execute_transaction(tx) {
+                    Ok(receipt) => receipt,
+                    Err(err) => {
+                        tracing::error!(
+                            "Failed to execute transaction when executing the contract: {}, {:?}",
+                            &*input.instance,
+                            err
+                        );
+                        return Err(err);
+                    }
                 }
-                Err(err) => {
-                    tracing::error!("Failed to construct legacy transaction: {err:?}");
-                    return Err(err);
-                }
-            };
-
-        tracing::trace!("Executing transaction for input: {input:?}");
-
-        let receipt = match node.execute_transaction(tx) {
-            Ok(receipt) => receipt,
-            Err(err) => {
-                tracing::error!(
-                    "Failed to execute transaction when executing the contract: {}, {:?}",
-                    &*input.instance,
-                    err
-                );
-                return Err(err);
             }
         };
 
