@@ -110,37 +110,25 @@ mod tests {
 
     #[test]
     fn try_get_windows() {
-        let version = List::download(List::WINDOWS_URL)
-            .unwrap()
-            .latest_release
-            .into();
+        let version = List::download(List::WINDOWS_URL).unwrap().latest_release;
         GHDownloader::windows(version).download().unwrap();
     }
 
     #[test]
     fn try_get_macosx() {
-        let version = List::download(List::MACOSX_URL)
-            .unwrap()
-            .latest_release
-            .into();
+        let version = List::download(List::MACOSX_URL).unwrap().latest_release;
         GHDownloader::macosx(version).download().unwrap();
     }
 
     #[test]
     fn try_get_linux() {
-        let version = List::download(List::LINUX_URL)
-            .unwrap()
-            .latest_release
-            .into();
+        let version = List::download(List::LINUX_URL).unwrap().latest_release;
         GHDownloader::linux(version).download().unwrap();
     }
 
     #[test]
     fn try_get_wasm() {
-        let version = List::download(List::WASM_URL)
-            .unwrap()
-            .latest_release
-            .into();
+        let version = List::download(List::WASM_URL).unwrap().latest_release;
         GHDownloader::wasm(version).download().unwrap();
     }
 }
