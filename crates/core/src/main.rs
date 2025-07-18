@@ -13,7 +13,7 @@ use revive_dt_node::pool::NodePool;
 use revive_dt_report::reporter::{Report, Span};
 use temp_dir::TempDir;
 use tracing::Level;
-use tracing_subscriber::{EnvFilter, FmtSubscriber, fmt::format::FmtSpan};
+use tracing_subscriber::{EnvFilter, FmtSubscriber};
 
 static TEMP_DIR: LazyLock<TempDir> = LazyLock::new(|| TempDir::new().unwrap());
 
@@ -39,7 +39,7 @@ fn init_cli() -> anyhow::Result<Arguments> {
         .with_thread_ids(true)
         .with_thread_names(true)
         .with_env_filter(EnvFilter::from_default_env())
-        .with_span_events(FmtSpan::ENTER | FmtSpan::CLOSE)
+        .with_ansi(false)
         .pretty()
         .finish();
     tracing::subscriber::set_global_default(subscriber)?;
@@ -116,19 +116,24 @@ where
                 follower_nodes.round_robbin(),
             );
 
-            match driver.execute(span) {
-                Ok(_) => {
-                    tracing::info!(
-                        "metadata {} success",
-                        metadata.directory().as_ref().unwrap().display()
-                    );
+            let execution_result = driver.execute(span);
+            tracing::info!(
+                case_success_count = execution_result.successful_cases_count,
+                case_failure_count = execution_result.failed_cases_count,
+                "Execution completed"
+            );
+
+            let mut error_count = 0;
+            for result in execution_result.results.iter() {
+                if !result.is_success() {
+                    tracing::error!(execution_error = ?result, "Encountered an error");
+                    error_count += 1;
                 }
-                Err(error) => {
-                    tracing::warn!(
-                        "metadata {} failure: {error:?}",
-                        metadata.file_path.as_ref().unwrap().display()
-                    );
-                }
+            }
+            if error_count == 0 {
+                tracing::info!("Execution succeeded");
+            } else {
+                tracing::info!("Execution failed");
             }
         },
     );

@@ -19,7 +19,7 @@ use revive_dt_report::reporter::{CompilationTask, Report, Span};
 use revive_solc_json_interface::SolcStandardJsonOutput;
 use serde_json::Value;
 use std::collections::HashMap as StdHashMap;
-use tracing::Level;
+use std::fmt::Debug;
 
 use crate::Platform;
 
@@ -404,66 +404,177 @@ where
         }
     }
 
-    pub fn execute(&mut self, span: Span) -> anyhow::Result<()> {
+    // A note on this function and the choice of how we handle errors that happen here. This is not
+    // a doc comment since it's a comment for the maintainers of this code and not for the users of
+    // this code.
+    //
+    // This function does a few things: it builds the contracts for the various SOLC modes needed.
+    // It deploys the contracts to the chain, and it executes the various inputs that are specified
+    // for the test cases.
+    //
+    // In most functions in the codebase, it's fine to just say "If we encounter an error just
+    // bubble it up to the caller", but this isn't a good idea to do here and we need an elaborate
+    // way to report errors all while being graceful and continuing execution where we can. For
+    // example, if one of the inputs of one of the cases fail to execute, then we should not just
+    // bubble that error up immediately. Instead, we should note it down and continue to the next
+    // case as the next case might succeed.
+    //
+    // Therefore, this method returns an `ExecutionResult` object, and not just a normal `Result`.
+    // This object is fully typed to contain information about what exactly in the execution was a
+    // success and what failed.
+    //
+    // The above then allows us to have better logging and better information in the caller of this
+    // function as we have a more detailed view of what worked and what didn't.
+    pub fn execute(&mut self, span: Span) -> ExecutionResult {
+        // This is the execution result object that all of the execution information will be
+        // collected into and returned at the end of the execution.
+        let mut execution_result = ExecutionResult::default();
+
+        let tracing_span = tracing::info_span!("Handling metadata file");
+        let _guard = tracing_span.enter();
+
         for mode in self.metadata.solc_modes() {
+            let tracing_span = tracing::info_span!("With solc mode", solc_mode = ?mode);
+            let _guard = tracing_span.enter();
+
             let mut leader_state = State::<L>::new(self.config, span);
-            leader_state.build_contracts(&mode, self.metadata)?;
-
             let mut follower_state = State::<F>::new(self.config, span);
-            follower_state.build_contracts(&mode, self.metadata)?;
 
-            for (case_idx, case) in self.metadata.cases.iter().enumerate() {
-                // Creating a tracing span to know which case within the metadata is being executed
-                // and which one we're getting logs for.
-                let tracing_span = tracing::span!(
-                    Level::INFO,
-                    "Executing case",
-                    case = case.name,
+            // We build the contracts. If building the contracts for the metadata file fails then we
+            // have no other option but to keep note of this error and move on to the next solc mode
+            // and NOT just bail out of the execution as a whole.
+            let build_result = tracing::info_span!("Building contracts").in_scope(|| {
+                match leader_state.build_contracts(&mode, self.metadata) {
+                    Ok(_) => {
+                        tracing::debug!(target = ?Target::Leader, "Contract building succeeded");
+                        execution_result.add_successful_build(Target::Leader, mode.clone());
+                    },
+                    Err(error) => {
+                        tracing::error!(target = ?Target::Leader, ?error, "Contract building failed");
+                        execution_result.add_failed_build(Target::Leader, mode.clone(), error);
+                        return Err(());
+                    }
+                }
+                match follower_state.build_contracts(&mode, self.metadata) {
+                    Ok(_) => {
+                        tracing::debug!(target = ?Target::Follower, "Contract building succeeded");
+                        execution_result.add_successful_build(Target::Follower, mode.clone());
+                    },
+                    Err(error) => {
+                        tracing::error!(target = ?Target::Follower, ?error, "Contract building failed");
+                        execution_result.add_failed_build(Target::Follower, mode.clone(), error);
+                        return Err(());
+                    }
+                }
+                Ok(())
+            });
+            if build_result.is_err() {
+                // Note: We skip to the next solc mode as there's nothing that we can do at this
+                // point, the building has failed. We do NOT bail out of the execution as a whole.
+                continue;
+            }
+
+            // For cases if one of the inputs fail then we move on to the next case and we do NOT
+            // bail out of the whole thing.
+            'case_loop: for (case_idx, case) in self.metadata.cases.iter().enumerate() {
+                let tracing_span = tracing::info_span!(
+                    "Handling case",
+                    case_name = case.name,
                     case_idx = case_idx
                 );
                 let _guard = tracing_span.enter();
 
-                for input in &case.inputs {
-                    tracing::debug!("Starting deploying contract {}", &input.instance);
-                    if let Err(err) = leader_state.deploy_contracts(input, self.leader_node) {
-                        tracing::error!("Leader deployment failed for {}: {err}", input.instance);
-                        continue;
-                    } else {
-                        tracing::debug!("Leader deployment succeeded for {}", &input.instance);
+                // For inputs if one of the inputs fail we move on to the next case (we do not move
+                // on to the next input as it doesn't make sense. It depends on the previous one).
+                for (input_idx, input) in case.inputs.iter().enumerate() {
+                    let tracing_span = tracing::info_span!("Handling input", input_idx);
+                    let _guard = tracing_span.enter();
+
+                    // TODO: verify if this is correct, I doubt that we need to do contract redeploy
+                    // for each input. It doesn't quite look to be correct but we need to cross
+                    // check with the matterlabs implementation. This matches our implementation but
+                    // I have doubts around its correctness.
+                    let deployment_result = tracing::info_span!(
+                        "Deploying contracts",
+                        contract_name = input.instance
+                    )
+                    .in_scope(|| {
+                        if let Err(error) = leader_state.deploy_contracts(input, self.leader_node) {
+                            tracing::error!(target = ?Target::Leader, ?error, "Contract deployment failed");
+                            execution_result.add_failed_case(
+                                Target::Leader,
+                                mode.clone(),
+                                case.name.clone().unwrap_or("no case name".to_owned()),
+                                case_idx,
+                                input_idx,
+                                anyhow::Error::msg(
+                                    format!("Failed to deploy contracts, {error}")
+                                )
+                            );
+                            return Err(error)
+                        };
+                        if let Err(error) =
+                            follower_state.deploy_contracts(input, self.follower_node)
+                        {
+                            tracing::error!(target = ?Target::Follower, ?error, "Contract deployment failed");
+                            execution_result.add_failed_case(
+                                Target::Follower,
+                                mode.clone(),
+                                case.name.clone().unwrap_or("no case name".to_owned()),
+                                case_idx,
+                                input_idx,
+                                anyhow::Error::msg(
+                                    format!("Failed to deploy contracts, {error}")
+                                )
+                            );
+                            return Err(error)
+                        };
+                        Ok(())
+                    });
+                    if deployment_result.is_err() {
+                        // Noting it again here: if something in the input fails we do not move on
+                        // to the next input, we move to the next case completely.
+                        continue 'case_loop;
                     }
 
-                    if let Err(err) = follower_state.deploy_contracts(input, self.follower_node) {
-                        tracing::error!("Follower deployment failed for {}: {err}", input.instance);
-                        continue;
-                    } else {
-                        tracing::debug!("Follower deployment succeeded for {}", &input.instance);
-                    }
+                    let execution_result =
+                        tracing::info_span!("Executing input", contract_name = input.instance)
+                            .in_scope(|| {
+                                let (leader_receipt, _, leader_diff) =
+                                    match leader_state.execute_input(input, self.leader_node) {
+                                        Ok(result) => result,
+                                        Err(error) => {
+                                            tracing::error!(
+                                                target = ?Target::Leader,
+                                                ?error,
+                                                "Contract execution failed"
+                                            );
+                                            return Err(error);
+                                        }
+                                    };
 
-                    tracing::debug!("Starting executing contract {}", &input.instance);
+                                let (follower_receipt, _, follower_diff) =
+                                    match follower_state.execute_input(input, self.follower_node) {
+                                        Ok(result) => result,
+                                        Err(error) => {
+                                            tracing::error!(
+                                                target = ?Target::Follower,
+                                                ?error,
+                                                "Contract execution failed"
+                                            );
+                                            return Err(error);
+                                        }
+                                    };
 
-                    let (leader_receipt, _, leader_diff) =
-                        match leader_state.execute_input(input, self.leader_node) {
-                            Ok(result) => result,
-                            Err(err) => {
-                                tracing::error!(
-                                    "Leader execution failed for {}: {err}",
-                                    input.instance
-                                );
-                                continue;
-                            }
-                        };
-
-                    let (follower_receipt, _, follower_diff) =
-                        match follower_state.execute_input(input, self.follower_node) {
-                            Ok(result) => result,
-                            Err(err) => {
-                                tracing::error!(
-                                    "Follower execution failed for {}: {err}",
-                                    input.instance
-                                );
-                                continue;
-                            }
-                        };
+                                Ok((leader_receipt, leader_diff, follower_receipt, follower_diff))
+                            });
+                    let Ok((leader_receipt, leader_diff, follower_receipt, follower_diff)) =
+                        execution_result
+                    else {
+                        // Noting it again here: if something in the input fails we do not move on
+                        // to the next input, we move to the next case completely.
+                        continue 'case_loop;
+                    };
 
                     if leader_diff == follower_diff {
                         tracing::debug!("State diffs match between leader and follower.");
@@ -487,10 +598,238 @@ where
                         );
                     }
                 }
+
+                // Note: Only consider the case as having been successful after we have processed
+                // all of the inputs and completed the entire loop over the input.
+                execution_result.add_successful_case(
+                    Target::Leader,
+                    mode.clone(),
+                    case.name.clone().unwrap_or("no case name".to_owned()),
+                    case_idx,
+                );
+                execution_result.add_successful_case(
+                    Target::Follower,
+                    mode.clone(),
+                    case.name.clone().unwrap_or("no case name".to_owned()),
+                    case_idx,
+                );
             }
         }
 
-        Ok(())
+        execution_result
+    }
+}
+
+#[derive(Debug, Default)]
+pub struct ExecutionResult {
+    pub results: Vec<Box<dyn ExecutionResultItem>>,
+    pub successful_cases_count: usize,
+    pub failed_cases_count: usize,
+}
+
+impl ExecutionResult {
+    pub fn new() -> Self {
+        Self {
+            results: Default::default(),
+            successful_cases_count: Default::default(),
+            failed_cases_count: Default::default(),
+        }
+    }
+
+    pub fn add_successful_build(&mut self, target: Target, solc_mode: SolcMode) {
+        self.results
+            .push(Box::new(BuildResult::Success { target, solc_mode }));
+    }
+
+    pub fn add_failed_build(&mut self, target: Target, solc_mode: SolcMode, error: anyhow::Error) {
+        self.results.push(Box::new(BuildResult::Failure {
+            target,
+            solc_mode,
+            error,
+        }));
+    }
+
+    pub fn add_successful_case(
+        &mut self,
+        target: Target,
+        solc_mode: SolcMode,
+        case_name: String,
+        case_idx: usize,
+    ) {
+        self.successful_cases_count += 1;
+        self.results.push(Box::new(CaseResult::Success {
+            target,
+            solc_mode,
+            case_name,
+            case_idx,
+        }));
+    }
+
+    pub fn add_failed_case(
+        &mut self,
+        target: Target,
+        solc_mode: SolcMode,
+        case_name: String,
+        case_idx: usize,
+        input_idx: usize,
+        error: anyhow::Error,
+    ) {
+        self.failed_cases_count += 1;
+        self.results.push(Box::new(CaseResult::Failure {
+            target,
+            solc_mode,
+            case_name,
+            case_idx,
+            error,
+            input_idx,
+        }));
+    }
+}
+
+pub trait ExecutionResultItem: Debug {
+    /// Converts this result item into an [`anyhow::Result`].
+    fn as_result(&self) -> Result<(), &anyhow::Error>;
+
+    /// Provides information on whether the provided result item is of a success or failure.
+    fn is_success(&self) -> bool;
+
+    /// Provides information of the target that this result is for.
+    fn target(&self) -> &Target;
+
+    /// Provides information on the [`SolcMode`] mode that we being used for this result item.
+    fn solc_mode(&self) -> &SolcMode;
+
+    /// Provides information on the case name and number that this result item pertains to. This is
+    /// [`None`] if the error doesn't belong to any case (e.g., if it's a build error outside of any
+    /// of the cases.).
+    fn case_name_and_index(&self) -> Option<(&str, usize)>;
+
+    /// Provides information on the input number that this result item pertains to. This is [`None`]
+    /// if the error doesn't belong to any input (e.g., if it's a build error outside of any of the
+    /// inputs.).
+    fn input_index(&self) -> Option<usize>;
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum Target {
+    Leader,
+    Follower,
+}
+
+#[derive(Debug)]
+pub enum BuildResult {
+    Success {
+        target: Target,
+        solc_mode: SolcMode,
+    },
+    Failure {
+        target: Target,
+        solc_mode: SolcMode,
+        error: anyhow::Error,
+    },
+}
+
+impl ExecutionResultItem for BuildResult {
+    fn as_result(&self) -> Result<(), &anyhow::Error> {
+        match self {
+            Self::Success { .. } => Ok(()),
+            Self::Failure { error, .. } => Err(error)?,
+        }
+    }
+
+    fn is_success(&self) -> bool {
+        match self {
+            Self::Success { .. } => true,
+            Self::Failure { .. } => false,
+        }
+    }
+
+    fn target(&self) -> &Target {
+        match self {
+            Self::Success { target, .. } | Self::Failure { target, .. } => target,
+        }
+    }
+
+    fn solc_mode(&self) -> &SolcMode {
+        match self {
+            Self::Success { solc_mode, .. } | Self::Failure { solc_mode, .. } => solc_mode,
+        }
+    }
+
+    fn case_name_and_index(&self) -> Option<(&str, usize)> {
+        None
+    }
+
+    fn input_index(&self) -> Option<usize> {
+        None
+    }
+}
+
+#[derive(Debug)]
+pub enum CaseResult {
+    Success {
+        target: Target,
+        solc_mode: SolcMode,
+        case_name: String,
+        case_idx: usize,
+    },
+    Failure {
+        target: Target,
+        solc_mode: SolcMode,
+        case_name: String,
+        case_idx: usize,
+        input_idx: usize,
+        error: anyhow::Error,
+    },
+}
+
+impl ExecutionResultItem for CaseResult {
+    fn as_result(&self) -> Result<(), &anyhow::Error> {
+        match self {
+            Self::Success { .. } => Ok(()),
+            Self::Failure { error, .. } => Err(error)?,
+        }
+    }
+
+    fn is_success(&self) -> bool {
+        match self {
+            Self::Success { .. } => true,
+            Self::Failure { .. } => false,
+        }
+    }
+
+    fn target(&self) -> &Target {
+        match self {
+            Self::Success { target, .. } | Self::Failure { target, .. } => target,
+        }
+    }
+
+    fn solc_mode(&self) -> &SolcMode {
+        match self {
+            Self::Success { solc_mode, .. } | Self::Failure { solc_mode, .. } => solc_mode,
+        }
+    }
+
+    fn case_name_and_index(&self) -> Option<(&str, usize)> {
+        match self {
+            Self::Success {
+                case_name,
+                case_idx,
+                ..
+            }
+            | Self::Failure {
+                case_name,
+                case_idx,
+                ..
+            } => Some((case_name, *case_idx)),
+        }
+    }
+
+    fn input_index(&self) -> Option<usize> {
+        match self {
+            CaseResult::Success { .. } => None,
+            CaseResult::Failure { input_idx, .. } => Some(*input_idx),
+        }
     }
 }
 
