@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::marker::PhantomData;
 
 use alloy::json_abi::JsonAbi;
-use alloy::network::TransactionBuilder;
+use alloy::network::{Ethereum, TransactionBuilder};
 use alloy::rpc::types::TransactionReceipt;
 use alloy::rpc::types::trace::geth::GethTrace;
 use alloy::{
@@ -246,9 +246,10 @@ where
                 code.extend(encoded_input.to_vec());
             }
 
-            let tx = TransactionRequest::default()
-                .from(input.caller)
-                .with_deploy_code(code);
+            let tx = {
+                let tx = TransactionRequest::default().from(input.caller);
+                TransactionBuilder::<Ethereum>::with_deploy_code(tx, code)
+            };
 
             let receipt = match node.execute_transaction(tx) {
                 Ok(receipt) => receipt,
