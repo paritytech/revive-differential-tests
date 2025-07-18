@@ -1,39 +1,58 @@
 //! The test driver handles the compilation and execution of the test cases.
 
+use std::collections::HashMap;
+use std::marker::PhantomData;
+
 use alloy::json_abi::JsonAbi;
 use alloy::network::{Ethereum, TransactionBuilder};
 use alloy::rpc::types::TransactionReceipt;
 use alloy::rpc::types::trace::geth::GethTrace;
 use alloy::{
-    primitives::{Address, map::HashMap},
+    primitives::Address,
     rpc::types::{
         TransactionRequest,
         trace::geth::{AccountState, DiffMode},
     },
 };
-use revive_dt_compiler::{Compiler, CompilerInput, SolidityCompiler};
+use anyhow::Context;
+use indexmap::IndexMap;
+use revive_dt_compiler::{Compiler, SolidityCompiler};
 use revive_dt_config::Arguments;
+use revive_dt_format::case::CaseIdx;
+use revive_dt_format::input::Method;
+use revive_dt_format::metadata::{ContractInstance, ContractPathAndIdentifier};
 use revive_dt_format::{input::Input, metadata::Metadata, mode::SolcMode};
 use revive_dt_node_interaction::EthereumNode;
 use revive_dt_report::reporter::{CompilationTask, Report, Span};
 use revive_solc_json_interface::SolcStandardJsonOutput;
 use serde_json::Value;
-use std::collections::HashMap as StdHashMap;
 use std::fmt::Debug;
 
 use crate::Platform;
-
-type Contracts<T> = HashMap<
-    CompilerInput<<<T as Platform>::Compiler as SolidityCompiler>::Options>,
-    SolcStandardJsonOutput,
->;
+use crate::common::*;
 
 pub struct State<'a, T: Platform> {
+    /// The configuration that the framework was started with.
+    ///
+    /// This is currently used to get certain information from it such as the solc mode and other
+    /// information used at runtime.
     config: &'a Arguments,
+
+    /// The [`Span`] used in reporting.
     span: Span,
-    contracts: Contracts<T>,
-    deployed_contracts: StdHashMap<String, Address>,
-    deployed_abis: StdHashMap<String, JsonAbi>,
+
+    /// A vector of all of the compiled contracts. Each call to [`build_contracts`] adds a new entry
+    /// to this vector.
+    ///
+    /// [`build_contracts`]: State::build_contracts
+    contracts: Vec<SolcStandardJsonOutput>,
+
+    /// This map stores the contracts deployments that have been made for each case within a
+    /// metadata file. Note, this means that the state can't be reused between different metadata
+    /// files.
+    deployed_contracts: HashMap<CaseIdx, HashMap<ContractInstance, (Address, JsonAbi)>>,
+
+    phantom: PhantomData<T>,
 }
 
 impl<'a, T> State<'a, T>
@@ -46,7 +65,7 @@ where
             span,
             contracts: Default::default(),
             deployed_contracts: Default::default(),
-            deployed_abis: Default::default(),
+            phantom: Default::default(),
         }
     }
 
@@ -90,9 +109,9 @@ where
             Ok(output) => {
                 task.json_output = Some(output.output.clone());
                 task.error = output.error;
-                self.contracts.insert(output.input, output.output);
+                self.contracts.push(output.output);
 
-                if let Some(last_output) = self.contracts.values().last() {
+                if let Some(last_output) = self.contracts.last() {
                     if let Some(contracts) = &last_output.contracts {
                         for (file, contracts_map) in contracts {
                             for contract_name in contracts_map.keys() {
@@ -117,238 +136,236 @@ where
         }
     }
 
-    pub fn execute_input(
+    pub fn handle_input(
         &mut self,
+        metadata: &Metadata,
+        case_idx: CaseIdx,
         input: &Input,
+        node: &T::Blockchain,
+    ) -> anyhow::Result<(TransactionReceipt, GethTrace, DiffMode)> {
+        let deployment_receipts =
+            self.handle_contract_deployment(metadata, case_idx, input, node)?;
+        self.handle_input_execution(case_idx, input, deployment_receipts, node)
+    }
+
+    /// Handles the contract deployment for a given input performing it if it needs to be performed.
+    fn handle_contract_deployment(
+        &mut self,
+        metadata: &Metadata,
+        case_idx: CaseIdx,
+        input: &Input,
+        node: &T::Blockchain,
+    ) -> anyhow::Result<HashMap<ContractInstance, TransactionReceipt>> {
+        let span = tracing::debug_span!(
+            "Handling contract deployment",
+            ?case_idx,
+            instance = ?input.instance
+        );
+        let _guard = span.enter();
+
+        let mut instances_we_must_deploy = IndexMap::<ContractInstance, bool>::new();
+        for instance in input.find_all_contract_instances().into_iter() {
+            if !self
+                .deployed_contracts
+                .entry(case_idx)
+                .or_default()
+                .contains_key(&instance)
+            {
+                instances_we_must_deploy.entry(instance).or_insert(false);
+            }
+        }
+        if let Method::Deployer = input.method {
+            instances_we_must_deploy.swap_remove(&input.instance);
+            instances_we_must_deploy.insert(input.instance.clone(), true);
+        }
+
+        tracing::debug!(
+            instances_to_deploy = instances_we_must_deploy.len(),
+            "Computed the number of required deployments for input"
+        );
+
+        let mut receipts = HashMap::new();
+        for (instance, deploy_with_constructor_arguments) in instances_we_must_deploy.into_iter() {
+            // What we have at this moment is just a contract instance which is kind of like a variable
+            // name for an actual underlying contract. So, we need to resolve this instance to the info
+            // of the contract that it belongs to.
+            let Some(ContractPathAndIdentifier {
+                contract_source_path,
+                contract_ident,
+            }) = metadata.contract_sources()?.remove(&instance)
+            else {
+                tracing::error!("Contract source not found for instance");
+                anyhow::bail!("Contract source not found for instance {:?}", instance)
+            };
+
+            let compiled_contract = self.contracts.iter().find_map(|output| {
+                output
+                    .contracts
+                    .as_ref()?
+                    .get(&contract_source_path.display().to_string())
+                    .and_then(|source_file_contracts| {
+                        source_file_contracts.get(contract_ident.as_ref())
+                    })
+            });
+            let Some(code) = compiled_contract
+                .and_then(|contract| contract.evm.as_ref().and_then(|evm| evm.bytecode.as_ref()))
+            else {
+                tracing::error!(
+                    contract_source_path = contract_source_path.display().to_string(),
+                    contract_ident = contract_ident.as_ref(),
+                    "Failed to find bytecode for contract"
+                );
+                anyhow::bail!("Failed to find bytecode for contract {:?}", instance)
+            };
+
+            // TODO: When we want to do linking it would be best to do it at this stage here. We have
+            // the context from the metadata files and therefore know what needs to be linked and in
+            // what order it needs to happen.
+
+            let mut code = match alloy::hex::decode(&code.object) {
+                Ok(code) => code,
+                Err(error) => {
+                    tracing::error!(
+                        ?error,
+                        contract_source_path = contract_source_path.display().to_string(),
+                        contract_ident = contract_ident.as_ref(),
+                        "Failed to hex-decode byte code - This could possibly mean that the bytecode requires linking"
+                    );
+                    anyhow::bail!("Failed to hex-decode the byte code {}", error)
+                }
+            };
+
+            if deploy_with_constructor_arguments {
+                let encoded_input = input
+                    .encoded_input(self.deployed_contracts.entry(case_idx).or_default(), node)?;
+                code.extend(encoded_input.to_vec());
+            }
+
+            let tx = {
+                let tx = TransactionRequest::default().from(input.caller);
+                TransactionBuilder::<Ethereum>::with_deploy_code(tx, code)
+            };
+
+            let receipt = match node.execute_transaction(tx) {
+                Ok(receipt) => receipt,
+                Err(error) => {
+                    tracing::error!(
+                        node = std::any::type_name::<T>(),
+                        ?error,
+                        "Contract deployment transaction failed."
+                    );
+                    return Err(error);
+                }
+            };
+
+            let Some(address) = receipt.contract_address else {
+                tracing::error!("Contract deployment transaction didn't return an address");
+                anyhow::bail!("Contract deployment didn't return an address");
+            };
+            tracing::info!(
+                instance_name = ?instance,
+                instance_address = ?address,
+                "Deployed contract"
+            );
+
+            let Some(Value::String(metadata)) =
+                compiled_contract.and_then(|contract| contract.metadata.as_ref())
+            else {
+                tracing::error!("Contract does not have a metadata field");
+                anyhow::bail!("Contract does not have a metadata field");
+            };
+
+            let Ok(metadata) = serde_json::from_str::<Value>(metadata) else {
+                tracing::error!(%metadata, "Failed to parse solc metadata into a structured value");
+                anyhow::bail!("Failed to parse solc metadata into a structured value {metadata}");
+            };
+
+            let Some(abi) = metadata.get("output").and_then(|value| value.get("abi")) else {
+                tracing::error!(%metadata, "Failed to access the .output.abi field of the solc metadata");
+                anyhow::bail!(
+                    "Failed to access the .output.abi field of the solc metadata {metadata}"
+                );
+            };
+
+            let Ok(abi) = serde_json::from_value::<JsonAbi>(abi.clone()) else {
+                tracing::error!(%metadata, "Failed to deserialize ABI into a structured format");
+                anyhow::bail!("Failed to deserialize ABI into a structured format {metadata}");
+            };
+
+            self.deployed_contracts
+                .entry(case_idx)
+                .or_default()
+                .insert(instance.clone(), (address, abi));
+
+            receipts.insert(instance.clone(), receipt);
+        }
+
+        Ok(receipts)
+    }
+
+    /// Handles the execution of the input in terms of the calls that need to be made.
+    fn handle_input_execution(
+        &mut self,
+        case_idx: CaseIdx,
+        input: &Input,
+        deployment_receipts: HashMap<ContractInstance, TransactionReceipt>,
         node: &T::Blockchain,
     ) -> anyhow::Result<(TransactionReceipt, GethTrace, DiffMode)> {
         tracing::trace!("Calling execute_input for input: {input:?}");
 
-        let nonce = node.fetch_add_nonce(input.caller)?;
+        let receipt = match input.method {
+            // This input was already executed when `handle_input` was called. We just need to
+            // lookup the transaction receipt in this case and continue on.
+            Method::Deployer => deployment_receipts
+                .get(&input.instance)
+                .context("Failed to find deployment receipt")?
+                .clone(),
+            Method::Fallback | Method::FunctionName(_) => {
+                let tx = match input
+                    .legacy_transaction(self.deployed_contracts.entry(case_idx).or_default(), node)
+                {
+                    Ok(tx) => {
+                        tracing::debug!("Legacy transaction data: {tx:#?}");
+                        tx
+                    }
+                    Err(err) => {
+                        tracing::error!("Failed to construct legacy transaction: {err:?}");
+                        return Err(err);
+                    }
+                };
 
-        tracing::debug!(
-            "Nonce calculated on the execute contract, calculated nonce {}, for contract {}, having address {} on node: {}",
-            &nonce,
-            &input.instance,
-            &input.caller,
-            std::any::type_name::<T>()
-        );
+                tracing::trace!("Executing transaction for input: {input:?}");
 
-        let tx = match input.legacy_transaction(
-            nonce,
-            &self.deployed_contracts,
-            &self.deployed_abis,
-            node,
-        ) {
-            Ok(tx) => {
-                tracing::debug!("Legacy transaction data: {tx:#?}");
-                tx
-            }
-            Err(err) => {
-                tracing::error!("Failed to construct legacy transaction: {err:?}");
-                return Err(err);
-            }
-        };
-
-        tracing::trace!("Executing transaction for input: {input:?}");
-
-        let receipt = match node.execute_transaction(tx) {
-            Ok(receipt) => receipt,
-            Err(err) => {
-                tracing::error!(
-                    "Failed to execute transaction when executing the contract: {}, {:?}",
-                    &input.instance,
-                    err
-                );
-                return Err(err);
+                match node.execute_transaction(tx) {
+                    Ok(receipt) => receipt,
+                    Err(err) => {
+                        tracing::error!(
+                            "Failed to execute transaction when executing the contract: {}, {:?}",
+                            &*input.instance,
+                            err
+                        );
+                        return Err(err);
+                    }
+                }
             }
         };
 
         tracing::trace!(
             "Transaction receipt for executed contract: {} - {:?}",
-            &input.instance,
+            &*input.instance,
             receipt,
         );
 
         let trace = node.trace_transaction(receipt.clone())?;
         tracing::trace!(
             "Trace result for contract: {} - {:?}",
-            &input.instance,
+            &*input.instance,
             trace
         );
 
         let diff = node.state_diff(receipt.clone())?;
 
         Ok((receipt, trace, diff))
-    }
-
-    pub fn deploy_contracts(&mut self, input: &Input, node: &T::Blockchain) -> anyhow::Result<()> {
-        let tracing_span = tracing::debug_span!(
-            "Deploying contracts",
-            ?input,
-            node = std::any::type_name::<T>()
-        );
-        let _guard = tracing_span.enter();
-
-        tracing::debug!(number_of_contracts_to_deploy = self.contracts.len());
-
-        for output in self.contracts.values() {
-            let Some(contract_map) = &output.contracts else {
-                tracing::debug!(
-                    "No contracts in output — skipping deployment for this input {}",
-                    &input.instance
-                );
-                continue;
-            };
-
-            for contracts in contract_map.values() {
-                for (contract_name, contract) in contracts {
-                    let tracing_span = tracing::info_span!("Deploying contract", contract_name);
-                    let _guard = tracing_span.enter();
-
-                    tracing::debug!(
-                        "Contract name is: {:?} and the input name is: {:?}",
-                        &contract_name,
-                        &input.instance
-                    );
-
-                    let bytecode = contract
-                        .evm
-                        .as_ref()
-                        .and_then(|evm| evm.bytecode.as_ref())
-                        .map(|b| b.object.clone());
-
-                    let Some(code) = bytecode else {
-                        tracing::error!("no bytecode for contract {contract_name}");
-                        continue;
-                    };
-
-                    let nonce = match node.fetch_add_nonce(input.caller) {
-                        Ok(nonce) => nonce,
-                        Err(error) => {
-                            tracing::error!(
-                                caller = ?input.caller,
-                                ?error,
-                                "Failed to get the nonce for the caller"
-                            );
-                            return Err(error);
-                        }
-                    };
-
-                    tracing::debug!(
-                        "Calculated nonce {}, for contract {}, having address {} on node: {}",
-                        &nonce,
-                        &input.instance,
-                        &input.caller,
-                        std::any::type_name::<T>()
-                    );
-
-                    // We are using alloy for building and submitting the transactions and it will
-                    // automatically fill in all of the missing fields from the provider that we
-                    // are using.
-                    let code = match alloy::hex::decode(&code) {
-                        Ok(code) => code,
-                        Err(error) => {
-                            tracing::error!(
-                                code,
-                                ?error,
-                                "Failed to hex-decode the code of the contract. (This could possibly mean that it contains '_' and therefore it requires linking to be performed)"
-                            );
-                            return Err(error.into());
-                        }
-                    };
-                    let tx = {
-                        let tx = TransactionRequest::default()
-                            .nonce(nonce)
-                            .from(input.caller);
-                        TransactionBuilder::<Ethereum>::with_deploy_code(tx, code)
-                    };
-
-                    let receipt = match node.execute_transaction(tx) {
-                        Ok(receipt) => receipt,
-                        Err(err) => {
-                            tracing::error!(
-                                "Failed to execute transaction when deploying the contract on node : {:?}, {:?}, {:?}",
-                                std::any::type_name::<T>(),
-                                &contract_name,
-                                err
-                            );
-                            return Err(err);
-                        }
-                    };
-
-                    tracing::debug!(
-                        "Deployment tx sent for {} with nonce {} → tx hash: {:?}, on node: {:?}",
-                        contract_name,
-                        nonce,
-                        receipt.transaction_hash,
-                        std::any::type_name::<T>(),
-                    );
-
-                    tracing::trace!(
-                        "Deployed transaction receipt for contract: {} - {:?}, on node: {:?}",
-                        &contract_name,
-                        receipt,
-                        std::any::type_name::<T>(),
-                    );
-
-                    let Some(address) = receipt.contract_address else {
-                        tracing::error!(
-                            "contract {contract_name} deployment did not return an address"
-                        );
-                        continue;
-                    };
-
-                    self.deployed_contracts
-                        .insert(contract_name.clone(), address);
-                    tracing::trace!(
-                        "deployed contract `{}` at {:?}, on node {:?}",
-                        contract_name,
-                        address,
-                        std::any::type_name::<T>()
-                    );
-
-                    let Some(Value::String(metadata)) = &contract.metadata else {
-                        tracing::error!(?contract, "Contract does not have a metadata field");
-                        anyhow::bail!("Contract does not have a metadata field: {contract:?}");
-                    };
-
-                    // Deserialize the solc metadata into a JSON object so we can get the ABI of the
-                    // contracts. If we fail to perform the deserialization then we return an error
-                    // as there's no other way to handle this.
-                    let Ok(metadata) = serde_json::from_str::<Value>(metadata) else {
-                        tracing::error!(%metadata, "Failed to parse solc metadata into a structured value");
-                        anyhow::bail!(
-                            "Failed to parse solc metadata into a structured value {metadata}"
-                        );
-                    };
-
-                    // Accessing the ABI on the solc metadata and erroring if the accessing failed
-                    let Some(abi) = metadata.get("output").and_then(|value| value.get("abi"))
-                    else {
-                        tracing::error!(%metadata, "Failed to access the .output.abi field of the solc metadata");
-                        anyhow::bail!(
-                            "Failed to access the .output.abi field of the solc metadata {metadata}"
-                        );
-                    };
-
-                    // Deserialize the ABI object that we got from the unstructured JSON into a
-                    // structured ABI object and error out if we fail.
-                    let Ok(abi) = serde_json::from_value::<JsonAbi>(abi.clone()) else {
-                        tracing::error!(%metadata, "Failed to deserialize ABI into a structured format");
-                        anyhow::bail!(
-                            "Failed to deserialize ABI into a structured format {metadata}"
-                        );
-                    };
-
-                    self.deployed_abis.insert(contract_name.clone(), abi);
-                }
-            }
-        }
-
-        tracing::debug!("Available contracts: {:?}", self.deployed_contracts.keys());
-
-        Ok(())
     }
 }
 
@@ -484,87 +501,70 @@ where
                 );
                 let _guard = tracing_span.enter();
 
+                let case_idx = CaseIdx::new_from(case_idx);
+
                 // For inputs if one of the inputs fail we move on to the next case (we do not move
                 // on to the next input as it doesn't make sense. It depends on the previous one).
                 for (input_idx, input) in case.inputs.iter().enumerate() {
                     let tracing_span = tracing::info_span!("Handling input", input_idx);
                     let _guard = tracing_span.enter();
 
-                    // TODO: verify if this is correct, I doubt that we need to do contract redeploy
-                    // for each input. It doesn't quite look to be correct but we need to cross
-                    // check with the matterlabs implementation. This matches our implementation but
-                    // I have doubts around its correctness.
-                    let deployment_result = tracing::info_span!(
-                        "Deploying contracts",
-                        contract_name = input.instance
-                    )
-                    .in_scope(|| {
-                        if let Err(error) = leader_state.deploy_contracts(input, self.leader_node) {
-                            tracing::error!(target = ?Target::Leader, ?error, "Contract deployment failed");
-                            execution_result.add_failed_case(
-                                Target::Leader,
-                                mode.clone(),
-                                case.name.clone().unwrap_or("no case name".to_owned()),
-                                case_idx,
-                                input_idx,
-                                anyhow::Error::msg(
-                                    format!("Failed to deploy contracts, {error}")
-                                )
-                            );
-                            return Err(error)
-                        };
-                        if let Err(error) =
-                            follower_state.deploy_contracts(input, self.follower_node)
-                        {
-                            tracing::error!(target = ?Target::Follower, ?error, "Contract deployment failed");
-                            execution_result.add_failed_case(
-                                Target::Follower,
-                                mode.clone(),
-                                case.name.clone().unwrap_or("no case name".to_owned()),
-                                case_idx,
-                                input_idx,
-                                anyhow::Error::msg(
-                                    format!("Failed to deploy contracts, {error}")
-                                )
-                            );
-                            return Err(error)
-                        };
-                        Ok(())
-                    });
-                    if deployment_result.is_err() {
-                        // Noting it again here: if something in the input fails we do not move on
-                        // to the next input, we move to the next case completely.
-                        continue 'case_loop;
-                    }
-
                     let execution_result =
-                        tracing::info_span!("Executing input", contract_name = input.instance)
+                        tracing::info_span!("Executing input", contract_name = ?input.instance)
                             .in_scope(|| {
-                                let (leader_receipt, _, leader_diff) =
-                                    match leader_state.execute_input(input, self.leader_node) {
-                                        Ok(result) => result,
-                                        Err(error) => {
-                                            tracing::error!(
-                                                target = ?Target::Leader,
-                                                ?error,
-                                                "Contract execution failed"
-                                            );
-                                            return Err(error);
-                                        }
-                                    };
+                                let (leader_receipt, _, leader_diff) = match leader_state
+                                    .handle_input(self.metadata, case_idx, input, self.leader_node)
+                                {
+                                    Ok(result) => result,
+                                    Err(error) => {
+                                        tracing::error!(
+                                            target = ?Target::Leader,
+                                            ?error,
+                                            "Contract execution failed"
+                                        );
+                                        execution_result.add_failed_case(
+                                            Target::Leader,
+                                            mode.clone(),
+                                            case.name
+                                                .as_deref()
+                                                .unwrap_or("no case name")
+                                                .to_owned(),
+                                            case_idx,
+                                            input_idx,
+                                            anyhow::Error::msg(format!("{error}")),
+                                        );
+                                        return Err(error);
+                                    }
+                                };
 
-                                let (follower_receipt, _, follower_diff) =
-                                    match follower_state.execute_input(input, self.follower_node) {
-                                        Ok(result) => result,
-                                        Err(error) => {
-                                            tracing::error!(
-                                                target = ?Target::Follower,
-                                                ?error,
-                                                "Contract execution failed"
-                                            );
-                                            return Err(error);
-                                        }
-                                    };
+                                let (follower_receipt, _, follower_diff) = match follower_state
+                                    .handle_input(
+                                        self.metadata,
+                                        case_idx,
+                                        input,
+                                        self.follower_node,
+                                    ) {
+                                    Ok(result) => result,
+                                    Err(error) => {
+                                        tracing::error!(
+                                            target = ?Target::Follower,
+                                            ?error,
+                                            "Contract execution failed"
+                                        );
+                                        execution_result.add_failed_case(
+                                            Target::Follower,
+                                            mode.clone(),
+                                            case.name
+                                                .as_deref()
+                                                .unwrap_or("no case name")
+                                                .to_owned(),
+                                            case_idx,
+                                            input_idx,
+                                            anyhow::Error::msg(format!("{error}")),
+                                        );
+                                        return Err(error);
+                                    }
+                                };
 
                                 Ok((leader_receipt, leader_diff, follower_receipt, follower_diff))
                             });
@@ -654,7 +654,7 @@ impl ExecutionResult {
         target: Target,
         solc_mode: SolcMode,
         case_name: String,
-        case_idx: usize,
+        case_idx: CaseIdx,
     ) {
         self.successful_cases_count += 1;
         self.results.push(Box::new(CaseResult::Success {
@@ -670,7 +670,7 @@ impl ExecutionResult {
         target: Target,
         solc_mode: SolcMode,
         case_name: String,
-        case_idx: usize,
+        case_idx: CaseIdx,
         input_idx: usize,
         error: anyhow::Error,
     ) {
@@ -702,7 +702,7 @@ pub trait ExecutionResultItem: Debug {
     /// Provides information on the case name and number that this result item pertains to. This is
     /// [`None`] if the error doesn't belong to any case (e.g., if it's a build error outside of any
     /// of the cases.).
-    fn case_name_and_index(&self) -> Option<(&str, usize)>;
+    fn case_name_and_index(&self) -> Option<(&str, &CaseIdx)>;
 
     /// Provides information on the input number that this result item pertains to. This is [`None`]
     /// if the error doesn't belong to any input (e.g., if it's a build error outside of any of the
@@ -756,7 +756,7 @@ impl ExecutionResultItem for BuildResult {
         }
     }
 
-    fn case_name_and_index(&self) -> Option<(&str, usize)> {
+    fn case_name_and_index(&self) -> Option<(&str, &CaseIdx)> {
         None
     }
 
@@ -771,13 +771,13 @@ pub enum CaseResult {
         target: Target,
         solc_mode: SolcMode,
         case_name: String,
-        case_idx: usize,
+        case_idx: CaseIdx,
     },
     Failure {
         target: Target,
         solc_mode: SolcMode,
         case_name: String,
-        case_idx: usize,
+        case_idx: CaseIdx,
         input_idx: usize,
         error: anyhow::Error,
     },
@@ -810,7 +810,7 @@ impl ExecutionResultItem for CaseResult {
         }
     }
 
-    fn case_name_and_index(&self) -> Option<(&str, usize)> {
+    fn case_name_and_index(&self) -> Option<(&str, &CaseIdx)> {
         match self {
             Self::Success {
                 case_name,
@@ -821,7 +821,7 @@ impl ExecutionResultItem for CaseResult {
                 case_name,
                 case_idx,
                 ..
-            } => Some((case_name, *case_idx)),
+            } => Some((case_name, case_idx)),
         }
     }
 
@@ -830,79 +830,5 @@ impl ExecutionResultItem for CaseResult {
             CaseResult::Success { .. } => None,
             CaseResult::Failure { input_idx, .. } => Some(*input_idx),
         }
-    }
-}
-
-/// An iterator that finds files of a certain extension in the provided directory. You can think of
-/// this a glob pattern similar to: `${path}/**/*.md`
-struct FilesWithExtensionIterator {
-    /// The set of allowed extensions that that match the requirement and that should be returned
-    /// when found.
-    allowed_extensions: std::collections::HashSet<std::borrow::Cow<'static, str>>,
-
-    /// The set of directories to visit next. This iterator does BFS and so these directories will
-    /// only be visited if we can't find any files in our state.
-    directories_to_search: Vec<std::path::PathBuf>,
-
-    /// The set of files matching the allowed extensions that were found. If there are entries in
-    /// this vector then they will be returned when the [`Iterator::next`] method is called. If not
-    /// then we visit one of the next directories to visit.
-    ///
-    /// [`Iterator`]: std::iter::Iterator
-    files_matching_allowed_extensions: Vec<std::path::PathBuf>,
-}
-
-impl FilesWithExtensionIterator {
-    fn new(root_directory: std::path::PathBuf) -> Self {
-        Self {
-            allowed_extensions: Default::default(),
-            directories_to_search: vec![root_directory],
-            files_matching_allowed_extensions: Default::default(),
-        }
-    }
-
-    fn with_allowed_extension(
-        mut self,
-        allowed_extension: impl Into<std::borrow::Cow<'static, str>>,
-    ) -> Self {
-        self.allowed_extensions.insert(allowed_extension.into());
-        self
-    }
-}
-
-impl Iterator for FilesWithExtensionIterator {
-    type Item = std::path::PathBuf;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if let Some(file_path) = self.files_matching_allowed_extensions.pop() {
-            return Some(file_path);
-        };
-
-        let directory_to_search = self.directories_to_search.pop()?;
-
-        // Read all of the entries in the directory. If we failed to read this dir's entires then we
-        // elect to just ignore it and look in the next directory, we do that by calling the next
-        // method again on the iterator, which is an intentional decision that we made here instead
-        // of panicking.
-        let Ok(dir_entries) = std::fs::read_dir(directory_to_search) else {
-            return self.next();
-        };
-
-        for entry in dir_entries.flatten() {
-            let entry_path = entry.path();
-            if entry_path.is_dir() {
-                self.directories_to_search.push(entry_path)
-            } else if entry_path.is_file()
-                && entry_path.extension().is_some_and(|ext| {
-                    self.allowed_extensions
-                        .iter()
-                        .any(|allowed| ext.eq_ignore_ascii_case(allowed.as_ref()))
-                })
-            {
-                self.files_matching_allowed_extensions.push(entry_path)
-            }
-        }
-
-        self.next()
     }
 }

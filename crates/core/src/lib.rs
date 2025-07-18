@@ -1,13 +1,14 @@
 //! The revive differential testing core library.
 //!
 //! This crate defines the testing configuration and
-//! provides a helper utilty to execute tests.
+//! provides a helper utility to execute tests.
 
 use revive_dt_compiler::{SolidityCompiler, revive_resolc, solc};
 use revive_dt_config::TestingPlatform;
 use revive_dt_node::{geth, kitchensink::KitchensinkNode};
 use revive_dt_node_interaction::EthereumNode;
 
+pub mod common;
 pub mod driver;
 
 /// One platform can be tested differentially against another.

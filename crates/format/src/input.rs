@@ -13,13 +13,15 @@ use serde_json::Value;
 
 use revive_dt_node_interaction::EthereumNode;
 
+use crate::metadata::ContractInstance;
+
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
 pub struct Input {
     #[serde(default = "default_caller")]
     pub caller: Address,
     pub comment: Option<String>,
     #[serde(default = "default_instance")]
-    pub instance: String,
+    pub instance: ContractInstance,
     pub method: Method,
     pub calldata: Option<Calldata>,
     pub expected: Option<Expected>,
@@ -71,109 +73,138 @@ pub enum Method {
     FunctionName(String),
 }
 
+impl Calldata {
+    pub fn find_all_contract_instances(&self, vec: &mut Vec<ContractInstance>) {
+        if let Calldata::Compound(compound) = self {
+            for item in compound {
+                if let Some(instance) = item.strip_suffix(".address") {
+                    vec.push(ContractInstance::new_from(instance))
+                }
+            }
+        }
+    }
+}
+
+impl ExpectedOutput {
+    pub fn find_all_contract_instances(&self, vec: &mut Vec<ContractInstance>) {
+        if let Some(ref cd) = self.return_data {
+            cd.find_all_contract_instances(vec);
+        }
+    }
+}
+
 impl Input {
     fn instance_to_address(
         &self,
-        instance: &str,
-        deployed_contracts: &HashMap<String, Address>,
+        instance: &ContractInstance,
+        deployed_contracts: &HashMap<ContractInstance, (Address, JsonAbi)>,
     ) -> anyhow::Result<Address> {
         deployed_contracts
             .get(instance)
-            .copied()
-            .ok_or_else(|| anyhow::anyhow!("instance {instance} not deployed"))
+            .map(|(a, _)| *a)
+            .ok_or_else(|| anyhow::anyhow!("instance {instance:?} not deployed"))
     }
 
     pub fn encoded_input(
         &self,
-        deployed_abis: &HashMap<String, JsonAbi>,
-        deployed_contracts: &HashMap<String, Address>,
+        deployed_contracts: &HashMap<ContractInstance, (Address, JsonAbi)>,
         chain_state_provider: &impl EthereumNode,
     ) -> anyhow::Result<Bytes> {
-        let Method::FunctionName(ref function_name) = self.method else {
-            return Ok(Bytes::default()); // fallback or deployer — no input
-        };
+        match self.method {
+            Method::Deployer | Method::Fallback => {
+                let calldata_args = match &self.calldata {
+                    Some(Calldata::Compound(args)) => args,
+                    _ => anyhow::bail!("Expected compound calldata for function call"),
+                };
 
-        let Some(abi) = deployed_abis.get(&self.instance) else {
-            tracing::error!(
-                contract_name = self.instance,
-                available_abis = ?deployed_abis.keys().collect::<Vec<_>>(),
-                "Attempted to lookup ABI of contract but it wasn't found"
-            );
-            anyhow::bail!("ABI for instance '{}' not found", &self.instance);
-        };
-
-        tracing::trace!("ABI found for instance: {}", &self.instance);
-
-        // We follow the same logic that's implemented in the matter-labs-tester where they resolve
-        // the function name into a function selector and they assume that he function doesn't have
-        // any existing overloads.
-        // https://github.com/matter-labs/era-compiler-tester/blob/1dfa7d07cba0734ca97e24704f12dd57f6990c2c/compiler_tester/src/test/case/input/mod.rs#L158-L190
-        let function = abi
-            .functions()
-            .find(|function| function.name.starts_with(function_name))
-            .ok_or_else(|| {
-                anyhow::anyhow!(
-                    "Function with name {:?} not found in ABI for the instance {:?}",
-                    function_name,
-                    &self.instance
-                )
-            })?;
-
-        tracing::trace!("Functions found for instance: {}", &self.instance);
-
-        let calldata_args = match &self.calldata {
-            Some(Calldata::Compound(args)) => args,
-            _ => anyhow::bail!("Expected compound calldata for function call"),
-        };
-
-        if calldata_args.len() != function.inputs.len() {
-            anyhow::bail!(
-                "Function expects {} args, but got {}",
-                function.inputs.len(),
-                calldata_args.len()
-            );
-        }
-
-        tracing::trace!(
-            "Starting encoding ABI's parameters for instance: {}",
-            &self.instance
-        );
-
-        // Allocating a vector that we will be using for the calldata. The vector size will be:
-        // 4 bytes for the function selector.
-        // function.inputs.len() * 32 bytes for the arguments (each argument is a U256).
-        //
-        // We're using indices in the following code in order to avoid the need for us to allocate
-        // a new buffer for each one of the resolved arguments.
-        let mut calldata = Vec::<u8>::with_capacity(4 + calldata_args.len() * 32);
-        calldata.extend(function.selector().0);
-
-        for (arg_idx, arg) in calldata_args.iter().enumerate() {
-            match resolve_argument(arg, deployed_contracts, chain_state_provider) {
-                Ok(resolved) => {
-                    calldata.extend(resolved.to_be_bytes::<32>());
+                let mut calldata = Vec::<u8>::with_capacity(calldata_args.len() * 32);
+                for (arg_idx, arg) in calldata_args.iter().enumerate() {
+                    match resolve_argument(arg, deployed_contracts, chain_state_provider) {
+                        Ok(resolved) => {
+                            calldata.extend(resolved.to_be_bytes::<32>());
+                        }
+                        Err(error) => {
+                            tracing::error!(arg, arg_idx, ?error, "Failed to resolve argument");
+                            return Err(error);
+                        }
+                    };
                 }
-                Err(error) => {
-                    tracing::error!(arg, arg_idx, ?error, "Failed to resolve argument");
-                    return Err(error);
-                }
-            };
-        }
 
-        Ok(calldata.into())
+                Ok(calldata.into())
+            }
+            Method::FunctionName(ref function_name) => {
+                let Some(abi) = deployed_contracts.get(&self.instance).map(|(_, a)| a) else {
+                    tracing::error!(
+                        contract_name = self.instance.as_ref(),
+                        available_abis = ?deployed_contracts.keys().collect::<Vec<_>>(),
+                        "Attempted to lookup ABI of contract but it wasn't found"
+                    );
+                    anyhow::bail!("ABI for instance '{}' not found", self.instance.as_ref());
+                };
+
+                tracing::trace!("ABI found for instance: {}", &self.instance.as_ref());
+
+                // We follow the same logic that's implemented in the matter-labs-tester where they resolve
+                // the function name into a function selector and they assume that he function doesn't have
+                // any existing overloads.
+                // https://github.com/matter-labs/era-compiler-tester/blob/1dfa7d07cba0734ca97e24704f12dd57f6990c2c/compiler_tester/src/test/case/input/mod.rs#L158-L190
+                let function = abi
+                    .functions()
+                    .find(|function| function.name.starts_with(function_name))
+                    .ok_or_else(|| {
+                        anyhow::anyhow!(
+                            "Function with name {:?} not found in ABI for the instance {:?}",
+                            function_name,
+                            &self.instance
+                        )
+                    })?;
+
+                tracing::trace!("Functions found for instance: {}", self.instance.as_ref());
+
+                let calldata_args = match &self.calldata {
+                    Some(Calldata::Compound(args)) => args,
+                    _ => anyhow::bail!("Expected compound calldata for function call"),
+                };
+
+                tracing::trace!(
+                    "Starting encoding ABI's parameters for instance: {}",
+                    self.instance.as_ref()
+                );
+
+                // Allocating a vector that we will be using for the calldata. The vector size will be:
+                // 4 bytes for the function selector.
+                // function.inputs.len() * 32 bytes for the arguments (each argument is a U256).
+                //
+                // We're using indices in the following code in order to avoid the need for us to allocate
+                // a new buffer for each one of the resolved arguments.
+                let mut calldata = Vec::<u8>::with_capacity(4 + calldata_args.len() * 32);
+                calldata.extend(function.selector().0);
+
+                for (arg_idx, arg) in calldata_args.iter().enumerate() {
+                    match resolve_argument(arg, deployed_contracts, chain_state_provider) {
+                        Ok(resolved) => {
+                            calldata.extend(resolved.to_be_bytes::<32>());
+                        }
+                        Err(error) => {
+                            tracing::error!(arg, arg_idx, ?error, "Failed to resolve argument");
+                            return Err(error);
+                        }
+                    };
+                }
+
+                Ok(calldata.into())
+            }
+        }
     }
 
     /// Parse this input into a legacy transaction.
     pub fn legacy_transaction(
         &self,
-        nonce: u64,
-        deployed_contracts: &HashMap<String, Address>,
-        deployed_abis: &HashMap<String, JsonAbi>,
+        deployed_contracts: &HashMap<ContractInstance, (Address, JsonAbi)>,
         chain_state_provider: &impl EthereumNode,
     ) -> anyhow::Result<TransactionRequest> {
-        let input_data =
-            self.encoded_input(deployed_abis, deployed_contracts, chain_state_provider)?;
-        let transaction_request = TransactionRequest::default().nonce(nonce);
+        let input_data = self.encoded_input(deployed_contracts, chain_state_provider)?;
+        let transaction_request = TransactionRequest::default();
         match self.method {
             Method::Deployer => Ok(transaction_request.with_deploy_code(input_data)),
             _ => Ok(transaction_request
@@ -181,10 +212,35 @@ impl Input {
                 .input(input_data.into())),
         }
     }
+
+    pub fn find_all_contract_instances(&self) -> Vec<ContractInstance> {
+        let mut vec = Vec::new();
+        vec.push(self.instance.clone());
+
+        if let Some(ref cd) = self.calldata {
+            cd.find_all_contract_instances(&mut vec);
+        }
+        match &self.expected {
+            Some(Expected::Calldata(cd)) => {
+                cd.find_all_contract_instances(&mut vec);
+            }
+            Some(Expected::Expected(expected)) => {
+                expected.find_all_contract_instances(&mut vec);
+            }
+            Some(Expected::ExpectedMany(expected)) => {
+                for expected in expected {
+                    expected.find_all_contract_instances(&mut vec);
+                }
+            }
+            None => {}
+        }
+
+        vec
+    }
 }
 
-fn default_instance() -> String {
-    "Test".to_string()
+fn default_instance() -> ContractInstance {
+    ContractInstance::new_from("Test")
 }
 
 fn default_caller() -> Address {
@@ -201,13 +257,14 @@ fn default_caller() -> Address {
 /// https://github.com/matter-labs/era-compiler-tester/blob/0ed598a27f6eceee7008deab3ff2311075a2ec69/compiler_tester/src/test/case/input/value.rs#L43-L146
 fn resolve_argument(
     value: &str,
-    deployed_contracts: &HashMap<String, Address>,
+    deployed_contracts: &HashMap<ContractInstance, (Address, JsonAbi)>,
     chain_state_provider: &impl EthereumNode,
 ) -> anyhow::Result<U256> {
     if let Some(instance) = value.strip_suffix(".address") {
         Ok(U256::from_be_slice(
             deployed_contracts
-                .get(instance)
+                .get(&ContractInstance::new_from(instance))
+                .map(|(a, _)| *a)
                 .ok_or_else(|| anyhow::anyhow!("Instance `{}` not found", instance))?
                 .as_ref(),
         ))
@@ -357,19 +414,19 @@ mod tests {
             .0;
 
         let input = Input {
-            instance: "Contract".to_string(),
+            instance: ContractInstance::new_from("Contract"),
             method: Method::FunctionName("store".to_owned()),
             calldata: Some(Calldata::Compound(vec!["42".into()])),
             ..Default::default()
         };
 
-        let mut deployed_abis = HashMap::new();
-        deployed_abis.insert("Contract".to_string(), parsed_abi);
-        let deployed_contracts = HashMap::new();
+        let mut contracts = HashMap::new();
+        contracts.insert(
+            ContractInstance::new_from("Contract"),
+            (Address::ZERO, parsed_abi),
+        );
 
-        let encoded = input
-            .encoded_input(&deployed_abis, &deployed_contracts, &DummyEthereumNode)
-            .unwrap();
+        let encoded = input.encoded_input(&contracts, &DummyEthereumNode).unwrap();
         assert!(encoded.0.starts_with(&selector));
 
         type T = (u64,);
@@ -399,7 +456,7 @@ mod tests {
             .0;
 
         let input: Input = Input {
-            instance: "Contract".to_string(),
+            instance: ContractInstance::new_from("Contract"),
             method: Method::FunctionName("send".to_owned()),
             calldata: Some(Calldata::Compound(vec![
                 "0x1000000000000000000000000000000000000001".to_string(),
@@ -407,13 +464,13 @@ mod tests {
             ..Default::default()
         };
 
-        let mut abis = HashMap::new();
-        abis.insert("Contract".to_string(), parsed_abi);
-        let contracts = HashMap::new();
+        let mut contracts = HashMap::new();
+        contracts.insert(
+            ContractInstance::new_from("Contract"),
+            (Address::ZERO, parsed_abi),
+        );
 
-        let encoded = input
-            .encoded_input(&abis, &contracts, &DummyEthereumNode)
-            .unwrap();
+        let encoded = input.encoded_input(&contracts, &DummyEthereumNode).unwrap();
         assert!(encoded.0.starts_with(&selector));
 
         type T = (alloy_primitives::Address,);

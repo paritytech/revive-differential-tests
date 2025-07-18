@@ -1,14 +1,17 @@
 use std::{
     collections::BTreeMap,
+    fmt::Display,
     fs::{File, read_to_string},
     ops::Deref,
     path::{Path, PathBuf},
+    str::FromStr,
 };
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use crate::{
     case::Case,
+    define_wrapper_type,
     mode::{Mode, SolcMode},
 };
 
@@ -42,7 +45,8 @@ impl Deref for MetadataFile {
 #[derive(Debug, Default, Deserialize, Clone, Eq, PartialEq)]
 pub struct Metadata {
     pub cases: Vec<Case>,
-    pub contracts: Option<BTreeMap<String, String>>,
+    pub contracts: Option<BTreeMap<ContractInstance, ContractPathAndIdentifier>>,
+    // TODO: Convert into wrapper types for clarity.
     pub libraries: Option<BTreeMap<String, BTreeMap<String, String>>>,
     pub ignore: Option<bool>,
     pub modes: Option<Vec<Mode>>,
@@ -77,28 +81,35 @@ impl Metadata {
             .to_path_buf())
     }
 
-    /// Extract the contract sources.
-    ///
-    /// Returns a mapping of contract IDs to their source path and contract name.
-    pub fn contract_sources(&self) -> anyhow::Result<BTreeMap<String, (PathBuf, String)>> {
+    /// Returns the contract sources with canonicalized paths for the files
+    pub fn contract_sources(
+        &self,
+    ) -> anyhow::Result<BTreeMap<ContractInstance, ContractPathAndIdentifier>> {
         let directory = self.directory()?;
         let mut sources = BTreeMap::new();
         let Some(contracts) = &self.contracts else {
             return Ok(sources);
         };
 
-        for (id, contract) in contracts {
-            // TODO: broken if a colon is in the dir name..
-            let mut parts = contract.split(':');
-            let (Some(file_name), Some(contract_name)) = (parts.next(), parts.next()) else {
-                anyhow::bail!("metadata contains invalid contract: {contract}");
-            };
-            let file = directory.to_path_buf().join(file_name);
-            if !file.is_file() {
-                anyhow::bail!("contract {id} is not a file: {}", file.display());
-            }
+        for (
+            alias,
+            ContractPathAndIdentifier {
+                contract_source_path,
+                contract_ident,
+            },
+        ) in contracts
+        {
+            let alias = alias.clone();
+            let absolute_path = directory.join(contract_source_path).canonicalize()?;
+            let contract_ident = contract_ident.clone();
 
-            sources.insert(id.clone(), (file, contract_name.to_string()));
+            sources.insert(
+                alias,
+                ContractPathAndIdentifier {
+                    contract_source_path: absolute_path,
+                    contract_ident,
+                },
+            );
         }
 
         Ok(sources)
@@ -178,12 +189,16 @@ impl Metadata {
         match serde_json::from_str::<Self>(&spec) {
             Ok(mut metadata) => {
                 metadata.file_path = Some(path.to_path_buf());
-                let name = path
-                    .file_name()
-                    .expect("this should be the path to a Solidity file")
-                    .to_str()
-                    .expect("the file name should be valid UTF-8k");
-                metadata.contracts = Some([(String::from("Test"), format!("{name}:Test"))].into());
+                metadata.contracts = Some(
+                    [(
+                        ContractInstance::new_from("test"),
+                        ContractPathAndIdentifier {
+                            contract_source_path: path.to_path_buf(),
+                            contract_ident: ContractIdent::new_from("Test"),
+                        },
+                    )]
+                    .into(),
+                );
                 Some(metadata)
             }
             Err(error) => {
@@ -194,5 +209,141 @@ impl Metadata {
                 None
             }
         }
+    }
+}
+
+define_wrapper_type!(
+    /// Represents a contract instance found a metadata file.
+    ///
+    /// Typically, this is used as the key to the "contracts" field of metadata files.
+    #[derive(Clone, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+    #[serde(transparent)]
+    ContractInstance(String);
+);
+
+define_wrapper_type!(
+    /// Represents a contract identifier found a metadata file.
+    ///
+    /// A contract identifier is the name of the contract in the source code.
+    #[derive(Clone, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+    #[serde(transparent)]
+    ContractIdent(String);
+);
+
+/// Represents an identifier used for contracts.
+///
+/// The type supports serialization from and into the following string format:
+///
+/// ```text
+/// ${path}:${contract_ident}
+/// ```
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(try_from = "String", into = "String")]
+pub struct ContractPathAndIdentifier {
+    /// The path of the contract source code relative to the directory containing the metadata file.
+    pub contract_source_path: PathBuf,
+
+    /// The identifier of the contract.
+    pub contract_ident: ContractIdent,
+}
+
+impl Display for ContractPathAndIdentifier {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}:{}",
+            self.contract_source_path.display(),
+            self.contract_ident.as_ref()
+        )
+    }
+}
+
+impl FromStr for ContractPathAndIdentifier {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let mut splitted_string = s.split(":").peekable();
+        let mut path = None::<String>;
+        let mut identifier = None::<String>;
+        loop {
+            let Some(next_item) = splitted_string.next() else {
+                break;
+            };
+            if splitted_string.peek().is_some() {
+                match path {
+                    Some(ref mut path) => {
+                        path.push(':');
+                        path.push_str(next_item);
+                    }
+                    None => path = Some(next_item.to_owned()),
+                }
+            } else {
+                identifier = Some(next_item.to_owned())
+            }
+        }
+        let Some(path) = path else {
+            anyhow::bail!("Path is not defined");
+        };
+        let Some(identifier) = identifier else {
+            anyhow::bail!("Contract identifier is not defined")
+        };
+        Ok(Self {
+            contract_source_path: PathBuf::from(path),
+            contract_ident: ContractIdent::new(identifier),
+        })
+    }
+}
+
+impl TryFrom<String> for ContractPathAndIdentifier {
+    type Error = anyhow::Error;
+
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        Self::from_str(&value)
+    }
+}
+
+impl From<ContractPathAndIdentifier> for String {
+    fn from(value: ContractPathAndIdentifier) -> Self {
+        value.to_string()
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn contract_identifier_respects_roundtrip_property() {
+        // Arrange
+        let string = "ERC20/ERC20.sol:ERC20";
+
+        // Act
+        let identifier = ContractPathAndIdentifier::from_str(string);
+
+        // Assert
+        let identifier = identifier.expect("Failed to parse");
+        assert_eq!(
+            identifier.contract_source_path.display().to_string(),
+            "ERC20/ERC20.sol"
+        );
+        assert_eq!(identifier.contract_ident, "ERC20".to_owned().into());
+
+        // Act
+        let reserialized = identifier.to_string();
+
+        // Assert
+        assert_eq!(string, reserialized);
+    }
+
+    #[test]
+    fn complex_metadata_file_can_be_deserialized() {
+        // Arrange
+        const JSON: &str = include_str!("../../../assets/test_metadata.json");
+
+        // Act
+        let metadata = serde_json::from_str::<Metadata>(JSON);
+
+        // Assert
+        metadata.expect("Failed to deserialize metadata");
     }
 }
