@@ -144,7 +144,6 @@ impl BlockingExecutor {
         }
     }
 }
-
 /// Represents the state of the async runtime. This runtime is designed to be a singleton runtime
 /// which means that in the current running program there's just a single thread that has an async
 /// runtime.
