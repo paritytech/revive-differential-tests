@@ -49,6 +49,7 @@ pub struct CompilerInput<T: PartialEq + Eq + Hash> {
 }
 
 /// The generic compilation output configuration.
+#[derive(Debug)]
 pub struct CompilerOutput<T: PartialEq + Eq + Hash> {
     /// The solc standard JSON input.
     pub input: CompilerInput<T>,

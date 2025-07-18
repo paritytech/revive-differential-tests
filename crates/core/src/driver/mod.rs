@@ -302,51 +302,40 @@ where
                         std::any::type_name::<T>()
                     );
 
-                    if let Some(Value::String(metadata_json_str)) = &contract.metadata {
-                        tracing::trace!(
-                            "metadata found for contract {contract_name}, {metadata_json_str}"
-                        );
+                    let Some(Value::String(metadata)) = &contract.metadata else {
+                        tracing::error!(?contract, "Contract does not have a metadata field");
+                        anyhow::bail!("Contract does not have a metadata field: {contract:?}");
+                    };
 
-                        match serde_json::from_str::<serde_json::Value>(metadata_json_str) {
-                            Ok(metadata_json) => {
-                                if let Some(abi_value) =
-                                    metadata_json.get("output").and_then(|o| o.get("abi"))
-                                {
-                                    match serde_json::from_value::<JsonAbi>(abi_value.clone()) {
-                                        Ok(parsed_abi) => {
-                                            tracing::trace!(
-                                                "ABI found in metadata for contract {}",
-                                                &contract_name
-                                            );
-                                            self.deployed_abis
-                                                .insert(contract_name.clone(), parsed_abi);
-                                        }
-                                        Err(err) => {
-                                            anyhow::bail!(
-                                                "Failed to parse ABI from metadata for contract {}: {}",
-                                                contract_name,
-                                                err
-                                            );
-                                        }
-                                    }
-                                } else {
-                                    anyhow::bail!(
-                                        "No ABI found in metadata for contract {}",
-                                        contract_name
-                                    );
-                                }
-                            }
-                            Err(err) => {
-                                anyhow::bail!(
-                                    "Failed to parse metadata JSON string for contract {}: {}",
-                                    contract_name,
-                                    err
-                                );
-                            }
-                        }
-                    } else {
-                        anyhow::bail!("No metadata found for contract {}", contract_name);
-                    }
+                    // Deserialize the solc metadata into a JSON object so we can get the ABI of the
+                    // contracts. If we fail to perform the deserialization then we return an error
+                    // as there's no other way to handle this.
+                    let Ok(metadata) = serde_json::from_str::<Value>(metadata) else {
+                        tracing::error!(%metadata, "Failed to parse solc metadata into a structured value");
+                        anyhow::bail!(
+                            "Failed to parse solc metadata into a structured value {metadata}"
+                        );
+                    };
+
+                    // Accessing the ABI on the solc metadata and erroring if the accessing failed
+                    let Some(abi) = metadata.get("output").and_then(|value| value.get("abi"))
+                    else {
+                        tracing::error!(%metadata, "Failed to access the .output.abi field of the solc metadata");
+                        anyhow::bail!(
+                            "Failed to access the .output.abi field of the solc metadata {metadata}"
+                        );
+                    };
+
+                    // Deserialize the ABI object that we got from the unstructured JSON into a
+                    // structured ABI object and error out if we fail.
+                    let Ok(abi) = serde_json::from_value::<JsonAbi>(abi.clone()) else {
+                        tracing::error!(%metadata, "Failed to deserialize ABI into a structured format");
+                        anyhow::bail!(
+                            "Failed to deserialize ABI into a structured format {metadata}"
+                        );
+                    };
+
+                    self.deployed_abis.insert(contract_name.clone(), abi);
                 }
             }
         }
