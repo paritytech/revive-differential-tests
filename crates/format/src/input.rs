@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use alloy::{
+    eips::BlockNumberOrTag,
     json_abi::JsonAbi,
     network::TransactionBuilder,
     primitives::{Address, Bytes, U256},
@@ -9,6 +10,8 @@ use alloy::{
 use semver::VersionReq;
 use serde::Deserialize;
 use serde_json::Value;
+
+use revive_dt_node_interaction::EthereumNode;
 
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
 pub struct Input {
@@ -84,6 +87,7 @@ impl Input {
         &self,
         deployed_abis: &HashMap<String, JsonAbi>,
         deployed_contracts: &HashMap<String, Address>,
+        chain_state_provider: &impl EthereumNode,
     ) -> anyhow::Result<Bytes> {
         let Method::FunctionName(ref function_name) = self.method else {
             return Ok(Bytes::default()); // fallback or deployer — no input
@@ -145,7 +149,7 @@ impl Input {
         calldata.extend(function.selector().0);
 
         for (arg_idx, arg) in calldata_args.iter().enumerate() {
-            match resolve_argument(arg, deployed_contracts) {
+            match resolve_argument(arg, deployed_contracts, chain_state_provider) {
                 Ok(resolved) => {
                     calldata.extend(resolved.to_be_bytes::<32>());
                 }
@@ -165,8 +169,10 @@ impl Input {
         nonce: u64,
         deployed_contracts: &HashMap<String, Address>,
         deployed_abis: &HashMap<String, JsonAbi>,
+        chain_state_provider: &impl EthereumNode,
     ) -> anyhow::Result<TransactionRequest> {
-        let input_data = self.encoded_input(deployed_abis, deployed_contracts)?;
+        let input_data =
+            self.encoded_input(deployed_abis, deployed_contracts, chain_state_provider)?;
         let transaction_request = TransactionRequest::default().nonce(nonce);
         match self.method {
             Method::Deployer => Ok(transaction_request.with_deploy_code(input_data)),
@@ -196,6 +202,7 @@ fn default_caller() -> Address {
 fn resolve_argument(
     value: &str,
     deployed_contracts: &HashMap<String, Address>,
+    chain_state_provider: &impl EthereumNode,
 ) -> anyhow::Result<U256> {
     if let Some(instance) = value.strip_suffix(".address") {
         Ok(U256::from_be_slice(
@@ -217,30 +224,40 @@ fn resolve_argument(
     } else if let Some(value) = value.strip_prefix("0x") {
         Ok(U256::from_str_radix(value, 16)
             .map_err(|error| anyhow::anyhow!("Invalid hexadecimal literal: {}", error))?)
-    } else {
-        // TODO: This is a set of "variables" that we need to be able to resolve to be fully in
-        // compliance with the matter labs tester but we currently do not resolve them. We need to
-        // add logic that does their resolution in the future, perhaps through some kind of system
-        // context API that we pass down to the resolution function that allows it to make calls to
-        // the node to perform these resolutions.
-        let is_unsupported = [
-            "$CHAIN_ID",
-            "$GAS_LIMIT",
-            "$COINBASE",
-            "$DIFFICULTY",
-            "$BLOCK_HASH",
-            "$BLOCK_TIMESTAMP",
-        ]
-        .iter()
-        .any(|var| value.starts_with(var));
+    } else if value == "$CHAIN_ID" {
+        let chain_id = chain_state_provider.chain_id()?;
+        Ok(U256::from(chain_id))
+    } else if value == "$GAS_LIMIT" {
+        let gas_limit = chain_state_provider.block_gas_limit(BlockNumberOrTag::Latest)?;
+        Ok(U256::from(gas_limit))
+    } else if value == "$COINBASE" {
+        let coinbase = chain_state_provider.block_coinbase(BlockNumberOrTag::Latest)?;
+        Ok(U256::from_be_slice(coinbase.as_ref()))
+    } else if value == "$DIFFICULTY" {
+        let block_difficulty = chain_state_provider.block_difficulty(BlockNumberOrTag::Latest)?;
+        Ok(block_difficulty)
+    } else if value.starts_with("$BLOCK_HASH") {
+        let offset: u64 = value
+            .split(':')
+            .next_back()
+            .and_then(|value| value.parse().ok())
+            .unwrap_or_default();
 
-        if is_unsupported {
-            tracing::error!(value, "Unsupported variable used");
-            anyhow::bail!("Encountered {value} which is currently unsupported by the framework");
-        } else {
-            Ok(U256::from_str_radix(value, 10)
-                .map_err(|error| anyhow::anyhow!("Invalid decimal literal: {}", error))?)
-        }
+        let current_block_number = chain_state_provider.last_block_number()?;
+        let desired_block_number = current_block_number - offset;
+
+        let block_hash = chain_state_provider.block_hash(desired_block_number.into())?;
+
+        Ok(U256::from_be_bytes(block_hash.0))
+    } else if value == "$BLOCK_NUMBER" {
+        let current_block_number = chain_state_provider.last_block_number()?;
+        Ok(U256::from(current_block_number))
+    } else if value == "$BLOCK_TIMESTAMP" {
+        let timestamp = chain_state_provider.block_timestamp(BlockNumberOrTag::Latest)?;
+        Ok(U256::from(timestamp))
+    } else {
+        Ok(U256::from_str_radix(value, 10)
+            .map_err(|error| anyhow::anyhow!("Invalid decimal literal: {}", error))?)
     }
 }
 
@@ -252,6 +269,69 @@ mod tests {
     use alloy_primitives::address;
     use alloy_sol_types::SolValue;
     use std::collections::HashMap;
+
+    struct DummyEthereumNode;
+
+    impl EthereumNode for DummyEthereumNode {
+        fn execute_transaction(
+            &self,
+            _: TransactionRequest,
+        ) -> anyhow::Result<alloy::rpc::types::TransactionReceipt> {
+            unimplemented!()
+        }
+
+        fn trace_transaction(
+            &self,
+            _: alloy::rpc::types::TransactionReceipt,
+        ) -> anyhow::Result<alloy::rpc::types::trace::geth::GethTrace> {
+            unimplemented!()
+        }
+
+        fn state_diff(
+            &self,
+            _: alloy::rpc::types::TransactionReceipt,
+        ) -> anyhow::Result<alloy::rpc::types::trace::geth::DiffMode> {
+            unimplemented!()
+        }
+
+        fn fetch_add_nonce(&self, _: Address) -> anyhow::Result<u64> {
+            unimplemented!()
+        }
+
+        fn chain_id(&self) -> anyhow::Result<alloy_primitives::ChainId> {
+            Ok(0x123)
+        }
+
+        fn block_gas_limit(&self, _: alloy::eips::BlockNumberOrTag) -> anyhow::Result<u128> {
+            Ok(0x1234)
+        }
+
+        fn block_coinbase(&self, _: alloy::eips::BlockNumberOrTag) -> anyhow::Result<Address> {
+            Ok(Address::ZERO)
+        }
+
+        fn block_difficulty(&self, _: alloy::eips::BlockNumberOrTag) -> anyhow::Result<U256> {
+            Ok(U256::from(0x12345u128))
+        }
+
+        fn block_hash(
+            &self,
+            _: alloy::eips::BlockNumberOrTag,
+        ) -> anyhow::Result<alloy_primitives::BlockHash> {
+            Ok([0xEE; 32].into())
+        }
+
+        fn block_timestamp(
+            &self,
+            _: alloy::eips::BlockNumberOrTag,
+        ) -> anyhow::Result<alloy_primitives::BlockTimestamp> {
+            Ok(0x123456)
+        }
+
+        fn last_block_number(&self) -> anyhow::Result<alloy_primitives::BlockNumber> {
+            Ok(0x1234567)
+        }
+    }
 
     #[test]
     fn test_encoded_input_uint256() {
@@ -288,7 +368,7 @@ mod tests {
         let deployed_contracts = HashMap::new();
 
         let encoded = input
-            .encoded_input(&deployed_abis, &deployed_contracts)
+            .encoded_input(&deployed_abis, &deployed_contracts, &DummyEthereumNode)
             .unwrap();
         assert!(encoded.0.starts_with(&selector));
 
@@ -331,7 +411,9 @@ mod tests {
         abis.insert("Contract".to_string(), parsed_abi);
         let contracts = HashMap::new();
 
-        let encoded = input.encoded_input(&abis, &contracts).unwrap();
+        let encoded = input
+            .encoded_input(&abis, &contracts, &DummyEthereumNode)
+            .unwrap();
         assert!(encoded.0.starts_with(&selector));
 
         type T = (alloy_primitives::Address,);
@@ -340,5 +422,129 @@ mod tests {
             decoded.0,
             address!("0x1000000000000000000000000000000000000001")
         );
+    }
+
+    #[test]
+    fn resolver_can_resolve_chain_id_variable() {
+        // Arrange
+        let input = "$CHAIN_ID";
+
+        // Act
+        let resolved = resolve_argument(input, &Default::default(), &DummyEthereumNode);
+
+        // Assert
+        let resolved = resolved.expect("Failed to resolve argument");
+        assert_eq!(resolved, U256::from(DummyEthereumNode.chain_id().unwrap()))
+    }
+
+    #[test]
+    fn resolver_can_resolve_gas_limit_variable() {
+        // Arrange
+        let input = "$GAS_LIMIT";
+
+        // Act
+        let resolved = resolve_argument(input, &Default::default(), &DummyEthereumNode);
+
+        // Assert
+        let resolved = resolved.expect("Failed to resolve argument");
+        assert_eq!(
+            resolved,
+            U256::from(
+                DummyEthereumNode
+                    .block_gas_limit(Default::default())
+                    .unwrap()
+            )
+        )
+    }
+
+    #[test]
+    fn resolver_can_resolve_coinbase_variable() {
+        // Arrange
+        let input = "$COINBASE";
+
+        // Act
+        let resolved = resolve_argument(input, &Default::default(), &DummyEthereumNode);
+
+        // Assert
+        let resolved = resolved.expect("Failed to resolve argument");
+        assert_eq!(
+            resolved,
+            U256::from_be_slice(
+                DummyEthereumNode
+                    .block_coinbase(Default::default())
+                    .unwrap()
+                    .as_ref()
+            )
+        )
+    }
+
+    #[test]
+    fn resolver_can_resolve_block_difficulty_variable() {
+        // Arrange
+        let input = "$DIFFICULTY";
+
+        // Act
+        let resolved = resolve_argument(input, &Default::default(), &DummyEthereumNode);
+
+        // Assert
+        let resolved = resolved.expect("Failed to resolve argument");
+        assert_eq!(
+            resolved,
+            DummyEthereumNode
+                .block_difficulty(Default::default())
+                .unwrap()
+        )
+    }
+
+    #[test]
+    fn resolver_can_resolve_block_hash_variable() {
+        // Arrange
+        let input = "$BLOCK_HASH";
+
+        // Act
+        let resolved = resolve_argument(input, &Default::default(), &DummyEthereumNode);
+
+        // Assert
+        let resolved = resolved.expect("Failed to resolve argument");
+        assert_eq!(
+            resolved,
+            U256::from_be_bytes(DummyEthereumNode.block_hash(Default::default()).unwrap().0)
+        )
+    }
+
+    #[test]
+    fn resolver_can_resolve_block_number_variable() {
+        // Arrange
+        let input = "$BLOCK_NUMBER";
+
+        // Act
+        let resolved = resolve_argument(input, &Default::default(), &DummyEthereumNode);
+
+        // Assert
+        let resolved = resolved.expect("Failed to resolve argument");
+        assert_eq!(
+            resolved,
+            U256::from(DummyEthereumNode.last_block_number().unwrap())
+        )
+    }
+
+    #[test]
+    fn resolver_can_resolve_block_timestamp_variable() {
+        // Arrange
+        let input = "$BLOCK_TIMESTAMP";
+
+        // Act
+        let resolved = resolve_argument(input, &Default::default(), &DummyEthereumNode);
+
+        // Assert
+        let resolved = resolved.expect("Failed to resolve argument");
+        assert_eq!(
+            resolved,
+            U256::from(
+                DummyEthereumNode
+                    .block_timestamp(Default::default())
+                    .unwrap()
+            )
+        )
     }
 }

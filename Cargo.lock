@@ -3984,6 +3984,7 @@ dependencies = [
  "alloy-primitives",
  "alloy-sol-types",
  "anyhow",
+ "revive-dt-node-interaction",
  "semver 1.0.26",
  "serde",
  "serde_json",
