@@ -180,7 +180,7 @@ impl Input {
                 // https://github.com/matter-labs/era-compiler-tester/blob/1dfa7d07cba0734ca97e24704f12dd57f6990c2c/compiler_tester/src/test/case/input/mod.rs#L158-L190
                 let function = abi
                     .functions()
-                    .find(|function| function.name.starts_with(function_name))
+                    .find(|function| function.signature().starts_with(function_name))
                     .ok_or_else(|| {
                         anyhow::anyhow!(
                             "Function with name {:?} not found in ABI for the instance {:?}",
@@ -474,6 +474,53 @@ mod tests {
         let input: Input = Input {
             instance: ContractInstance::new_from("Contract"),
             method: Method::FunctionName("send".to_owned()),
+            calldata: Calldata::Compound(vec![
+                "0x1000000000000000000000000000000000000001".to_string(),
+            ]),
+            ..Default::default()
+        };
+
+        let mut contracts = HashMap::new();
+        contracts.insert(
+            ContractInstance::new_from("Contract"),
+            (Address::ZERO, parsed_abi),
+        );
+
+        let encoded = input.encoded_input(&contracts, &DummyEthereumNode).unwrap();
+        assert!(encoded.0.starts_with(&selector));
+
+        type T = (alloy_primitives::Address,);
+        let decoded: T = T::abi_decode(&encoded.0[4..]).unwrap();
+        assert_eq!(
+            decoded.0,
+            address!("0x1000000000000000000000000000000000000001")
+        );
+    }
+
+    #[test]
+    fn test_encoded_input_address_with_signature() {
+        let raw_abi = r#"[
+        {
+            "inputs": [{"name": "recipient", "type": "address"}],
+            "name": "send",
+            "outputs": [],
+            "stateMutability": "nonpayable",
+            "type": "function"
+        }
+        ]"#;
+
+        let parsed_abi: JsonAbi = serde_json::from_str(raw_abi).unwrap();
+        let selector = parsed_abi
+            .function("send")
+            .unwrap()
+            .first()
+            .unwrap()
+            .selector()
+            .0;
+
+        let input: Input = Input {
+            instance: ContractInstance::new_from("Contract"),
+            method: Method::FunctionName("send(address)".to_owned()),
             calldata: Calldata::Compound(vec![
                 "0x1000000000000000000000000000000000000001".to_string(),
             ]),
