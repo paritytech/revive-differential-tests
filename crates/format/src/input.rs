@@ -7,9 +7,9 @@ use alloy::{
     primitives::{Address, Bytes, U256},
     rpc::types::TransactionRequest,
 };
+use alloy_primitives::B256;
 use semver::VersionReq;
 use serde::Deserialize;
-use serde_json::Value;
 
 use revive_dt_node_interaction::EthereumNode;
 
@@ -40,10 +40,18 @@ pub enum Expected {
 
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
 pub struct ExpectedOutput {
-    compiler_version: Option<VersionReq>,
-    return_data: Option<Calldata>,
-    events: Option<Value>,
-    exception: Option<bool>,
+    pub compiler_version: Option<VersionReq>,
+    pub return_data: Option<Calldata>,
+    pub events: Option<Vec<Event>>,
+    #[serde(default)]
+    pub exception: bool,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
+pub struct Event {
+    pub address: Option<Address>,
+    pub topics: Vec<B256>,
+    pub values: Calldata,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
@@ -74,6 +82,27 @@ pub enum Method {
     FunctionName(String),
 }
 
+impl ExpectedOutput {
+    pub fn new() -> Self {
+        Default::default()
+    }
+
+    pub fn with_success(mut self) -> Self {
+        self.exception = false;
+        self
+    }
+
+    pub fn with_failure(mut self) -> Self {
+        self.exception = true;
+        self
+    }
+
+    pub fn with_calldata(mut self, calldata: Calldata) -> Self {
+        self.return_data = Some(calldata);
+        self
+    }
+}
+
 impl Default for Calldata {
     fn default() -> Self {
         Self::Compound(Default::default())
@@ -91,7 +120,17 @@ impl Calldata {
         }
     }
 
-    pub fn construct_call_data(
+    pub fn calldata(
+        &self,
+        deployed_contracts: &HashMap<ContractInstance, (Address, JsonAbi)>,
+        chain_state_provider: &impl EthereumNode,
+    ) -> anyhow::Result<Vec<u8>> {
+        let mut buffer = Vec::<u8>::with_capacity(self.size_requirement());
+        self.calldata_into_slice(&mut buffer, deployed_contracts, chain_state_provider)?;
+        Ok(buffer)
+    }
+
+    pub fn calldata_into_slice(
         &self,
         buffer: &mut Vec<u8>,
         deployed_contracts: &HashMap<ContractInstance, (Address, JsonAbi)>,
@@ -114,22 +153,14 @@ impl Calldata {
                     };
                 }
             }
-        }
-        todo!()
+        };
+        Ok(())
     }
 
     pub fn size_requirement(&self) -> usize {
         match self {
             Calldata::Single(single) => (single.len() - 2) / 2,
             Calldata::Compound(items) => items.len() * 32,
-        }
-    }
-}
-
-impl ExpectedOutput {
-    pub fn find_all_contract_instances(&self, vec: &mut Vec<ContractInstance>) {
-        if let Some(ref cd) = self.return_data {
-            cd.find_all_contract_instances(vec);
         }
     }
 }
@@ -153,12 +184,9 @@ impl Input {
     ) -> anyhow::Result<Bytes> {
         match self.method {
             Method::Deployer | Method::Fallback => {
-                let mut calldata = Vec::<u8>::with_capacity(self.calldata.size_requirement());
-                self.calldata.construct_call_data(
-                    &mut calldata,
-                    deployed_contracts,
-                    chain_state_provider,
-                )?;
+                let calldata = self
+                    .calldata
+                    .calldata(deployed_contracts, chain_state_provider)?;
 
                 Ok(calldata.into())
             }
@@ -204,7 +232,7 @@ impl Input {
                 // a new buffer for each one of the resolved arguments.
                 let mut calldata = Vec::<u8>::with_capacity(4 + self.calldata.size_requirement());
                 calldata.extend(function.selector().0);
-                self.calldata.construct_call_data(
+                self.calldata.calldata_into_slice(
                     &mut calldata,
                     deployed_contracts,
                     chain_state_provider,
@@ -236,20 +264,6 @@ impl Input {
         vec.push(self.instance.clone());
 
         self.calldata.find_all_contract_instances(&mut vec);
-        match &self.expected {
-            Some(Expected::Calldata(cd)) => {
-                cd.find_all_contract_instances(&mut vec);
-            }
-            Some(Expected::Expected(expected)) => {
-                expected.find_all_contract_instances(&mut vec);
-            }
-            Some(Expected::ExpectedMany(expected)) => {
-                for expected in expected {
-                    expected.find_all_contract_instances(&mut vec);
-                }
-            }
-            None => {}
-        }
 
         vec
     }
@@ -355,14 +369,15 @@ mod tests {
 
         fn trace_transaction(
             &self,
-            _: alloy::rpc::types::TransactionReceipt,
+            _: &alloy::rpc::types::TransactionReceipt,
+            _: alloy::rpc::types::trace::geth::GethDebugTracingOptions,
         ) -> anyhow::Result<alloy::rpc::types::trace::geth::GethTrace> {
             unimplemented!()
         }
 
         fn state_diff(
             &self,
-            _: alloy::rpc::types::TransactionReceipt,
+            _: &alloy::rpc::types::TransactionReceipt,
         ) -> anyhow::Result<alloy::rpc::types::trace::geth::DiffMode> {
             unimplemented!()
         }

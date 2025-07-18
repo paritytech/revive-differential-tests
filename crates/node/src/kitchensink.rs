@@ -23,7 +23,7 @@ use alloy::{
     providers::{
         Provider, ProviderBuilder,
         ext::DebugApi,
-        fillers::{FillProvider, TxFiller},
+        fillers::{ChainIdFiller, FillProvider, NonceFiller, SimpleNonceManager, TxFiller},
     },
     rpc::types::{
         TransactionReceipt,
@@ -40,7 +40,7 @@ use tracing::Level;
 use revive_dt_config::Arguments;
 use revive_dt_node_interaction::{BlockingExecutor, EthereumNode};
 
-use crate::Node;
+use crate::{Node, common::FallbackGasFiller};
 
 static NODE_COUNT: AtomicU32 = AtomicU32::new(0);
 
@@ -352,6 +352,14 @@ impl KitchensinkNode {
         let wallet = self.wallet.clone();
         Box::pin(async move {
             ProviderBuilder::new()
+                .disable_recommended_fillers()
+                .filler(FallbackGasFiller::new(
+                    30_000_000,
+                    200_000_000_000,
+                    3_000_000_000,
+                ))
+                .filler(ChainIdFiller::default())
+                .filler(NonceFiller::<SimpleNonceManager>::default())
                 .network::<KitchenSinkNetwork>()
                 .wallet(wallet)
                 .connect(&connection_string)
@@ -384,27 +392,28 @@ impl EthereumNode for KitchensinkNode {
     #[tracing::instrument(skip_all, fields(kitchensink_node_id = self.id))]
     fn trace_transaction(
         &self,
-        transaction: TransactionReceipt,
+        transaction: &TransactionReceipt,
+        trace_options: GethDebugTracingOptions,
     ) -> anyhow::Result<alloy::rpc::types::trace::geth::GethTrace> {
-        let trace_options = GethDebugTracingOptions::prestate_tracer(PreStateConfig {
-            diff_mode: Some(true),
-            disable_code: None,
-            disable_storage: None,
-        });
+        let tx_hash = transaction.transaction_hash;
         let provider = self.provider();
-
         BlockingExecutor::execute(async move {
             Ok(provider
                 .await?
-                .debug_trace_transaction(transaction.transaction_hash, trace_options)
+                .debug_trace_transaction(tx_hash, trace_options)
                 .await?)
         })?
     }
 
     #[tracing::instrument(skip_all, fields(kitchensink_node_id = self.id))]
-    fn state_diff(&self, transaction: TransactionReceipt) -> anyhow::Result<DiffMode> {
+    fn state_diff(&self, transaction: &TransactionReceipt) -> anyhow::Result<DiffMode> {
+        let trace_options = GethDebugTracingOptions::prestate_tracer(PreStateConfig {
+            diff_mode: Some(true),
+            disable_code: None,
+            disable_storage: None,
+        });
         match self
-            .trace_transaction(transaction)?
+            .trace_transaction(transaction, trace_options)?
             .try_into_pre_state_frame()?
         {
             PreStateFrame::Diff(diff) => Ok(diff),

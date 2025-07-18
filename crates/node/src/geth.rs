@@ -20,7 +20,7 @@ use alloy::{
     providers::{
         Provider, ProviderBuilder,
         ext::DebugApi,
-        fillers::{FillProvider, TxFiller},
+        fillers::{ChainIdFiller, FillProvider, NonceFiller, SimpleNonceManager, TxFiller},
     },
     rpc::types::{
         TransactionReceipt, TransactionRequest,
@@ -31,7 +31,7 @@ use revive_dt_config::Arguments;
 use revive_dt_node_interaction::{BlockingExecutor, EthereumNode};
 use tracing::Level;
 
-use crate::Node;
+use crate::{Node, common::FallbackGasFiller};
 
 static NODE_COUNT: AtomicU32 = AtomicU32::new(0);
 
@@ -208,6 +208,10 @@ impl Instance {
         let wallet = self.wallet.clone();
         Box::pin(async move {
             ProviderBuilder::new()
+                .disable_recommended_fillers()
+                .filler(FallbackGasFiller::new(500_000_000, 500_000_000, 1))
+                .filler(ChainIdFiller::default())
+                .filler(NonceFiller::<SimpleNonceManager>::default())
                 .wallet(wallet)
                 .connect(&connection_string)
                 .await
@@ -224,7 +228,7 @@ impl EthereumNode for Instance {
     ) -> anyhow::Result<alloy::rpc::types::TransactionReceipt> {
         let provider = self.provider();
         BlockingExecutor::execute(async move {
-            let outer_span = tracing::debug_span!("Submitting transaction", ?transaction,);
+            let outer_span = tracing::debug_span!("Submitting transaction", ?transaction);
             let _outer_guard = outer_span.enter();
 
             let provider = provider.await?;
@@ -305,30 +309,28 @@ impl EthereumNode for Instance {
     #[tracing::instrument(skip_all, fields(geth_node_id = self.id))]
     fn trace_transaction(
         &self,
-        transaction: TransactionReceipt,
+        transaction: &TransactionReceipt,
+        trace_options: GethDebugTracingOptions,
     ) -> anyhow::Result<alloy::rpc::types::trace::geth::GethTrace> {
-        let trace_options = GethDebugTracingOptions::prestate_tracer(PreStateConfig {
-            diff_mode: Some(true),
-            disable_code: None,
-            disable_storage: None,
-        });
+        let tx_hash = transaction.transaction_hash;
         let provider = self.provider();
-
         BlockingExecutor::execute(async move {
             Ok(provider
                 .await?
-                .debug_trace_transaction(transaction.transaction_hash, trace_options)
+                .debug_trace_transaction(tx_hash, trace_options)
                 .await?)
         })?
     }
 
     #[tracing::instrument(skip_all, fields(geth_node_id = self.id))]
-    fn state_diff(
-        &self,
-        transaction: alloy::rpc::types::TransactionReceipt,
-    ) -> anyhow::Result<DiffMode> {
+    fn state_diff(&self, transaction: &TransactionReceipt) -> anyhow::Result<DiffMode> {
+        let trace_options = GethDebugTracingOptions::prestate_tracer(PreStateConfig {
+            diff_mode: Some(true),
+            disable_code: None,
+            disable_storage: None,
+        });
         match self
-            .trace_transaction(transaction)?
+            .trace_transaction(transaction, trace_options)?
             .try_into_pre_state_frame()?
         {
             PreStateFrame::Diff(diff) => Ok(diff),
