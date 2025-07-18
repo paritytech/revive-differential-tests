@@ -78,15 +78,3 @@ features = [
 inherits = "release"
 lto = true
 codegen-units = 1
-
-# We set the `panic` behavior to `unwind` in both the `release` and `dev` profiles since our async 
-# runtime attempts to catch panics and it can only catch panics if we compile our code with unwind
-# as the panic behavior. For more information, please see the `catch_unwind` documentation where it
-# mentions that panics can only be caught if they unwind and not if they abort:
-# https://doc.rust-lang.org/std/panic/fn.catch_unwind.html#notes
-
-[profile.release]
-panic = "unwind"
-
-[profile.dev]
-panic = "unwind"
