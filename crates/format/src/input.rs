@@ -269,11 +269,11 @@ impl Input {
     }
 }
 
-fn default_instance() -> ContractInstance {
+pub fn default_instance() -> ContractInstance {
     ContractInstance::new_from("Test")
 }
 
-fn default_caller() -> Address {
+pub fn default_caller() -> Address {
     "90F8bf6A479f320ead074411a4B0e7944Ea8c9C1".parse().unwrap()
 }
 

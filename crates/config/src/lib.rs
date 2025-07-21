@@ -123,16 +123,18 @@ impl Arguments {
         panic!("should have a workdir configured")
     }
 
-    /// Try to parse `self.account` into a [PrivateKeySigner],
-    /// panicing on error.
-    pub fn wallet(&self) -> EthereumWallet {
-        let signer = self
-            .account
+    pub fn signer(&self) -> PrivateKeySigner {
+        self.account
             .parse::<PrivateKeySigner>()
             .unwrap_or_else(|error| {
                 panic!("private key '{}' parsing error: {error}", self.account);
-            });
-        EthereumWallet::new(signer)
+            })
+    }
+
+    /// Try to parse `self.account` into a [PrivateKeySigner],
+    /// panicing on error.
+    pub fn wallet(&self) -> EthereumWallet {
+        EthereumWallet::new(self.signer())
     }
 }
 

@@ -6,6 +6,7 @@ use std::{
     thread,
 };
 
+use alloy::primitives::Address;
 use anyhow::Context;
 use revive_dt_config::Arguments;
 
@@ -23,7 +24,7 @@ where
     T: Node + Send + 'static,
 {
     /// Create a new Pool. This will start as many nodes as there are workers in `config`.
-    pub fn new(config: &Arguments) -> anyhow::Result<Self> {
+    pub fn new(config: &Arguments, additional_callers: &[Address]) -> anyhow::Result<Self> {
         let nodes = config.workers;
         let genesis = read_to_string(&config.genesis_file).context(format!(
             "can not read genesis file: {}",
@@ -34,7 +35,10 @@ where
         for _ in 0..nodes {
             let config = config.clone();
             let genesis = genesis.clone();
-            handles.push(thread::spawn(move || spawn_node::<T>(&config, genesis)));
+            let additional_callers = additional_callers.to_vec();
+            handles.push(thread::spawn(move || {
+                spawn_node::<T>(&config, genesis, &additional_callers)
+            }));
         }
 
         let mut nodes = Vec::with_capacity(nodes);
@@ -60,8 +64,12 @@ where
     }
 }
 
-fn spawn_node<T: Node + Send>(args: &Arguments, genesis: String) -> anyhow::Result<T> {
-    let mut node = T::new(args);
+fn spawn_node<T: Node + Send>(
+    args: &Arguments,
+    genesis: String,
+    additional_callers: &[Address],
+) -> anyhow::Result<T> {
+    let mut node = T::new(args, additional_callers);
     tracing::info!("starting node: {}", node.connection_string());
     node.spawn(genesis)?;
     Ok(node)

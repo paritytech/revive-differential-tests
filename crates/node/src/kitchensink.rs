@@ -507,7 +507,7 @@ impl EthereumNode for KitchensinkNode {
 }
 
 impl Node for KitchensinkNode {
-    fn new(config: &Arguments) -> Self {
+    fn new(config: &Arguments, _additional_callers: &[Address]) -> Self {
         let kitchensink_directory = config.directory().join(Self::BASE_DIRECTORY);
         let id = NODE_COUNT.fetch_add(1, Ordering::SeqCst);
         let base_directory = kitchensink_directory.join(id.to_string());
@@ -814,6 +814,12 @@ impl TransactionBuilder<KitchenSinkNetwork> for <Ethereum as Network>::Transacti
     > {
         Ok(wallet.sign_request(self).await?)
     }
+
+    fn take_nonce(&mut self) -> Option<u64> {
+        <<Ethereum as Network>::TransactionRequest as TransactionBuilder<Ethereum>>::take_nonce(
+            self,
+        )
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -1054,7 +1060,7 @@ mod tests {
         let _guard = NODE_START_MUTEX.lock().unwrap();
 
         let (args, temp_dir) = test_config();
-        let mut node = KitchensinkNode::new(&args);
+        let mut node = KitchensinkNode::new(&args, &[]);
         node.init(GENESIS_JSON)
             .expect("Failed to initialize the node")
             .spawn_process()
@@ -1109,7 +1115,7 @@ mod tests {
         }
         "#;
 
-        let mut dummy_node = KitchensinkNode::new(&test_config().0);
+        let mut dummy_node = KitchensinkNode::new(&test_config().0, &[]);
 
         // Call `init()`
         dummy_node.init(genesis_content).expect("init failed");
@@ -1153,7 +1159,7 @@ mod tests {
         }
         "#;
 
-        let node = KitchensinkNode::new(&test_config().0);
+        let node = KitchensinkNode::new(&test_config().0, &[]);
 
         let result = node
             .extract_balance_from_genesis_file(genesis_json)
@@ -1226,7 +1232,7 @@ mod tests {
     fn spawn_works() {
         let (config, _temp_dir) = test_config();
 
-        let mut node = KitchensinkNode::new(&config);
+        let mut node = KitchensinkNode::new(&config, &[]);
         node.spawn(GENESIS_JSON.to_string()).unwrap();
     }
 
@@ -1234,7 +1240,7 @@ mod tests {
     fn version_works() {
         let (config, _temp_dir) = test_config();
 
-        let node = KitchensinkNode::new(&config);
+        let node = KitchensinkNode::new(&config, &[]);
         let version = node.version().unwrap();
 
         assert!(
@@ -1247,7 +1253,7 @@ mod tests {
     fn eth_rpc_version_works() {
         let (config, _temp_dir) = test_config();
 
-        let node = KitchensinkNode::new(&config);
+        let node = KitchensinkNode::new(&config, &[]);
         let version = node.eth_rpc_version().unwrap();
 
         assert!(

@@ -1,9 +1,14 @@
+use ::core::pin::Pin;
+
 use alloy::{
-    network::{Network, TransactionBuilder},
+    consensus::SignableTransaction,
+    network::{Network, TransactionBuilder, TxSigner},
+    primitives::Address,
     providers::{
         Provider, SendableTx,
         fillers::{GasFiller, TxFiller},
     },
+    signers::{Signature, local::PrivateKeySigner},
     transports::TransportResult,
 };
 
@@ -74,5 +79,30 @@ where
             }
             Ok(tx)
         }
+    }
+}
+
+/// This is a signer that is able to sign transactions for a specific address with another private
+/// key.
+pub struct AddressSigner {
+    pub private_key: PrivateKeySigner,
+    pub address: Address,
+}
+
+impl TxSigner<Signature> for AddressSigner {
+    fn address(&self) -> Address {
+        self.address
+    }
+
+    fn sign_transaction<'a, 'b, 'c>(
+        &'a self,
+        tx: &'b mut dyn SignableTransaction<Signature>,
+    ) -> Pin<Box<dyn Future<Output = Result<Signature, alloy::signers::Error>> + Send + 'c>>
+    where
+        'a: 'c,
+        'b: 'c,
+        Self: 'c,
+    {
+        <PrivateKeySigner as TxSigner<Signature>>::sign_transaction(&self.private_key, tx)
     }
 }

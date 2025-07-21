@@ -11,6 +11,7 @@ use std::{
 
 use alloy::{
     eips::BlockNumberOrTag,
+    genesis::Genesis,
     network::{Ethereum, EthereumWallet},
     primitives::{Address, BlockHash, BlockNumber, BlockTimestamp, U256},
     providers::{
@@ -22,12 +23,16 @@ use alloy::{
         TransactionReceipt, TransactionRequest,
         trace::geth::{DiffMode, GethDebugTracingOptions, PreStateConfig, PreStateFrame},
     },
+    signers::local::PrivateKeySigner,
 };
 use revive_dt_config::Arguments;
 use revive_dt_node_interaction::{BlockingExecutor, EthereumNode};
 use tracing::Level;
 
-use crate::{Node, common::FallbackGasFiller};
+use crate::{
+    Node,
+    common::{AddressSigner, FallbackGasFiller},
+};
 
 static NODE_COUNT: AtomicU32 = AtomicU32::new(0);
 
@@ -50,7 +55,10 @@ pub struct Instance {
     network_id: u64,
     start_timeout: u64,
     wallet: EthereumWallet,
+    private_key: PrivateKeySigner,
     nonce_manager: CachedNonceManager,
+    additional_callers: Vec<Address>,
+
     /// This vector stores [`File`] objects that we use for logging which we want to flush when the
     /// node object is dropped. We do not store them in a structured fashion at the moment (in
     /// separate fields) as the logic that we need to apply to them is all the same regardless of
@@ -78,8 +86,24 @@ impl Instance {
         create_dir_all(&self.base_directory)?;
         create_dir_all(&self.logs_directory)?;
 
+        // Modifying the genesis file and adding all of the additional callers as contract accounts.
+        let mut genesis = serde_json::from_str::<Genesis>(&genesis)?;
+        for additional_caller in self.additional_callers.iter() {
+            let account = genesis.alloc.entry(*additional_caller).or_default();
+            account.private_key = Some(self.private_key.to_bytes());
+            *account = account
+                .clone()
+                .with_balance("1000000000000000000".parse().expect("Can't fail"));
+        }
         let genesis_path = self.base_directory.join(Self::GENESIS_JSON_FILE);
-        File::create(&genesis_path)?.write_all(genesis.as_bytes())?;
+        serde_json::to_writer(File::create(&genesis_path)?, &genesis)?;
+
+        for additional_caller in self.additional_callers.iter() {
+            self.wallet.register_signer(AddressSigner {
+                private_key: self.private_key.clone(),
+                address: *additional_caller,
+            });
+        }
 
         let mut child = Command::new(&self.geth)
             .arg("init")
@@ -424,7 +448,7 @@ impl EthereumNode for Instance {
 }
 
 impl Node for Instance {
-    fn new(config: &Arguments) -> Self {
+    fn new(config: &Arguments, additional_callers: &[Address]) -> Self {
         let geth_directory = config.directory().join(Self::BASE_DIRECTORY);
         let id = NODE_COUNT.fetch_add(1, Ordering::SeqCst);
         let base_directory = geth_directory.join(id.to_string());
@@ -444,6 +468,8 @@ impl Node for Instance {
             // the vector. It's the stdout and stderr of the geth node.
             logs_file_to_flush: Vec::with_capacity(2),
             nonce_manager: Default::default(),
+            additional_callers: additional_callers.to_vec(),
+            private_key: config.signer(),
         }
     }
 
@@ -520,7 +546,7 @@ mod tests {
 
     fn new_node() -> (Instance, TempDir) {
         let (args, temp_dir) = test_config();
-        let mut node = Instance::new(&args);
+        let mut node = Instance::new(&args, &[]);
         node.init(GENESIS_JSON.to_owned())
             .expect("Failed to initialize the node")
             .spawn_process()
@@ -530,21 +556,21 @@ mod tests {
 
     #[test]
     fn init_works() {
-        Instance::new(&test_config().0)
+        Instance::new(&test_config().0, &[])
             .init(GENESIS_JSON.to_string())
             .unwrap();
     }
 
     #[test]
     fn spawn_works() {
-        Instance::new(&test_config().0)
+        Instance::new(&test_config().0, &[])
             .spawn(GENESIS_JSON.to_string())
             .unwrap();
     }
 
     #[test]
     fn version_works() {
-        let version = Instance::new(&test_config().0).version().unwrap();
+        let version = Instance::new(&test_config().0, &[]).version().unwrap();
         assert!(
             version.starts_with("geth version"),
             "expected version string, got: '{version}'"

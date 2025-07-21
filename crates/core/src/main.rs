@@ -1,5 +1,6 @@
 use std::{collections::HashMap, sync::LazyLock};
 
+use alloy::primitives::Address;
 use clap::Parser;
 use rayon::{ThreadPoolBuilder, prelude::*};
 
@@ -8,7 +9,7 @@ use revive_dt_core::{
     Geth, Kitchensink, Platform,
     driver::{Driver, State},
 };
-use revive_dt_format::{corpus::Corpus, metadata::MetadataFile};
+use revive_dt_format::{corpus::Corpus, input::default_caller, metadata::MetadataFile};
 use revive_dt_node::pool::NodePool;
 use revive_dt_report::reporter::{Report, Span};
 use temp_dir::TempDir;
@@ -20,12 +21,24 @@ static TEMP_DIR: LazyLock<TempDir> = LazyLock::new(|| TempDir::new().unwrap());
 fn main() -> anyhow::Result<()> {
     let args = init_cli()?;
 
+    let corpora = collect_corpora(&args)?;
+    let additional_callers = corpora
+        .values()
+        .flat_map(|value| value.iter().map(|metadata| &metadata.cases))
+        .flat_map(|case| case.iter().map(|case| &case.inputs))
+        .flatten()
+        .map(|input| input.caller)
+        .filter(|caller| caller != &default_caller())
+        .collect::<Vec<_>>();
+
+    tracing::debug!(?additional_callers, "Discovered callers");
+
     for (corpus, tests) in collect_corpora(&args)? {
         let span = Span::new(corpus, args.clone())?;
 
         match &args.compile_only {
             Some(platform) => compile_corpus(&args, &tests, platform, span),
-            None => execute_corpus(&args, &tests, span)?,
+            None => execute_corpus(&args, &tests, &additional_callers, span)?,
         }
 
         Report::save()?;
@@ -83,15 +96,20 @@ fn collect_corpora(args: &Arguments) -> anyhow::Result<HashMap<Corpus, Vec<Metad
     Ok(corpora)
 }
 
-fn run_driver<L, F>(args: &Arguments, tests: &[MetadataFile], span: Span) -> anyhow::Result<()>
+fn run_driver<L, F>(
+    args: &Arguments,
+    tests: &[MetadataFile],
+    additional_callers: &[Address],
+    span: Span,
+) -> anyhow::Result<()>
 where
     L: Platform,
     F: Platform,
     L::Blockchain: revive_dt_node::Node + Send + Sync + 'static,
     F::Blockchain: revive_dt_node::Node + Send + Sync + 'static,
 {
-    let leader_nodes = NodePool::<L::Blockchain>::new(args)?;
-    let follower_nodes = NodePool::<F::Blockchain>::new(args)?;
+    let leader_nodes = NodePool::<L::Blockchain>::new(args, additional_callers)?;
+    let follower_nodes = NodePool::<F::Blockchain>::new(args, additional_callers)?;
 
     tests.par_iter().for_each(
         |MetadataFile {
@@ -141,13 +159,18 @@ where
     Ok(())
 }
 
-fn execute_corpus(args: &Arguments, tests: &[MetadataFile], span: Span) -> anyhow::Result<()> {
+fn execute_corpus(
+    args: &Arguments,
+    tests: &[MetadataFile],
+    additional_callers: &[Address],
+    span: Span,
+) -> anyhow::Result<()> {
     match (&args.leader, &args.follower) {
         (TestingPlatform::Geth, TestingPlatform::Kitchensink) => {
-            run_driver::<Geth, Kitchensink>(args, tests, span)?
+            run_driver::<Geth, Kitchensink>(args, tests, additional_callers, span)?
         }
         (TestingPlatform::Geth, TestingPlatform::Geth) => {
-            run_driver::<Geth, Geth>(args, tests, span)?
+            run_driver::<Geth, Geth>(args, tests, additional_callers, span)?
         }
         _ => unimplemented!(),
     }
