@@ -11,7 +11,7 @@ use std::{
 
 use alloy::{
     eips::BlockNumberOrTag,
-    network::{Ethereum, EthereumWallet},
+    network::{Ethereum, EthereumWallet, TxSigner},
     primitives::{Address, BlockHash, BlockNumber, BlockTimestamp, U256},
     providers::{
         Provider, ProviderBuilder,
@@ -22,6 +22,7 @@ use alloy::{
         TransactionReceipt, TransactionRequest,
         trace::geth::{DiffMode, GethDebugTracingOptions, PreStateConfig, PreStateFrame},
     },
+    signers::{Signature, local::PrivateKeySigner},
 };
 use revive_dt_config::Arguments;
 use revive_dt_node_interaction::{BlockingExecutor, EthereumNode};
@@ -195,13 +196,19 @@ impl Instance {
 
     fn provider(
         &self,
+        additional_signers: Option<
+            impl IntoIterator<Item: TxSigner<Signature> + Send + Sync + 'static>,
+        >,
     ) -> impl Future<
         Output = anyhow::Result<
             FillProvider<impl TxFiller<Ethereum>, impl Provider<Ethereum>, Ethereum>,
         >,
     > + 'static {
         let connection_string = self.connection_string();
-        let wallet = self.wallet.clone();
+        let mut wallet = self.wallet.clone();
+        for signer in additional_signers.into_iter().flatten() {
+            wallet.register_signer(signer);
+        }
 
         // Note: We would like all providers to make use of the same nonce manager so that we have
         // monotonically increasing nonces that are cached. The cached nonce manager uses Arc's in
@@ -221,6 +228,16 @@ impl Instance {
                 .map_err(Into::into)
         })
     }
+
+    fn provider_no_additional_signers(
+        &self,
+    ) -> impl Future<
+        Output = anyhow::Result<
+            FillProvider<impl TxFiller<Ethereum>, impl Provider<Ethereum>, Ethereum>,
+        >,
+    > + 'static {
+        self.provider(None::<Vec<PrivateKeySigner>>)
+    }
 }
 
 impl EthereumNode for Instance {
@@ -228,8 +245,11 @@ impl EthereumNode for Instance {
     fn execute_transaction(
         &self,
         transaction: TransactionRequest,
+        additional_signers: Option<
+            impl IntoIterator<Item: TxSigner<Signature> + Send + Sync + 'static>,
+        >,
     ) -> anyhow::Result<alloy::rpc::types::TransactionReceipt> {
-        let provider = self.provider();
+        let provider = self.provider(additional_signers);
         BlockingExecutor::execute(async move {
             let outer_span = tracing::debug_span!("Submitting transaction", ?transaction);
             let _outer_guard = outer_span.enter();
@@ -316,7 +336,7 @@ impl EthereumNode for Instance {
         trace_options: GethDebugTracingOptions,
     ) -> anyhow::Result<alloy::rpc::types::trace::geth::GethTrace> {
         let tx_hash = transaction.transaction_hash;
-        let provider = self.provider();
+        let provider = self.provider_no_additional_signers();
         BlockingExecutor::execute(async move {
             Ok(provider
                 .await?
@@ -343,7 +363,7 @@ impl EthereumNode for Instance {
 
     #[tracing::instrument(skip_all, fields(geth_node_id = self.id))]
     fn chain_id(&self) -> anyhow::Result<alloy::primitives::ChainId> {
-        let provider = self.provider();
+        let provider = self.provider_no_additional_signers();
         BlockingExecutor::execute(async move {
             provider.await?.get_chain_id().await.map_err(Into::into)
         })?
@@ -351,7 +371,7 @@ impl EthereumNode for Instance {
 
     #[tracing::instrument(skip_all, fields(geth_node_id = self.id))]
     fn block_gas_limit(&self, number: BlockNumberOrTag) -> anyhow::Result<u128> {
-        let provider = self.provider();
+        let provider = self.provider_no_additional_signers();
         BlockingExecutor::execute(async move {
             provider
                 .await?
@@ -364,7 +384,7 @@ impl EthereumNode for Instance {
 
     #[tracing::instrument(skip_all, fields(geth_node_id = self.id))]
     fn block_coinbase(&self, number: BlockNumberOrTag) -> anyhow::Result<Address> {
-        let provider = self.provider();
+        let provider = self.provider_no_additional_signers();
         BlockingExecutor::execute(async move {
             provider
                 .await?
@@ -377,7 +397,7 @@ impl EthereumNode for Instance {
 
     #[tracing::instrument(skip_all, fields(geth_node_id = self.id))]
     fn block_difficulty(&self, number: BlockNumberOrTag) -> anyhow::Result<U256> {
-        let provider = self.provider();
+        let provider = self.provider_no_additional_signers();
         BlockingExecutor::execute(async move {
             provider
                 .await?
@@ -390,7 +410,7 @@ impl EthereumNode for Instance {
 
     #[tracing::instrument(skip_all, fields(geth_node_id = self.id))]
     fn block_hash(&self, number: BlockNumberOrTag) -> anyhow::Result<BlockHash> {
-        let provider = self.provider();
+        let provider = self.provider_no_additional_signers();
         BlockingExecutor::execute(async move {
             provider
                 .await?
@@ -403,7 +423,7 @@ impl EthereumNode for Instance {
 
     #[tracing::instrument(skip_all, fields(geth_node_id = self.id))]
     fn block_timestamp(&self, number: BlockNumberOrTag) -> anyhow::Result<BlockTimestamp> {
-        let provider = self.provider();
+        let provider = self.provider_no_additional_signers();
         BlockingExecutor::execute(async move {
             provider
                 .await?
@@ -416,7 +436,7 @@ impl EthereumNode for Instance {
 
     #[tracing::instrument(skip_all, fields(geth_node_id = self.id))]
     fn last_block_number(&self) -> anyhow::Result<BlockNumber> {
-        let provider = self.provider();
+        let provider = self.provider_no_additional_signers();
         BlockingExecutor::execute(async move {
             provider.await?.get_block_number().await.map_err(Into::into)
         })?

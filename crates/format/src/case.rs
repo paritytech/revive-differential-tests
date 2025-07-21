@@ -3,6 +3,7 @@ use serde::Deserialize;
 use crate::{
     define_wrapper_type,
     input::{Expected, Input},
+    metadata::AddressReplacementMap,
     mode::Mode,
 };
 
@@ -14,6 +15,21 @@ pub struct Case {
     pub inputs: Vec<Input>,
     pub group: Option<String>,
     pub expected: Option<Expected>,
+}
+
+impl Case {
+    pub fn handle_address_replacement(
+        &mut self,
+        old_to_new_mapping: &mut AddressReplacementMap,
+    ) -> anyhow::Result<()> {
+        for input in self.inputs.iter_mut() {
+            input.handle_address_replacement(old_to_new_mapping)?;
+        }
+        if let Some(ref mut expected) = self.expected {
+            expected.handle_address_replacement(old_to_new_mapping)?;
+        }
+        Ok(())
+    }
 }
 
 define_wrapper_type!(

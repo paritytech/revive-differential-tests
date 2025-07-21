@@ -20,12 +20,12 @@ static TEMP_DIR: LazyLock<TempDir> = LazyLock::new(|| TempDir::new().unwrap());
 fn main() -> anyhow::Result<()> {
     let args = init_cli()?;
 
-    for (corpus, tests) in collect_corpora(&args)? {
+    for (corpus, mut tests) in collect_corpora(&args)? {
         let span = Span::new(corpus, args.clone())?;
 
         match &args.compile_only {
             Some(platform) => compile_corpus(&args, &tests, platform, span),
-            None => execute_corpus(&args, &tests, span)?,
+            None => execute_corpus(&args, &mut tests, span)?,
         }
 
         Report::save()?;
@@ -83,7 +83,7 @@ fn collect_corpora(args: &Arguments) -> anyhow::Result<HashMap<Corpus, Vec<Metad
     Ok(corpora)
 }
 
-fn run_driver<L, F>(args: &Arguments, tests: &[MetadataFile], span: Span) -> anyhow::Result<()>
+fn run_driver<L, F>(args: &Arguments, tests: &mut [MetadataFile], span: Span) -> anyhow::Result<()>
 where
     L: Platform,
     F: Platform,
@@ -93,7 +93,7 @@ where
     let leader_nodes = NodePool::<L::Blockchain>::new(args)?;
     let follower_nodes = NodePool::<F::Blockchain>::new(args)?;
 
-    tests.par_iter().for_each(
+    tests.par_iter_mut().for_each(
         |MetadataFile {
              content: metadata,
              path: metadata_file_path,
@@ -141,7 +141,7 @@ where
     Ok(())
 }
 
-fn execute_corpus(args: &Arguments, tests: &[MetadataFile], span: Span) -> anyhow::Result<()> {
+fn execute_corpus(args: &Arguments, tests: &mut [MetadataFile], span: Span) -> anyhow::Result<()> {
     match (&args.leader, &args.follower) {
         (TestingPlatform::Geth, TestingPlatform::Kitchensink) => {
             run_driver::<Geth, Kitchensink>(args, tests, span)?

@@ -1,9 +1,11 @@
 //! This crate implements all node interactions.
 
 use alloy::eips::BlockNumberOrTag;
+use alloy::network::TxSigner;
 use alloy::primitives::{Address, BlockHash, BlockNumber, BlockTimestamp, ChainId, U256};
 use alloy::rpc::types::trace::geth::{DiffMode, GethDebugTracingOptions, GethTrace};
 use alloy::rpc::types::{TransactionReceipt, TransactionRequest};
+use alloy::signers::Signature;
 use anyhow::Result;
 
 mod blocking_executor;
@@ -12,7 +14,13 @@ pub use blocking_executor::*;
 /// An interface for all interactions with Ethereum compatible nodes.
 pub trait EthereumNode {
     /// Execute the [TransactionRequest] and return a [TransactionReceipt].
-    fn execute_transaction(&self, transaction: TransactionRequest) -> Result<TransactionReceipt>;
+    fn execute_transaction(
+        &self,
+        transaction: TransactionRequest,
+        additional_signers: Option<
+            impl IntoIterator<Item: TxSigner<Signature> + Send + Sync + 'static>,
+        >,
+    ) -> Result<TransactionReceipt>;
 
     /// Trace the transaction in the [TransactionReceipt] and return a [GethTrace].
     fn trace_transaction(

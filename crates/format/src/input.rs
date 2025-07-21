@@ -7,13 +7,13 @@ use alloy::{
     primitives::{Address, Bytes, U256},
     rpc::types::TransactionRequest,
 };
-use alloy_primitives::B256;
+use alloy_primitives::FixedBytes;
 use semver::VersionReq;
 use serde::Deserialize;
 
 use revive_dt_node_interaction::EthereumNode;
 
-use crate::metadata::ContractInstance;
+use crate::metadata::{AddressReplacementMap, ContractInstance};
 
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
 pub struct Input {
@@ -50,7 +50,7 @@ pub struct ExpectedOutput {
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
 pub struct Event {
     pub address: Option<Address>,
-    pub topics: Vec<B256>,
+    pub topics: Vec<String>,
     pub values: Calldata,
 }
 
@@ -101,6 +101,41 @@ impl ExpectedOutput {
         self.return_data = Some(calldata);
         self
     }
+
+    pub fn handle_address_replacement(
+        &mut self,
+        old_to_new_mapping: &mut AddressReplacementMap,
+    ) -> anyhow::Result<()> {
+        if let Some(ref mut calldata) = self.return_data {
+            calldata.handle_address_replacement(old_to_new_mapping)?;
+        }
+        if let Some(ref mut events) = self.events {
+            for event in events.iter_mut() {
+                event.handle_address_replacement(old_to_new_mapping)?;
+            }
+        }
+        Ok(())
+    }
+}
+
+impl Event {
+    pub fn handle_address_replacement(
+        &mut self,
+        old_to_new_mapping: &mut AddressReplacementMap,
+    ) -> anyhow::Result<()> {
+        if let Some(ref mut address) = self.address {
+            if let Some(new_address) = old_to_new_mapping.resolve(address.to_string().as_str()) {
+                *address = new_address
+            }
+        };
+        for topic in self.topics.iter_mut() {
+            if let Some(new_address) = old_to_new_mapping.resolve(topic.to_string().as_str()) {
+                *topic = new_address.to_string();
+            }
+        }
+        self.values.handle_address_replacement(old_to_new_mapping)?;
+        Ok(())
+    }
 }
 
 impl Default for Calldata {
@@ -118,6 +153,23 @@ impl Calldata {
                 }
             }
         }
+    }
+
+    pub fn handle_address_replacement(
+        &mut self,
+        old_to_new_mapping: &mut AddressReplacementMap,
+    ) -> anyhow::Result<()> {
+        match self {
+            Calldata::Single(_) => {}
+            Calldata::Compound(items) => {
+                for item in items.iter_mut() {
+                    if let Some(resolved) = old_to_new_mapping.resolve(item) {
+                        *item = resolved.to_string()
+                    }
+                }
+            }
+        }
+        Ok(())
     }
 
     pub fn calldata(
@@ -162,6 +214,28 @@ impl Calldata {
             Calldata::Single(single) => (single.len() - 2) / 2,
             Calldata::Compound(items) => items.len() * 32,
         }
+    }
+}
+
+impl Expected {
+    pub fn handle_address_replacement(
+        &mut self,
+        old_to_new_mapping: &mut AddressReplacementMap,
+    ) -> anyhow::Result<()> {
+        match self {
+            Expected::Calldata(calldata) => {
+                calldata.handle_address_replacement(old_to_new_mapping)?;
+            }
+            Expected::Expected(expected_output) => {
+                expected_output.handle_address_replacement(old_to_new_mapping)?;
+            }
+            Expected::ExpectedMany(expected_outputs) => {
+                for expected_output in expected_outputs.iter_mut() {
+                    expected_output.handle_address_replacement(old_to_new_mapping)?;
+                }
+            }
+        }
+        Ok(())
     }
 }
 
@@ -267,14 +341,36 @@ impl Input {
 
         vec
     }
+
+    pub fn handle_address_replacement(
+        &mut self,
+        old_to_new_mapping: &mut AddressReplacementMap,
+    ) -> anyhow::Result<()> {
+        if self.caller != default_caller() {
+            self.caller = old_to_new_mapping.get(self.caller);
+        }
+        self.calldata
+            .handle_address_replacement(old_to_new_mapping)?;
+        if let Some(ref mut expected) = self.expected {
+            expected.handle_address_replacement(old_to_new_mapping)?;
+        }
+        if let Some(ref mut storage) = self.storage {
+            for calldata in storage.values_mut() {
+                calldata.handle_address_replacement(old_to_new_mapping)?;
+            }
+        }
+        Ok(())
+    }
 }
 
 fn default_instance() -> ContractInstance {
     ContractInstance::new_from("Test")
 }
 
-fn default_caller() -> Address {
-    "90F8bf6A479f320ead074411a4B0e7944Ea8c9C1".parse().unwrap()
+pub const fn default_caller() -> Address {
+    Address(FixedBytes(alloy::hex!(
+        "90F8bf6A479f320ead074411a4B0e7944Ea8c9C1"
+    )))
 }
 
 /// This function takes in the string calldata argument provided in the JSON input and resolves it
@@ -285,7 +381,7 @@ fn default_caller() -> Address {
 /// This piece of code is taken from the matter-labs-tester repository which is licensed under MIT
 /// or Apache. The original source code can be found here:
 /// https://github.com/matter-labs/era-compiler-tester/blob/0ed598a27f6eceee7008deab3ff2311075a2ec69/compiler_tester/src/test/case/input/value.rs#L43-L146
-fn resolve_argument(
+pub fn resolve_argument(
     value: &str,
     deployed_contracts: &HashMap<ContractInstance, (Address, JsonAbi)>,
     chain_state_provider: &impl EthereumNode,
@@ -352,8 +448,8 @@ fn resolve_argument(
 mod tests {
 
     use super::*;
-    use alloy::json_abi::JsonAbi;
-    use alloy_primitives::address;
+    use alloy::{json_abi::JsonAbi, network::TxSigner};
+    use alloy_primitives::{Signature, address};
     use alloy_sol_types::SolValue;
     use std::collections::HashMap;
 
@@ -363,6 +459,7 @@ mod tests {
         fn execute_transaction(
             &self,
             _: TransactionRequest,
+            _: Option<impl IntoIterator<Item: TxSigner<Signature> + Send + Sync + 'static>>,
         ) -> anyhow::Result<alloy::rpc::types::TransactionReceipt> {
             unimplemented!()
         }

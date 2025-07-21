@@ -22,8 +22,10 @@ use indexmap::IndexMap;
 use revive_dt_compiler::{Compiler, SolidityCompiler};
 use revive_dt_config::Arguments;
 use revive_dt_format::case::CaseIdx;
-use revive_dt_format::input::{Calldata, Expected, ExpectedOutput, Method};
-use revive_dt_format::metadata::{ContractInstance, ContractPathAndIdentifier};
+use revive_dt_format::input::{Calldata, Expected, ExpectedOutput, Method, default_caller};
+use revive_dt_format::metadata::{
+    AddressReplacementMap, ContractInstance, ContractPathAndIdentifier,
+};
 use revive_dt_format::{input::Input, metadata::Metadata, mode::SolcMode};
 use revive_dt_node_interaction::EthereumNode;
 use revive_dt_report::reporter::{CompilationTask, Report, Span};
@@ -145,11 +147,17 @@ where
         case_idx: CaseIdx,
         input: &Input,
         node: &T::Blockchain,
+        address_replacement: &AddressReplacementMap,
     ) -> anyhow::Result<(TransactionReceipt, GethTrace, DiffMode)> {
         let deployment_receipts =
-            self.handle_contract_deployment(metadata, case_idx, input, node)?;
-        let execution_receipt =
-            self.handle_input_execution(case_idx, input, deployment_receipts, node)?;
+            self.handle_contract_deployment(metadata, case_idx, input, node, address_replacement)?;
+        let execution_receipt = self.handle_input_execution(
+            case_idx,
+            input,
+            deployment_receipts,
+            node,
+            address_replacement,
+        )?;
         self.handle_input_expectations(case_idx, input, &execution_receipt, node)?;
         self.handle_input_diff(case_idx, execution_receipt, node)
     }
@@ -161,6 +169,7 @@ where
         case_idx: CaseIdx,
         input: &Input,
         node: &T::Blockchain,
+        address_replacement: &AddressReplacementMap,
     ) -> anyhow::Result<HashMap<ContractInstance, TransactionReceipt>> {
         let span = tracing::debug_span!(
             "Handling contract deployment",
@@ -252,7 +261,16 @@ where
                 TransactionBuilder::<Ethereum>::with_deploy_code(tx, code)
             };
 
-            let receipt = match node.execute_transaction(tx) {
+            let receipt = match node.execute_transaction(
+                tx,
+                Some(
+                    address_replacement
+                        .as_ref()
+                        .values()
+                        .map(|(sk, _)| sk)
+                        .map(Clone::clone),
+                ),
+            ) {
                 Ok(receipt) => receipt,
                 Err(error) => {
                     tracing::error!(
@@ -316,6 +334,7 @@ where
         input: &Input,
         mut deployment_receipts: HashMap<ContractInstance, TransactionReceipt>,
         node: &T::Blockchain,
+        address_replacement: &AddressReplacementMap,
     ) -> anyhow::Result<TransactionReceipt> {
         match input.method {
             // This input was already executed when `handle_input` was called. We just need to
@@ -339,7 +358,16 @@ where
 
                 tracing::trace!("Executing transaction for input: {input:?}");
 
-                match node.execute_transaction(tx) {
+                match node.execute_transaction(
+                    tx,
+                    Some(
+                        address_replacement
+                            .as_ref()
+                            .values()
+                            .map(|(sk, _)| sk)
+                            .map(Clone::clone),
+                    ),
+                ) {
                     Ok(receipt) => Ok(receipt),
                     Err(err) => {
                         tracing::error!(
@@ -503,18 +531,26 @@ where
                 }
 
                 // Handling the topics assertion.
-                let expected = expected_event.topics.as_slice();
-                let actual = actual_event.topics();
-                if actual != expected {
-                    tracing::error!(
-                        ?execution_receipt,
-                        ?expected,
-                        ?actual,
-                        "Event topics assertion failed",
-                    );
-                    anyhow::bail!(
-                        "Event topics assertion failed - Expected {expected:?} but got {actual:?}",
-                    );
+                for (expected_topic, actual_topic) in expected_event
+                    .topics
+                    .as_slice()
+                    .iter()
+                    .zip(actual_event.topics())
+                {
+                    let expected = Calldata::Compound(vec![expected_topic.clone()])
+                        .calldata(self.deployed_contracts.entry(case_idx).or_default(), node)?;
+                    let actual = actual_topic.to_vec();
+                    if actual != expected {
+                        tracing::error!(
+                            ?execution_receipt,
+                            ?expected,
+                            ?actual,
+                            "Event topics assertion failed",
+                        );
+                        anyhow::bail!(
+                            "Event topics assertion failed - Expected {expected:?} but got {actual:?}",
+                        );
+                    }
                 }
 
                 // Handling the values assertion.
@@ -563,7 +599,7 @@ where
 }
 
 pub struct Driver<'a, Leader: Platform, Follower: Platform> {
-    metadata: &'a Metadata,
+    metadata: &'a mut Metadata,
     config: &'a Arguments,
     leader_node: &'a Leader::Blockchain,
     follower_node: &'a Follower::Blockchain,
@@ -575,7 +611,7 @@ where
     F: Platform,
 {
     pub fn new(
-        metadata: &'a Metadata,
+        metadata: &'a mut Metadata,
         config: &'a Arguments,
         leader_node: &'a L::Blockchain,
         follower_node: &'a F::Blockchain,
@@ -686,6 +722,45 @@ where
 
             // For cases if one of the inputs fail then we move on to the next case and we do NOT
             // bail out of the whole thing.
+            let replacement_maps = self
+                .metadata
+                .cases
+                .iter_mut()
+                .enumerate()
+                .map(|(case_id, case)| (CaseIdx::new(case_id), case))
+                .fold(HashMap::new(), |mut map, (case_idx, case)| {
+                    let mut replacement_map = AddressReplacementMap::default();
+                    case.inputs
+                        .iter()
+                        .filter_map(|input| {
+                            if input.caller == default_caller() {
+                                None
+                            } else {
+                                Some(input.caller)
+                            }
+                        })
+                        .for_each(|caller| {
+                            replacement_map.get(caller);
+                        });
+                    if let Err(error) = case.handle_address_replacement(&mut replacement_map) {
+                        tracing::error!(
+                            target = ?Target::Leader,
+                            ?error,
+                            "Case address replacement failed"
+                        );
+                        execution_result.add_failed_case(
+                            Target::Leader,
+                            mode.clone(),
+                            case.name.as_deref().unwrap_or("no case name").to_owned(),
+                            case_idx,
+                            0,
+                            anyhow::Error::msg(format!("{error}")),
+                        );
+                    }
+                    map.insert(case_idx, replacement_map);
+                    map
+                });
+
             'case_loop: for (case_idx, case) in self.metadata.cases.iter().enumerate() {
                 let tracing_span = tracing::info_span!(
                     "Handling case",
@@ -695,6 +770,7 @@ where
                 let _guard = tracing_span.enter();
 
                 let case_idx = CaseIdx::new_from(case_idx);
+                let replacement_map = replacement_maps.get(&case_idx).cloned().unwrap_or_default();
 
                 // For inputs if one of the inputs fail we move on to the next case (we do not move
                 // on to the next input as it doesn't make sense. It depends on the previous one).
@@ -706,8 +782,13 @@ where
                         tracing::info_span!("Executing input", contract_name = ?input.instance)
                             .in_scope(|| {
                                 let (leader_receipt, _, leader_diff) = match leader_state
-                                    .handle_input(self.metadata, case_idx, &input, self.leader_node)
-                                {
+                                    .handle_input(
+                                        self.metadata,
+                                        case_idx,
+                                        &input,
+                                        self.leader_node,
+                                        &replacement_map,
+                                    ) {
                                     Ok(result) => result,
                                     Err(error) => {
                                         tracing::error!(
@@ -736,6 +817,7 @@ where
                                         case_idx,
                                         &input,
                                         self.follower_node,
+                                        &replacement_map,
                                     ) {
                                     Ok(result) => result,
                                     Err(error) => {

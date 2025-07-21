@@ -12,7 +12,7 @@ use alloy::{
     eips::BlockNumberOrTag,
     hex,
     network::{
-        Ethereum, EthereumWallet, Network, TransactionBuilder, TransactionBuilderError,
+        Ethereum, EthereumWallet, Network, TransactionBuilder, TransactionBuilderError, TxSigner,
         UnbuiltTransactionError,
     },
     primitives::{Address, B64, B256, BlockHash, BlockNumber, BlockTimestamp, Bloom, Bytes, U256},
@@ -26,6 +26,7 @@ use alloy::{
         eth::{Block, Header, Transaction},
         trace::geth::{DiffMode, GethDebugTracingOptions, PreStateConfig, PreStateFrame},
     },
+    signers::{Signature, local::PrivateKeySigner},
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Value as JsonValue, json};
@@ -335,6 +336,9 @@ impl KitchensinkNode {
 
     fn provider(
         &self,
+        additional_signers: Option<
+            impl IntoIterator<Item: TxSigner<Signature> + Send + Sync + 'static>,
+        >,
     ) -> impl Future<
         Output = anyhow::Result<
             FillProvider<
@@ -345,7 +349,10 @@ impl KitchensinkNode {
         >,
     > + 'static {
         let connection_string = self.connection_string();
-        let wallet = self.wallet.clone();
+        let mut wallet = self.wallet.clone();
+        for signer in additional_signers.into_iter().flatten() {
+            wallet.register_signer(signer);
+        }
 
         // Note: We would like all providers to make use of the same nonce manager so that we have
         // monotonically increasing nonces that are cached. The cached nonce manager uses Arc's in
@@ -370,6 +377,20 @@ impl KitchensinkNode {
                 .map_err(Into::into)
         })
     }
+
+    fn provider_no_additional_signers(
+        &self,
+    ) -> impl Future<
+        Output = anyhow::Result<
+            FillProvider<
+                impl TxFiller<KitchenSinkNetwork>,
+                impl Provider<KitchenSinkNetwork>,
+                KitchenSinkNetwork,
+            >,
+        >,
+    > + 'static {
+        self.provider(None::<Vec<PrivateKeySigner>>)
+    }
 }
 
 impl EthereumNode for KitchensinkNode {
@@ -377,9 +398,12 @@ impl EthereumNode for KitchensinkNode {
     fn execute_transaction(
         &self,
         transaction: alloy::rpc::types::TransactionRequest,
+        additional_signers: Option<
+            impl IntoIterator<Item: TxSigner<Signature> + Send + Sync + 'static>,
+        >,
     ) -> anyhow::Result<TransactionReceipt> {
         tracing::debug!(?transaction, "Submitting transaction");
-        let provider = self.provider();
+        let provider = self.provider(additional_signers);
         let receipt = BlockingExecutor::execute(async move {
             Ok(provider
                 .await?
@@ -399,7 +423,7 @@ impl EthereumNode for KitchensinkNode {
         trace_options: GethDebugTracingOptions,
     ) -> anyhow::Result<alloy::rpc::types::trace::geth::GethTrace> {
         let tx_hash = transaction.transaction_hash;
-        let provider = self.provider();
+        let provider = self.provider_no_additional_signers();
         BlockingExecutor::execute(async move {
             Ok(provider
                 .await?
@@ -426,7 +450,7 @@ impl EthereumNode for KitchensinkNode {
 
     #[tracing::instrument(skip_all, fields(geth_node_id = self.id))]
     fn chain_id(&self) -> anyhow::Result<alloy::primitives::ChainId> {
-        let provider = self.provider();
+        let provider = self.provider_no_additional_signers();
         BlockingExecutor::execute(async move {
             provider.await?.get_chain_id().await.map_err(Into::into)
         })?
@@ -434,7 +458,7 @@ impl EthereumNode for KitchensinkNode {
 
     #[tracing::instrument(skip_all, fields(geth_node_id = self.id))]
     fn block_gas_limit(&self, number: BlockNumberOrTag) -> anyhow::Result<u128> {
-        let provider = self.provider();
+        let provider = self.provider_no_additional_signers();
         BlockingExecutor::execute(async move {
             provider
                 .await?
@@ -447,7 +471,7 @@ impl EthereumNode for KitchensinkNode {
 
     #[tracing::instrument(skip_all, fields(geth_node_id = self.id))]
     fn block_coinbase(&self, number: BlockNumberOrTag) -> anyhow::Result<Address> {
-        let provider = self.provider();
+        let provider = self.provider_no_additional_signers();
         BlockingExecutor::execute(async move {
             provider
                 .await?
@@ -460,7 +484,7 @@ impl EthereumNode for KitchensinkNode {
 
     #[tracing::instrument(skip_all, fields(geth_node_id = self.id))]
     fn block_difficulty(&self, number: BlockNumberOrTag) -> anyhow::Result<U256> {
-        let provider = self.provider();
+        let provider = self.provider_no_additional_signers();
         BlockingExecutor::execute(async move {
             provider
                 .await?
@@ -473,7 +497,7 @@ impl EthereumNode for KitchensinkNode {
 
     #[tracing::instrument(skip_all, fields(geth_node_id = self.id))]
     fn block_hash(&self, number: BlockNumberOrTag) -> anyhow::Result<BlockHash> {
-        let provider = self.provider();
+        let provider = self.provider_no_additional_signers();
         BlockingExecutor::execute(async move {
             provider
                 .await?
@@ -486,7 +510,7 @@ impl EthereumNode for KitchensinkNode {
 
     #[tracing::instrument(skip_all, fields(geth_node_id = self.id))]
     fn block_timestamp(&self, number: BlockNumberOrTag) -> anyhow::Result<BlockTimestamp> {
-        let provider = self.provider();
+        let provider = self.provider_no_additional_signers();
         BlockingExecutor::execute(async move {
             provider
                 .await?
@@ -499,7 +523,7 @@ impl EthereumNode for KitchensinkNode {
 
     #[tracing::instrument(skip_all, fields(geth_node_id = self.id))]
     fn last_block_number(&self) -> anyhow::Result<BlockNumber> {
-        let provider = self.provider();
+        let provider = self.provider_no_additional_signers();
         BlockingExecutor::execute(async move {
             provider.await?.get_block_number().await.map_err(Into::into)
         })?
@@ -631,6 +655,12 @@ impl TransactionBuilder<KitchenSinkNetwork> for <Ethereum as Network>::Transacti
     fn set_nonce(&mut self, nonce: u64) {
         <<Ethereum as Network>::TransactionRequest as TransactionBuilder<Ethereum>>::set_nonce(
             self, nonce,
+        )
+    }
+
+    fn take_nonce(&mut self) -> Option<u64> {
+        <<Ethereum as Network>::TransactionRequest as TransactionBuilder<Ethereum>>::take_nonce(
+            self,
         )
     }
 
@@ -1076,7 +1106,10 @@ mod tests {
         // Arrange
         let (node, args, _temp_dir) = new_node();
 
-        let provider = node.provider().await.expect("Failed to create provider");
+        let provider = node
+            .provider_no_additional_signers()
+            .await
+            .expect("Failed to create provider");
 
         let account_address = args.wallet().default_signer().address();
         let transaction = TransactionRequest::default()

@@ -1,5 +1,5 @@
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, HashMap},
     fmt::Display,
     fs::{File, read_to_string},
     ops::Deref,
@@ -7,11 +7,15 @@ use std::{
     str::FromStr,
 };
 
+use alloy::{network::TxSigner, signers::local::PrivateKeySigner};
+use alloy_primitives::{Address, Signature};
+use revive_dt_node_interaction::EthereumNode;
 use serde::{Deserialize, Serialize};
 
 use crate::{
     case::Case,
     define_wrapper_type,
+    input::resolve_argument,
     mode::{Mode, SolcMode},
 };
 
@@ -210,6 +214,17 @@ impl Metadata {
             }
         }
     }
+
+    pub fn handle_address_replacement(
+        &mut self,
+        old_to_new_mapping: &mut AddressReplacementMap,
+    ) -> anyhow::Result<()> {
+        for case in self.cases.iter_mut() {
+            case.handle_address_replacement(old_to_new_mapping)?;
+        }
+        tracing::debug!(metadata = ?self, "Performed replacement on metadata");
+        Ok(())
+    }
 }
 
 define_wrapper_type!(
@@ -305,6 +320,130 @@ impl TryFrom<String> for ContractPathAndIdentifier {
 impl From<ContractPathAndIdentifier> for String {
     fn from(value: ContractPathAndIdentifier) -> Self {
         value.to_string()
+    }
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct AddressReplacementMap(HashMap<Address, (PrivateKeySigner, Address)>);
+
+impl AddressReplacementMap {
+    pub fn new() -> Self {
+        Self(Default::default())
+    }
+
+    pub fn into_inner(self) -> HashMap<Address, (PrivateKeySigner, Address)> {
+        self.0
+    }
+
+    pub fn contains_key(&self, address: &Address) -> bool {
+        self.0.contains_key(address)
+    }
+
+    pub fn get(&mut self, address: Address) -> Address {
+        self.0
+            .entry(address)
+            .or_insert_with(|| {
+                let private_key = Self::new_random_private_key_signer();
+                let account = private_key.address();
+                tracing::debug!(
+                    old_address = %address,
+                    new_address = %account,
+                    "Added a new address replacement"
+                );
+                (private_key, account)
+            })
+            .1
+    }
+
+    pub fn resolve(&mut self, value: &str) -> Option<Address> {
+        // We attempt to resolve the given string without any additional context of the deployed
+        // contracts or the node API as we do not need them. If the resolution fails then we know
+        // that this isn't an address and we skip it.
+        let Ok(resolved) = resolve_argument(value, &Default::default(), &UnimplementedEthereumNode)
+        else {
+            return None;
+        };
+        let resolved_bytes = resolved.to_be_bytes_trimmed_vec();
+        let Ok(address) = Address::try_from(resolved_bytes.as_slice()) else {
+            return None;
+        };
+        self.0.get(&address).map(|(_, address)| *address)
+    }
+
+    fn new_random_private_key_signer() -> PrivateKeySigner {
+        // TODO: Use a seedable RNG to allow for deterministic allocation of the private keys so
+        // that we get reproducible runs.
+        PrivateKeySigner::random()
+    }
+}
+
+impl AsRef<HashMap<Address, (PrivateKeySigner, Address)>> for AddressReplacementMap {
+    fn as_ref(&self) -> &HashMap<Address, (PrivateKeySigner, Address)> {
+        &self.0
+    }
+}
+
+struct UnimplementedEthereumNode;
+
+impl EthereumNode for UnimplementedEthereumNode {
+    fn execute_transaction(
+        &self,
+        _: alloy::rpc::types::TransactionRequest,
+        _: Option<impl IntoIterator<Item: TxSigner<Signature> + Send + Sync + 'static>>,
+    ) -> anyhow::Result<alloy::rpc::types::TransactionReceipt> {
+        anyhow::bail!("Unimplemented")
+    }
+
+    fn chain_id(&self) -> anyhow::Result<alloy_primitives::ChainId> {
+        anyhow::bail!("Unimplemented")
+    }
+
+    fn block_gas_limit(&self, _: alloy::eips::BlockNumberOrTag) -> anyhow::Result<u128> {
+        anyhow::bail!("Unimplemented")
+    }
+
+    fn block_coinbase(&self, _: alloy::eips::BlockNumberOrTag) -> anyhow::Result<Address> {
+        anyhow::bail!("Unimplemented")
+    }
+
+    fn block_difficulty(
+        &self,
+        _: alloy::eips::BlockNumberOrTag,
+    ) -> anyhow::Result<alloy_primitives::U256> {
+        anyhow::bail!("Unimplemented")
+    }
+
+    fn block_hash(
+        &self,
+        _: alloy::eips::BlockNumberOrTag,
+    ) -> anyhow::Result<alloy_primitives::BlockHash> {
+        anyhow::bail!("Unimplemented")
+    }
+
+    fn block_timestamp(
+        &self,
+        _: alloy::eips::BlockNumberOrTag,
+    ) -> anyhow::Result<alloy_primitives::BlockTimestamp> {
+        anyhow::bail!("Unimplemented")
+    }
+
+    fn last_block_number(&self) -> anyhow::Result<alloy_primitives::BlockNumber> {
+        anyhow::bail!("Unimplemented")
+    }
+
+    fn trace_transaction(
+        &self,
+        _: &alloy::rpc::types::TransactionReceipt,
+        _: alloy::rpc::types::trace::geth::GethDebugTracingOptions,
+    ) -> anyhow::Result<alloy::rpc::types::trace::geth::GethTrace> {
+        anyhow::bail!("Unimplemented")
+    }
+
+    fn state_diff(
+        &self,
+        _: &alloy::rpc::types::TransactionReceipt,
+    ) -> anyhow::Result<alloy::rpc::types::trace::geth::DiffMode> {
+        anyhow::bail!("Unimplemented")
     }
 }
 
