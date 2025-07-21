@@ -47,7 +47,7 @@ fn main() -> anyhow::Result<()> {
                 None
             }
         }) {
-            replacement_map.get(address);
+            replacement_map.add(address);
         }
         case.handle_address_replacement(&mut replacement_map)?;
         replacement_private_keys.extend(

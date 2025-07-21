@@ -339,7 +339,7 @@ impl AddressReplacementMap {
         self.0.contains_key(address)
     }
 
-    pub fn get(&mut self, address: Address) -> Address {
+    pub fn add(&mut self, address: Address) -> Address {
         self.0
             .entry(address)
             .or_insert_with(|| {
@@ -355,7 +355,7 @@ impl AddressReplacementMap {
             .1
     }
 
-    pub fn resolve(&mut self, value: &str) -> Option<Address> {
+    pub fn resolve(&self, value: &str) -> Option<Address> {
         // We attempt to resolve the given string without any additional context of the deployed
         // contracts or the node API as we do not need them. If the resolution fails then we know
         // that this isn't an address and we skip it.

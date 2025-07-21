@@ -104,7 +104,7 @@ impl ExpectedOutput {
 
     pub fn handle_address_replacement(
         &mut self,
-        old_to_new_mapping: &mut AddressReplacementMap,
+        old_to_new_mapping: &AddressReplacementMap,
     ) -> anyhow::Result<()> {
         if let Some(ref mut calldata) = self.return_data {
             calldata.handle_address_replacement(old_to_new_mapping)?;
@@ -121,7 +121,7 @@ impl ExpectedOutput {
 impl Event {
     pub fn handle_address_replacement(
         &mut self,
-        old_to_new_mapping: &mut AddressReplacementMap,
+        old_to_new_mapping: &AddressReplacementMap,
     ) -> anyhow::Result<()> {
         if let Some(ref mut address) = self.address {
             if let Some(new_address) = old_to_new_mapping.resolve(address.to_string().as_str()) {
@@ -157,7 +157,7 @@ impl Calldata {
 
     pub fn handle_address_replacement(
         &mut self,
-        old_to_new_mapping: &mut AddressReplacementMap,
+        old_to_new_mapping: &AddressReplacementMap,
     ) -> anyhow::Result<()> {
         match self {
             Calldata::Single(_) => {}
@@ -220,7 +220,7 @@ impl Calldata {
 impl Expected {
     pub fn handle_address_replacement(
         &mut self,
-        old_to_new_mapping: &mut AddressReplacementMap,
+        old_to_new_mapping: &AddressReplacementMap,
     ) -> anyhow::Result<()> {
         match self {
             Expected::Calldata(calldata) => {
@@ -347,7 +347,7 @@ impl Input {
         old_to_new_mapping: &mut AddressReplacementMap,
     ) -> anyhow::Result<()> {
         if self.caller != default_caller() {
-            self.caller = old_to_new_mapping.get(self.caller);
+            self.caller = old_to_new_mapping.add(self.caller);
         }
         self.calldata
             .handle_address_replacement(old_to_new_mapping)?;
