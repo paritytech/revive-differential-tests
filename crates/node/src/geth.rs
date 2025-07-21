@@ -11,7 +11,8 @@ use std::{
 
 use alloy::{
     eips::BlockNumberOrTag,
-    network::{Ethereum, EthereumWallet, TxSigner},
+    genesis::{Genesis, GenesisAccount},
+    network::{Ethereum, EthereumWallet, NetworkWallet, TxSigner},
     primitives::{Address, BlockHash, BlockNumber, BlockTimestamp, U256},
     providers::{
         Provider, ProviderBuilder,
@@ -79,8 +80,16 @@ impl Instance {
         create_dir_all(&self.base_directory)?;
         create_dir_all(&self.logs_directory)?;
 
+        let mut genesis = serde_json::from_str::<Genesis>(&genesis)?;
+        for signer_address in
+            <EthereumWallet as NetworkWallet<Ethereum>>::signer_addresses(&self.wallet)
+        {
+            genesis.alloc.entry(signer_address).or_insert(
+                GenesisAccount::default().with_balance(1000000000000000000u128.try_into().unwrap()),
+            );
+        }
         let genesis_path = self.base_directory.join(Self::GENESIS_JSON_FILE);
-        File::create(&genesis_path)?.write_all(genesis.as_bytes())?;
+        serde_json::to_writer(File::create(&genesis_path)?, &genesis)?;
 
         let mut child = Command::new(&self.geth)
             .arg("init")

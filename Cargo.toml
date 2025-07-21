@@ -59,7 +59,7 @@ revive-common = { git = "https://github.com/paritytech/revive", rev = "3389865af
 revive-differential = { git = "https://github.com/paritytech/revive", rev = "3389865af7c3ff6f29a586d82157e8bc573c1a8e" }
 
 [workspace.dependencies.alloy]
-version = "1.0"
+version = "1.0.22"
 default-features = false
 features = [
     "json-abi",
@@ -73,6 +73,7 @@ features = [
     "network",
     "serde",
     "rpc-types-eth",
+    "genesis",
 ]
 
 [profile.bench]
