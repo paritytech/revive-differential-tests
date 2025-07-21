@@ -22,7 +22,7 @@ use alloy::{
         TransactionReceipt, TransactionRequest,
         trace::geth::{DiffMode, GethDebugTracingOptions, PreStateConfig, PreStateFrame},
     },
-    signers::{Signature, local::PrivateKeySigner},
+    signers::Signature,
 };
 use revive_dt_config::Arguments;
 use revive_dt_node_interaction::{BlockingExecutor, EthereumNode};
@@ -196,19 +196,13 @@ impl Instance {
 
     fn provider(
         &self,
-        additional_signers: Option<
-            impl IntoIterator<Item: TxSigner<Signature> + Send + Sync + 'static>,
-        >,
     ) -> impl Future<
         Output = anyhow::Result<
             FillProvider<impl TxFiller<Ethereum>, impl Provider<Ethereum>, Ethereum>,
         >,
     > + 'static {
         let connection_string = self.connection_string();
-        let mut wallet = self.wallet.clone();
-        for signer in additional_signers.into_iter().flatten() {
-            wallet.register_signer(signer);
-        }
+        let wallet = self.wallet.clone();
 
         // Note: We would like all providers to make use of the same nonce manager so that we have
         // monotonically increasing nonces that are cached. The cached nonce manager uses Arc's in
@@ -228,16 +222,6 @@ impl Instance {
                 .map_err(Into::into)
         })
     }
-
-    fn provider_no_additional_signers(
-        &self,
-    ) -> impl Future<
-        Output = anyhow::Result<
-            FillProvider<impl TxFiller<Ethereum>, impl Provider<Ethereum>, Ethereum>,
-        >,
-    > + 'static {
-        self.provider(None::<Vec<PrivateKeySigner>>)
-    }
 }
 
 impl EthereumNode for Instance {
@@ -245,11 +229,8 @@ impl EthereumNode for Instance {
     fn execute_transaction(
         &self,
         transaction: TransactionRequest,
-        additional_signers: Option<
-            impl IntoIterator<Item: TxSigner<Signature> + Send + Sync + 'static>,
-        >,
     ) -> anyhow::Result<alloy::rpc::types::TransactionReceipt> {
-        let provider = self.provider(additional_signers);
+        let provider = self.provider();
         BlockingExecutor::execute(async move {
             let outer_span = tracing::debug_span!("Submitting transaction", ?transaction);
             let _outer_guard = outer_span.enter();
@@ -336,7 +317,7 @@ impl EthereumNode for Instance {
         trace_options: GethDebugTracingOptions,
     ) -> anyhow::Result<alloy::rpc::types::trace::geth::GethTrace> {
         let tx_hash = transaction.transaction_hash;
-        let provider = self.provider_no_additional_signers();
+        let provider = self.provider();
         BlockingExecutor::execute(async move {
             Ok(provider
                 .await?
@@ -363,7 +344,7 @@ impl EthereumNode for Instance {
 
     #[tracing::instrument(skip_all, fields(geth_node_id = self.id))]
     fn chain_id(&self) -> anyhow::Result<alloy::primitives::ChainId> {
-        let provider = self.provider_no_additional_signers();
+        let provider = self.provider();
         BlockingExecutor::execute(async move {
             provider.await?.get_chain_id().await.map_err(Into::into)
         })?
@@ -371,7 +352,7 @@ impl EthereumNode for Instance {
 
     #[tracing::instrument(skip_all, fields(geth_node_id = self.id))]
     fn block_gas_limit(&self, number: BlockNumberOrTag) -> anyhow::Result<u128> {
-        let provider = self.provider_no_additional_signers();
+        let provider = self.provider();
         BlockingExecutor::execute(async move {
             provider
                 .await?
@@ -384,7 +365,7 @@ impl EthereumNode for Instance {
 
     #[tracing::instrument(skip_all, fields(geth_node_id = self.id))]
     fn block_coinbase(&self, number: BlockNumberOrTag) -> anyhow::Result<Address> {
-        let provider = self.provider_no_additional_signers();
+        let provider = self.provider();
         BlockingExecutor::execute(async move {
             provider
                 .await?
@@ -397,7 +378,7 @@ impl EthereumNode for Instance {
 
     #[tracing::instrument(skip_all, fields(geth_node_id = self.id))]
     fn block_difficulty(&self, number: BlockNumberOrTag) -> anyhow::Result<U256> {
-        let provider = self.provider_no_additional_signers();
+        let provider = self.provider();
         BlockingExecutor::execute(async move {
             provider
                 .await?
@@ -410,7 +391,7 @@ impl EthereumNode for Instance {
 
     #[tracing::instrument(skip_all, fields(geth_node_id = self.id))]
     fn block_hash(&self, number: BlockNumberOrTag) -> anyhow::Result<BlockHash> {
-        let provider = self.provider_no_additional_signers();
+        let provider = self.provider();
         BlockingExecutor::execute(async move {
             provider
                 .await?
@@ -423,7 +404,7 @@ impl EthereumNode for Instance {
 
     #[tracing::instrument(skip_all, fields(geth_node_id = self.id))]
     fn block_timestamp(&self, number: BlockNumberOrTag) -> anyhow::Result<BlockTimestamp> {
-        let provider = self.provider_no_additional_signers();
+        let provider = self.provider();
         BlockingExecutor::execute(async move {
             provider
                 .await?
@@ -436,7 +417,7 @@ impl EthereumNode for Instance {
 
     #[tracing::instrument(skip_all, fields(geth_node_id = self.id))]
     fn last_block_number(&self) -> anyhow::Result<BlockNumber> {
-        let provider = self.provider_no_additional_signers();
+        let provider = self.provider();
         BlockingExecutor::execute(async move {
             provider.await?.get_block_number().await.map_err(Into::into)
         })?
@@ -444,10 +425,18 @@ impl EthereumNode for Instance {
 }
 
 impl Node for Instance {
-    fn new(config: &Arguments) -> Self {
+    fn new(
+        config: &Arguments,
+        additional_signers: impl IntoIterator<Item: TxSigner<Signature> + Send + Sync + 'static>,
+    ) -> Self {
         let geth_directory = config.directory().join(Self::BASE_DIRECTORY);
         let id = NODE_COUNT.fetch_add(1, Ordering::SeqCst);
         let base_directory = geth_directory.join(id.to_string());
+
+        let mut wallet = config.wallet();
+        for signer in additional_signers {
+            wallet.register_signer(signer);
+        }
 
         Self {
             connection_string: base_directory.join(Self::IPC_FILE).display().to_string(),
@@ -459,7 +448,7 @@ impl Node for Instance {
             handle: None,
             network_id: config.network_id,
             start_timeout: config.geth_start_timeout,
-            wallet: config.wallet(),
+            wallet,
             // We know that we only need to be storing 2 files so we can specify that when creating
             // the vector. It's the stdout and stderr of the geth node.
             logs_file_to_flush: Vec::with_capacity(2),
@@ -524,6 +513,8 @@ impl Drop for Instance {
 #[cfg(test)]
 mod tests {
     use revive_dt_config::Arguments;
+
+    use alloy::signers::local::PrivateKeySigner;
     use temp_dir::TempDir;
 
     use crate::{GENESIS_JSON, Node};
@@ -540,7 +531,7 @@ mod tests {
 
     fn new_node() -> (Instance, TempDir) {
         let (args, temp_dir) = test_config();
-        let mut node = Instance::new(&args);
+        let mut node = Instance::new(&args, Vec::<PrivateKeySigner>::with_capacity(0));
         node.init(GENESIS_JSON.to_owned())
             .expect("Failed to initialize the node")
             .spawn_process()
@@ -550,21 +541,23 @@ mod tests {
 
     #[test]
     fn init_works() {
-        Instance::new(&test_config().0)
+        Instance::new(&test_config().0, Vec::<PrivateKeySigner>::with_capacity(0))
             .init(GENESIS_JSON.to_string())
             .unwrap();
     }
 
     #[test]
     fn spawn_works() {
-        Instance::new(&test_config().0)
+        Instance::new(&test_config().0, Vec::<PrivateKeySigner>::with_capacity(0))
             .spawn(GENESIS_JSON.to_string())
             .unwrap();
     }
 
     #[test]
     fn version_works() {
-        let version = Instance::new(&test_config().0).version().unwrap();
+        let version = Instance::new(&test_config().0, Vec::<PrivateKeySigner>::with_capacity(0))
+            .version()
+            .unwrap();
         assert!(
             version.starts_with("geth version"),
             "expected version string, got: '{version}'"

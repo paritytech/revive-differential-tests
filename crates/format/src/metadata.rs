@@ -7,8 +7,8 @@ use std::{
     str::FromStr,
 };
 
-use alloy::{network::TxSigner, signers::local::PrivateKeySigner};
-use alloy_primitives::{Address, Signature};
+use alloy::signers::local::PrivateKeySigner;
+use alloy_primitives::Address;
 use revive_dt_node_interaction::EthereumNode;
 use serde::{Deserialize, Serialize};
 
@@ -389,7 +389,6 @@ impl EthereumNode for UnimplementedEthereumNode {
     fn execute_transaction(
         &self,
         _: alloy::rpc::types::TransactionRequest,
-        _: Option<impl IntoIterator<Item: TxSigner<Signature> + Send + Sync + 'static>>,
     ) -> anyhow::Result<alloy::rpc::types::TransactionReceipt> {
         anyhow::bail!("Unimplemented")
     }

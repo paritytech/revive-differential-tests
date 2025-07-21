@@ -448,8 +448,8 @@ pub fn resolve_argument(
 mod tests {
 
     use super::*;
-    use alloy::{json_abi::JsonAbi, network::TxSigner};
-    use alloy_primitives::{Signature, address};
+    use alloy::json_abi::JsonAbi;
+    use alloy_primitives::address;
     use alloy_sol_types::SolValue;
     use std::collections::HashMap;
 
@@ -459,7 +459,6 @@ mod tests {
         fn execute_transaction(
             &self,
             _: TransactionRequest,
-            _: Option<impl IntoIterator<Item: TxSigner<Signature> + Send + Sync + 'static>>,
         ) -> anyhow::Result<alloy::rpc::types::TransactionReceipt> {
             unimplemented!()
         }
