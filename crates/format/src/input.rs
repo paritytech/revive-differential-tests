@@ -382,10 +382,6 @@ mod tests {
             unimplemented!()
         }
 
-        fn fetch_add_nonce(&self, _: Address) -> anyhow::Result<u64> {
-            unimplemented!()
-        }
-
         fn chain_id(&self) -> anyhow::Result<alloy_primitives::ChainId> {
             Ok(0x123)
         }
