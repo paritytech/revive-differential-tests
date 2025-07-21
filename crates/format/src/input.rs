@@ -114,8 +114,8 @@ impl Calldata {
                     };
                 }
             }
-        }
-        todo!()
+        };
+        Ok(())
     }
 
     pub fn size_requirement(&self) -> usize {
