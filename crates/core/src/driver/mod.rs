@@ -365,23 +365,7 @@ where
         let _guard = span.enter();
 
         // Resolving the `input.expected` into a series of expectations that we can then assert on.
-        let expectations = match input {
-            // This is a bit of a special case and we have to support it separately on it's own. If
-            // it's a call to the deployer method, then the tests will assert that it "returns" the
-            // address of the contract. Deployments do not return the address of the contract but
-            // the runtime code of the contracts. Therefore, this assertion would always fail. So,
-            // we replace it with an assertion of "check if it succeeded"
-            Input {
-                expected: Some(Expected::Calldata(Calldata::Compound(compound))),
-                method: Method::Deployer,
-                ..
-            } if compound.len() == 1
-                && compound
-                    .first()
-                    .is_some_and(|first| first.contains(".address")) =>
-            {
-                vec![ExpectedOutput::new().with_success()]
-            }
+        let mut expectations = match input {
             Input {
                 expected: Some(Expected::Calldata(calldata)),
                 ..
@@ -396,6 +380,17 @@ where
             } => expected.clone(),
             Input { expected: None, .. } => vec![ExpectedOutput::new().with_success()],
         };
+
+        // This is a bit of a special case and we have to support it separately on it's own. If it's
+        // a call to the deployer method, then the tests will assert that it "returns" the address
+        // of the contract. Deployments do not return the address of the contract but the runtime
+        // code of the contracts. Therefore, this assertion would always fail. So, we replace it
+        // with an assertion of "check if it succeeded"
+        if let Method::Deployer = &input.method {
+            for expectation in expectations.iter_mut() {
+                expectation.return_data = None;
+            }
+        }
 
         // Note: we need to do assertions and checks on the output of the last call and this isn't
         // available in the receipt. The only way to get this information is through tracing on the

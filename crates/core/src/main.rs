@@ -59,7 +59,7 @@ fn main() -> anyhow::Result<()> {
         );
     }
 
-    for (corpus, tests) in collect_corpora(&args)? {
+    for (corpus, tests) in corpora {
         let span = Span::new(corpus, args.clone())?;
 
         match &args.compile_only {
