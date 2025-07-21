@@ -24,9 +24,6 @@ pub trait EthereumNode {
     /// Returns the state diff of the transaction hash in the [TransactionReceipt].
     fn state_diff(&self, receipt: &TransactionReceipt) -> Result<DiffMode>;
 
-    /// Returns the next available nonce for the given [Address].
-    fn fetch_add_nonce(&self, address: Address) -> Result<u64>;
-
     /// Returns the ID of the chain that the node is on.
     fn chain_id(&self) -> Result<ChainId>;
 

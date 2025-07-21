@@ -1,13 +1,9 @@
 use std::{
-    collections::HashMap,
     fs::{File, OpenOptions, create_dir_all, remove_dir_all},
     io::{BufRead, Write},
     path::{Path, PathBuf},
     process::{Child, Command, Stdio},
-    sync::{
-        Mutex,
-        atomic::{AtomicU32, Ordering},
-    },
+    sync::atomic::{AtomicU32, Ordering},
     time::Duration,
 };
 
@@ -23,7 +19,7 @@ use alloy::{
     providers::{
         Provider, ProviderBuilder,
         ext::DebugApi,
-        fillers::{ChainIdFiller, FillProvider, NonceFiller, SimpleNonceManager, TxFiller},
+        fillers::{CachedNonceManager, ChainIdFiller, FillProvider, NonceFiller, TxFiller},
     },
     rpc::types::{
         TransactionReceipt,
@@ -55,7 +51,7 @@ pub struct KitchensinkNode {
     logs_directory: PathBuf,
     process_substrate: Option<Child>,
     process_proxy: Option<Child>,
-    nonces: Mutex<HashMap<Address, u64>>,
+    nonce_manager: CachedNonceManager,
     /// This vector stores [`File`] objects that we use for logging which we want to flush when the
     /// node object is dropped. We do not store them in a structured fashion at the moment (in
     /// separate fields) as the logic that we need to apply to them is all the same regardless of
@@ -350,17 +346,24 @@ impl KitchensinkNode {
     > + 'static {
         let connection_string = self.connection_string();
         let wallet = self.wallet.clone();
+
+        // Note: We would like all providers to make use of the same nonce manager so that we have
+        // monotonically increasing nonces that are cached. The cached nonce manager uses Arc's in
+        // its implementation and therefore it means that when we clone it then it still references
+        // the same state.
+        let nonce_manager = self.nonce_manager.clone();
+
         Box::pin(async move {
             ProviderBuilder::new()
                 .disable_recommended_fillers()
+                .network::<KitchenSinkNetwork>()
                 .filler(FallbackGasFiller::new(
                     30_000_000,
                     200_000_000_000,
                     3_000_000_000,
                 ))
                 .filler(ChainIdFiller::default())
-                .filler(NonceFiller::<SimpleNonceManager>::default())
-                .network::<KitchenSinkNetwork>()
+                .filler(NonceFiller::new(nonce_manager))
                 .wallet(wallet)
                 .connect(&connection_string)
                 .await
@@ -419,24 +422,6 @@ impl EthereumNode for KitchensinkNode {
             PreStateFrame::Diff(diff) => Ok(diff),
             _ => anyhow::bail!("expected a diff mode trace"),
         }
-    }
-
-    #[tracing::instrument(skip_all, fields(kitchensink_node_id = self.id))]
-    fn fetch_add_nonce(&self, address: Address) -> anyhow::Result<u64> {
-        let provider = self.provider();
-        let onchain_nonce = BlockingExecutor::execute::<anyhow::Result<_>>(async move {
-            provider
-                .await?
-                .get_transaction_count(address)
-                .await
-                .map_err(Into::into)
-        })??;
-
-        let mut nonces = self.nonces.lock().unwrap();
-        let current = nonces.entry(address).or_insert(onchain_nonce);
-        let value = *current;
-        *current += 1;
-        Ok(value)
     }
 
     #[tracing::instrument(skip_all, fields(geth_node_id = self.id))]
@@ -538,7 +523,7 @@ impl Node for KitchensinkNode {
             logs_directory,
             process_substrate: None,
             process_proxy: None,
-            nonces: Mutex::new(HashMap::new()),
+            nonce_manager: Default::default(),
             // We know that we only need to be storing 4 files so we can specify that when creating
             // the vector. It's the stdout and stderr of the substrate-node and the eth-rpc.
             logs_file_to_flush: Vec::with_capacity(4),
@@ -1029,7 +1014,7 @@ mod tests {
     use alloy::rpc::types::TransactionRequest;
     use revive_dt_config::Arguments;
     use std::path::PathBuf;
-    use std::sync::LazyLock;
+    use std::sync::{LazyLock, Mutex};
     use temp_dir::TempDir;
 
     use std::fs;
