@@ -1,15 +1,11 @@
 //! The go-ethereum node implementation.
 
 use std::{
-    collections::HashMap,
     fs::{File, OpenOptions, create_dir_all, remove_dir_all},
     io::{BufRead, BufReader, Read, Write},
     path::PathBuf,
     process::{Child, Command, Stdio},
-    sync::{
-        Mutex,
-        atomic::{AtomicU32, Ordering},
-    },
+    sync::atomic::{AtomicU32, Ordering},
     time::{Duration, Instant},
 };
 
@@ -20,7 +16,7 @@ use alloy::{
     providers::{
         Provider, ProviderBuilder,
         ext::DebugApi,
-        fillers::{ChainIdFiller, FillProvider, NonceFiller, SimpleNonceManager, TxFiller},
+        fillers::{CachedNonceManager, ChainIdFiller, FillProvider, NonceFiller, TxFiller},
     },
     rpc::types::{
         TransactionReceipt, TransactionRequest,
@@ -54,7 +50,7 @@ pub struct Instance {
     network_id: u64,
     start_timeout: u64,
     wallet: EthereumWallet,
-    nonces: Mutex<HashMap<Address, u64>>,
+    nonce_manager: CachedNonceManager,
     /// This vector stores [`File`] objects that we use for logging which we want to flush when the
     /// node object is dropped. We do not store them in a structured fashion at the moment (in
     /// separate fields) as the logic that we need to apply to them is all the same regardless of
@@ -206,12 +202,19 @@ impl Instance {
     > + 'static {
         let connection_string = self.connection_string();
         let wallet = self.wallet.clone();
+
+        // Note: We would like all providers to make use of the same nonce manager so that we have
+        // monotonically increasing nonces that are cached. The cached nonce manager uses Arc's in
+        // its implementation and therefore it means that when we clone it then it still references
+        // the same state.
+        let nonce_manager = self.nonce_manager.clone();
+
         Box::pin(async move {
             ProviderBuilder::new()
                 .disable_recommended_fillers()
                 .filler(FallbackGasFiller::new(500_000_000, 500_000_000, 1))
                 .filler(ChainIdFiller::default())
-                .filler(NonceFiller::<SimpleNonceManager>::default())
+                .filler(NonceFiller::new(nonce_manager))
                 .wallet(wallet)
                 .connect(&connection_string)
                 .await
@@ -339,24 +342,6 @@ impl EthereumNode for Instance {
     }
 
     #[tracing::instrument(skip_all, fields(geth_node_id = self.id))]
-    fn fetch_add_nonce(&self, address: Address) -> anyhow::Result<u64> {
-        let provider = self.provider();
-        let onchain_nonce = BlockingExecutor::execute::<anyhow::Result<_>>(async move {
-            provider
-                .await?
-                .get_transaction_count(address)
-                .await
-                .map_err(Into::into)
-        })??;
-
-        let mut nonces = self.nonces.lock().unwrap();
-        let current = nonces.entry(address).or_insert(onchain_nonce);
-        let value = *current;
-        *current += 1;
-        Ok(value)
-    }
-
-    #[tracing::instrument(skip_all, fields(geth_node_id = self.id))]
     fn chain_id(&self) -> anyhow::Result<alloy::primitives::ChainId> {
         let provider = self.provider();
         BlockingExecutor::execute(async move {
@@ -455,10 +440,10 @@ impl Node for Instance {
             network_id: config.network_id,
             start_timeout: config.geth_start_timeout,
             wallet: config.wallet(),
-            nonces: Mutex::new(HashMap::new()),
             // We know that we only need to be storing 2 files so we can specify that when creating
             // the vector. It's the stdout and stderr of the geth node.
             logs_file_to_flush: Vec::with_capacity(2),
+            nonce_manager: Default::default(),
         }
     }
 
