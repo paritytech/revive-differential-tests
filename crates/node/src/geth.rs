@@ -86,7 +86,7 @@ impl Instance {
         create_dir_all(&self.base_directory)?;
         create_dir_all(&self.logs_directory)?;
 
-        // Modifying the genesis file and adding all of the additional callers as contract accounts.
+        // Modifying the genesis file so that we get our private key to control the other accounts.
         let mut genesis = serde_json::from_str::<Genesis>(&genesis)?;
         for additional_caller in self.additional_callers.iter() {
             let account = genesis.alloc.entry(*additional_caller).or_default();
