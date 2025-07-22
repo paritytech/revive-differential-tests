@@ -13,9 +13,11 @@ use alloy::{
     genesis::{Genesis, GenesisAccount},
     network::{
         Ethereum, EthereumWallet, Network, NetworkWallet, TransactionBuilder,
-        TransactionBuilderError, TxSigner, UnbuiltTransactionError,
+        TransactionBuilderError, UnbuiltTransactionError,
     },
-    primitives::{Address, B64, B256, BlockHash, BlockNumber, BlockTimestamp, Bloom, Bytes, U256},
+    primitives::{
+        Address, B64, B256, BlockHash, BlockNumber, BlockTimestamp, Bloom, Bytes, FixedBytes, U256,
+    },
     providers::{
         Provider, ProviderBuilder,
         ext::DebugApi,
@@ -26,7 +28,7 @@ use alloy::{
         eth::{Block, Header, Transaction},
         trace::geth::{DiffMode, GethDebugTracingOptions, PreStateConfig, PreStateFrame},
     },
-    signers::Signature,
+    signers::local::PrivateKeySigner,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Value as JsonValue, json};
@@ -504,17 +506,18 @@ impl EthereumNode for KitchensinkNode {
 }
 
 impl Node for KitchensinkNode {
-    fn new(
-        config: &Arguments,
-        additional_signers: impl IntoIterator<Item: TxSigner<Signature> + Send + Sync + 'static>,
-    ) -> Self {
+    fn new(config: &Arguments) -> Self {
         let kitchensink_directory = config.directory().join(Self::BASE_DIRECTORY);
         let id = NODE_COUNT.fetch_add(1, Ordering::SeqCst);
         let base_directory = kitchensink_directory.join(id.to_string());
         let logs_directory = base_directory.join(Self::LOGS_DIRECTORY);
 
         let mut wallet = config.wallet();
-        for signer in additional_signers {
+        for signer in (1..=config.private_keys_to_add)
+            .map(|id| U256::from(id))
+            .map(|id| id.to_be_bytes::<32>())
+            .map(|id| PrivateKeySigner::from_bytes(&FixedBytes(id)).unwrap())
+        {
             wallet.register_signer(signer);
         }
 
@@ -1030,7 +1033,7 @@ impl BlockHeader for KitchenSinkHeader {
 
 #[cfg(test)]
 mod tests {
-    use alloy::{rpc::types::TransactionRequest, signers::local::PrivateKeySigner};
+    use alloy::rpc::types::TransactionRequest;
     use revive_dt_config::Arguments;
     use std::path::PathBuf;
     use std::sync::{LazyLock, Mutex};
@@ -1073,7 +1076,7 @@ mod tests {
         let _guard = NODE_START_MUTEX.lock().unwrap();
 
         let (args, temp_dir) = test_config();
-        let mut node = KitchensinkNode::new(&args, Vec::<PrivateKeySigner>::with_capacity(0));
+        let mut node = KitchensinkNode::new(&args);
         node.init(GENESIS_JSON)
             .expect("Failed to initialize the node")
             .spawn_process()
@@ -1128,8 +1131,7 @@ mod tests {
         }
         "#;
 
-        let mut dummy_node =
-            KitchensinkNode::new(&test_config().0, Vec::<PrivateKeySigner>::with_capacity(0));
+        let mut dummy_node = KitchensinkNode::new(&test_config().0);
 
         // Call `init()`
         dummy_node.init(genesis_content).expect("init failed");
@@ -1173,8 +1175,7 @@ mod tests {
         }
         "#;
 
-        let node =
-            KitchensinkNode::new(&test_config().0, Vec::<PrivateKeySigner>::with_capacity(0));
+        let node = KitchensinkNode::new(&test_config().0);
 
         let result = node
             .extract_balance_from_genesis_file(&serde_json::from_str(genesis_json).unwrap())
@@ -1247,7 +1248,7 @@ mod tests {
     fn spawn_works() {
         let (config, _temp_dir) = test_config();
 
-        let mut node = KitchensinkNode::new(&config, Vec::<PrivateKeySigner>::with_capacity(0));
+        let mut node = KitchensinkNode::new(&config);
         node.spawn(GENESIS_JSON.to_string()).unwrap();
     }
 
@@ -1255,7 +1256,7 @@ mod tests {
     fn version_works() {
         let (config, _temp_dir) = test_config();
 
-        let node = KitchensinkNode::new(&config, Vec::<PrivateKeySigner>::with_capacity(0));
+        let node = KitchensinkNode::new(&config);
         let version = node.version().unwrap();
 
         assert!(
@@ -1268,7 +1269,7 @@ mod tests {
     fn eth_rpc_version_works() {
         let (config, _temp_dir) = test_config();
 
-        let node = KitchensinkNode::new(&config, Vec::<PrivateKeySigner>::with_capacity(0));
+        let node = KitchensinkNode::new(&config);
         let version = node.eth_rpc_version().unwrap();
 
         assert!(

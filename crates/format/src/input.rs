@@ -13,10 +13,7 @@ use serde::{Deserialize, Serialize};
 
 use revive_dt_node_interaction::EthereumNode;
 
-use crate::{
-    define_wrapper_type,
-    metadata::{AddressReplacementMap, ContractInstance},
-};
+use crate::{define_wrapper_type, metadata::ContractInstance};
 
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
 pub struct Input {
@@ -135,41 +132,6 @@ impl ExpectedOutput {
         self.return_data = Some(calldata);
         self
     }
-
-    pub fn handle_address_replacement(
-        &mut self,
-        old_to_new_mapping: &AddressReplacementMap,
-    ) -> anyhow::Result<()> {
-        if let Some(ref mut calldata) = self.return_data {
-            calldata.handle_address_replacement(old_to_new_mapping)?;
-        }
-        if let Some(ref mut events) = self.events {
-            for event in events.iter_mut() {
-                event.handle_address_replacement(old_to_new_mapping)?;
-            }
-        }
-        Ok(())
-    }
-}
-
-impl Event {
-    pub fn handle_address_replacement(
-        &mut self,
-        old_to_new_mapping: &AddressReplacementMap,
-    ) -> anyhow::Result<()> {
-        if let Some(ref mut address) = self.address {
-            if let Some(new_address) = old_to_new_mapping.resolve(address.to_string().as_str()) {
-                *address = new_address
-            }
-        };
-        for topic in self.topics.iter_mut() {
-            if let Some(new_address) = old_to_new_mapping.resolve(topic.to_string().as_str()) {
-                *topic = new_address.to_string();
-            }
-        }
-        self.values.handle_address_replacement(old_to_new_mapping)?;
-        Ok(())
-    }
 }
 
 impl Default for Calldata {
@@ -187,23 +149,6 @@ impl Calldata {
                 }
             }
         }
-    }
-
-    pub fn handle_address_replacement(
-        &mut self,
-        old_to_new_mapping: &AddressReplacementMap,
-    ) -> anyhow::Result<()> {
-        match self {
-            Calldata::Single(_) => {}
-            Calldata::Compound(items) => {
-                for item in items.iter_mut() {
-                    if let Some(resolved) = old_to_new_mapping.resolve(item) {
-                        *item = resolved.to_string()
-                    }
-                }
-            }
-        }
-        Ok(())
     }
 
     pub fn calldata(
@@ -251,27 +196,7 @@ impl Calldata {
     }
 }
 
-impl Expected {
-    pub fn handle_address_replacement(
-        &mut self,
-        old_to_new_mapping: &AddressReplacementMap,
-    ) -> anyhow::Result<()> {
-        match self {
-            Expected::Calldata(calldata) => {
-                calldata.handle_address_replacement(old_to_new_mapping)?;
-            }
-            Expected::Expected(expected_output) => {
-                expected_output.handle_address_replacement(old_to_new_mapping)?;
-            }
-            Expected::ExpectedMany(expected_outputs) => {
-                for expected_output in expected_outputs.iter_mut() {
-                    expected_output.handle_address_replacement(old_to_new_mapping)?;
-                }
-            }
-        }
-        Ok(())
-    }
-}
+impl Expected {}
 
 impl Input {
     fn instance_to_address(
@@ -378,26 +303,6 @@ impl Input {
         self.calldata.find_all_contract_instances(&mut vec);
 
         vec
-    }
-
-    pub fn handle_address_replacement(
-        &mut self,
-        old_to_new_mapping: &mut AddressReplacementMap,
-    ) -> anyhow::Result<()> {
-        if self.caller != default_caller() {
-            self.caller = old_to_new_mapping.add(self.caller);
-        }
-        self.calldata
-            .handle_address_replacement(old_to_new_mapping)?;
-        if let Some(ref mut expected) = self.expected {
-            expected.handle_address_replacement(old_to_new_mapping)?;
-        }
-        if let Some(ref mut storage) = self.storage {
-            for calldata in storage.values_mut() {
-                calldata.handle_address_replacement(old_to_new_mapping)?;
-            }
-        }
-        Ok(())
     }
 }
 

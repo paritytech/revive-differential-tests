@@ -12,8 +12,8 @@ use std::{
 use alloy::{
     eips::BlockNumberOrTag,
     genesis::{Genesis, GenesisAccount},
-    network::{Ethereum, EthereumWallet, NetworkWallet, TxSigner},
-    primitives::{Address, BlockHash, BlockNumber, BlockTimestamp, U256},
+    network::{Ethereum, EthereumWallet, NetworkWallet},
+    primitives::{Address, BlockHash, BlockNumber, BlockTimestamp, FixedBytes, U256},
     providers::{
         Provider, ProviderBuilder,
         ext::DebugApi,
@@ -23,7 +23,7 @@ use alloy::{
         TransactionReceipt, TransactionRequest,
         trace::geth::{DiffMode, GethDebugTracingOptions, PreStateConfig, PreStateFrame},
     },
-    signers::Signature,
+    signers::local::PrivateKeySigner,
 };
 use revive_dt_config::Arguments;
 use revive_dt_node_interaction::{BlockingExecutor, EthereumNode};
@@ -435,16 +435,17 @@ impl EthereumNode for Instance {
 }
 
 impl Node for Instance {
-    fn new(
-        config: &Arguments,
-        additional_signers: impl IntoIterator<Item: TxSigner<Signature> + Send + Sync + 'static>,
-    ) -> Self {
+    fn new(config: &Arguments) -> Self {
         let geth_directory = config.directory().join(Self::BASE_DIRECTORY);
         let id = NODE_COUNT.fetch_add(1, Ordering::SeqCst);
         let base_directory = geth_directory.join(id.to_string());
 
         let mut wallet = config.wallet();
-        for signer in additional_signers {
+        for signer in (1..=config.private_keys_to_add)
+            .map(|id| U256::from(id))
+            .map(|id| id.to_be_bytes::<32>())
+            .map(|id| PrivateKeySigner::from_bytes(&FixedBytes(id)).unwrap())
+        {
             wallet.register_signer(signer);
         }
 
@@ -532,7 +533,6 @@ impl Drop for Instance {
 mod tests {
     use revive_dt_config::Arguments;
 
-    use alloy::signers::local::PrivateKeySigner;
     use temp_dir::TempDir;
 
     use crate::{GENESIS_JSON, Node};
@@ -549,7 +549,7 @@ mod tests {
 
     fn new_node() -> (Instance, TempDir) {
         let (args, temp_dir) = test_config();
-        let mut node = Instance::new(&args, Vec::<PrivateKeySigner>::with_capacity(0));
+        let mut node = Instance::new(&args);
         node.init(GENESIS_JSON.to_owned())
             .expect("Failed to initialize the node")
             .spawn_process()
@@ -559,23 +559,21 @@ mod tests {
 
     #[test]
     fn init_works() {
-        Instance::new(&test_config().0, Vec::<PrivateKeySigner>::with_capacity(0))
+        Instance::new(&test_config().0)
             .init(GENESIS_JSON.to_string())
             .unwrap();
     }
 
     #[test]
     fn spawn_works() {
-        Instance::new(&test_config().0, Vec::<PrivateKeySigner>::with_capacity(0))
+        Instance::new(&test_config().0)
             .spawn(GENESIS_JSON.to_string())
             .unwrap();
     }
 
     #[test]
     fn version_works() {
-        let version = Instance::new(&test_config().0, Vec::<PrivateKeySigner>::with_capacity(0))
-            .version()
-            .unwrap();
+        let version = Instance::new(&test_config().0).version().unwrap();
         assert!(
             version.starts_with("geth version"),
             "expected version string, got: '{version}'"
