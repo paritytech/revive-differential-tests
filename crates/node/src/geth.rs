@@ -85,7 +85,8 @@ impl Instance {
             <EthereumWallet as NetworkWallet<Ethereum>>::signer_addresses(&self.wallet)
         {
             genesis.alloc.entry(signer_address).or_insert(
-                GenesisAccount::default().with_balance(1000000000000000000u128.try_into().unwrap()),
+                GenesisAccount::default()
+                    .with_balance(10000000000000000000000u128.try_into().unwrap()),
             );
         }
         let genesis_path = self.base_directory.join(Self::GENESIS_JSON_FILE);
