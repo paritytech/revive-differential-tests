@@ -324,7 +324,7 @@ impl Input {
         chain_state_provider: &impl EthereumNode,
     ) -> anyhow::Result<TransactionRequest> {
         let input_data = self.encoded_input(deployed_contracts, chain_state_provider)?;
-        let transaction_request = TransactionRequest::default();
+        let transaction_request = TransactionRequest::default().from(self.caller);
         match self.method {
             Method::Deployer => Ok(transaction_request.with_deploy_code(input_data)),
             _ => Ok(transaction_request

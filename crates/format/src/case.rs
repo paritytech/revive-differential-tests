@@ -26,7 +26,15 @@ impl Case {
             .enumerate()
             .map(move |(idx, mut input)| {
                 if idx + 1 == inputs_len {
-                    input.expected = self.expected.clone();
+                    if input.expected.is_none() {
+                        input.expected = self.expected.clone();
+                    }
+
+                    // TODO: What does it mean for us to have an `expected` field on the case itself
+                    // but the final input also has an expected field that doesn't match the one on
+                    // the case? What are we supposed to do with that final expected field on the
+                    // case?
+
                     input
                 } else {
                     input

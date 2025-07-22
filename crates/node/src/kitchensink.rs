@@ -584,6 +584,14 @@ impl Node for KitchensinkNode {
             .stdout;
         Ok(String::from_utf8_lossy(&output).into())
     }
+
+    #[tracing::instrument(skip_all, fields(kitchensink_node_id = self.id))]
+    fn matches_target(&self, targets: Option<&[String]>) -> bool {
+        match targets {
+            None => true,
+            Some(targets) => targets.iter().any(|str| str.as_str() == "pvm"),
+        }
+    }
 }
 
 impl Drop for KitchensinkNode {
