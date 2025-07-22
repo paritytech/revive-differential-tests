@@ -16,12 +16,6 @@ pub struct Case {
     pub expected: Option<Expected>,
 }
 
-define_wrapper_type!(
-    /// A wrapper type for the index of test cases found in metadata file.
-    #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-    CaseIdx(usize);
-);
-
 impl Case {
     pub fn inputs_iterator(&self) -> impl Iterator<Item = Input> {
         let inputs_len = self.inputs.len();
@@ -39,3 +33,9 @@ impl Case {
             })
     }
 }
+
+define_wrapper_type!(
+    /// A wrapper type for the index of test cases found in metadata file.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    CaseIdx(usize);
+);
