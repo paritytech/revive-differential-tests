@@ -23,7 +23,8 @@ pub struct Input {
     #[serde(default = "default_instance")]
     pub instance: ContractInstance,
     pub method: Method,
-    pub calldata: Option<Calldata>,
+    #[serde(default)]
+    pub calldata: Calldata,
     pub expected: Option<Expected>,
     pub value: Option<String>,
     pub storage: Option<HashMap<String, Calldata>>,
@@ -73,6 +74,12 @@ pub enum Method {
     FunctionName(String),
 }
 
+impl Default for Calldata {
+    fn default() -> Self {
+        Self::Compound(Default::default())
+    }
+}
+
 impl Calldata {
     pub fn find_all_contract_instances(&self, vec: &mut Vec<ContractInstance>) {
         if let Calldata::Compound(compound) = self {
@@ -81,6 +88,40 @@ impl Calldata {
                     vec.push(ContractInstance::new_from(instance))
                 }
             }
+        }
+    }
+
+    pub fn construct_call_data(
+        &self,
+        buffer: &mut Vec<u8>,
+        deployed_contracts: &HashMap<ContractInstance, (Address, JsonAbi)>,
+        chain_state_provider: &impl EthereumNode,
+    ) -> anyhow::Result<()> {
+        match self {
+            Calldata::Single(string) => {
+                alloy::hex::decode_to_slice(string, buffer)?;
+            }
+            Calldata::Compound(items) => {
+                for (arg_idx, arg) in items.iter().enumerate() {
+                    match resolve_argument(arg, deployed_contracts, chain_state_provider) {
+                        Ok(resolved) => {
+                            buffer.extend(resolved.to_be_bytes::<32>());
+                        }
+                        Err(error) => {
+                            tracing::error!(arg, arg_idx, ?error, "Failed to resolve argument");
+                            return Err(error);
+                        }
+                    };
+                }
+            }
+        };
+        Ok(())
+    }
+
+    pub fn size_requirement(&self) -> usize {
+        match self {
+            Calldata::Single(single) => (single.len() - 2) / 2,
+            Calldata::Compound(items) => items.len() * 32,
         }
     }
 }
@@ -112,23 +153,12 @@ impl Input {
     ) -> anyhow::Result<Bytes> {
         match self.method {
             Method::Deployer | Method::Fallback => {
-                let calldata_args = match &self.calldata {
-                    Some(Calldata::Compound(args)) => args,
-                    _ => anyhow::bail!("Expected compound calldata for function call"),
-                };
-
-                let mut calldata = Vec::<u8>::with_capacity(calldata_args.len() * 32);
-                for (arg_idx, arg) in calldata_args.iter().enumerate() {
-                    match resolve_argument(arg, deployed_contracts, chain_state_provider) {
-                        Ok(resolved) => {
-                            calldata.extend(resolved.to_be_bytes::<32>());
-                        }
-                        Err(error) => {
-                            tracing::error!(arg, arg_idx, ?error, "Failed to resolve argument");
-                            return Err(error);
-                        }
-                    };
-                }
+                let mut calldata = Vec::<u8>::with_capacity(self.calldata.size_requirement());
+                self.calldata.construct_call_data(
+                    &mut calldata,
+                    deployed_contracts,
+                    chain_state_provider,
+                )?;
 
                 Ok(calldata.into())
             }
@@ -161,11 +191,6 @@ impl Input {
 
                 tracing::trace!("Functions found for instance: {}", self.instance.as_ref());
 
-                let calldata_args = match &self.calldata {
-                    Some(Calldata::Compound(args)) => args,
-                    _ => anyhow::bail!("Expected compound calldata for function call"),
-                };
-
                 tracing::trace!(
                     "Starting encoding ABI's parameters for instance: {}",
                     self.instance.as_ref()
@@ -177,20 +202,13 @@ impl Input {
                 //
                 // We're using indices in the following code in order to avoid the need for us to allocate
                 // a new buffer for each one of the resolved arguments.
-                let mut calldata = Vec::<u8>::with_capacity(4 + calldata_args.len() * 32);
+                let mut calldata = Vec::<u8>::with_capacity(4 + self.calldata.size_requirement());
                 calldata.extend(function.selector().0);
-
-                for (arg_idx, arg) in calldata_args.iter().enumerate() {
-                    match resolve_argument(arg, deployed_contracts, chain_state_provider) {
-                        Ok(resolved) => {
-                            calldata.extend(resolved.to_be_bytes::<32>());
-                        }
-                        Err(error) => {
-                            tracing::error!(arg, arg_idx, ?error, "Failed to resolve argument");
-                            return Err(error);
-                        }
-                    };
-                }
+                self.calldata.construct_call_data(
+                    &mut calldata,
+                    deployed_contracts,
+                    chain_state_provider,
+                )?;
 
                 Ok(calldata.into())
             }
@@ -217,9 +235,7 @@ impl Input {
         let mut vec = Vec::new();
         vec.push(self.instance.clone());
 
-        if let Some(ref cd) = self.calldata {
-            cd.find_all_contract_instances(&mut vec);
-        }
+        self.calldata.find_all_contract_instances(&mut vec);
         match &self.expected {
             Some(Expected::Calldata(cd)) => {
                 cd.find_all_contract_instances(&mut vec);
@@ -416,7 +432,7 @@ mod tests {
         let input = Input {
             instance: ContractInstance::new_from("Contract"),
             method: Method::FunctionName("store".to_owned()),
-            calldata: Some(Calldata::Compound(vec!["42".into()])),
+            calldata: Calldata::Compound(vec!["42".into()]),
             ..Default::default()
         };
 
@@ -458,9 +474,9 @@ mod tests {
         let input: Input = Input {
             instance: "Contract".to_owned().into(),
             method: Method::FunctionName("send(address)".to_owned()),
-            calldata: Some(Calldata::Compound(vec![
+            calldata: Calldata::Compound(vec![
                 "0x1000000000000000000000000000000000000001".to_string(),
-            ])),
+            ]),
             ..Default::default()
         };
 
@@ -505,9 +521,9 @@ mod tests {
         let input: Input = Input {
             instance: ContractInstance::new_from("Contract"),
             method: Method::FunctionName("send".to_owned()),
-            calldata: Some(Calldata::Compound(vec![
+            calldata: Calldata::Compound(vec![
                 "0x1000000000000000000000000000000000000001".to_string(),
-            ])),
+            ]),
             ..Default::default()
         };
 
