@@ -7,13 +7,16 @@ use alloy::{
     primitives::{Address, Bytes, U256},
     rpc::types::TransactionRequest,
 };
-use alloy_primitives::FixedBytes;
+use alloy_primitives::{FixedBytes, utils::parse_units};
 use semver::VersionReq;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use revive_dt_node_interaction::EthereumNode;
 
-use crate::metadata::{AddressReplacementMap, ContractInstance};
+use crate::{
+    define_wrapper_type,
+    metadata::{AddressReplacementMap, ContractInstance},
+};
 
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
 pub struct Input {
@@ -26,7 +29,7 @@ pub struct Input {
     #[serde(default)]
     pub calldata: Calldata,
     pub expected: Option<Expected>,
-    pub value: Option<String>,
+    pub value: Option<EtherValue>,
     pub storage: Option<HashMap<String, Calldata>>,
 }
 
@@ -80,6 +83,37 @@ pub enum Method {
     /// Call the public function with the given name.
     #[serde(untagged)]
     FunctionName(String),
+}
+
+define_wrapper_type!(
+    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    EtherValue(U256);
+);
+
+impl Serialize for EtherValue {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        format!("{} wei", self.0).serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for EtherValue {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let string = String::deserialize(deserializer)?;
+        let mut splitted = string.split(' ');
+        let (Some(value), Some(unit)) = (splitted.next(), splitted.next()) else {
+            return Err(serde::de::Error::custom("Failed to parse the value"));
+        };
+        let parsed = parse_units(value, unit.replace("eth", "ether"))
+            .map_err(|_| serde::de::Error::custom("Failed to parse units"))?
+            .into();
+        Ok(Self(parsed))
+    }
 }
 
 impl ExpectedOutput {
@@ -324,7 +358,11 @@ impl Input {
         chain_state_provider: &impl EthereumNode,
     ) -> anyhow::Result<TransactionRequest> {
         let input_data = self.encoded_input(deployed_contracts, chain_state_provider)?;
-        let transaction_request = TransactionRequest::default().from(self.caller);
+        let transaction_request = TransactionRequest::default().from(self.caller).value(
+            self.value
+                .map(|value| value.into_inner())
+                .unwrap_or_default(),
+        );
         match self.method {
             Method::Deployer => Ok(transaction_request.with_deploy_code(input_data)),
             _ => Ok(transaction_request

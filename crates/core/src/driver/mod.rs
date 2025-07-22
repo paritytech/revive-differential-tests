@@ -251,6 +251,12 @@ where
 
             let tx = {
                 let tx = TransactionRequest::default().from(input.caller);
+                let tx = match input.value {
+                    Some(ref value) if deploy_with_constructor_arguments => {
+                        tx.value(value.into_inner())
+                    }
+                    _ => tx,
+                };
                 TransactionBuilder::<Ethereum>::with_deploy_code(tx, code)
             };
 

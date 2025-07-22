@@ -131,7 +131,7 @@ impl KitchensinkNode {
             {
                 genesis.alloc.entry(signer_address).or_insert(
                     GenesisAccount::default()
-                        .with_balance(1000000000000000000u128.try_into().unwrap()),
+                        .with_balance(10000000000000000000000u128.try_into().unwrap()),
                 );
             }
             self.extract_balance_from_genesis_file(&genesis)?
