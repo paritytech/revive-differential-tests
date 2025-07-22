@@ -196,8 +196,6 @@ impl Calldata {
     }
 }
 
-impl Expected {}
-
 impl Input {
     fn instance_to_address(
         &self,
