@@ -8,7 +8,8 @@ use alloy::network::{Ethereum, TransactionBuilder};
 use alloy::primitives::Bytes;
 use alloy::rpc::types::TransactionReceipt;
 use alloy::rpc::types::trace::geth::{
-    DefaultFrame, GethDebugTracingOptions, GethDefaultTracingOptions, GethTrace, PreStateConfig,
+    CallFrame, GethDebugBuiltInTracerType, GethDebugTracerType, GethDebugTracingOptions, GethTrace,
+    PreStateConfig,
 };
 use alloy::{
     primitives::Address,
@@ -399,12 +400,14 @@ where
             .trace_transaction(
                 execution_receipt,
                 GethDebugTracingOptions {
-                    config: GethDefaultTracingOptions::default().with_enable_return_data(true),
+                    tracer: Some(GethDebugTracerType::BuiltInTracer(
+                        GethDebugBuiltInTracerType::CallTracer,
+                    )),
                     ..Default::default()
                 },
             )?
-            .try_into_default_frame()
-            .expect("Impossible. We can't request default tracing and get some other type back");
+            .try_into_call_frame()
+            .expect("Impossible - we requested a callframe trace so we must get it back");
 
         for expectation in expectations.iter() {
             self.handle_input_expectation_item(
@@ -425,7 +428,7 @@ where
         execution_receipt: &TransactionReceipt,
         node: &T::Blockchain,
         expectation: &ExpectedOutput,
-        tracing_result: &DefaultFrame,
+        tracing_result: &CallFrame,
     ) -> anyhow::Result<()> {
         // TODO: We want to respect the compiler version filter on the expected output but would
         // require some changes to the interfaces of the compiler and such. So, we add it later.
@@ -452,7 +455,7 @@ where
             let expected = expected_calldata
                 .calldata(self.deployed_contracts.entry(case_idx).or_default(), node)
                 .map(Bytes::from)?;
-            let actual = tracing_result.return_value.clone();
+            let actual = tracing_result.output.clone().unwrap_or_default();
             if !expected.starts_with(&actual) {
                 tracing::error!(?execution_receipt, %expected, %actual, "Calldata assertion failed");
                 anyhow::bail!("Calldata assertion failed - Expected {expected} but got {actual}",);
