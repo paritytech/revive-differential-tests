@@ -289,7 +289,7 @@ pub const fn default_caller() -> Address {
 /// This piece of code is taken from the matter-labs-tester repository which is licensed under MIT
 /// or Apache. The original source code can be found here:
 /// https://github.com/matter-labs/era-compiler-tester/blob/0ed598a27f6eceee7008deab3ff2311075a2ec69/compiler_tester/src/test/case/input/value.rs#L43-L146
-pub fn resolve_argument(
+fn resolve_argument(
     value: &str,
     deployed_contracts: &HashMap<ContractInstance, (Address, JsonAbi)>,
     chain_state_provider: &impl EthereumNode,
