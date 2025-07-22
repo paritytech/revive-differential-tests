@@ -18,6 +18,22 @@ pub struct Case {
 }
 
 impl Case {
+    pub fn inputs_iterator(&self) -> impl Iterator<Item = Input> {
+        let inputs_len = self.inputs.len();
+        self.inputs
+            .clone()
+            .into_iter()
+            .enumerate()
+            .map(move |(idx, mut input)| {
+                if idx + 1 == inputs_len {
+                    input.expected = self.expected.clone();
+                    input
+                } else {
+                    input
+                }
+            })
+    }
+
     pub fn handle_address_replacement(
         &mut self,
         old_to_new_mapping: &mut AddressReplacementMap,
@@ -37,21 +53,3 @@ define_wrapper_type!(
     #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
     CaseIdx(usize);
 );
-
-impl Case {
-    pub fn inputs_iterator(&self) -> impl Iterator<Item = Input> {
-        let inputs_len = self.inputs.len();
-        self.inputs
-            .clone()
-            .into_iter()
-            .enumerate()
-            .map(move |(idx, mut input)| {
-                if idx + 1 == inputs_len {
-                    input.expected = self.expected.clone();
-                    input
-                } else {
-                    input
-                }
-            })
-    }
-}

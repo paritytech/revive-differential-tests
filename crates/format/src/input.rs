@@ -558,7 +558,7 @@ mod tests {
     }
 
     #[test]
-    fn test_encoded_input_address() {
+    fn test_encoded_input_address_with_signature() {
         let raw_abi = r#"[
         {
             "inputs": [{"name": "recipient", "type": "address"}],
@@ -579,8 +579,8 @@ mod tests {
             .0;
 
         let input: Input = Input {
-            instance: ContractInstance::new_from("Contract"),
-            method: Method::FunctionName("send".to_owned()),
+            instance: "Contract".to_owned().into(),
+            method: Method::FunctionName("send(address)".to_owned()),
             calldata: Calldata::Compound(vec![
                 "0x1000000000000000000000000000000000000001".to_string(),
             ]),
@@ -605,7 +605,7 @@ mod tests {
     }
 
     #[test]
-    fn test_encoded_input_address_with_signature() {
+    fn test_encoded_input_address() {
         let raw_abi = r#"[
         {
             "inputs": [{"name": "recipient", "type": "address"}],
@@ -627,7 +627,7 @@ mod tests {
 
         let input: Input = Input {
             instance: ContractInstance::new_from("Contract"),
-            method: Method::FunctionName("send(address)".to_owned()),
+            method: Method::FunctionName("send".to_owned()),
             calldata: Calldata::Compound(vec![
                 "0x1000000000000000000000000000000000000001".to_string(),
             ]),
