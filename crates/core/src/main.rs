@@ -1,13 +1,5 @@
-use std::{
-    collections::{HashMap, HashSet},
-    sync::LazyLock,
-};
+use std::{collections::HashMap, sync::LazyLock};
 
-use alloy::{
-    network::TxSigner,
-    primitives::FixedBytes,
-    signers::{Signature, local::PrivateKeySigner},
-};
 use clap::Parser;
 use rayon::{ThreadPoolBuilder, prelude::*};
 
@@ -16,11 +8,7 @@ use revive_dt_core::{
     Geth, Kitchensink, Platform,
     driver::{Driver, State},
 };
-use revive_dt_format::{
-    corpus::Corpus,
-    input::default_caller,
-    metadata::{AddressReplacementMap, MetadataFile},
-};
+use revive_dt_format::{corpus::Corpus, metadata::MetadataFile};
 use revive_dt_node::pool::NodePool;
 use revive_dt_report::reporter::{Report, Span};
 use temp_dir::TempDir;
@@ -32,48 +20,12 @@ static TEMP_DIR: LazyLock<TempDir> = LazyLock::new(|| TempDir::new().unwrap());
 fn main() -> anyhow::Result<()> {
     let args = init_cli()?;
 
-    let mut corpora = collect_corpora(&args)?;
-    let mut replacement_private_keys = HashSet::<FixedBytes<32>>::new();
-    for case in corpora
-        .values_mut()
-        .flat_map(|metadata| metadata.iter_mut())
-        .flat_map(|metadata| metadata.content.cases.iter_mut())
-    {
-        let mut replacement_map = AddressReplacementMap::new();
-        for address in case.inputs.iter().filter_map(|input| {
-            if input.caller != default_caller() {
-                Some(input.caller)
-            } else {
-                None
-            }
-        }) {
-            replacement_map.add(address);
-        }
-        case.handle_address_replacement(&mut replacement_map)?;
-        replacement_private_keys.extend(
-            replacement_map
-                .into_inner()
-                .into_values()
-                .map(|(sk, _)| sk)
-                .map(|sk| sk.to_bytes()),
-        );
-    }
-
-    for (corpus, tests) in corpora {
+    for (corpus, tests) in collect_corpora(&args)? {
         let span = Span::new(corpus, args.clone())?;
 
         match &args.compile_only {
             Some(platform) => compile_corpus(&args, &tests, platform, span),
-            None => execute_corpus(
-                &args,
-                &tests,
-                replacement_private_keys
-                    .clone()
-                    .into_iter()
-                    .map(|bytes| PrivateKeySigner::from_bytes(&bytes).expect("Can't fail"))
-                    .collect::<Vec<_>>(),
-                span,
-            )?,
+            None => execute_corpus(&args, &tests, span)?,
         }
 
         Report::save()?;
@@ -131,24 +83,15 @@ fn collect_corpora(args: &Arguments) -> anyhow::Result<HashMap<Corpus, Vec<Metad
     Ok(corpora)
 }
 
-fn run_driver<L, F>(
-    args: &Arguments,
-    tests: &[MetadataFile],
-    additional_signers: impl IntoIterator<Item: TxSigner<Signature> + Send + Sync + 'static>
-    + Clone
-    + Send
-    + Sync
-    + 'static,
-    span: Span,
-) -> anyhow::Result<()>
+fn run_driver<L, F>(args: &Arguments, tests: &[MetadataFile], span: Span) -> anyhow::Result<()>
 where
     L: Platform,
     F: Platform,
     L::Blockchain: revive_dt_node::Node + Send + Sync + 'static,
     F::Blockchain: revive_dt_node::Node + Send + Sync + 'static,
 {
-    let leader_nodes = NodePool::<L::Blockchain>::new(args, additional_signers.clone())?;
-    let follower_nodes = NodePool::<F::Blockchain>::new(args, additional_signers)?;
+    let leader_nodes = NodePool::<L::Blockchain>::new(args)?;
+    let follower_nodes = NodePool::<F::Blockchain>::new(args)?;
 
     tests.par_iter().for_each(
         |MetadataFile {
@@ -198,22 +141,13 @@ where
     Ok(())
 }
 
-fn execute_corpus(
-    args: &Arguments,
-    tests: &[MetadataFile],
-    additional_signers: impl IntoIterator<Item: TxSigner<Signature> + Send + Sync + 'static>
-    + Clone
-    + Send
-    + Sync
-    + 'static,
-    span: Span,
-) -> anyhow::Result<()> {
+fn execute_corpus(args: &Arguments, tests: &[MetadataFile], span: Span) -> anyhow::Result<()> {
     match (&args.leader, &args.follower) {
         (TestingPlatform::Geth, TestingPlatform::Kitchensink) => {
-            run_driver::<Geth, Kitchensink>(args, tests, additional_signers, span)?
+            run_driver::<Geth, Kitchensink>(args, tests, span)?
         }
         (TestingPlatform::Geth, TestingPlatform::Geth) => {
-            run_driver::<Geth, Geth>(args, tests, additional_signers, span)?
+            run_driver::<Geth, Geth>(args, tests, span)?
         }
         _ => unimplemented!(),
     }
