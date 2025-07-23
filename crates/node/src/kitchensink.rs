@@ -133,7 +133,7 @@ impl KitchensinkNode {
             {
                 genesis.alloc.entry(signer_address).or_insert(
                     GenesisAccount::default()
-                        .with_balance(1000000000000000000u128.try_into().unwrap()),
+                        .with_balance(10000000000000000000000u128.try_into().unwrap()),
                 );
             }
             self.extract_balance_from_genesis_file(&genesis)?
@@ -586,6 +586,14 @@ impl Node for KitchensinkNode {
             .wait_with_output()?
             .stdout;
         Ok(String::from_utf8_lossy(&output).into())
+    }
+
+    #[tracing::instrument(skip_all, fields(kitchensink_node_id = self.id))]
+    fn matches_target(&self, targets: Option<&[String]>) -> bool {
+        match targets {
+            None => true,
+            Some(targets) => targets.iter().any(|str| str.as_str() == "pvm"),
+        }
     }
 }
 

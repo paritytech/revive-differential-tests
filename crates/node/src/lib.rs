@@ -31,4 +31,8 @@ pub trait Node: EthereumNode {
 
     /// Returns the node version.
     fn version(&self) -> anyhow::Result<String>;
+
+    /// Given a list of targets from the metadata file, this function determines if the metadata
+    /// file can be ran on this node or not.
+    fn matches_target(&self, targets: Option<&[String]>) -> bool;
 }

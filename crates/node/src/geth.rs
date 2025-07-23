@@ -85,7 +85,8 @@ impl Instance {
             <EthereumWallet as NetworkWallet<Ethereum>>::signer_addresses(&self.wallet)
         {
             genesis.alloc.entry(signer_address).or_insert(
-                GenesisAccount::default().with_balance(1000000000000000000u128.try_into().unwrap()),
+                GenesisAccount::default()
+                    .with_balance(10000000000000000000000u128.try_into().unwrap()),
             );
         }
         let genesis_path = self.base_directory.join(Self::GENESIS_JSON_FILE);
@@ -510,6 +511,14 @@ impl Node for Instance {
             .wait_with_output()?
             .stdout;
         Ok(String::from_utf8_lossy(&output).into())
+    }
+
+    #[tracing::instrument(skip_all, fields(geth_node_id = self.id))]
+    fn matches_target(&self, targets: Option<&[String]>) -> bool {
+        match targets {
+            None => true,
+            Some(targets) => targets.iter().any(|str| str.as_str() == "evm"),
+        }
     }
 }
 

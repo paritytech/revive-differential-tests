@@ -26,6 +26,7 @@ use revive_dt_format::case::CaseIdx;
 use revive_dt_format::input::{Calldata, Expected, ExpectedOutput, Method};
 use revive_dt_format::metadata::{ContractInstance, ContractPathAndIdentifier};
 use revive_dt_format::{input::Input, metadata::Metadata, mode::SolcMode};
+use revive_dt_node::Node;
 use revive_dt_node_interaction::EthereumNode;
 use revive_dt_report::reporter::{CompilationTask, Report, Span};
 use revive_solc_json_interface::SolcStandardJsonOutput;
@@ -250,6 +251,12 @@ where
 
             let tx = {
                 let tx = TransactionRequest::default().from(input.caller);
+                let tx = match input.value {
+                    Some(ref value) if deploy_with_constructor_arguments => {
+                        tx.value(value.into_inner())
+                    }
+                    _ => tx,
+                };
                 TransactionBuilder::<Ethereum>::with_deploy_code(tx, code)
             };
 
@@ -435,16 +442,15 @@ where
         // Additionally, what happens if the compiler filter doesn't match? Do we consider that the
         // transaction should succeed? Do we just ignore the expectation?
 
+        let error_span =
+            tracing::error_span!("Exception failed", ?tracing_result, ?execution_receipt,);
+        let _guard = error_span.enter();
+
         // Handling the receipt state assertion.
         let expected = !expectation.exception;
         let actual = execution_receipt.status();
         if actual != expected {
-            tracing::error!(
-                ?execution_receipt,
-                expected,
-                actual,
-                "Transaction status assertion failed",
-            );
+            tracing::error!(expected, actual, "Transaction status assertion failed",);
             anyhow::bail!(
                 "Transaction status assertion failed - Expected {expected} but got {actual}",
             );
@@ -457,7 +463,11 @@ where
                 .map(Bytes::from)?;
             let actual = tracing_result.output.clone().unwrap_or_default();
             if !expected.starts_with(&actual) {
-                tracing::error!(?execution_receipt, %expected, %actual, "Calldata assertion failed");
+                tracing::error!(
+                    %expected,
+                    %actual,
+                    "Calldata assertion failed"
+                );
                 anyhow::bail!("Calldata assertion failed - Expected {expected} but got {actual}",);
             }
         }
@@ -468,12 +478,7 @@ where
             let expected = expected_events.len();
             let actual = execution_receipt.logs().len();
             if actual != expected {
-                tracing::error!(
-                    ?execution_receipt,
-                    expected,
-                    actual,
-                    "Event count assertion failed",
-                );
+                tracing::error!(expected, actual, "Event count assertion failed",);
                 anyhow::bail!(
                     "Event count assertion failed - Expected {expected} but got {actual}",
                 );
@@ -489,7 +494,6 @@ where
                     let actual = actual_event.address();
                     if actual != expected {
                         tracing::error!(
-                            ?execution_receipt,
                             %expected,
                             %actual,
                             "Event emitter assertion failed",
@@ -511,12 +515,7 @@ where
                         .calldata(self.deployed_contracts.entry(case_idx).or_default(), node)?;
                     let actual = actual_topic.to_vec();
                     if actual != expected {
-                        tracing::error!(
-                            ?execution_receipt,
-                            ?expected,
-                            ?actual,
-                            "Event topics assertion failed",
-                        );
+                        tracing::error!(?expected, ?actual, "Event topics assertion failed",);
                         anyhow::bail!(
                             "Event topics assertion failed - Expected {expected:?} but got {actual:?}",
                         );
@@ -530,12 +529,7 @@ where
                     .map(Bytes::from)?;
                 let actual = &actual_event.data().data;
                 if !expected.starts_with(actual) {
-                    tracing::error!(
-                        ?execution_receipt,
-                        ?expected,
-                        ?actual,
-                        "Event value assertion failed",
-                    );
+                    tracing::error!(?expected, ?actual, "Event value assertion failed",);
                     anyhow::bail!(
                         "Event value assertion failed - Expected {expected:?} but got {actual:?}",
                     );
@@ -648,6 +642,22 @@ where
 
         let tracing_span = tracing::info_span!("Handling metadata file");
         let _guard = tracing_span.enter();
+
+        // We only execute this input if it's valid for the leader and the follower. Otherwise, we
+        // skip it with a warning.
+        if !self
+            .leader_node
+            .matches_target(self.metadata.targets.as_deref())
+            || !self
+                .follower_node
+                .matches_target(self.metadata.targets.as_deref())
+        {
+            tracing::warn!(
+                targets = ?self.metadata.targets,
+                "Either the leader or follower node do not support the targets of the file"
+            );
+            return execution_result;
+        }
 
         for mode in self.metadata.solc_modes() {
             let tracing_span = tracing::info_span!("With solc mode", solc_mode = ?mode);
