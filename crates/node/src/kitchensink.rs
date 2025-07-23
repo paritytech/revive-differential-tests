@@ -39,7 +39,7 @@ use tracing::Level;
 use revive_dt_config::Arguments;
 use revive_dt_node_interaction::{BlockingExecutor, EthereumNode};
 
-use crate::{Node, common::FallbackGasFiller};
+use crate::{Node, common::FallbackGasFiller, constants::INITIAL_BALANCE};
 
 static NODE_COUNT: AtomicU32 = AtomicU32::new(0);
 
@@ -131,10 +131,10 @@ impl KitchensinkNode {
             for signer_address in
                 <EthereumWallet as NetworkWallet<Ethereum>>::signer_addresses(&self.wallet)
             {
-                genesis.alloc.entry(signer_address).or_insert(
-                    GenesisAccount::default()
-                        .with_balance(10000000000000000000000u128.try_into().unwrap()),
-                );
+                genesis
+                    .alloc
+                    .entry(signer_address)
+                    .or_insert(GenesisAccount::default().with_balance(U256::from(INITIAL_BALANCE)));
             }
             self.extract_balance_from_genesis_file(&genesis)?
         };

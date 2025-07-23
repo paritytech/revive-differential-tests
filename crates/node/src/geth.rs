@@ -29,7 +29,7 @@ use revive_dt_config::Arguments;
 use revive_dt_node_interaction::{BlockingExecutor, EthereumNode};
 use tracing::Level;
 
-use crate::{Node, common::FallbackGasFiller};
+use crate::{Node, common::FallbackGasFiller, constants::INITIAL_BALANCE};
 
 static NODE_COUNT: AtomicU32 = AtomicU32::new(0);
 
@@ -84,10 +84,10 @@ impl Instance {
         for signer_address in
             <EthereumWallet as NetworkWallet<Ethereum>>::signer_addresses(&self.wallet)
         {
-            genesis.alloc.entry(signer_address).or_insert(
-                GenesisAccount::default()
-                    .with_balance(10000000000000000000000u128.try_into().unwrap()),
-            );
+            genesis
+                .alloc
+                .entry(signer_address)
+                .or_insert(GenesisAccount::default().with_balance(U256::from(INITIAL_BALANCE)));
         }
         let genesis_path = self.base_directory.join(Self::GENESIS_JSON_FILE);
         serde_json::to_writer(File::create(&genesis_path)?, &genesis)?;
