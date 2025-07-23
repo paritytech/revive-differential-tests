@@ -7,7 +7,6 @@ use alloy::{
     primitives::{Address, Bytes, U256},
     rpc::types::TransactionRequest,
 };
-use alloy_primitives::B256;
 use semver::VersionReq;
 use serde::Deserialize;
 
@@ -50,14 +49,14 @@ pub struct ExpectedOutput {
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
 pub struct Event {
     pub address: Option<Address>,
-    pub topics: Vec<B256>,
+    pub topics: Vec<String>,
     pub values: Calldata,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
 #[serde(untagged)]
 pub enum Calldata {
-    Single(String),
+    Single(Bytes),
     Compound(Vec<String>),
 }
 
@@ -159,12 +158,38 @@ impl Calldata {
 
     pub fn size_requirement(&self) -> usize {
         match self {
-            Calldata::Single(single) => single
-                .len()
-                .checked_sub(2)
-                .and_then(|value| value.checked_div(2))
-                .unwrap_or_default(),
+            Calldata::Single(single) => single.len(),
             Calldata::Compound(items) => items.len() * 32,
+        }
+    }
+
+    /// Checks if this [`Calldata`] is equivalent to the passed calldata bytes.
+    pub fn is_equivalent(
+        &self,
+        other: &[u8],
+        deployed_contracts: &HashMap<ContractInstance, (Address, JsonAbi)>,
+        chain_state_provider: &impl EthereumNode,
+    ) -> anyhow::Result<bool> {
+        match self {
+            Calldata::Single(calldata) => Ok(calldata == other),
+            Calldata::Compound(items) => {
+                // Chunking the "other" calldata into 32 byte chunks since each
+                // one of the items in the compound calldata represents 32 bytes
+                for (this, other) in items.iter().zip(other.chunks(32)) {
+                    // The matterlabs format supports wildcards and therefore we
+                    // also need to support them.
+                    if this == "*" {
+                        continue;
+                    }
+
+                    let this = resolve_argument(this, deployed_contracts, chain_state_provider)?;
+                    let other = U256::from_be_slice(other);
+                    if this != other {
+                        return Ok(false);
+                    }
+                }
+                Ok(true)
+            }
         }
     }
 }

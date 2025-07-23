@@ -5,7 +5,6 @@ use std::marker::PhantomData;
 
 use alloy::json_abi::JsonAbi;
 use alloy::network::{Ethereum, TransactionBuilder};
-use alloy::primitives::Bytes;
 use alloy::rpc::types::TransactionReceipt;
 use alloy::rpc::types::trace::geth::{
     DefaultFrame, GethDebugTracingOptions, GethDefaultTracingOptions, GethTrace, PreStateConfig,
@@ -437,6 +436,9 @@ where
         // Additionally, what happens if the compiler filter doesn't match? Do we consider that the
         // transaction should succeed? Do we just ignore the expectation?
 
+        let deployed_contracts = self.deployed_contracts.entry(case_idx).or_default();
+        let chain_state_provider = node;
+
         // Handling the receipt state assertion.
         let expected = !expectation.exception;
         let actual = execution_receipt.status();
@@ -454,13 +456,16 @@ where
 
         // Handling the calldata assertion
         if let Some(ref expected_calldata) = expectation.return_data {
-            let expected = expected_calldata
-                .calldata(self.deployed_contracts.entry(case_idx).or_default(), node)
-                .map(Bytes::from)?;
-            let actual = tracing_result.return_value.clone();
-            if !expected.starts_with(&actual) {
-                tracing::error!(?execution_receipt, %expected, %actual, "Calldata assertion failed");
-                anyhow::bail!("Calldata assertion failed - Expected {expected} but got {actual}",);
+            let expected = expected_calldata;
+            let actual = &tracing_result.return_value;
+            if !expected.is_equivalent(actual, deployed_contracts, chain_state_provider)? {
+                tracing::error!(
+                    ?execution_receipt,
+                    ?expected,
+                    %actual,
+                    "Calldata assertion failed"
+                );
+                anyhow::bail!("Calldata assertion failed - Expected {expected:?} but got {actual}",);
             }
         }
 
@@ -503,27 +508,34 @@ where
                 }
 
                 // Handling the topics assertion.
-                let expected = expected_event.topics.as_slice();
-                let actual = actual_event.topics();
-                if actual != expected {
-                    tracing::error!(
-                        ?execution_receipt,
-                        ?expected,
-                        ?actual,
-                        "Event topics assertion failed",
-                    );
-                    anyhow::bail!(
-                        "Event topics assertion failed - Expected {expected:?} but got {actual:?}",
-                    );
+                for (expected, actual) in expected_event
+                    .topics
+                    .as_slice()
+                    .iter()
+                    .zip(actual_event.topics())
+                {
+                    let expected = Calldata::Compound(vec![expected.clone()]);
+                    if !expected.is_equivalent(
+                        &actual.0,
+                        deployed_contracts,
+                        chain_state_provider,
+                    )? {
+                        tracing::error!(
+                            ?execution_receipt,
+                            ?expected,
+                            ?actual,
+                            "Event topics assertion failed",
+                        );
+                        anyhow::bail!(
+                            "Event topics assertion failed - Expected {expected:?} but got {actual:?}",
+                        );
+                    }
                 }
 
                 // Handling the values assertion.
-                let expected = &expected_event
-                    .values
-                    .calldata(self.deployed_contracts.entry(case_idx).or_default(), node)
-                    .map(Bytes::from)?;
+                let expected = &expected_event.values;
                 let actual = &actual_event.data().data;
-                if !expected.starts_with(actual) {
+                if !expected.is_equivalent(&actual.0, deployed_contracts, chain_state_provider)? {
                     tracing::error!(
                         ?execution_receipt,
                         ?expected,
