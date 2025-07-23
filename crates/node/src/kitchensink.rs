@@ -10,12 +10,14 @@ use std::{
 use alloy::{
     consensus::{BlockHeader, TxEnvelope},
     eips::BlockNumberOrTag,
-    hex,
+    genesis::{Genesis, GenesisAccount},
     network::{
-        Ethereum, EthereumWallet, Network, TransactionBuilder, TransactionBuilderError,
-        UnbuiltTransactionError,
+        Ethereum, EthereumWallet, Network, NetworkWallet, TransactionBuilder,
+        TransactionBuilderError, UnbuiltTransactionError,
     },
-    primitives::{Address, B64, B256, BlockHash, BlockNumber, BlockTimestamp, Bloom, Bytes, U256},
+    primitives::{
+        Address, B64, B256, BlockHash, BlockNumber, BlockTimestamp, Bloom, Bytes, FixedBytes, U256,
+    },
     providers::{
         Provider, ProviderBuilder,
         ext::DebugApi,
@@ -26,6 +28,7 @@ use alloy::{
         eth::{Block, Header, Transaction},
         trace::geth::{DiffMode, GethDebugTracingOptions, PreStateConfig, PreStateFrame},
     },
+    signers::local::PrivateKeySigner,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Value as JsonValue, json};
@@ -36,7 +39,7 @@ use tracing::Level;
 use revive_dt_config::Arguments;
 use revive_dt_node_interaction::{BlockingExecutor, EthereumNode};
 
-use crate::{Node, common::FallbackGasFiller};
+use crate::{Node, common::FallbackGasFiller, constants::INITIAL_BALANCE};
 
 static NODE_COUNT: AtomicU32 = AtomicU32::new(0);
 
@@ -123,7 +126,18 @@ impl KitchensinkNode {
                 None
             })
             .collect();
-        let mut eth_balances = self.extract_balance_from_genesis_file(genesis)?;
+        let mut eth_balances = {
+            let mut genesis = serde_json::from_str::<Genesis>(genesis)?;
+            for signer_address in
+                <EthereumWallet as NetworkWallet<Ethereum>>::signer_addresses(&self.wallet)
+            {
+                genesis
+                    .alloc
+                    .entry(signer_address)
+                    .or_insert(GenesisAccount::default().with_balance(U256::from(INITIAL_BALANCE)));
+            }
+            self.extract_balance_from_genesis_file(&genesis)?
+        };
         merged_balances.append(&mut eth_balances);
 
         chainspec_json["genesis"]["runtimeGenesis"]["patch"]["balances"]["balances"] =
@@ -237,42 +251,27 @@ impl KitchensinkNode {
     #[tracing::instrument(skip_all, fields(kitchensink_node_id = self.id))]
     fn extract_balance_from_genesis_file(
         &self,
-        genesis_str: &str,
+        genesis: &Genesis,
     ) -> anyhow::Result<Vec<(String, u128)>> {
-        let genesis_json: JsonValue = serde_json::from_str(genesis_str)?;
-        let alloc = genesis_json
-            .get("alloc")
-            .and_then(|a| a.as_object())
-            .ok_or_else(|| anyhow::anyhow!("Missing 'alloc' in genesis"))?;
-
-        let mut balances = Vec::new();
-        for (eth_addr, obj) in alloc.iter() {
-            let balance_str = obj.get("balance").and_then(|b| b.as_str()).unwrap_or("0");
-            let balance = if balance_str.starts_with("0x") {
-                u128::from_str_radix(balance_str.trim_start_matches("0x"), 16)?
-            } else {
-                balance_str.parse::<u128>()?
-            };
-            let substrate_addr = Self::eth_to_substrate_address(eth_addr)?;
-            balances.push((substrate_addr.clone(), balance));
-        }
-        Ok(balances)
+        genesis
+            .alloc
+            .iter()
+            .try_fold(Vec::new(), |mut vec, (address, acc)| {
+                let substrate_address = Self::eth_to_substrate_address(address);
+                let balance = acc.balance.try_into()?;
+                vec.push((substrate_address, balance));
+                Ok(vec)
+            })
     }
 
-    fn eth_to_substrate_address(eth_addr: &str) -> anyhow::Result<String> {
-        let eth_bytes = hex::decode(eth_addr.trim_start_matches("0x"))?;
-        if eth_bytes.len() != 20 {
-            anyhow::bail!(
-                "Invalid Ethereum address length: expected 20 bytes, got {}",
-                eth_bytes.len()
-            );
-        }
+    fn eth_to_substrate_address(address: &Address) -> String {
+        let eth_bytes = address.0.0;
 
         let mut padded = [0xEEu8; 32];
         padded[..20].copy_from_slice(&eth_bytes);
 
         let account_id = AccountId32::from(padded);
-        Ok(account_id.to_ss58check())
+        account_id.to_ss58check()
     }
 
     fn wait_ready(logs_file_path: &Path, marker: &str, timeout: Duration) -> anyhow::Result<()> {
@@ -513,12 +512,21 @@ impl Node for KitchensinkNode {
         let base_directory = kitchensink_directory.join(id.to_string());
         let logs_directory = base_directory.join(Self::LOGS_DIRECTORY);
 
+        let mut wallet = config.wallet();
+        for signer in (1..=config.private_keys_to_add)
+            .map(|id| U256::from(id))
+            .map(|id| id.to_be_bytes::<32>())
+            .map(|id| PrivateKeySigner::from_bytes(&FixedBytes(id)).unwrap())
+        {
+            wallet.register_signer(signer);
+        }
+
         Self {
             id,
             substrate_binary: config.kitchensink.clone(),
             eth_proxy_binary: config.eth_proxy.clone(),
             rpc_url: String::new(),
-            wallet: config.wallet(),
+            wallet,
             base_directory,
             logs_directory,
             process_substrate: None,
@@ -579,6 +587,14 @@ impl Node for KitchensinkNode {
             .stdout;
         Ok(String::from_utf8_lossy(&output).into())
     }
+
+    #[tracing::instrument(skip_all, fields(kitchensink_node_id = self.id))]
+    fn matches_target(&self, targets: Option<&[String]>) -> bool {
+        match targets {
+            None => true,
+            Some(targets) => targets.iter().any(|str| str.as_str() == "pvm"),
+        }
+    }
 }
 
 impl Drop for KitchensinkNode {
@@ -631,6 +647,12 @@ impl TransactionBuilder<KitchenSinkNetwork> for <Ethereum as Network>::Transacti
     fn set_nonce(&mut self, nonce: u64) {
         <<Ethereum as Network>::TransactionRequest as TransactionBuilder<Ethereum>>::set_nonce(
             self, nonce,
+        )
+    }
+
+    fn take_nonce(&mut self) -> Option<u64> {
+        <<Ethereum as Network>::TransactionRequest as TransactionBuilder<Ethereum>>::take_nonce(
+            self,
         )
     }
 
@@ -1123,12 +1145,12 @@ mod tests {
         let contents = fs::read_to_string(&final_chainspec_path).expect("Failed to read chainspec");
 
         // Validate that the Substrate addresses derived from the Ethereum addresses are in the file
-        let first_eth_addr =
-            KitchensinkNode::eth_to_substrate_address("90F8bf6A479f320ead074411a4B0e7944Ea8c9C1")
-                .unwrap();
-        let second_eth_addr =
-            KitchensinkNode::eth_to_substrate_address("Ab8483F64d9C6d1EcF9b849Ae677dD3315835cb2")
-                .unwrap();
+        let first_eth_addr = KitchensinkNode::eth_to_substrate_address(
+            &"90F8bf6A479f320ead074411a4B0e7944Ea8c9C1".parse().unwrap(),
+        );
+        let second_eth_addr = KitchensinkNode::eth_to_substrate_address(
+            &"Ab8483F64d9C6d1EcF9b849Ae677dD3315835cb2".parse().unwrap(),
+        );
 
         assert!(
             contents.contains(&first_eth_addr),
@@ -1156,7 +1178,7 @@ mod tests {
         let node = KitchensinkNode::new(&test_config().0);
 
         let result = node
-            .extract_balance_from_genesis_file(genesis_json)
+            .extract_balance_from_genesis_file(&serde_json::from_str(genesis_json).unwrap())
             .unwrap();
 
         let result_map: std::collections::HashMap<_, _> = result.into_iter().collect();
@@ -1186,7 +1208,7 @@ mod tests {
         ];
 
         for eth_addr in eth_addresses {
-            let ss58 = KitchensinkNode::eth_to_substrate_address(eth_addr).unwrap();
+            let ss58 = KitchensinkNode::eth_to_substrate_address(&eth_addr.parse().unwrap());
 
             println!("Ethereum: {eth_addr} -> Substrate SS58: {ss58}");
         }
@@ -1214,7 +1236,7 @@ mod tests {
         ];
 
         for (eth_addr, expected_ss58) in cases {
-            let result = KitchensinkNode::eth_to_substrate_address(eth_addr).unwrap();
+            let result = KitchensinkNode::eth_to_substrate_address(&eth_addr.parse().unwrap());
             assert_eq!(
                 result, expected_ss58,
                 "Mismatch for Ethereum address {eth_addr}"

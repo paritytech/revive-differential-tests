@@ -9,6 +9,7 @@ use tokio::{
     runtime::Builder,
     sync::{mpsc::UnboundedSender, oneshot},
 };
+use tracing::Instrument;
 
 /// A blocking async executor.
 ///
@@ -63,6 +64,11 @@ impl BlockingExecutor {
             let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<TaskMessage>();
 
             thread::spawn(move || {
+                tracing::info!(
+                    thread_id = ?std::thread::current().id(),
+                    "Starting async runtime thread"
+                );
+
                 let runtime = Builder::new_current_thread()
                     .enable_all()
                     .build()
@@ -107,7 +113,9 @@ impl BlockingExecutor {
         // in the task message. In doing this conversion, we lose some of the type information since
         // we're converting R => dyn Any. However, we will perform down-casting on the result to
         // convert it back into R.
-        let future = Box::pin(async move { Box::new(future.await) as Box<dyn Any + Send> });
+        let future = Box::pin(
+            async move { Box::new(future.await) as Box<dyn Any + Send> }.in_current_span(),
+        );
 
         let task = TaskMessage::new(future, response_tx);
         if let Err(error) = STATE.tx.send(task) {

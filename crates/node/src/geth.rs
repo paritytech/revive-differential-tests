@@ -11,8 +11,9 @@ use std::{
 
 use alloy::{
     eips::BlockNumberOrTag,
-    network::{Ethereum, EthereumWallet},
-    primitives::{Address, BlockHash, BlockNumber, BlockTimestamp, U256},
+    genesis::{Genesis, GenesisAccount},
+    network::{Ethereum, EthereumWallet, NetworkWallet},
+    primitives::{Address, BlockHash, BlockNumber, BlockTimestamp, FixedBytes, U256},
     providers::{
         Provider, ProviderBuilder,
         ext::DebugApi,
@@ -22,12 +23,13 @@ use alloy::{
         TransactionReceipt, TransactionRequest,
         trace::geth::{DiffMode, GethDebugTracingOptions, PreStateConfig, PreStateFrame},
     },
+    signers::local::PrivateKeySigner,
 };
 use revive_dt_config::Arguments;
 use revive_dt_node_interaction::{BlockingExecutor, EthereumNode};
 use tracing::Level;
 
-use crate::{Node, common::FallbackGasFiller};
+use crate::{Node, common::FallbackGasFiller, constants::INITIAL_BALANCE};
 
 static NODE_COUNT: AtomicU32 = AtomicU32::new(0);
 
@@ -78,8 +80,17 @@ impl Instance {
         create_dir_all(&self.base_directory)?;
         create_dir_all(&self.logs_directory)?;
 
+        let mut genesis = serde_json::from_str::<Genesis>(&genesis)?;
+        for signer_address in
+            <EthereumWallet as NetworkWallet<Ethereum>>::signer_addresses(&self.wallet)
+        {
+            genesis
+                .alloc
+                .entry(signer_address)
+                .or_insert(GenesisAccount::default().with_balance(U256::from(INITIAL_BALANCE)));
+        }
         let genesis_path = self.base_directory.join(Self::GENESIS_JSON_FILE);
-        File::create(&genesis_path)?.write_all(genesis.as_bytes())?;
+        serde_json::to_writer(File::create(&genesis_path)?, &genesis)?;
 
         let mut child = Command::new(&self.geth)
             .arg("init")
@@ -429,6 +440,15 @@ impl Node for Instance {
         let id = NODE_COUNT.fetch_add(1, Ordering::SeqCst);
         let base_directory = geth_directory.join(id.to_string());
 
+        let mut wallet = config.wallet();
+        for signer in (1..=config.private_keys_to_add)
+            .map(|id| U256::from(id))
+            .map(|id| id.to_be_bytes::<32>())
+            .map(|id| PrivateKeySigner::from_bytes(&FixedBytes(id)).unwrap())
+        {
+            wallet.register_signer(signer);
+        }
+
         Self {
             connection_string: base_directory.join(Self::IPC_FILE).display().to_string(),
             data_directory: base_directory.join(Self::DATA_DIRECTORY),
@@ -439,7 +459,7 @@ impl Node for Instance {
             handle: None,
             network_id: config.network_id,
             start_timeout: config.geth_start_timeout,
-            wallet: config.wallet(),
+            wallet,
             // We know that we only need to be storing 2 files so we can specify that when creating
             // the vector. It's the stdout and stderr of the geth node.
             logs_file_to_flush: Vec::with_capacity(2),
@@ -492,6 +512,14 @@ impl Node for Instance {
             .stdout;
         Ok(String::from_utf8_lossy(&output).into())
     }
+
+    #[tracing::instrument(skip_all, fields(geth_node_id = self.id))]
+    fn matches_target(&self, targets: Option<&[String]>) -> bool {
+        match targets {
+            None => true,
+            Some(targets) => targets.iter().any(|str| str.as_str() == "evm"),
+        }
+    }
 }
 
 impl Drop for Instance {
@@ -504,6 +532,7 @@ impl Drop for Instance {
 #[cfg(test)]
 mod tests {
     use revive_dt_config::Arguments;
+
     use temp_dir::TempDir;
 
     use crate::{GENESIS_JSON, Node};

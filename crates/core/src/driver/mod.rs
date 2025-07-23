@@ -7,7 +7,8 @@ use alloy::json_abi::JsonAbi;
 use alloy::network::{Ethereum, TransactionBuilder};
 use alloy::rpc::types::TransactionReceipt;
 use alloy::rpc::types::trace::geth::{
-    DefaultFrame, GethDebugTracingOptions, GethDefaultTracingOptions, GethTrace, PreStateConfig,
+    CallFrame, GethDebugBuiltInTracerType, GethDebugTracerType, GethDebugTracingOptions, GethTrace,
+    PreStateConfig,
 };
 use alloy::{
     primitives::Address,
@@ -24,6 +25,7 @@ use revive_dt_format::case::CaseIdx;
 use revive_dt_format::input::{Calldata, Expected, ExpectedOutput, Method};
 use revive_dt_format::metadata::{ContractInstance, ContractPathAndIdentifier};
 use revive_dt_format::{input::Input, metadata::Metadata, mode::SolcMode};
+use revive_dt_node::Node;
 use revive_dt_node_interaction::EthereumNode;
 use revive_dt_report::reporter::{CompilationTask, Report, Span};
 use revive_solc_json_interface::SolcStandardJsonOutput;
@@ -248,6 +250,12 @@ where
 
             let tx = {
                 let tx = TransactionRequest::default().from(input.caller);
+                let tx = match input.value {
+                    Some(ref value) if deploy_with_constructor_arguments => {
+                        tx.value(value.into_inner())
+                    }
+                    _ => tx,
+                };
                 TransactionBuilder::<Ethereum>::with_deploy_code(tx, code)
             };
 
@@ -364,23 +372,7 @@ where
         let _guard = span.enter();
 
         // Resolving the `input.expected` into a series of expectations that we can then assert on.
-        let expectations = match input {
-            // This is a bit of a special case and we have to support it separately on it's own. If
-            // it's a call to the deployer method, then the tests will assert that it "returns" the
-            // address of the contract. Deployments do not return the address of the contract but
-            // the runtime code of the contracts. Therefore, this assertion would always fail. So,
-            // we replace it with an assertion of "check if it succeeded"
-            Input {
-                expected: Some(Expected::Calldata(Calldata::Compound(compound))),
-                method: Method::Deployer,
-                ..
-            } if compound.len() == 1
-                && compound
-                    .first()
-                    .is_some_and(|first| first.contains(".address")) =>
-            {
-                vec![ExpectedOutput::new().with_success()]
-            }
+        let mut expectations = match input {
             Input {
                 expected: Some(Expected::Calldata(calldata)),
                 ..
@@ -396,6 +388,17 @@ where
             Input { expected: None, .. } => vec![ExpectedOutput::new().with_success()],
         };
 
+        // This is a bit of a special case and we have to support it separately on it's own. If it's
+        // a call to the deployer method, then the tests will assert that it "returns" the address
+        // of the contract. Deployments do not return the address of the contract but the runtime
+        // code of the contracts. Therefore, this assertion would always fail. So, we replace it
+        // with an assertion of "check if it succeeded"
+        if let Method::Deployer = &input.method {
+            for expectation in expectations.iter_mut() {
+                expectation.return_data = None;
+            }
+        }
+
         // Note: we need to do assertions and checks on the output of the last call and this isn't
         // available in the receipt. The only way to get this information is through tracing on the
         // node.
@@ -403,12 +406,14 @@ where
             .trace_transaction(
                 execution_receipt,
                 GethDebugTracingOptions {
-                    config: GethDefaultTracingOptions::default().with_enable_return_data(true),
+                    tracer: Some(GethDebugTracerType::BuiltInTracer(
+                        GethDebugBuiltInTracerType::CallTracer,
+                    )),
                     ..Default::default()
                 },
             )?
-            .try_into_default_frame()
-            .expect("Impossible. We can't request default tracing and get some other type back");
+            .try_into_call_frame()
+            .expect("Impossible - we requested a callframe trace so we must get it back");
 
         for expectation in expectations.iter() {
             self.handle_input_expectation_item(
@@ -429,7 +434,7 @@ where
         execution_receipt: &TransactionReceipt,
         node: &T::Blockchain,
         expectation: &ExpectedOutput,
-        tracing_result: &DefaultFrame,
+        tracing_result: &CallFrame,
     ) -> anyhow::Result<()> {
         // TODO: We want to respect the compiler version filter on the expected output but would
         // require some changes to the interfaces of the compiler and such. So, we add it later.
@@ -443,12 +448,7 @@ where
         let expected = !expectation.exception;
         let actual = execution_receipt.status();
         if actual != expected {
-            tracing::error!(
-                ?execution_receipt,
-                expected,
-                actual,
-                "Transaction status assertion failed",
-            );
+            tracing::error!(expected, actual, "Transaction status assertion failed",);
             anyhow::bail!(
                 "Transaction status assertion failed - Expected {expected} but got {actual}",
             );
@@ -457,7 +457,7 @@ where
         // Handling the calldata assertion
         if let Some(ref expected_calldata) = expectation.return_data {
             let expected = expected_calldata;
-            let actual = &tracing_result.return_value;
+            let actual = &tracing_result.output.as_ref().unwrap_or_default();
             if !expected.is_equivalent(actual, deployed_contracts, chain_state_provider)? {
                 tracing::error!(
                     ?execution_receipt,
@@ -475,12 +475,7 @@ where
             let expected = expected_events.len();
             let actual = execution_receipt.logs().len();
             if actual != expected {
-                tracing::error!(
-                    ?execution_receipt,
-                    expected,
-                    actual,
-                    "Event count assertion failed",
-                );
+                tracing::error!(expected, actual, "Event count assertion failed",);
                 anyhow::bail!(
                     "Event count assertion failed - Expected {expected} but got {actual}",
                 );
@@ -496,7 +491,6 @@ where
                     let actual = actual_event.address();
                     if actual != expected {
                         tracing::error!(
-                            ?execution_receipt,
                             %expected,
                             %actual,
                             "Event emitter assertion failed",
@@ -655,6 +649,22 @@ where
         let tracing_span = tracing::info_span!("Handling metadata file");
         let _guard = tracing_span.enter();
 
+        // We only execute this input if it's valid for the leader and the follower. Otherwise, we
+        // skip it with a warning.
+        if !self
+            .leader_node
+            .matches_target(self.metadata.targets.as_deref())
+            || !self
+                .follower_node
+                .matches_target(self.metadata.targets.as_deref())
+        {
+            tracing::warn!(
+                targets = ?self.metadata.targets,
+                "Either the leader or follower node do not support the targets of the file"
+            );
+            return execution_result;
+        }
+
         for mode in self.metadata.solc_modes() {
             let tracing_span = tracing::info_span!("With solc mode", solc_mode = ?mode);
             let _guard = tracing_span.enter();
@@ -698,6 +708,7 @@ where
 
             // For cases if one of the inputs fail then we move on to the next case and we do NOT
             // bail out of the whole thing.
+
             'case_loop: for (case_idx, case) in self.metadata.cases.iter().enumerate() {
                 let tracing_span = tracing::info_span!(
                     "Handling case",
