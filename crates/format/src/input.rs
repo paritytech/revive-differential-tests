@@ -159,7 +159,11 @@ impl Calldata {
 
     pub fn size_requirement(&self) -> usize {
         match self {
-            Calldata::Single(single) => (single.len() - 2) / 2,
+            Calldata::Single(single) => single
+                .len()
+                .checked_sub(2)
+                .and_then(|value| value.checked_div(2))
+                .unwrap_or_default(),
             Calldata::Compound(items) => items.len() * 32,
         }
     }
