@@ -182,8 +182,16 @@ impl Calldata {
                         continue;
                     }
 
+                    let other = if other.len() < 32 {
+                        let mut vec = other.to_vec();
+                        vec.resize(32, 0);
+                        std::borrow::Cow::Owned(vec)
+                    } else {
+                        std::borrow::Cow::Borrowed(other)
+                    };
+
                     let this = resolve_argument(this, deployed_contracts, chain_state_provider)?;
-                    let other = U256::from_be_slice(other);
+                    let other = U256::from_be_slice(&other);
                     if this != other {
                         return Ok(false);
                     }
