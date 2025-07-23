@@ -136,8 +136,8 @@ impl Calldata {
         chain_state_provider: &impl EthereumNode,
     ) -> anyhow::Result<()> {
         match self {
-            Calldata::Single(string) => {
-                alloy::hex::decode_to_slice(string, buffer)?;
+            Calldata::Single(bytes) => {
+                buffer.extend_from_slice(bytes);
             }
             Calldata::Compound(items) => {
                 for (arg_idx, arg) in items.iter().enumerate() {
