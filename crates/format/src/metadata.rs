@@ -44,6 +44,7 @@ impl Deref for MetadataFile {
 
 #[derive(Debug, Default, Deserialize, Clone, Eq, PartialEq)]
 pub struct Metadata {
+    pub targets: Option<Vec<String>>,
     pub cases: Vec<Case>,
     pub contracts: Option<BTreeMap<ContractInstance, ContractPathAndIdentifier>>,
     // TODO: Convert into wrapper types for clarity.

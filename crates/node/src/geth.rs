@@ -1,37 +1,35 @@
 //! The go-ethereum node implementation.
 
 use std::{
-    collections::HashMap,
     fs::{File, OpenOptions, create_dir_all, remove_dir_all},
     io::{BufRead, BufReader, Read, Write},
     path::PathBuf,
     process::{Child, Command, Stdio},
-    sync::{
-        Mutex,
-        atomic::{AtomicU32, Ordering},
-    },
+    sync::atomic::{AtomicU32, Ordering},
     time::{Duration, Instant},
 };
 
 use alloy::{
     eips::BlockNumberOrTag,
-    network::{Ethereum, EthereumWallet},
-    primitives::{Address, BlockHash, BlockNumber, BlockTimestamp, U256},
+    genesis::{Genesis, GenesisAccount},
+    network::{Ethereum, EthereumWallet, NetworkWallet},
+    primitives::{Address, BlockHash, BlockNumber, BlockTimestamp, FixedBytes, U256},
     providers::{
         Provider, ProviderBuilder,
         ext::DebugApi,
-        fillers::{FillProvider, TxFiller},
+        fillers::{CachedNonceManager, ChainIdFiller, FillProvider, NonceFiller, TxFiller},
     },
     rpc::types::{
         TransactionReceipt, TransactionRequest,
         trace::geth::{DiffMode, GethDebugTracingOptions, PreStateConfig, PreStateFrame},
     },
+    signers::local::PrivateKeySigner,
 };
 use revive_dt_config::Arguments;
 use revive_dt_node_interaction::{BlockingExecutor, EthereumNode};
 use tracing::Level;
 
-use crate::Node;
+use crate::{Node, common::FallbackGasFiller, constants::INITIAL_BALANCE};
 
 static NODE_COUNT: AtomicU32 = AtomicU32::new(0);
 
@@ -54,7 +52,7 @@ pub struct Instance {
     network_id: u64,
     start_timeout: u64,
     wallet: EthereumWallet,
-    nonces: Mutex<HashMap<Address, u64>>,
+    nonce_manager: CachedNonceManager,
     /// This vector stores [`File`] objects that we use for logging which we want to flush when the
     /// node object is dropped. We do not store them in a structured fashion at the moment (in
     /// separate fields) as the logic that we need to apply to them is all the same regardless of
@@ -82,8 +80,17 @@ impl Instance {
         create_dir_all(&self.base_directory)?;
         create_dir_all(&self.logs_directory)?;
 
+        let mut genesis = serde_json::from_str::<Genesis>(&genesis)?;
+        for signer_address in
+            <EthereumWallet as NetworkWallet<Ethereum>>::signer_addresses(&self.wallet)
+        {
+            genesis
+                .alloc
+                .entry(signer_address)
+                .or_insert(GenesisAccount::default().with_balance(U256::from(INITIAL_BALANCE)));
+        }
         let genesis_path = self.base_directory.join(Self::GENESIS_JSON_FILE);
-        File::create(&genesis_path)?.write_all(genesis.as_bytes())?;
+        serde_json::to_writer(File::create(&genesis_path)?, &genesis)?;
 
         let mut child = Command::new(&self.geth)
             .arg("init")
@@ -206,8 +213,19 @@ impl Instance {
     > + 'static {
         let connection_string = self.connection_string();
         let wallet = self.wallet.clone();
+
+        // Note: We would like all providers to make use of the same nonce manager so that we have
+        // monotonically increasing nonces that are cached. The cached nonce manager uses Arc's in
+        // its implementation and therefore it means that when we clone it then it still references
+        // the same state.
+        let nonce_manager = self.nonce_manager.clone();
+
         Box::pin(async move {
             ProviderBuilder::new()
+                .disable_recommended_fillers()
+                .filler(FallbackGasFiller::new(500_000_000, 500_000_000, 1))
+                .filler(ChainIdFiller::default())
+                .filler(NonceFiller::new(nonce_manager))
                 .wallet(wallet)
                 .connect(&connection_string)
                 .await
@@ -224,7 +242,7 @@ impl EthereumNode for Instance {
     ) -> anyhow::Result<alloy::rpc::types::TransactionReceipt> {
         let provider = self.provider();
         BlockingExecutor::execute(async move {
-            let outer_span = tracing::debug_span!("Submitting transaction", ?transaction,);
+            let outer_span = tracing::debug_span!("Submitting transaction", ?transaction);
             let _outer_guard = outer_span.enter();
 
             let provider = provider.await?;
@@ -305,53 +323,33 @@ impl EthereumNode for Instance {
     #[tracing::instrument(skip_all, fields(geth_node_id = self.id))]
     fn trace_transaction(
         &self,
-        transaction: TransactionReceipt,
+        transaction: &TransactionReceipt,
+        trace_options: GethDebugTracingOptions,
     ) -> anyhow::Result<alloy::rpc::types::trace::geth::GethTrace> {
-        let trace_options = GethDebugTracingOptions::prestate_tracer(PreStateConfig {
-            diff_mode: Some(true),
-            disable_code: None,
-            disable_storage: None,
-        });
+        let tx_hash = transaction.transaction_hash;
         let provider = self.provider();
-
         BlockingExecutor::execute(async move {
             Ok(provider
                 .await?
-                .debug_trace_transaction(transaction.transaction_hash, trace_options)
+                .debug_trace_transaction(tx_hash, trace_options)
                 .await?)
         })?
     }
 
     #[tracing::instrument(skip_all, fields(geth_node_id = self.id))]
-    fn state_diff(
-        &self,
-        transaction: alloy::rpc::types::TransactionReceipt,
-    ) -> anyhow::Result<DiffMode> {
+    fn state_diff(&self, transaction: &TransactionReceipt) -> anyhow::Result<DiffMode> {
+        let trace_options = GethDebugTracingOptions::prestate_tracer(PreStateConfig {
+            diff_mode: Some(true),
+            disable_code: None,
+            disable_storage: None,
+        });
         match self
-            .trace_transaction(transaction)?
+            .trace_transaction(transaction, trace_options)?
             .try_into_pre_state_frame()?
         {
             PreStateFrame::Diff(diff) => Ok(diff),
             _ => anyhow::bail!("expected a diff mode trace"),
         }
-    }
-
-    #[tracing::instrument(skip_all, fields(geth_node_id = self.id))]
-    fn fetch_add_nonce(&self, address: Address) -> anyhow::Result<u64> {
-        let provider = self.provider();
-        let onchain_nonce = BlockingExecutor::execute::<anyhow::Result<_>>(async move {
-            provider
-                .await?
-                .get_transaction_count(address)
-                .await
-                .map_err(Into::into)
-        })??;
-
-        let mut nonces = self.nonces.lock().unwrap();
-        let current = nonces.entry(address).or_insert(onchain_nonce);
-        let value = *current;
-        *current += 1;
-        Ok(value)
     }
 
     #[tracing::instrument(skip_all, fields(geth_node_id = self.id))]
@@ -442,6 +440,15 @@ impl Node for Instance {
         let id = NODE_COUNT.fetch_add(1, Ordering::SeqCst);
         let base_directory = geth_directory.join(id.to_string());
 
+        let mut wallet = config.wallet();
+        for signer in (1..=config.private_keys_to_add)
+            .map(|id| U256::from(id))
+            .map(|id| id.to_be_bytes::<32>())
+            .map(|id| PrivateKeySigner::from_bytes(&FixedBytes(id)).unwrap())
+        {
+            wallet.register_signer(signer);
+        }
+
         Self {
             connection_string: base_directory.join(Self::IPC_FILE).display().to_string(),
             data_directory: base_directory.join(Self::DATA_DIRECTORY),
@@ -452,11 +459,11 @@ impl Node for Instance {
             handle: None,
             network_id: config.network_id,
             start_timeout: config.geth_start_timeout,
-            wallet: config.wallet(),
-            nonces: Mutex::new(HashMap::new()),
+            wallet,
             // We know that we only need to be storing 2 files so we can specify that when creating
             // the vector. It's the stdout and stderr of the geth node.
             logs_file_to_flush: Vec::with_capacity(2),
+            nonce_manager: Default::default(),
         }
     }
 
@@ -505,6 +512,14 @@ impl Node for Instance {
             .stdout;
         Ok(String::from_utf8_lossy(&output).into())
     }
+
+    #[tracing::instrument(skip_all, fields(geth_node_id = self.id))]
+    fn matches_target(&self, targets: Option<&[String]>) -> bool {
+        match targets {
+            None => true,
+            Some(targets) => targets.iter().any(|str| str.as_str() == "evm"),
+        }
+    }
 }
 
 impl Drop for Instance {
@@ -517,6 +532,7 @@ impl Drop for Instance {
 #[cfg(test)]
 mod tests {
     use revive_dt_config::Arguments;
+
     use temp_dir::TempDir;
 
     use crate::{GENESIS_JSON, Node};

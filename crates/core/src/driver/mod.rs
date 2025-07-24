@@ -6,7 +6,10 @@ use std::marker::PhantomData;
 use alloy::json_abi::JsonAbi;
 use alloy::network::{Ethereum, TransactionBuilder};
 use alloy::rpc::types::TransactionReceipt;
-use alloy::rpc::types::trace::geth::GethTrace;
+use alloy::rpc::types::trace::geth::{
+    CallFrame, GethDebugBuiltInTracerType, GethDebugTracerType, GethDebugTracingOptions, GethTrace,
+    PreStateConfig,
+};
 use alloy::{
     primitives::Address,
     rpc::types::{
@@ -19,9 +22,10 @@ use indexmap::IndexMap;
 use revive_dt_compiler::{Compiler, SolidityCompiler};
 use revive_dt_config::Arguments;
 use revive_dt_format::case::CaseIdx;
-use revive_dt_format::input::Method;
+use revive_dt_format::input::{Calldata, Expected, ExpectedOutput, Method};
 use revive_dt_format::metadata::{ContractInstance, ContractPathAndIdentifier};
 use revive_dt_format::{input::Input, metadata::Metadata, mode::SolcMode};
+use revive_dt_node::Node;
 use revive_dt_node_interaction::EthereumNode;
 use revive_dt_report::reporter::{CompilationTask, Report, Span};
 use revive_solc_json_interface::SolcStandardJsonOutput;
@@ -145,7 +149,10 @@ where
     ) -> anyhow::Result<(TransactionReceipt, GethTrace, DiffMode)> {
         let deployment_receipts =
             self.handle_contract_deployment(metadata, case_idx, input, node)?;
-        self.handle_input_execution(case_idx, input, deployment_receipts, node)
+        let execution_receipt =
+            self.handle_input_execution(case_idx, input, deployment_receipts, node)?;
+        self.handle_input_expectations(case_idx, input, &execution_receipt, node)?;
+        self.handle_input_diff(case_idx, execution_receipt, node)
     }
 
     /// Handles the contract deployment for a given input performing it if it needs to be performed.
@@ -243,6 +250,12 @@ where
 
             let tx = {
                 let tx = TransactionRequest::default().from(input.caller);
+                let tx = match input.value {
+                    Some(ref value) if deploy_with_constructor_arguments => {
+                        tx.value(value.into_inner())
+                    }
+                    _ => tx,
+                };
                 TransactionBuilder::<Ethereum>::with_deploy_code(tx, code)
             };
 
@@ -308,18 +321,15 @@ where
         &mut self,
         case_idx: CaseIdx,
         input: &Input,
-        deployment_receipts: HashMap<ContractInstance, TransactionReceipt>,
+        mut deployment_receipts: HashMap<ContractInstance, TransactionReceipt>,
         node: &T::Blockchain,
-    ) -> anyhow::Result<(TransactionReceipt, GethTrace, DiffMode)> {
-        tracing::trace!("Calling execute_input for input: {input:?}");
-
-        let receipt = match input.method {
+    ) -> anyhow::Result<TransactionReceipt> {
+        match input.method {
             // This input was already executed when `handle_input` was called. We just need to
             // lookup the transaction receipt in this case and continue on.
             Method::Deployer => deployment_receipts
-                .get(&input.instance)
-                .context("Failed to find deployment receipt")?
-                .clone(),
+                .remove(&input.instance)
+                .context("Failed to find deployment receipt"),
             Method::Fallback | Method::FunctionName(_) => {
                 let tx = match input
                     .legacy_transaction(self.deployed_contracts.entry(case_idx).or_default(), node)
@@ -337,35 +347,224 @@ where
                 tracing::trace!("Executing transaction for input: {input:?}");
 
                 match node.execute_transaction(tx) {
-                    Ok(receipt) => receipt,
+                    Ok(receipt) => Ok(receipt),
                     Err(err) => {
                         tracing::error!(
                             "Failed to execute transaction when executing the contract: {}, {:?}",
                             &*input.instance,
                             err
                         );
-                        return Err(err);
+                        Err(err)
                     }
                 }
             }
+        }
+    }
+
+    fn handle_input_expectations(
+        &mut self,
+        case_idx: CaseIdx,
+        input: &Input,
+        execution_receipt: &TransactionReceipt,
+        node: &T::Blockchain,
+    ) -> anyhow::Result<()> {
+        let span = tracing::info_span!("Handling input expectations");
+        let _guard = span.enter();
+
+        // Resolving the `input.expected` into a series of expectations that we can then assert on.
+        let mut expectations = match input {
+            Input {
+                expected: Some(Expected::Calldata(calldata)),
+                ..
+            } => vec![ExpectedOutput::new().with_calldata(calldata.clone())],
+            Input {
+                expected: Some(Expected::Expected(expected)),
+                ..
+            } => vec![expected.clone()],
+            Input {
+                expected: Some(Expected::ExpectedMany(expected)),
+                ..
+            } => expected.clone(),
+            Input { expected: None, .. } => vec![ExpectedOutput::new().with_success()],
         };
 
-        tracing::trace!(
-            "Transaction receipt for executed contract: {} - {:?}",
-            &*input.instance,
-            receipt,
-        );
+        // This is a bit of a special case and we have to support it separately on it's own. If it's
+        // a call to the deployer method, then the tests will assert that it "returns" the address
+        // of the contract. Deployments do not return the address of the contract but the runtime
+        // code of the contracts. Therefore, this assertion would always fail. So, we replace it
+        // with an assertion of "check if it succeeded"
+        if let Method::Deployer = &input.method {
+            for expectation in expectations.iter_mut() {
+                expectation.return_data = None;
+            }
+        }
 
-        let trace = node.trace_transaction(receipt.clone())?;
-        tracing::trace!(
-            "Trace result for contract: {} - {:?}",
-            &*input.instance,
-            trace
-        );
+        // Note: we need to do assertions and checks on the output of the last call and this isn't
+        // available in the receipt. The only way to get this information is through tracing on the
+        // node.
+        let tracing_result = node
+            .trace_transaction(
+                execution_receipt,
+                GethDebugTracingOptions {
+                    tracer: Some(GethDebugTracerType::BuiltInTracer(
+                        GethDebugBuiltInTracerType::CallTracer,
+                    )),
+                    ..Default::default()
+                },
+            )?
+            .try_into_call_frame()
+            .expect("Impossible - we requested a callframe trace so we must get it back");
 
-        let diff = node.state_diff(receipt.clone())?;
+        for expectation in expectations.iter() {
+            self.handle_input_expectation_item(
+                case_idx,
+                execution_receipt,
+                node,
+                expectation,
+                &tracing_result,
+            )?;
+        }
 
-        Ok((receipt, trace, diff))
+        Ok(())
+    }
+
+    fn handle_input_expectation_item(
+        &mut self,
+        case_idx: CaseIdx,
+        execution_receipt: &TransactionReceipt,
+        node: &T::Blockchain,
+        expectation: &ExpectedOutput,
+        tracing_result: &CallFrame,
+    ) -> anyhow::Result<()> {
+        // TODO: We want to respect the compiler version filter on the expected output but would
+        // require some changes to the interfaces of the compiler and such. So, we add it later.
+        // Additionally, what happens if the compiler filter doesn't match? Do we consider that the
+        // transaction should succeed? Do we just ignore the expectation?
+
+        let deployed_contracts = self.deployed_contracts.entry(case_idx).or_default();
+        let chain_state_provider = node;
+
+        // Handling the receipt state assertion.
+        let expected = !expectation.exception;
+        let actual = execution_receipt.status();
+        if actual != expected {
+            tracing::error!(expected, actual, "Transaction status assertion failed",);
+            anyhow::bail!(
+                "Transaction status assertion failed - Expected {expected} but got {actual}",
+            );
+        }
+
+        // Handling the calldata assertion
+        if let Some(ref expected_calldata) = expectation.return_data {
+            let expected = expected_calldata;
+            let actual = &tracing_result.output.as_ref().unwrap_or_default();
+            if !expected.is_equivalent(actual, deployed_contracts, chain_state_provider)? {
+                tracing::error!(
+                    ?execution_receipt,
+                    ?expected,
+                    %actual,
+                    "Calldata assertion failed"
+                );
+                anyhow::bail!("Calldata assertion failed - Expected {expected:?} but got {actual}",);
+            }
+        }
+
+        // Handling the events assertion
+        if let Some(ref expected_events) = expectation.events {
+            // Handling the events length assertion.
+            let expected = expected_events.len();
+            let actual = execution_receipt.logs().len();
+            if actual != expected {
+                tracing::error!(expected, actual, "Event count assertion failed",);
+                anyhow::bail!(
+                    "Event count assertion failed - Expected {expected} but got {actual}",
+                );
+            }
+
+            // Handling the events assertion.
+            for (expected_event, actual_event) in
+                expected_events.iter().zip(execution_receipt.logs())
+            {
+                // Handling the emitter assertion.
+                if let Some(expected_address) = expected_event.address {
+                    let expected = expected_address;
+                    let actual = actual_event.address();
+                    if actual != expected {
+                        tracing::error!(
+                            %expected,
+                            %actual,
+                            "Event emitter assertion failed",
+                        );
+                        anyhow::bail!(
+                            "Event emitter assertion failed - Expected {expected} but got {actual}",
+                        );
+                    }
+                }
+
+                // Handling the topics assertion.
+                for (expected, actual) in expected_event
+                    .topics
+                    .as_slice()
+                    .iter()
+                    .zip(actual_event.topics())
+                {
+                    let expected = Calldata::Compound(vec![expected.clone()]);
+                    if !expected.is_equivalent(
+                        &actual.0,
+                        deployed_contracts,
+                        chain_state_provider,
+                    )? {
+                        tracing::error!(
+                            ?execution_receipt,
+                            ?expected,
+                            ?actual,
+                            "Event topics assertion failed",
+                        );
+                        anyhow::bail!(
+                            "Event topics assertion failed - Expected {expected:?} but got {actual:?}",
+                        );
+                    }
+                }
+
+                // Handling the values assertion.
+                let expected = &expected_event.values;
+                let actual = &actual_event.data().data;
+                if !expected.is_equivalent(&actual.0, deployed_contracts, chain_state_provider)? {
+                    tracing::error!(
+                        ?execution_receipt,
+                        ?expected,
+                        ?actual,
+                        "Event value assertion failed",
+                    );
+                    anyhow::bail!(
+                        "Event value assertion failed - Expected {expected:?} but got {actual:?}",
+                    );
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    fn handle_input_diff(
+        &mut self,
+        _: CaseIdx,
+        execution_receipt: TransactionReceipt,
+        node: &T::Blockchain,
+    ) -> anyhow::Result<(TransactionReceipt, GethTrace, DiffMode)> {
+        let span = tracing::info_span!("Handling input diff");
+        let _guard = span.enter();
+
+        let trace_options = GethDebugTracingOptions::prestate_tracer(PreStateConfig {
+            diff_mode: Some(true),
+            disable_code: None,
+            disable_storage: None,
+        });
+
+        let trace = node.trace_transaction(&execution_receipt, trace_options)?;
+        let diff = node.state_diff(&execution_receipt)?;
+
+        Ok((execution_receipt, trace, diff))
     }
 }
 
@@ -450,6 +649,22 @@ where
         let tracing_span = tracing::info_span!("Handling metadata file");
         let _guard = tracing_span.enter();
 
+        // We only execute this input if it's valid for the leader and the follower. Otherwise, we
+        // skip it with a warning.
+        if !self
+            .leader_node
+            .matches_target(self.metadata.targets.as_deref())
+            || !self
+                .follower_node
+                .matches_target(self.metadata.targets.as_deref())
+        {
+            tracing::warn!(
+                targets = ?self.metadata.targets,
+                "Either the leader or follower node do not support the targets of the file"
+            );
+            return execution_result;
+        }
+
         for mode in self.metadata.solc_modes() {
             let tracing_span = tracing::info_span!("With solc mode", solc_mode = ?mode);
             let _guard = tracing_span.enter();
@@ -493,6 +708,7 @@ where
 
             // For cases if one of the inputs fail then we move on to the next case and we do NOT
             // bail out of the whole thing.
+
             'case_loop: for (case_idx, case) in self.metadata.cases.iter().enumerate() {
                 let tracing_span = tracing::info_span!(
                     "Handling case",
@@ -505,7 +721,7 @@ where
 
                 // For inputs if one of the inputs fail we move on to the next case (we do not move
                 // on to the next input as it doesn't make sense. It depends on the previous one).
-                for (input_idx, input) in case.inputs.iter().enumerate() {
+                for (input_idx, input) in case.inputs_iterator().enumerate() {
                     let tracing_span = tracing::info_span!("Handling input", input_idx);
                     let _guard = tracing_span.enter();
 
@@ -513,7 +729,7 @@ where
                         tracing::info_span!("Executing input", contract_name = ?input.instance)
                             .in_scope(|| {
                                 let (leader_receipt, _, leader_diff) = match leader_state
-                                    .handle_input(self.metadata, case_idx, input, self.leader_node)
+                                    .handle_input(self.metadata, case_idx, &input, self.leader_node)
                                 {
                                     Ok(result) => result,
                                     Err(error) => {
@@ -541,7 +757,7 @@ where
                                     .handle_input(
                                         self.metadata,
                                         case_idx,
-                                        input,
+                                        &input,
                                         self.follower_node,
                                     ) {
                                     Ok(result) => result,
@@ -588,14 +804,6 @@ where
                         tracing::debug!("Log/event mismatch between leader and follower.");
                         tracing::trace!("Leader logs: {:?}", leader_receipt.logs());
                         tracing::trace!("Follower logs: {:?}", follower_receipt.logs());
-                    }
-
-                    if leader_receipt.status() != follower_receipt.status() {
-                        tracing::debug!(
-                            "Mismatch in status: leader = {}, follower = {}",
-                            leader_receipt.status(),
-                            follower_receipt.status()
-                        );
                     }
                 }
 

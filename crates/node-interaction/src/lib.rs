@@ -2,7 +2,7 @@
 
 use alloy::eips::BlockNumberOrTag;
 use alloy::primitives::{Address, BlockHash, BlockNumber, BlockTimestamp, ChainId, U256};
-use alloy::rpc::types::trace::geth::{DiffMode, GethTrace};
+use alloy::rpc::types::trace::geth::{DiffMode, GethDebugTracingOptions, GethTrace};
 use alloy::rpc::types::{TransactionReceipt, TransactionRequest};
 use anyhow::Result;
 
@@ -15,13 +15,14 @@ pub trait EthereumNode {
     fn execute_transaction(&self, transaction: TransactionRequest) -> Result<TransactionReceipt>;
 
     /// Trace the transaction in the [TransactionReceipt] and return a [GethTrace].
-    fn trace_transaction(&self, transaction: TransactionReceipt) -> Result<GethTrace>;
+    fn trace_transaction(
+        &self,
+        receipt: &TransactionReceipt,
+        trace_options: GethDebugTracingOptions,
+    ) -> Result<GethTrace>;
 
     /// Returns the state diff of the transaction hash in the [TransactionReceipt].
-    fn state_diff(&self, transaction: TransactionReceipt) -> Result<DiffMode>;
-
-    /// Returns the next available nonce for the given [Address].
-    fn fetch_add_nonce(&self, address: Address) -> Result<u64>;
+    fn state_diff(&self, receipt: &TransactionReceipt) -> Result<DiffMode>;
 
     /// Returns the ID of the chain that the node is on.
     fn chain_id(&self) -> Result<ChainId>;

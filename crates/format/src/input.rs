@@ -7,13 +7,13 @@ use alloy::{
     primitives::{Address, Bytes, U256},
     rpc::types::TransactionRequest,
 };
+use alloy_primitives::{FixedBytes, utils::parse_units};
 use semver::VersionReq;
-use serde::Deserialize;
-use serde_json::Value;
+use serde::{Deserialize, Serialize};
 
 use revive_dt_node_interaction::EthereumNode;
 
-use crate::metadata::ContractInstance;
+use crate::{define_wrapper_type, metadata::ContractInstance};
 
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
 pub struct Input {
@@ -26,7 +26,7 @@ pub struct Input {
     #[serde(default)]
     pub calldata: Calldata,
     pub expected: Option<Expected>,
-    pub value: Option<String>,
+    pub value: Option<EtherValue>,
     pub storage: Option<HashMap<String, Calldata>>,
 }
 
@@ -40,16 +40,24 @@ pub enum Expected {
 
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
 pub struct ExpectedOutput {
-    compiler_version: Option<VersionReq>,
-    return_data: Option<Calldata>,
-    events: Option<Value>,
-    exception: Option<bool>,
+    pub compiler_version: Option<VersionReq>,
+    pub return_data: Option<Calldata>,
+    pub events: Option<Vec<Event>>,
+    #[serde(default)]
+    pub exception: bool,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
+pub struct Event {
+    pub address: Option<Address>,
+    pub topics: Vec<String>,
+    pub values: Calldata,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
 #[serde(untagged)]
 pub enum Calldata {
-    Single(String),
+    Single(Bytes),
     Compound(Vec<String>),
 }
 
@@ -74,6 +82,58 @@ pub enum Method {
     FunctionName(String),
 }
 
+define_wrapper_type!(
+    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    EtherValue(U256);
+);
+
+impl Serialize for EtherValue {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        format!("{} wei", self.0).serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for EtherValue {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let string = String::deserialize(deserializer)?;
+        let mut splitted = string.split(' ');
+        let (Some(value), Some(unit)) = (splitted.next(), splitted.next()) else {
+            return Err(serde::de::Error::custom("Failed to parse the value"));
+        };
+        let parsed = parse_units(value, unit.replace("eth", "ether"))
+            .map_err(|_| serde::de::Error::custom("Failed to parse units"))?
+            .into();
+        Ok(Self(parsed))
+    }
+}
+
+impl ExpectedOutput {
+    pub fn new() -> Self {
+        Default::default()
+    }
+
+    pub fn with_success(mut self) -> Self {
+        self.exception = false;
+        self
+    }
+
+    pub fn with_failure(mut self) -> Self {
+        self.exception = true;
+        self
+    }
+
+    pub fn with_calldata(mut self, calldata: Calldata) -> Self {
+        self.return_data = Some(calldata);
+        self
+    }
+}
+
 impl Default for Calldata {
     fn default() -> Self {
         Self::Compound(Default::default())
@@ -91,15 +151,25 @@ impl Calldata {
         }
     }
 
-    pub fn construct_call_data(
+    pub fn calldata(
+        &self,
+        deployed_contracts: &HashMap<ContractInstance, (Address, JsonAbi)>,
+        chain_state_provider: &impl EthereumNode,
+    ) -> anyhow::Result<Vec<u8>> {
+        let mut buffer = Vec::<u8>::with_capacity(self.size_requirement());
+        self.calldata_into_slice(&mut buffer, deployed_contracts, chain_state_provider)?;
+        Ok(buffer)
+    }
+
+    pub fn calldata_into_slice(
         &self,
         buffer: &mut Vec<u8>,
         deployed_contracts: &HashMap<ContractInstance, (Address, JsonAbi)>,
         chain_state_provider: &impl EthereumNode,
     ) -> anyhow::Result<()> {
         match self {
-            Calldata::Single(string) => {
-                alloy::hex::decode_to_slice(string, buffer)?;
+            Calldata::Single(bytes) => {
+                buffer.extend_from_slice(bytes);
             }
             Calldata::Compound(items) => {
                 for (arg_idx, arg) in items.iter().enumerate() {
@@ -120,16 +190,46 @@ impl Calldata {
 
     pub fn size_requirement(&self) -> usize {
         match self {
-            Calldata::Single(single) => (single.len() - 2) / 2,
+            Calldata::Single(single) => single.len(),
             Calldata::Compound(items) => items.len() * 32,
         }
     }
-}
 
-impl ExpectedOutput {
-    pub fn find_all_contract_instances(&self, vec: &mut Vec<ContractInstance>) {
-        if let Some(ref cd) = self.return_data {
-            cd.find_all_contract_instances(vec);
+    /// Checks if this [`Calldata`] is equivalent to the passed calldata bytes.
+    pub fn is_equivalent(
+        &self,
+        other: &[u8],
+        deployed_contracts: &HashMap<ContractInstance, (Address, JsonAbi)>,
+        chain_state_provider: &impl EthereumNode,
+    ) -> anyhow::Result<bool> {
+        match self {
+            Calldata::Single(calldata) => Ok(calldata == other),
+            Calldata::Compound(items) => {
+                // Chunking the "other" calldata into 32 byte chunks since each
+                // one of the items in the compound calldata represents 32 bytes
+                for (this, other) in items.iter().zip(other.chunks(32)) {
+                    // The matterlabs format supports wildcards and therefore we
+                    // also need to support them.
+                    if this == "*" {
+                        continue;
+                    }
+
+                    let other = if other.len() < 32 {
+                        let mut vec = other.to_vec();
+                        vec.resize(32, 0);
+                        std::borrow::Cow::Owned(vec)
+                    } else {
+                        std::borrow::Cow::Borrowed(other)
+                    };
+
+                    let this = resolve_argument(this, deployed_contracts, chain_state_provider)?;
+                    let other = U256::from_be_slice(&other);
+                    if this != other {
+                        return Ok(false);
+                    }
+                }
+                Ok(true)
+            }
         }
     }
 }
@@ -153,12 +253,9 @@ impl Input {
     ) -> anyhow::Result<Bytes> {
         match self.method {
             Method::Deployer | Method::Fallback => {
-                let mut calldata = Vec::<u8>::with_capacity(self.calldata.size_requirement());
-                self.calldata.construct_call_data(
-                    &mut calldata,
-                    deployed_contracts,
-                    chain_state_provider,
-                )?;
+                let calldata = self
+                    .calldata
+                    .calldata(deployed_contracts, chain_state_provider)?;
 
                 Ok(calldata.into())
             }
@@ -204,7 +301,7 @@ impl Input {
                 // a new buffer for each one of the resolved arguments.
                 let mut calldata = Vec::<u8>::with_capacity(4 + self.calldata.size_requirement());
                 calldata.extend(function.selector().0);
-                self.calldata.construct_call_data(
+                self.calldata.calldata_into_slice(
                     &mut calldata,
                     deployed_contracts,
                     chain_state_provider,
@@ -222,7 +319,11 @@ impl Input {
         chain_state_provider: &impl EthereumNode,
     ) -> anyhow::Result<TransactionRequest> {
         let input_data = self.encoded_input(deployed_contracts, chain_state_provider)?;
-        let transaction_request = TransactionRequest::default();
+        let transaction_request = TransactionRequest::default().from(self.caller).value(
+            self.value
+                .map(|value| value.into_inner())
+                .unwrap_or_default(),
+        );
         match self.method {
             Method::Deployer => Ok(transaction_request.with_deploy_code(input_data)),
             _ => Ok(transaction_request
@@ -236,20 +337,6 @@ impl Input {
         vec.push(self.instance.clone());
 
         self.calldata.find_all_contract_instances(&mut vec);
-        match &self.expected {
-            Some(Expected::Calldata(cd)) => {
-                cd.find_all_contract_instances(&mut vec);
-            }
-            Some(Expected::Expected(expected)) => {
-                expected.find_all_contract_instances(&mut vec);
-            }
-            Some(Expected::ExpectedMany(expected)) => {
-                for expected in expected {
-                    expected.find_all_contract_instances(&mut vec);
-                }
-            }
-            None => {}
-        }
 
         vec
     }
@@ -259,8 +346,10 @@ fn default_instance() -> ContractInstance {
     ContractInstance::new_from("Test")
 }
 
-fn default_caller() -> Address {
-    "90F8bf6A479f320ead074411a4B0e7944Ea8c9C1".parse().unwrap()
+pub const fn default_caller() -> Address {
+    Address(FixedBytes(alloy::hex!(
+        "90F8bf6A479f320ead074411a4B0e7944Ea8c9C1"
+    )))
 }
 
 /// This function takes in the string calldata argument provided in the JSON input and resolves it
@@ -355,19 +444,16 @@ mod tests {
 
         fn trace_transaction(
             &self,
-            _: alloy::rpc::types::TransactionReceipt,
+            _: &alloy::rpc::types::TransactionReceipt,
+            _: alloy::rpc::types::trace::geth::GethDebugTracingOptions,
         ) -> anyhow::Result<alloy::rpc::types::trace::geth::GethTrace> {
             unimplemented!()
         }
 
         fn state_diff(
             &self,
-            _: alloy::rpc::types::TransactionReceipt,
+            _: &alloy::rpc::types::TransactionReceipt,
         ) -> anyhow::Result<alloy::rpc::types::trace::geth::DiffMode> {
-            unimplemented!()
-        }
-
-        fn fetch_add_nonce(&self, _: Address) -> anyhow::Result<u64> {
             unimplemented!()
         }
 
