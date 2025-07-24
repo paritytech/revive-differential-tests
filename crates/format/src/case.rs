@@ -1,7 +1,8 @@
 use serde::Deserialize;
 
+use revive_dt_common::macros::define_wrapper_type;
+
 use crate::{
-    define_wrapper_type,
     input::{Expected, Input},
     mode::Mode,
 };
@@ -45,5 +46,5 @@ impl Case {
 define_wrapper_type!(
     /// A wrapper type for the index of test cases found in metadata file.
     #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-    CaseIdx(usize);
+    pub struct CaseIdx(usize);
 );

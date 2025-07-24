@@ -3949,6 +3949,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "revive-dt-common"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "futures",
+ "once_cell",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "revive-dt-compiler"
 version = "0.1.0"
 dependencies = [
@@ -3982,6 +3993,7 @@ dependencies = [
  "clap",
  "indexmap 2.10.0",
  "rayon",
+ "revive-dt-common",
  "revive-dt-compiler",
  "revive-dt-config",
  "revive-dt-format",
@@ -4003,7 +4015,7 @@ dependencies = [
  "alloy-primitives",
  "alloy-sol-types",
  "anyhow",
- "revive-dt-node-interaction",
+ "revive-dt-common",
  "semver 1.0.26",
  "serde",
  "serde_json",
@@ -4016,7 +4028,9 @@ version = "0.1.0"
 dependencies = [
  "alloy",
  "anyhow",
+ "revive-dt-common",
  "revive-dt-config",
+ "revive-dt-format",
  "revive-dt-node-interaction",
  "serde",
  "serde_json",
@@ -4033,10 +4047,6 @@ version = "0.1.0"
 dependencies = [
  "alloy",
  "anyhow",
- "futures",
- "once_cell",
- "tokio",
- "tracing",
 ]
 
 [[package]]

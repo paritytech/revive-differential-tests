@@ -25,8 +25,10 @@ use alloy::{
     },
     signers::local::PrivateKeySigner,
 };
+use revive_dt_common::concepts::BlockingExecutor;
 use revive_dt_config::Arguments;
-use revive_dt_node_interaction::{BlockingExecutor, EthereumNode};
+use revive_dt_format::traits::ResolverApi;
+use revive_dt_node_interaction::EthereumNode;
 use tracing::Level;
 
 use crate::{Node, common::FallbackGasFiller, constants::INITIAL_BALANCE};
@@ -343,7 +345,9 @@ impl EthereumNode for Instance {
             _ => anyhow::bail!("expected a diff mode trace"),
         }
     }
+}
 
+impl ResolverApi for Instance {
     #[tracing::instrument(skip_all, fields(geth_node_id = self.id))]
     fn chain_id(&self) -> anyhow::Result<alloy::primitives::ChainId> {
         let provider = self.provider();

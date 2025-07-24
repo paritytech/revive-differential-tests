@@ -12,11 +12,9 @@
 /// pub struct CaseId(usize);
 /// ```
 ///
-/// And would also implement a number of methods on this type making it easier
-/// to use.
+/// And would also implement a number of methods on this type making it easier to use.
 ///
-/// These wrapper types become very useful as they make the code a lot easier
-/// to read.
+/// These wrapper types become very useful as they make the code a lot easier to read.
 ///
 /// Take the following as an example:
 ///
@@ -26,26 +24,28 @@
 /// }
 /// ```
 ///
-/// In the above code it's hard to understand what the various types refer to or
-/// what to expect them to contain.
+/// In the above code it's hard to understand what the various types refer to or what to expect them
+/// to contain.
 ///
-/// With these wrapper types we're able to create code that's self-documenting
-/// in that the types tell us what the code is referring to. The above code is
-/// transformed into
+/// With these wrapper types we're able to create code that's self-documenting in that the types
+/// tell us what the code is referring to. The above code is transformed into
 ///
 /// ```rust,ignore
 /// struct State {
 ///     contracts: HashMap<CaseId, HashMap<ContractName, ContractByteCode>>
 /// }
 /// ```
+///
+/// Note that we follow the same syntax for defining wrapper structs but we do not permit the use of
+/// generics.
 #[macro_export]
 macro_rules! define_wrapper_type {
     (
         $(#[$meta: meta])*
-        $ident: ident($ty: ty) $(;)?
+        $vis:vis struct $ident: ident($ty: ty);
     ) => {
         $(#[$meta])*
-        pub struct $ident($ty);
+        $vis struct $ident($ty);
 
         impl $ident {
             pub fn new(value: $ty) -> Self {
@@ -104,3 +104,7 @@ macro_rules! define_wrapper_type {
         }
     };
 }
+
+/// Technically not needed but this allows for the macro to be found in the `macros` module of the
+/// crate in addition to being found in the root of the crate.
+pub use define_wrapper_type;
