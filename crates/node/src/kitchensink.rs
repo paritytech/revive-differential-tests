@@ -36,8 +36,9 @@ use sp_core::crypto::Ss58Codec;
 use sp_runtime::AccountId32;
 use tracing::Level;
 
+use revive_dt_common::concepts::BlockingExecutor;
 use revive_dt_config::Arguments;
-use revive_dt_node_interaction::{BlockingExecutor, EthereumNode};
+use revive_dt_node_interaction::EthereumNode;
 
 use crate::{Node, common::FallbackGasFiller, constants::INITIAL_BALANCE};
 

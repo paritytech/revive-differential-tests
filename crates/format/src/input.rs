@@ -11,9 +11,10 @@ use alloy_primitives::{FixedBytes, utils::parse_units};
 use semver::VersionReq;
 use serde::{Deserialize, Serialize};
 
+use revive_dt_common::macros::define_wrapper_type;
 use revive_dt_node_interaction::EthereumNode;
 
-use crate::{define_wrapper_type, metadata::ContractInstance};
+use crate::metadata::ContractInstance;
 
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
 pub struct Input {
@@ -84,7 +85,7 @@ pub enum Method {
 
 define_wrapper_type!(
     #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
-    EtherValue(U256);
+    pub struct EtherValue(U256);
 );
 
 impl Serialize for EtherValue {

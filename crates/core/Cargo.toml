@@ -13,6 +13,7 @@ name = "retester"
 path = "src/main.rs"
 
 [dependencies]
+revive-dt-common = { workspace = true }
 revive-dt-compiler = { workspace = true }
 revive-dt-config = { workspace = true }
 revive-dt-format = { workspace = true }

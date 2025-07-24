@@ -23,7 +23,7 @@ use tracing::Instrument;
 /// executor to drive an async computation:
 ///
 /// ```rust
-/// use revive_dt_node_interaction::*;
+/// use revive_dt_common::concepts::*;
 ///
 /// fn blocking_function() {
 ///     let result = BlockingExecutor::execute(async move {
@@ -208,7 +208,9 @@ mod test {
     fn panics_in_futures_are_caught() {
         // Act
         let result = BlockingExecutor::execute(async move {
-            panic!("This is a panic!");
+            panic!(
+                "If this panic causes, well, a panic, then this is an issue. If it's caught then all good!"
+            );
             0xFFu8
         });
 

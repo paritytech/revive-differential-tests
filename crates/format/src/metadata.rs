@@ -9,9 +9,10 @@ use std::{
 
 use serde::{Deserialize, Serialize};
 
+use revive_dt_common::macros::define_wrapper_type;
+
 use crate::{
     case::Case,
-    define_wrapper_type,
     mode::{Mode, SolcMode},
 };
 
@@ -217,18 +218,22 @@ define_wrapper_type!(
     /// Represents a contract instance found a metadata file.
     ///
     /// Typically, this is used as the key to the "contracts" field of metadata files.
-    #[derive(Clone, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+    #[derive(
+        Clone, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,
+    )]
     #[serde(transparent)]
-    ContractInstance(String);
+    pub struct ContractInstance(String);
 );
 
 define_wrapper_type!(
     /// Represents a contract identifier found a metadata file.
     ///
     /// A contract identifier is the name of the contract in the source code.
-    #[derive(Clone, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+    #[derive(
+        Clone, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,
+    )]
     #[serde(transparent)]
-    ContractIdent(String);
+    pub struct ContractIdent(String);
 );
 
 /// Represents an identifier used for contracts.

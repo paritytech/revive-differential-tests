@@ -9,6 +9,7 @@ repository.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+revive-dt-common = { workspace = true }
 revive-dt-node-interaction = { workspace = true }
 
 alloy = { workspace = true }

@@ -1,6 +1,7 @@
 //! The test driver handles the compilation and execution of the test cases.
 
 use std::collections::HashMap;
+use std::fmt::Debug;
 use std::marker::PhantomData;
 
 use alloy::json_abi::JsonAbi;
@@ -19,6 +20,9 @@ use alloy::{
 };
 use anyhow::Context;
 use indexmap::IndexMap;
+use serde_json::Value;
+
+use revive_dt_common::iterators::FilesWithExtensionIterator;
 use revive_dt_compiler::{Compiler, SolidityCompiler};
 use revive_dt_config::Arguments;
 use revive_dt_format::case::CaseIdx;
@@ -29,11 +33,8 @@ use revive_dt_node::Node;
 use revive_dt_node_interaction::EthereumNode;
 use revive_dt_report::reporter::{CompilationTask, Report, Span};
 use revive_solc_json_interface::SolcStandardJsonOutput;
-use serde_json::Value;
-use std::fmt::Debug;
 
 use crate::Platform;
-use crate::common::*;
 
 pub struct State<'a, T: Platform> {
     /// The configuration that the framework was started with.

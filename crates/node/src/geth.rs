@@ -25,8 +25,9 @@ use alloy::{
     },
     signers::local::PrivateKeySigner,
 };
+use revive_dt_common::concepts::BlockingExecutor;
 use revive_dt_config::Arguments;
-use revive_dt_node_interaction::{BlockingExecutor, EthereumNode};
+use revive_dt_node_interaction::EthereumNode;
 use tracing::Level;
 
 use crate::{Node, common::FallbackGasFiller, constants::INITIAL_BALANCE};

@@ -8,7 +8,6 @@ use revive_dt_config::TestingPlatform;
 use revive_dt_node::{Node, geth, kitchensink::KitchensinkNode};
 use revive_dt_node_interaction::EthereumNode;
 
-pub mod common;
 pub mod driver;
 
 /// One platform can be tested differentially against another.

@@ -6,9 +6,6 @@ use alloy::rpc::types::trace::geth::{DiffMode, GethDebugTracingOptions, GethTrac
 use alloy::rpc::types::{TransactionReceipt, TransactionRequest};
 use anyhow::Result;
 
-mod blocking_executor;
-pub use blocking_executor::*;
-
 /// An interface for all interactions with Ethereum compatible nodes.
 pub trait EthereumNode {
     /// Execute the [TransactionRequest] and return a [TransactionReceipt].
