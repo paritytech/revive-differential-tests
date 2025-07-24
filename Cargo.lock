@@ -3949,6 +3949,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "revive-dt-common"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+]
+
+[[package]]
 name = "revive-dt-compiler"
 version = "0.1.0"
 dependencies = [

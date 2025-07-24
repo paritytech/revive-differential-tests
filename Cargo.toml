@@ -11,6 +11,7 @@ repository = "https://github.com/paritytech/revive-differential-testing.git"
 rust-version = "1.85.0"
 
 [workspace.dependencies]
+revive-dt-common = { version = "0.1.0", path = "crates/common" }
 revive-dt-compiler = { version = "0.1.0", path = "crates/compiler" }
 revive-dt-config = { version = "0.1.0", path = "crates/config" }
 revive-dt-core = { version = "0.1.0", path = "crates/core" }
