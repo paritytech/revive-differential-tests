@@ -74,6 +74,8 @@ impl Instance {
     const GETH_STDOUT_LOG_FILE_NAME: &str = "node_stdout.log";
     const GETH_STDERR_LOG_FILE_NAME: &str = "node_stderr.log";
 
+    const TRANSACTION_INDEXING_ERROR: &str = "transaction indexing is in progress";
+
     /// Create the node directory and call `geth init` to configure the genesis.
     #[tracing::instrument(skip_all, fields(geth_node_id = self.id))]
     fn init(&mut self, genesis: String) -> anyhow::Result<&mut Self> {
@@ -265,57 +267,45 @@ impl EthereumNode for Instance {
             // it eventually works, but we only do that if the error we get back is the "transaction
             // indexing is in progress" error or if the receipt is None.
             //
-            // At the moment we do not allow for the 60 seconds to be modified and we take it as
-            // being an implementation detail that's invisible to anything outside of this module.
-            //
-            // We allow a total of 60 retries for getting the receipt with one second between each
-            // retry and the next which means that we allow for a total of 60 seconds of waiting
-            // before we consider that we're unable to get the transaction receipt.
+            // Getting the transaction indexed and taking a receipt can take a long time especially
+            // when a lot of transactions are being submitted to the node. Thus, while initially we
+            // only allowed for 60 seconds of waiting with a 1 second delay in polling, we need to
+            // allow for a larger wait time. Therefore, in here we allow for 5 minutes of waiting
+            // with exponential backoff each time we attempt to get the receipt and find that it's
+            // not available.
             let mut retries = 0;
+            let mut total_wait_duration = Duration::from_secs(0);
+            let max_allowed_wait_duration = Duration::from_secs(5 * 60);
             loop {
+                if total_wait_duration >= max_allowed_wait_duration {
+                    tracing::error!(
+                        ?total_wait_duration,
+                        ?max_allowed_wait_duration,
+                        retry_count = retries,
+                        "Failed to get receipt after polling for it"
+                    );
+                    anyhow::bail!(
+                        "Polled for receipt for {total_wait_duration:?} but failed to get it"
+                    );
+                }
+
                 match provider.get_transaction_receipt(*transaction_hash).await {
-                    Ok(Some(receipt)) => {
-                        tracing::info!("Obtained the transaction receipt");
-                        break Ok(receipt);
-                    }
-                    Ok(None) => {
-                        if retries == 60 {
-                            tracing::error!(
-                                "Polled for transaction receipt for 60 seconds but failed to get it"
-                            );
-                            break Err(anyhow::anyhow!("Failed to get the transaction receipt"));
-                        } else {
-                            tracing::trace!(
-                                retries,
-                                "Sleeping for 1 second and trying to get the receipt again"
-                            );
-                            retries += 1;
-                            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-                            continue;
-                        }
-                    }
+                    Ok(Some(receipt)) => break Ok(receipt),
+                    Ok(None) => {}
                     Err(error) => {
                         let error_string = error.to_string();
-                        if error_string.contains("transaction indexing is in progress") {
-                            if retries == 60 {
-                                tracing::error!(
-                                    "Polled for transaction receipt for 60 seconds but failed to get it"
-                                );
-                                break Err(error.into());
-                            } else {
-                                tracing::trace!(
-                                    retries,
-                                    "Sleeping for 1 second and trying to get the receipt again"
-                                );
-                                retries += 1;
-                                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-                                continue;
-                            }
-                        } else {
+                        if !error_string.contains(Self::TRANSACTION_INDEXING_ERROR) {
                             break Err(error.into());
                         }
                     }
-                }
+                };
+
+                let next_wait_duration = Duration::from_secs(2u64.pow(retries))
+                    .min(max_allowed_wait_duration - total_wait_duration);
+                total_wait_duration += next_wait_duration;
+                retries += 1;
+
+                tokio::time::sleep(next_wait_duration).await;
             }
         })?
     }
