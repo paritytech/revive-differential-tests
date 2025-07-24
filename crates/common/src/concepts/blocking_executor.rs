@@ -134,22 +134,17 @@ impl BlockingExecutor {
             }
         };
 
-        match result.map(|result| {
-            *result
-                .downcast::<R>()
-                .expect("Type mismatch in the downcast")
-        }) {
-            Ok(result) => Ok(result),
+        let result = match result {
+            Ok(result) => result,
             Err(error) => {
-                tracing::error!(
-                    ?error,
-                    "Failed to downcast the returned result into the expected type"
-                );
-                anyhow::bail!(
-                    "Failed to downcast the returned result into the expected type: {error:?}"
-                )
+                tracing::error!(?error, "An error occurred when running the async task");
+                anyhow::bail!("An error occurred when running the async task: {error:?}")
             }
-        }
+        };
+
+        Ok(*result
+            .downcast::<R>()
+            .expect("An error occurred when downcasting into R. This is a bug"))
     }
 }
 /// Represents the state of the async runtime. This runtime is designed to be a singleton runtime
