@@ -86,6 +86,8 @@ impl Instance {
         for signer_address in
             <EthereumWallet as NetworkWallet<Ethereum>>::signer_addresses(&self.wallet)
         {
+            // Note, the use of the entry API here means that we only modify the entries for any
+            // account that is not in the `alloc` field of the genesis state.
             genesis
                 .alloc
                 .entry(signer_address)
