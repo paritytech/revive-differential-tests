@@ -18,10 +18,10 @@ use crate::traits::ResolverApi;
 
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
 pub struct Input {
-    #[serde(default = "default_caller")]
+    #[serde(default = "Input::default_caller")]
     pub caller: Address,
     pub comment: Option<String>,
-    #[serde(default = "default_instance")]
+    #[serde(default = "Input::default_instance")]
     pub instance: ContractInstance,
     pub method: Method,
     #[serde(default)]
@@ -88,29 +88,121 @@ define_wrapper_type!(
     pub struct EtherValue(U256);
 );
 
-impl Serialize for EtherValue {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        format!("{} wei", self.0).serialize(serializer)
+impl Input {
+    pub const fn default_caller() -> Address {
+        Address(FixedBytes(alloy::hex!(
+            "90F8bf6A479f320ead074411a4B0e7944Ea8c9C1"
+        )))
     }
-}
 
-impl<'de> Deserialize<'de> for EtherValue {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        let string = String::deserialize(deserializer)?;
-        let mut splitted = string.split(' ');
-        let (Some(value), Some(unit)) = (splitted.next(), splitted.next()) else {
-            return Err(serde::de::Error::custom("Failed to parse the value"));
-        };
-        let parsed = parse_units(value, unit.replace("eth", "ether"))
-            .map_err(|_| serde::de::Error::custom("Failed to parse units"))?
-            .into();
-        Ok(Self(parsed))
+    fn default_instance() -> ContractInstance {
+        ContractInstance::new_from("Test")
+    }
+
+    fn instance_to_address(
+        &self,
+        instance: &ContractInstance,
+        deployed_contracts: &HashMap<ContractInstance, (Address, JsonAbi)>,
+    ) -> anyhow::Result<Address> {
+        deployed_contracts
+            .get(instance)
+            .map(|(a, _)| *a)
+            .ok_or_else(|| anyhow::anyhow!("instance {instance:?} not deployed"))
+    }
+
+    pub fn encoded_input(
+        &self,
+        deployed_contracts: &HashMap<ContractInstance, (Address, JsonAbi)>,
+        chain_state_provider: &impl ResolverApi,
+    ) -> anyhow::Result<Bytes> {
+        match self.method {
+            Method::Deployer | Method::Fallback => {
+                let calldata = self
+                    .calldata
+                    .calldata(deployed_contracts, chain_state_provider)?;
+
+                Ok(calldata.into())
+            }
+            Method::FunctionName(ref function_name) => {
+                let Some(abi) = deployed_contracts.get(&self.instance).map(|(_, a)| a) else {
+                    tracing::error!(
+                        contract_name = self.instance.as_ref(),
+                        available_abis = ?deployed_contracts.keys().collect::<Vec<_>>(),
+                        "Attempted to lookup ABI of contract but it wasn't found"
+                    );
+                    anyhow::bail!("ABI for instance '{}' not found", self.instance.as_ref());
+                };
+
+                tracing::trace!("ABI found for instance: {}", &self.instance.as_ref());
+
+                // We follow the same logic that's implemented in the matter-labs-tester where they resolve
+                // the function name into a function selector and they assume that he function doesn't have
+                // any existing overloads.
+                // https://github.com/matter-labs/era-compiler-tester/blob/1dfa7d07cba0734ca97e24704f12dd57f6990c2c/compiler_tester/src/test/case/input/mod.rs#L158-L190
+                let function = abi
+                    .functions()
+                    .find(|function| function.signature().starts_with(function_name))
+                    .ok_or_else(|| {
+                        anyhow::anyhow!(
+                            "Function with name {:?} not found in ABI for the instance {:?}",
+                            function_name,
+                            &self.instance
+                        )
+                    })?;
+
+                tracing::trace!("Functions found for instance: {}", self.instance.as_ref());
+
+                tracing::trace!(
+                    "Starting encoding ABI's parameters for instance: {}",
+                    self.instance.as_ref()
+                );
+
+                // Allocating a vector that we will be using for the calldata. The vector size will be:
+                // 4 bytes for the function selector.
+                // function.inputs.len() * 32 bytes for the arguments (each argument is a U256).
+                //
+                // We're using indices in the following code in order to avoid the need for us to allocate
+                // a new buffer for each one of the resolved arguments.
+                let mut calldata = Vec::<u8>::with_capacity(4 + self.calldata.size_requirement());
+                calldata.extend(function.selector().0);
+                self.calldata.calldata_into_slice(
+                    &mut calldata,
+                    deployed_contracts,
+                    chain_state_provider,
+                )?;
+
+                Ok(calldata.into())
+            }
+        }
+    }
+
+    /// Parse this input into a legacy transaction.
+    pub fn legacy_transaction(
+        &self,
+        deployed_contracts: &HashMap<ContractInstance, (Address, JsonAbi)>,
+        chain_state_provider: &impl ResolverApi,
+    ) -> anyhow::Result<TransactionRequest> {
+        let input_data = self.encoded_input(deployed_contracts, chain_state_provider)?;
+        let transaction_request = TransactionRequest::default().from(self.caller).value(
+            self.value
+                .map(|value| value.into_inner())
+                .unwrap_or_default(),
+        );
+        match self.method {
+            Method::Deployer => Ok(transaction_request.with_deploy_code(input_data)),
+            _ => Ok(transaction_request
+                .to(self.instance_to_address(&self.instance, deployed_contracts)?)
+                .input(input_data.into())),
+        }
+    }
+
+    pub fn find_all_contract_instances(&self) -> Vec<ContractInstance> {
+        let mut vec = Vec::new();
+        vec.push(self.instance.clone());
+
+        self.calldata.find_all_contract_instances(&mut vec);
+
+        vec
     }
 }
 
@@ -235,122 +327,30 @@ impl Calldata {
     }
 }
 
-impl Input {
-    fn instance_to_address(
-        &self,
-        instance: &ContractInstance,
-        deployed_contracts: &HashMap<ContractInstance, (Address, JsonAbi)>,
-    ) -> anyhow::Result<Address> {
-        deployed_contracts
-            .get(instance)
-            .map(|(a, _)| *a)
-            .ok_or_else(|| anyhow::anyhow!("instance {instance:?} not deployed"))
-    }
-
-    pub fn encoded_input(
-        &self,
-        deployed_contracts: &HashMap<ContractInstance, (Address, JsonAbi)>,
-        chain_state_provider: &impl ResolverApi,
-    ) -> anyhow::Result<Bytes> {
-        match self.method {
-            Method::Deployer | Method::Fallback => {
-                let calldata = self
-                    .calldata
-                    .calldata(deployed_contracts, chain_state_provider)?;
-
-                Ok(calldata.into())
-            }
-            Method::FunctionName(ref function_name) => {
-                let Some(abi) = deployed_contracts.get(&self.instance).map(|(_, a)| a) else {
-                    tracing::error!(
-                        contract_name = self.instance.as_ref(),
-                        available_abis = ?deployed_contracts.keys().collect::<Vec<_>>(),
-                        "Attempted to lookup ABI of contract but it wasn't found"
-                    );
-                    anyhow::bail!("ABI for instance '{}' not found", self.instance.as_ref());
-                };
-
-                tracing::trace!("ABI found for instance: {}", &self.instance.as_ref());
-
-                // We follow the same logic that's implemented in the matter-labs-tester where they resolve
-                // the function name into a function selector and they assume that he function doesn't have
-                // any existing overloads.
-                // https://github.com/matter-labs/era-compiler-tester/blob/1dfa7d07cba0734ca97e24704f12dd57f6990c2c/compiler_tester/src/test/case/input/mod.rs#L158-L190
-                let function = abi
-                    .functions()
-                    .find(|function| function.signature().starts_with(function_name))
-                    .ok_or_else(|| {
-                        anyhow::anyhow!(
-                            "Function with name {:?} not found in ABI for the instance {:?}",
-                            function_name,
-                            &self.instance
-                        )
-                    })?;
-
-                tracing::trace!("Functions found for instance: {}", self.instance.as_ref());
-
-                tracing::trace!(
-                    "Starting encoding ABI's parameters for instance: {}",
-                    self.instance.as_ref()
-                );
-
-                // Allocating a vector that we will be using for the calldata. The vector size will be:
-                // 4 bytes for the function selector.
-                // function.inputs.len() * 32 bytes for the arguments (each argument is a U256).
-                //
-                // We're using indices in the following code in order to avoid the need for us to allocate
-                // a new buffer for each one of the resolved arguments.
-                let mut calldata = Vec::<u8>::with_capacity(4 + self.calldata.size_requirement());
-                calldata.extend(function.selector().0);
-                self.calldata.calldata_into_slice(
-                    &mut calldata,
-                    deployed_contracts,
-                    chain_state_provider,
-                )?;
-
-                Ok(calldata.into())
-            }
-        }
-    }
-
-    /// Parse this input into a legacy transaction.
-    pub fn legacy_transaction(
-        &self,
-        deployed_contracts: &HashMap<ContractInstance, (Address, JsonAbi)>,
-        chain_state_provider: &impl ResolverApi,
-    ) -> anyhow::Result<TransactionRequest> {
-        let input_data = self.encoded_input(deployed_contracts, chain_state_provider)?;
-        let transaction_request = TransactionRequest::default().from(self.caller).value(
-            self.value
-                .map(|value| value.into_inner())
-                .unwrap_or_default(),
-        );
-        match self.method {
-            Method::Deployer => Ok(transaction_request.with_deploy_code(input_data)),
-            _ => Ok(transaction_request
-                .to(self.instance_to_address(&self.instance, deployed_contracts)?)
-                .input(input_data.into())),
-        }
-    }
-
-    pub fn find_all_contract_instances(&self) -> Vec<ContractInstance> {
-        let mut vec = Vec::new();
-        vec.push(self.instance.clone());
-
-        self.calldata.find_all_contract_instances(&mut vec);
-
-        vec
+impl Serialize for EtherValue {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        format!("{} wei", self.0).serialize(serializer)
     }
 }
 
-fn default_instance() -> ContractInstance {
-    ContractInstance::new_from("Test")
-}
-
-pub const fn default_caller() -> Address {
-    Address(FixedBytes(alloy::hex!(
-        "90F8bf6A479f320ead074411a4B0e7944Ea8c9C1"
-    )))
+impl<'de> Deserialize<'de> for EtherValue {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let string = String::deserialize(deserializer)?;
+        let mut splitted = string.split(' ');
+        let (Some(value), Some(unit)) = (splitted.next(), splitted.next()) else {
+            return Err(serde::de::Error::custom("Failed to parse the value"));
+        };
+        let parsed = parse_units(value, unit.replace("eth", "ether"))
+            .map_err(|_| serde::de::Error::custom("Failed to parse units"))?
+            .into();
+        Ok(Self(parsed))
+    }
 }
 
 /// This function takes in the string calldata argument provided in the JSON input and resolves it
