@@ -137,26 +137,13 @@ impl KitchensinkNode {
                     .alloc
                     .entry(signer_address)
                     .or_insert(GenesisAccount::default().with_balance(U256::from(INITIAL_BALANCE)));
-
-                // TODO: This bit of code is to just get some printing in tests and will be removed
-                // once we get CI to pass.
-                println!(
-                    "{} => {:?}",
-                    signer_address,
-                    genesis.alloc.get(&signer_address)
-                )
             }
             self.extract_balance_from_genesis_file(&genesis)?
         };
-        // TODO: This bit of code is to just get some printing in tests and will be removed
-        // once we get CI to pass.
-        println!("{eth_balances:#?}");
         merged_balances.append(&mut eth_balances);
 
         chainspec_json["genesis"]["runtimeGenesis"]["patch"]["balances"]["balances"] =
             json!(merged_balances);
-
-        println!("{}", serde_json::to_string_pretty(&chainspec_json).unwrap());
 
         serde_json::to_writer_pretty(
             std::fs::File::create(&template_chainspec_path)?,
@@ -273,7 +260,6 @@ impl KitchensinkNode {
             .iter()
             .try_fold(Vec::new(), |mut vec, (address, acc)| {
                 let substrate_address = Self::eth_to_substrate_address(address);
-                println!("{address} => {substrate_address}");
                 let balance = acc.balance.try_into()?;
                 vec.push((substrate_address, balance));
                 Ok(vec)
