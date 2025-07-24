@@ -45,11 +45,6 @@ jobs:
           rustup target add wasm32-unknown-unknown
           rustup component add rust-src
 
-      - name: Get polkadot-sdk SHA
-        id: submod
-        working-directory: polkadot-sdk
-        run: echo "sha=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
-
       - name: Cache binaries
         id: cache
         uses: actions/cache@v3
@@ -57,7 +52,7 @@ jobs:
           path: |
             ~/.cargo/bin/substrate-node
             ~/.cargo/bin/eth-rpc
-          key: polkadot-binaries-${{ matrix.os }}-${{ steps.submod.outputs.sha }}
+          key: polkadot-binaries-${{ matrix.os }}-${{ hashFiles('polkadot-sdk/.git') }}
 
       - name: Build substrate-node
         if: steps.cache.outputs.cache-hit != 'true'
