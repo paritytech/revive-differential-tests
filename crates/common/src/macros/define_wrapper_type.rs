@@ -48,11 +48,7 @@ macro_rules! define_wrapper_type {
         $vis struct $ident($ty);
 
         impl $ident {
-            pub fn new(value: $ty) -> Self {
-                Self(value)
-            }
-
-            pub fn new_from<T: Into<$ty>>(value: T) -> Self {
+            pub fn new(value: impl Into<$ty>) -> Self {
                 Self(value.into())
             }
 

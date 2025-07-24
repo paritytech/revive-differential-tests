@@ -509,7 +509,7 @@ where
                     .iter()
                     .zip(actual_event.topics())
                 {
-                    let expected = Calldata::Compound(vec![expected.clone()]);
+                    let expected = Calldata::new_compound([expected]);
                     if !expected.is_equivalent(
                         &actual.0,
                         deployed_contracts,
@@ -718,7 +718,7 @@ where
                 );
                 let _guard = tracing_span.enter();
 
-                let case_idx = CaseIdx::new_from(case_idx);
+                let case_idx = CaseIdx::new(case_idx);
 
                 // For inputs if one of the inputs fail we move on to the next case (we do not move
                 // on to the next input as it doesn't make sense. It depends on the previous one).
