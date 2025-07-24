@@ -27,7 +27,7 @@ use revive_dt_compiler::{Compiler, SolidityCompiler};
 use revive_dt_config::Arguments;
 use revive_dt_format::case::CaseIdx;
 use revive_dt_format::input::{Calldata, Expected, ExpectedOutput, Method};
-use revive_dt_format::metadata::{ContractInstance, ContractPathAndIdentifier};
+use revive_dt_format::metadata::{ContractInstance, ContractPathAndIdent};
 use revive_dt_format::{input::Input, metadata::Metadata, mode::SolcMode};
 use revive_dt_node::Node;
 use revive_dt_node_interaction::EthereumNode;
@@ -197,7 +197,7 @@ where
             // What we have at this moment is just a contract instance which is kind of like a variable
             // name for an actual underlying contract. So, we need to resolve this instance to the info
             // of the contract that it belongs to.
-            let Some(ContractPathAndIdentifier {
+            let Some(ContractPathAndIdent {
                 contract_source_path,
                 contract_ident,
             }) = metadata.contract_sources()?.remove(&instance)
