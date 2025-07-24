@@ -5,3 +5,4 @@ pub mod corpus;
 pub mod input;
 pub mod metadata;
 pub mod mode;
+pub mod traits;

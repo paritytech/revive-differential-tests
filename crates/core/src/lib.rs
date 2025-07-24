@@ -5,6 +5,7 @@
 
 use revive_dt_compiler::{SolidityCompiler, revive_resolc, solc};
 use revive_dt_config::TestingPlatform;
+use revive_dt_format::traits::ResolverApi;
 use revive_dt_node::{Node, geth, kitchensink::KitchensinkNode};
 use revive_dt_node_interaction::EthereumNode;
 
@@ -14,7 +15,7 @@ pub mod driver;
 ///
 /// For this we need a blockchain node implementation and a compiler.
 pub trait Platform {
-    type Blockchain: EthereumNode + Node;
+    type Blockchain: EthereumNode + Node + ResolverApi;
     type Compiler: SolidityCompiler;
 
     /// Returns the matching [TestingPlatform] of the [revive_dt_config::Arguments].

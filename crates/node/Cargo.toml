@@ -14,9 +14,10 @@ alloy = { workspace = true }
 tracing = { workspace = true }
 tokio = { workspace = true }
 
-revive-dt-node-interaction = { workspace = true }
 revive-dt-common = { workspace = true }
 revive-dt-config = { workspace = true }
+revive-dt-format = { workspace = true }
+revive-dt-node-interaction = { workspace = true }
 
 serde = { workspace = true }
 serde_json = { workspace = true }

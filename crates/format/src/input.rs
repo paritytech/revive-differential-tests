@@ -12,9 +12,9 @@ use semver::VersionReq;
 use serde::{Deserialize, Serialize};
 
 use revive_dt_common::macros::define_wrapper_type;
-use revive_dt_node_interaction::EthereumNode;
 
 use crate::metadata::ContractInstance;
+use crate::traits::ResolverApi;
 
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
 pub struct Input {
@@ -155,7 +155,7 @@ impl Calldata {
     pub fn calldata(
         &self,
         deployed_contracts: &HashMap<ContractInstance, (Address, JsonAbi)>,
-        chain_state_provider: &impl EthereumNode,
+        chain_state_provider: &impl ResolverApi,
     ) -> anyhow::Result<Vec<u8>> {
         let mut buffer = Vec::<u8>::with_capacity(self.size_requirement());
         self.calldata_into_slice(&mut buffer, deployed_contracts, chain_state_provider)?;
@@ -166,7 +166,7 @@ impl Calldata {
         &self,
         buffer: &mut Vec<u8>,
         deployed_contracts: &HashMap<ContractInstance, (Address, JsonAbi)>,
-        chain_state_provider: &impl EthereumNode,
+        chain_state_provider: &impl ResolverApi,
     ) -> anyhow::Result<()> {
         match self {
             Calldata::Single(bytes) => {
@@ -201,7 +201,7 @@ impl Calldata {
         &self,
         other: &[u8],
         deployed_contracts: &HashMap<ContractInstance, (Address, JsonAbi)>,
-        chain_state_provider: &impl EthereumNode,
+        chain_state_provider: &impl ResolverApi,
     ) -> anyhow::Result<bool> {
         match self {
             Calldata::Single(calldata) => Ok(calldata == other),
@@ -250,7 +250,7 @@ impl Input {
     pub fn encoded_input(
         &self,
         deployed_contracts: &HashMap<ContractInstance, (Address, JsonAbi)>,
-        chain_state_provider: &impl EthereumNode,
+        chain_state_provider: &impl ResolverApi,
     ) -> anyhow::Result<Bytes> {
         match self.method {
             Method::Deployer | Method::Fallback => {
@@ -317,7 +317,7 @@ impl Input {
     pub fn legacy_transaction(
         &self,
         deployed_contracts: &HashMap<ContractInstance, (Address, JsonAbi)>,
-        chain_state_provider: &impl EthereumNode,
+        chain_state_provider: &impl ResolverApi,
     ) -> anyhow::Result<TransactionRequest> {
         let input_data = self.encoded_input(deployed_contracts, chain_state_provider)?;
         let transaction_request = TransactionRequest::default().from(self.caller).value(
@@ -364,7 +364,7 @@ pub const fn default_caller() -> Address {
 fn resolve_argument(
     value: &str,
     deployed_contracts: &HashMap<ContractInstance, (Address, JsonAbi)>,
-    chain_state_provider: &impl EthereumNode,
+    chain_state_provider: &impl ResolverApi,
 ) -> anyhow::Result<U256> {
     if let Some(instance) = value.strip_suffix(".address") {
         Ok(U256::from_be_slice(
@@ -433,31 +433,9 @@ mod tests {
     use alloy_sol_types::SolValue;
     use std::collections::HashMap;
 
-    struct DummyEthereumNode;
+    struct MockResolver;
 
-    impl EthereumNode for DummyEthereumNode {
-        fn execute_transaction(
-            &self,
-            _: TransactionRequest,
-        ) -> anyhow::Result<alloy::rpc::types::TransactionReceipt> {
-            unimplemented!()
-        }
-
-        fn trace_transaction(
-            &self,
-            _: &alloy::rpc::types::TransactionReceipt,
-            _: alloy::rpc::types::trace::geth::GethDebugTracingOptions,
-        ) -> anyhow::Result<alloy::rpc::types::trace::geth::GethTrace> {
-            unimplemented!()
-        }
-
-        fn state_diff(
-            &self,
-            _: &alloy::rpc::types::TransactionReceipt,
-        ) -> anyhow::Result<alloy::rpc::types::trace::geth::DiffMode> {
-            unimplemented!()
-        }
-
+    impl ResolverApi for MockResolver {
         fn chain_id(&self) -> anyhow::Result<alloy_primitives::ChainId> {
             Ok(0x123)
         }
@@ -529,7 +507,7 @@ mod tests {
             (Address::ZERO, parsed_abi),
         );
 
-        let encoded = input.encoded_input(&contracts, &DummyEthereumNode).unwrap();
+        let encoded = input.encoded_input(&contracts, &MockResolver).unwrap();
         assert!(encoded.0.starts_with(&selector));
 
         type T = (u64,);
@@ -573,7 +551,7 @@ mod tests {
             (Address::ZERO, parsed_abi),
         );
 
-        let encoded = input.encoded_input(&contracts, &DummyEthereumNode).unwrap();
+        let encoded = input.encoded_input(&contracts, &MockResolver).unwrap();
         assert!(encoded.0.starts_with(&selector));
 
         type T = (alloy_primitives::Address,);
@@ -620,7 +598,7 @@ mod tests {
             (Address::ZERO, parsed_abi),
         );
 
-        let encoded = input.encoded_input(&contracts, &DummyEthereumNode).unwrap();
+        let encoded = input.encoded_input(&contracts, &MockResolver).unwrap();
         assert!(encoded.0.starts_with(&selector));
 
         type T = (alloy_primitives::Address,);
@@ -637,11 +615,11 @@ mod tests {
         let input = "$CHAIN_ID";
 
         // Act
-        let resolved = resolve_argument(input, &Default::default(), &DummyEthereumNode);
+        let resolved = resolve_argument(input, &Default::default(), &MockResolver);
 
         // Assert
         let resolved = resolved.expect("Failed to resolve argument");
-        assert_eq!(resolved, U256::from(DummyEthereumNode.chain_id().unwrap()))
+        assert_eq!(resolved, U256::from(MockResolver.chain_id().unwrap()))
     }
 
     #[test]
@@ -650,17 +628,13 @@ mod tests {
         let input = "$GAS_LIMIT";
 
         // Act
-        let resolved = resolve_argument(input, &Default::default(), &DummyEthereumNode);
+        let resolved = resolve_argument(input, &Default::default(), &MockResolver);
 
         // Assert
         let resolved = resolved.expect("Failed to resolve argument");
         assert_eq!(
             resolved,
-            U256::from(
-                DummyEthereumNode
-                    .block_gas_limit(Default::default())
-                    .unwrap()
-            )
+            U256::from(MockResolver.block_gas_limit(Default::default()).unwrap())
         )
     }
 
@@ -670,14 +644,14 @@ mod tests {
         let input = "$COINBASE";
 
         // Act
-        let resolved = resolve_argument(input, &Default::default(), &DummyEthereumNode);
+        let resolved = resolve_argument(input, &Default::default(), &MockResolver);
 
         // Assert
         let resolved = resolved.expect("Failed to resolve argument");
         assert_eq!(
             resolved,
             U256::from_be_slice(
-                DummyEthereumNode
+                MockResolver
                     .block_coinbase(Default::default())
                     .unwrap()
                     .as_ref()
@@ -691,15 +665,13 @@ mod tests {
         let input = "$DIFFICULTY";
 
         // Act
-        let resolved = resolve_argument(input, &Default::default(), &DummyEthereumNode);
+        let resolved = resolve_argument(input, &Default::default(), &MockResolver);
 
         // Assert
         let resolved = resolved.expect("Failed to resolve argument");
         assert_eq!(
             resolved,
-            DummyEthereumNode
-                .block_difficulty(Default::default())
-                .unwrap()
+            MockResolver.block_difficulty(Default::default()).unwrap()
         )
     }
 
@@ -709,13 +681,13 @@ mod tests {
         let input = "$BLOCK_HASH";
 
         // Act
-        let resolved = resolve_argument(input, &Default::default(), &DummyEthereumNode);
+        let resolved = resolve_argument(input, &Default::default(), &MockResolver);
 
         // Assert
         let resolved = resolved.expect("Failed to resolve argument");
         assert_eq!(
             resolved,
-            U256::from_be_bytes(DummyEthereumNode.block_hash(Default::default()).unwrap().0)
+            U256::from_be_bytes(MockResolver.block_hash(Default::default()).unwrap().0)
         )
     }
 
@@ -725,13 +697,13 @@ mod tests {
         let input = "$BLOCK_NUMBER";
 
         // Act
-        let resolved = resolve_argument(input, &Default::default(), &DummyEthereumNode);
+        let resolved = resolve_argument(input, &Default::default(), &MockResolver);
 
         // Assert
         let resolved = resolved.expect("Failed to resolve argument");
         assert_eq!(
             resolved,
-            U256::from(DummyEthereumNode.last_block_number().unwrap())
+            U256::from(MockResolver.last_block_number().unwrap())
         )
     }
 
@@ -741,17 +713,13 @@ mod tests {
         let input = "$BLOCK_TIMESTAMP";
 
         // Act
-        let resolved = resolve_argument(input, &Default::default(), &DummyEthereumNode);
+        let resolved = resolve_argument(input, &Default::default(), &MockResolver);
 
         // Assert
         let resolved = resolved.expect("Failed to resolve argument");
         assert_eq!(
             resolved,
-            U256::from(
-                DummyEthereumNode
-                    .block_timestamp(Default::default())
-                    .unwrap()
-            )
+            U256::from(MockResolver.block_timestamp(Default::default()).unwrap())
         )
     }
 }
