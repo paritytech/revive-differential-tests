@@ -57,6 +57,12 @@ pub struct State<'a, T: Platform> {
     /// files.
     deployed_contracts: HashMap<CaseIdx, HashMap<ContractInstance, (Address, JsonAbi)>>,
 
+    /// This is a map of the deployed libraries.
+    ///
+    /// This map is not per case, but rather, per metadata file. This means that we do not redeploy
+    /// the libraries with each case.
+    deployed_libraries: HashMap<ContractInstance, (Address, JsonAbi)>,
+
     phantom: PhantomData<T>,
 }
 
@@ -70,6 +76,7 @@ where
             span,
             contracts: Default::default(),
             deployed_contracts: Default::default(),
+            deployed_libraries: Default::default(),
             phantom: Default::default(),
         }
     }
@@ -173,12 +180,7 @@ where
 
         let mut instances_we_must_deploy = IndexMap::<ContractInstance, bool>::new();
         for instance in input.find_all_contract_instances().into_iter() {
-            if !self
-                .deployed_contracts
-                .entry(case_idx)
-                .or_default()
-                .contains_key(&instance)
-            {
+            if !self.deployed_contracts(case_idx).contains_key(&instance) {
                 instances_we_must_deploy.entry(instance).or_insert(false);
             }
         }
@@ -243,9 +245,32 @@ where
                 }
             };
 
+            let Some(Value::String(metadata)) =
+                compiled_contract.and_then(|contract| contract.metadata.as_ref())
+            else {
+                tracing::error!("Contract does not have a metadata field");
+                anyhow::bail!("Contract does not have a metadata field");
+            };
+
+            let Ok(metadata) = serde_json::from_str::<Value>(metadata) else {
+                tracing::error!(%metadata, "Failed to parse solc metadata into a structured value");
+                anyhow::bail!("Failed to parse solc metadata into a structured value {metadata}");
+            };
+
+            let Some(abi) = metadata.get("output").and_then(|value| value.get("abi")) else {
+                tracing::error!(%metadata, "Failed to access the .output.abi field of the solc metadata");
+                anyhow::bail!(
+                    "Failed to access the .output.abi field of the solc metadata {metadata}"
+                );
+            };
+
+            let Ok(abi) = serde_json::from_value::<JsonAbi>(abi.clone()) else {
+                tracing::error!(%metadata, "Failed to deserialize ABI into a structured format");
+                anyhow::bail!("Failed to deserialize ABI into a structured format {metadata}");
+            };
+
             if deploy_with_constructor_arguments {
-                let encoded_input = input
-                    .encoded_input(self.deployed_contracts.entry(case_idx).or_default(), node)?;
+                let encoded_input = input.encoded_input(self.deployed_contracts(case_idx), node)?;
                 code.extend(encoded_input.to_vec());
             }
 
@@ -282,33 +307,7 @@ where
                 "Deployed contract"
             );
 
-            let Some(Value::String(metadata)) =
-                compiled_contract.and_then(|contract| contract.metadata.as_ref())
-            else {
-                tracing::error!("Contract does not have a metadata field");
-                anyhow::bail!("Contract does not have a metadata field");
-            };
-
-            let Ok(metadata) = serde_json::from_str::<Value>(metadata) else {
-                tracing::error!(%metadata, "Failed to parse solc metadata into a structured value");
-                anyhow::bail!("Failed to parse solc metadata into a structured value {metadata}");
-            };
-
-            let Some(abi) = metadata.get("output").and_then(|value| value.get("abi")) else {
-                tracing::error!(%metadata, "Failed to access the .output.abi field of the solc metadata");
-                anyhow::bail!(
-                    "Failed to access the .output.abi field of the solc metadata {metadata}"
-                );
-            };
-
-            let Ok(abi) = serde_json::from_value::<JsonAbi>(abi.clone()) else {
-                tracing::error!(%metadata, "Failed to deserialize ABI into a structured format");
-                anyhow::bail!("Failed to deserialize ABI into a structured format {metadata}");
-            };
-
-            self.deployed_contracts
-                .entry(case_idx)
-                .or_default()
+            self.deployed_contracts(case_idx)
                 .insert(instance.clone(), (address, abi));
 
             receipts.insert(instance.clone(), receipt);
@@ -332,9 +331,7 @@ where
                 .remove(&input.instance)
                 .context("Failed to find deployment receipt"),
             Method::Fallback | Method::FunctionName(_) => {
-                let tx = match input
-                    .legacy_transaction(self.deployed_contracts.entry(case_idx).or_default(), node)
-                {
+                let tx = match input.legacy_transaction(self.deployed_contracts(case_idx), node) {
                     Ok(tx) => {
                         tracing::debug!("Legacy transaction data: {tx:#?}");
                         tx
@@ -442,7 +439,7 @@ where
         // Additionally, what happens if the compiler filter doesn't match? Do we consider that the
         // transaction should succeed? Do we just ignore the expectation?
 
-        let deployed_contracts = self.deployed_contracts.entry(case_idx).or_default();
+        let deployed_contracts = self.deployed_contracts(case_idx);
         let chain_state_provider = node;
 
         // Handling the receipt state assertion.
@@ -566,6 +563,15 @@ where
         let diff = node.state_diff(&execution_receipt)?;
 
         Ok((execution_receipt, trace, diff))
+    }
+
+    fn deployed_contracts(
+        &mut self,
+        case_idx: CaseIdx,
+    ) -> &mut HashMap<ContractInstance, (Address, JsonAbi)> {
+        self.deployed_contracts
+            .entry(case_idx)
+            .or_insert_with(|| self.deployed_libraries.clone())
     }
 }
 
