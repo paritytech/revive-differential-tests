@@ -26,7 +26,7 @@ use revive_dt_common::iterators::FilesWithExtensionIterator;
 use revive_dt_compiler::{Compiler, SolidityCompiler};
 use revive_dt_config::Arguments;
 use revive_dt_format::case::CaseIdx;
-use revive_dt_format::input::{Calldata, Expected, ExpectedOutput, Method};
+use revive_dt_format::input::{Calldata, EtherValue, Expected, ExpectedOutput, Method};
 use revive_dt_format::metadata::{ContractInstance, ContractPathAndIdent};
 use revive_dt_format::{input::Input, metadata::Metadata, mode::SolcMode};
 use revive_dt_node::Node;
@@ -103,10 +103,28 @@ where
         let compiler = Compiler::<T::Compiler>::new()
             .allow_path(metadata.directory()?)
             .solc_optimizer(mode.solc_optimize());
-
-        let compiler = FilesWithExtensionIterator::new(metadata.directory()?)
+        let mut compiler = FilesWithExtensionIterator::new(metadata.directory()?)
             .with_allowed_extension("sol")
             .try_fold(compiler, |compiler, path| compiler.with_source(&path))?;
+        for (library_instance, (library_address, _)) in self.deployed_libraries.iter() {
+            let library_ident = &metadata
+                .contracts
+                .as_ref()
+                .and_then(|contracts| contracts.get(library_instance))
+                .expect("Impossible for library to not be found in contracts")
+                .contract_ident;
+
+            // Note the following: we need to tell solc which files require the libraries to be
+            // linked into them. We do not have access to this information and therefore we choose
+            // an easier, yet more compute intensive route, of telling solc that all of the files
+            // need to link the library and it will only perform the linking for the files that do
+            // actually need the library.
+            compiler = FilesWithExtensionIterator::new(metadata.directory()?)
+                .with_allowed_extension("sol")
+                .fold(compiler, |compiler, path| {
+                    compiler.with_library(&path, library_ident.as_str(), *library_address)
+                });
+        }
 
         let mut task = CompilationTask {
             json_input: compiler.input(),
@@ -146,6 +164,34 @@ where
                 Err(error)
             }
         }
+    }
+
+    pub fn build_and_publish_libraries(
+        &mut self,
+        metadata: &Metadata,
+        mode: &SolcMode,
+        node: &T::Blockchain,
+    ) -> anyhow::Result<()> {
+        self.build_contracts(mode, metadata)?;
+
+        for library_instance in metadata
+            .libraries
+            .iter()
+            .flatten()
+            .flat_map(|(_, map)| map.values())
+        {
+            self.get_or_deploy_contract_instance(
+                library_instance,
+                metadata,
+                None,
+                Input::default_caller(),
+                None,
+                None,
+                node,
+            )?;
+        }
+
+        Ok(())
     }
 
     pub fn handle_input(
@@ -196,121 +242,22 @@ where
 
         let mut receipts = HashMap::new();
         for (instance, deploy_with_constructor_arguments) in instances_we_must_deploy.into_iter() {
-            // What we have at this moment is just a contract instance which is kind of like a variable
-            // name for an actual underlying contract. So, we need to resolve this instance to the info
-            // of the contract that it belongs to.
-            let Some(ContractPathAndIdent {
-                contract_source_path,
-                contract_ident,
-            }) = metadata.contract_sources()?.remove(&instance)
-            else {
-                tracing::error!("Contract source not found for instance");
-                anyhow::bail!("Contract source not found for instance {:?}", instance)
-            };
+            let calldata = deploy_with_constructor_arguments.then_some(&input.calldata);
+            let value = deploy_with_constructor_arguments
+                .then_some(input.value)
+                .flatten();
 
-            let compiled_contract = self.contracts.iter().find_map(|output| {
-                output
-                    .contracts
-                    .as_ref()?
-                    .get(&contract_source_path.display().to_string())
-                    .and_then(|source_file_contracts| {
-                        source_file_contracts.get(contract_ident.as_ref())
-                    })
-            });
-            let Some(code) = compiled_contract
-                .and_then(|contract| contract.evm.as_ref().and_then(|evm| evm.bytecode.as_ref()))
-            else {
-                tracing::error!(
-                    contract_source_path = contract_source_path.display().to_string(),
-                    contract_ident = contract_ident.as_ref(),
-                    "Failed to find bytecode for contract"
-                );
-                anyhow::bail!("Failed to find bytecode for contract {:?}", instance)
-            };
-
-            // TODO: When we want to do linking it would be best to do it at this stage here. We have
-            // the context from the metadata files and therefore know what needs to be linked and in
-            // what order it needs to happen.
-
-            let mut code = match alloy::hex::decode(&code.object) {
-                Ok(code) => code,
-                Err(error) => {
-                    tracing::error!(
-                        ?error,
-                        contract_source_path = contract_source_path.display().to_string(),
-                        contract_ident = contract_ident.as_ref(),
-                        "Failed to hex-decode byte code - This could possibly mean that the bytecode requires linking"
-                    );
-                    anyhow::bail!("Failed to hex-decode the byte code {}", error)
-                }
-            };
-
-            let Some(Value::String(metadata)) =
-                compiled_contract.and_then(|contract| contract.metadata.as_ref())
-            else {
-                tracing::error!("Contract does not have a metadata field");
-                anyhow::bail!("Contract does not have a metadata field");
-            };
-
-            let Ok(metadata) = serde_json::from_str::<Value>(metadata) else {
-                tracing::error!(%metadata, "Failed to parse solc metadata into a structured value");
-                anyhow::bail!("Failed to parse solc metadata into a structured value {metadata}");
-            };
-
-            let Some(abi) = metadata.get("output").and_then(|value| value.get("abi")) else {
-                tracing::error!(%metadata, "Failed to access the .output.abi field of the solc metadata");
-                anyhow::bail!(
-                    "Failed to access the .output.abi field of the solc metadata {metadata}"
-                );
-            };
-
-            let Ok(abi) = serde_json::from_value::<JsonAbi>(abi.clone()) else {
-                tracing::error!(%metadata, "Failed to deserialize ABI into a structured format");
-                anyhow::bail!("Failed to deserialize ABI into a structured format {metadata}");
-            };
-
-            if deploy_with_constructor_arguments {
-                let encoded_input = input.encoded_input(self.deployed_contracts(case_idx), node)?;
-                code.extend(encoded_input.to_vec());
+            if let (_, _, Some(receipt)) = self.get_or_deploy_contract_instance(
+                &instance,
+                metadata,
+                case_idx,
+                input.caller,
+                calldata,
+                value,
+                node,
+            )? {
+                receipts.insert(instance.clone(), receipt);
             }
-
-            let tx = {
-                let tx = TransactionRequest::default().from(input.caller);
-                let tx = match input.value {
-                    Some(ref value) if deploy_with_constructor_arguments => {
-                        tx.value(value.into_inner())
-                    }
-                    _ => tx,
-                };
-                TransactionBuilder::<Ethereum>::with_deploy_code(tx, code)
-            };
-
-            let receipt = match node.execute_transaction(tx) {
-                Ok(receipt) => receipt,
-                Err(error) => {
-                    tracing::error!(
-                        node = std::any::type_name::<T>(),
-                        ?error,
-                        "Contract deployment transaction failed."
-                    );
-                    return Err(error);
-                }
-            };
-
-            let Some(address) = receipt.contract_address else {
-                tracing::error!("Contract deployment transaction didn't return an address");
-                anyhow::bail!("Contract deployment didn't return an address");
-            };
-            tracing::info!(
-                instance_name = ?instance,
-                instance_address = ?address,
-                "Deployed contract"
-            );
-
-            self.deployed_contracts(case_idx)
-                .insert(instance.clone(), (address, abi));
-
-            receipts.insert(instance.clone(), receipt);
         }
 
         Ok(receipts)
@@ -567,11 +514,158 @@ where
 
     fn deployed_contracts(
         &mut self,
-        case_idx: CaseIdx,
+        case_idx: impl Into<Option<CaseIdx>>,
     ) -> &mut HashMap<ContractInstance, (Address, JsonAbi)> {
-        self.deployed_contracts
-            .entry(case_idx)
-            .or_insert_with(|| self.deployed_libraries.clone())
+        match case_idx.into() {
+            Some(case_idx) => self
+                .deployed_contracts
+                .entry(case_idx)
+                .or_insert_with(|| self.deployed_libraries.clone()),
+            None => &mut self.deployed_libraries,
+        }
+    }
+
+    /// Gets the information of a deployed contract or library from the state. If it's found to not
+    /// be deployed then it will be deployed.
+    ///
+    /// If a [`CaseIdx`] is not specified then this contact instance address will be stored in the
+    /// cross-case deployed contracts address mapping.
+    #[allow(clippy::too_many_arguments)]
+    pub fn get_or_deploy_contract_instance(
+        &mut self,
+        contract_instance: &ContractInstance,
+        metadata: &Metadata,
+        case_idx: impl Into<Option<CaseIdx>>,
+        deployer: Address,
+        calldata: Option<&Calldata>,
+        value: Option<EtherValue>,
+        node: &T::Blockchain,
+    ) -> anyhow::Result<(Address, JsonAbi, Option<TransactionReceipt>)> {
+        let case_idx = case_idx.into();
+
+        if let Some((address, abi)) = self.deployed_libraries.get(contract_instance) {
+            return Ok((*address, abi.clone(), None));
+        }
+        if let Some(case_idx) = case_idx {
+            if let Some((address, abi)) = self
+                .deployed_contracts
+                .get(&case_idx)
+                .and_then(|contracts| contracts.get(contract_instance))
+            {
+                return Ok((*address, abi.clone(), None));
+            }
+        }
+
+        let Some(ContractPathAndIdent {
+            contract_source_path,
+            contract_ident,
+        }) = metadata.contract_sources()?.remove(contract_instance)
+        else {
+            tracing::error!("Contract source not found for instance");
+            anyhow::bail!(
+                "Contract source not found for instance {:?}",
+                contract_instance
+            )
+        };
+
+        let compiled_contract = self.contracts.iter().rev().find_map(|output| {
+            output
+                .contracts
+                .as_ref()?
+                .get(&contract_source_path.display().to_string())
+                .and_then(|source_file_contracts| {
+                    source_file_contracts.get(contract_ident.as_ref())
+                })
+        });
+        let Some(code) = compiled_contract
+            .and_then(|contract| contract.evm.as_ref().and_then(|evm| evm.bytecode.as_ref()))
+        else {
+            tracing::error!(
+                contract_source_path = contract_source_path.display().to_string(),
+                contract_ident = contract_ident.as_ref(),
+                "Failed to find bytecode for contract"
+            );
+            anyhow::bail!(
+                "Failed to find bytecode for contract {:?}",
+                contract_instance
+            )
+        };
+
+        let mut code = match alloy::hex::decode(&code.object) {
+            Ok(code) => code,
+            Err(error) => {
+                tracing::error!(
+                    ?error,
+                    contract_source_path = contract_source_path.display().to_string(),
+                    contract_ident = contract_ident.as_ref(),
+                    "Failed to hex-decode byte code - This could possibly mean that the bytecode requires linking"
+                );
+                anyhow::bail!("Failed to hex-decode the byte code {}", error)
+            }
+        };
+
+        let Some(Value::String(metadata)) =
+            compiled_contract.and_then(|contract| contract.metadata.as_ref())
+        else {
+            tracing::error!("Contract does not have a metadata field");
+            anyhow::bail!("Contract does not have a metadata field");
+        };
+
+        let Ok(metadata) = serde_json::from_str::<Value>(metadata) else {
+            tracing::error!(%metadata, "Failed to parse solc metadata into a structured value");
+            anyhow::bail!("Failed to parse solc metadata into a structured value {metadata}");
+        };
+
+        let Some(abi) = metadata.get("output").and_then(|value| value.get("abi")) else {
+            tracing::error!(%metadata, "Failed to access the .output.abi field of the solc metadata");
+            anyhow::bail!("Failed to access the .output.abi field of the solc metadata {metadata}");
+        };
+
+        let Ok(abi) = serde_json::from_value::<JsonAbi>(abi.clone()) else {
+            tracing::error!(%metadata, "Failed to deserialize ABI into a structured format");
+            anyhow::bail!("Failed to deserialize ABI into a structured format {metadata}");
+        };
+
+        if let Some(calldata) = calldata {
+            let calldata = calldata.calldata(self.deployed_contracts(case_idx), node)?;
+            code.extend(calldata);
+        }
+
+        let tx = {
+            let tx = TransactionRequest::default().from(deployer);
+            let tx = match value {
+                Some(ref value) => tx.value(value.into_inner()),
+                _ => tx,
+            };
+            TransactionBuilder::<Ethereum>::with_deploy_code(tx, code)
+        };
+
+        let receipt = match node.execute_transaction(tx) {
+            Ok(receipt) => receipt,
+            Err(error) => {
+                tracing::error!(
+                    node = std::any::type_name::<T>(),
+                    ?error,
+                    "Contract deployment transaction failed."
+                );
+                return Err(error);
+            }
+        };
+
+        let Some(address) = receipt.contract_address else {
+            tracing::error!("Contract deployment transaction didn't return an address");
+            anyhow::bail!("Contract deployment didn't return an address");
+        };
+        tracing::info!(
+            instance_name = ?contract_instance,
+            instance_address = ?address,
+            "Deployed contract"
+        );
+
+        self.deployed_contracts(case_idx)
+            .insert(contract_instance.clone(), (address, abi.clone()));
+
+        Ok((address, abi, Some(receipt)))
     }
 }
 
@@ -679,6 +773,42 @@ where
             let mut leader_state = State::<L>::new(self.config, span);
             let mut follower_state = State::<F>::new(self.config, span);
 
+            // Note: we are currently forced to do two compilation passes due to linking. In the
+            // first compilation pass we compile the libraries and publish them to the chain. In the
+            // second compilation pass we compile the contracts with the library addresses so that
+            // they're linked at compile-time.
+            let build_result = tracing::info_span!("Building and publishing libraries")
+                .in_scope(|| {
+                    match leader_state.build_and_publish_libraries(self.metadata, &mode, self.leader_node) {
+                        Ok(_) => {
+                            tracing::debug!(target = ?Target::Leader, "Library building succeeded");
+                            execution_result.add_successful_build(Target::Leader, mode.clone());
+                        },
+                        Err(error) => {
+                            tracing::error!(target = ?Target::Leader, ?error, "Library building failed");
+                            execution_result.add_failed_build(Target::Leader, mode.clone(), error);
+                            return Err(());
+                        }
+                    }
+                    match follower_state.build_and_publish_libraries(self.metadata, &mode, self.follower_node) {
+                        Ok(_) => {
+                            tracing::debug!(target = ?Target::Follower, "Library building succeeded");
+                            execution_result.add_successful_build(Target::Follower, mode.clone());
+                        },
+                        Err(error) => {
+                            tracing::error!(target = ?Target::Follower, ?error, "Library building failed");
+                            execution_result.add_failed_build(Target::Follower, mode.clone(), error);
+                            return Err(());
+                        }
+                    }
+                    Ok(())
+                });
+            if build_result.is_err() {
+                // Note: We skip to the next solc mode as there's nothing that we can do at this
+                // point, the building has failed. We do NOT bail out of the execution as a whole.
+                continue;
+            }
+
             // We build the contracts. If building the contracts for the metadata file fails then we
             // have no other option but to keep note of this error and move on to the next solc mode
             // and NOT just bail out of the execution as a whole.
@@ -715,7 +845,6 @@ where
 
             // For cases if one of the inputs fail then we move on to the next case and we do NOT
             // bail out of the whole thing.
-
             'case_loop: for (case_idx, case) in self.metadata.cases.iter().enumerate() {
                 let tracing_span = tracing::info_span!(
                     "Handling case",

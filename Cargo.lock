@@ -3963,6 +3963,7 @@ dependencies = [
 name = "revive-dt-compiler"
 version = "0.1.0"
 dependencies = [
+ "alloy-primitives",
  "anyhow",
  "revive-common",
  "revive-dt-config",
