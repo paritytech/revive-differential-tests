@@ -10,6 +10,10 @@ use crate::{CompilerInput, CompilerOutput, SolidityCompiler};
 use revive_dt_config::Arguments;
 use revive_solc_json_interface::SolcStandardJsonOutput;
 
+// TODO: I believe that we need to also pass the solc compiler to resolc so that resolc uses the
+// specified solc compiler. I believe that currently we completely ignore the specified solc binary
+// when invoking resolc which doesn't seem right if we're using solc as a compiler frontend.
+
 /// A wrapper around the `resolc` binary, emitting PVM-compatible bytecode.
 #[derive(Debug)]
 pub struct Resolc {

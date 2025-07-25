@@ -200,12 +200,13 @@ where
         case_idx: CaseIdx,
         input: &Input,
         node: &T::Blockchain,
+        mode: &SolcMode,
     ) -> anyhow::Result<(TransactionReceipt, GethTrace, DiffMode)> {
         let deployment_receipts =
             self.handle_contract_deployment(metadata, case_idx, input, node)?;
         let execution_receipt =
             self.handle_input_execution(case_idx, input, deployment_receipts, node)?;
-        self.handle_input_expectations(case_idx, input, &execution_receipt, node)?;
+        self.handle_input_expectations(case_idx, input, &execution_receipt, node, mode)?;
         self.handle_input_diff(case_idx, execution_receipt, node)
     }
 
@@ -312,6 +313,7 @@ where
         input: &Input,
         execution_receipt: &TransactionReceipt,
         node: &T::Blockchain,
+        mode: &SolcMode,
     ) -> anyhow::Result<()> {
         let span = tracing::info_span!("Handling input expectations");
         let _guard = span.enter();
@@ -367,6 +369,7 @@ where
                 node,
                 expectation,
                 &tracing_result,
+                mode,
             )?;
         }
 
@@ -380,11 +383,16 @@ where
         node: &T::Blockchain,
         expectation: &ExpectedOutput,
         tracing_result: &CallFrame,
+        mode: &SolcMode,
     ) -> anyhow::Result<()> {
-        // TODO: We want to respect the compiler version filter on the expected output but would
-        // require some changes to the interfaces of the compiler and such. So, we add it later.
-        // Additionally, what happens if the compiler filter doesn't match? Do we consider that the
-        // transaction should succeed? Do we just ignore the expectation?
+        if let Some(ref version_requirement) = expectation.compiler_version {
+            let Some(compiler_version) = mode.last_patch_version(&self.config.solc) else {
+                anyhow::bail!("unsupported solc version: {:?}", &mode.solc_version);
+            };
+            if !version_requirement.matches(&compiler_version) {
+                return Ok(());
+            }
+        }
 
         let deployed_contracts = self.deployed_contracts(case_idx);
         let chain_state_provider = node;
@@ -865,8 +873,13 @@ where
                         tracing::info_span!("Executing input", contract_name = ?input.instance)
                             .in_scope(|| {
                                 let (leader_receipt, _, leader_diff) = match leader_state
-                                    .handle_input(self.metadata, case_idx, &input, self.leader_node)
-                                {
+                                    .handle_input(
+                                        self.metadata,
+                                        case_idx,
+                                        &input,
+                                        self.leader_node,
+                                        &mode,
+                                    ) {
                                     Ok(result) => result,
                                     Err(error) => {
                                         tracing::error!(
@@ -895,6 +908,7 @@ where
                                         case_idx,
                                         &input,
                                         self.follower_node,
+                                        &mode,
                                     ) {
                                     Ok(result) => result,
                                     Err(error) => {
