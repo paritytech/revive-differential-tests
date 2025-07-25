@@ -47,9 +47,9 @@ impl Deref for MetadataFile {
 pub struct Metadata {
     pub targets: Option<Vec<String>>,
     pub cases: Vec<Case>,
-    pub contracts: Option<BTreeMap<ContractInstance, ContractPathAndIdentifier>>,
+    pub contracts: Option<BTreeMap<ContractInstance, ContractPathAndIdent>>,
     // TODO: Convert into wrapper types for clarity.
-    pub libraries: Option<BTreeMap<String, BTreeMap<String, String>>>,
+    pub libraries: Option<BTreeMap<PathBuf, BTreeMap<ContractIdent, ContractInstance>>>,
     pub ignore: Option<bool>,
     pub modes: Option<Vec<Mode>>,
     pub file_path: Option<PathBuf>,
@@ -86,7 +86,7 @@ impl Metadata {
     /// Returns the contract sources with canonicalized paths for the files
     pub fn contract_sources(
         &self,
-    ) -> anyhow::Result<BTreeMap<ContractInstance, ContractPathAndIdentifier>> {
+    ) -> anyhow::Result<BTreeMap<ContractInstance, ContractPathAndIdent>> {
         let directory = self.directory()?;
         let mut sources = BTreeMap::new();
         let Some(contracts) = &self.contracts else {
@@ -95,7 +95,7 @@ impl Metadata {
 
         for (
             alias,
-            ContractPathAndIdentifier {
+            ContractPathAndIdent {
                 contract_source_path,
                 contract_ident,
             },
@@ -107,7 +107,7 @@ impl Metadata {
 
             sources.insert(
                 alias,
-                ContractPathAndIdentifier {
+                ContractPathAndIdent {
                     contract_source_path: absolute_path,
                     contract_ident,
                 },
@@ -194,7 +194,7 @@ impl Metadata {
                 metadata.contracts = Some(
                     [(
                         ContractInstance::new("test"),
-                        ContractPathAndIdentifier {
+                        ContractPathAndIdent {
                             contract_source_path: path.to_path_buf(),
                             contract_ident: ContractIdent::new("Test"),
                         },
@@ -245,7 +245,7 @@ define_wrapper_type!(
 /// ```
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(try_from = "String", into = "String")]
-pub struct ContractPathAndIdentifier {
+pub struct ContractPathAndIdent {
     /// The path of the contract source code relative to the directory containing the metadata file.
     pub contract_source_path: PathBuf,
 
@@ -253,7 +253,7 @@ pub struct ContractPathAndIdentifier {
     pub contract_ident: ContractIdent,
 }
 
-impl Display for ContractPathAndIdentifier {
+impl Display for ContractPathAndIdent {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
@@ -264,7 +264,7 @@ impl Display for ContractPathAndIdentifier {
     }
 }
 
-impl FromStr for ContractPathAndIdentifier {
+impl FromStr for ContractPathAndIdent {
     type Err = anyhow::Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
@@ -300,7 +300,7 @@ impl FromStr for ContractPathAndIdentifier {
     }
 }
 
-impl TryFrom<String> for ContractPathAndIdentifier {
+impl TryFrom<String> for ContractPathAndIdent {
     type Error = anyhow::Error;
 
     fn try_from(value: String) -> Result<Self, Self::Error> {
@@ -308,8 +308,8 @@ impl TryFrom<String> for ContractPathAndIdentifier {
     }
 }
 
-impl From<ContractPathAndIdentifier> for String {
-    fn from(value: ContractPathAndIdentifier) -> Self {
+impl From<ContractPathAndIdent> for String {
+    fn from(value: ContractPathAndIdent) -> Self {
         value.to_string()
     }
 }
@@ -324,7 +324,7 @@ mod test {
         let string = "ERC20/ERC20.sol:ERC20";
 
         // Act
-        let identifier = ContractPathAndIdentifier::from_str(string);
+        let identifier = ContractPathAndIdent::from_str(string);
 
         // Assert
         let identifier = identifier.expect("Failed to parse");

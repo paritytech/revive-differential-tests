@@ -9,6 +9,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use alloy_primitives::Address;
 use revive_dt_config::Arguments;
 
 use revive_common::EVMVersion;
@@ -155,6 +156,26 @@ where
 
     pub fn base_path(mut self, base_path: PathBuf) -> Self {
         self.base_path = Some(base_path);
+        self
+    }
+
+    pub fn with_library(
+        mut self,
+        scope: impl AsRef<Path>,
+        library_ident: impl AsRef<str>,
+        library_address: Address,
+    ) -> Self {
+        self.input
+            .settings
+            .libraries
+            .get_or_insert_with(Default::default)
+            .entry(scope.as_ref().display().to_string())
+            .or_default()
+            .insert(
+                library_ident.as_ref().to_owned(),
+                library_address.to_string(),
+            );
+
         self
     }
 
