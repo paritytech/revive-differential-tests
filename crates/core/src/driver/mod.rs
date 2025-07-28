@@ -3,6 +3,7 @@
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::marker::PhantomData;
+use std::str::FromStr;
 
 use alloy::json_abi::JsonAbi;
 use alloy::network::{Ethereum, TransactionBuilder};
@@ -439,8 +440,18 @@ where
                 expected_events.iter().zip(execution_receipt.logs())
             {
                 // Handling the emitter assertion.
-                if let Some(expected_address) = expected_event.address {
-                    let expected = expected_address;
+                if let Some(ref expected_address) = expected_event.address {
+                    let expected = if let Some(contract_instance) = expected_address
+                        .strip_suffix(".address")
+                        .map(ContractInstance::new)
+                    {
+                        deployed_contracts
+                            .get(&contract_instance)
+                            .map(|(address, _)| *address)
+                    } else {
+                        Address::from_str(expected_address).ok()
+                    }
+                    .context("Failed to get the address of the event")?;
                     let actual = actual_event.address();
                     if actual != expected {
                         tracing::error!(

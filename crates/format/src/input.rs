@@ -51,7 +51,7 @@ pub struct ExpectedOutput {
 
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
 pub struct Event {
-    pub address: Option<Address>,
+    pub address: Option<String>,
     pub topics: Vec<String>,
     pub values: Calldata,
 }
@@ -1009,5 +1009,54 @@ mod tests {
 
         // Assert
         assert!(resolved.is_err())
+    }
+
+    #[test]
+    fn expected_json_can_be_deserialized1() {
+        // Arrange
+        let str = r#"
+        {
+            "return_data": [
+                "1"
+            ],
+            "events": [
+                {
+                    "topics": [],
+                    "values": []
+                }
+            ]
+        }
+        "#;
+
+        // Act
+        let expected = serde_json::from_str::<Expected>(str);
+
+        // Assert
+        expected.expect("Failed to deserialize");
+    }
+
+    #[test]
+    fn expected_json_can_be_deserialized2() {
+        // Arrange
+        let str = r#"
+        {
+            "return_data": [
+                "1"
+            ],
+            "events": [
+                {
+                    "address": "Main.address",
+                    "topics": [],
+                    "values": []
+                }
+            ]
+        }
+        "#;
+
+        // Act
+        let expected = serde_json::from_str::<Expected>(str);
+
+        // Assert
+        expected.expect("Failed to deserialize");
     }
 }
