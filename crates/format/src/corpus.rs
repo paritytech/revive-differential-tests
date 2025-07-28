@@ -28,13 +28,19 @@ impl Corpus {
     }
 }
 
-/// Recursively walks `path` and parses any JSON or Solidity file into a test
-/// definition [Metadata].
+/// If `path` is a file, try to parse it directly into a [MetadataFile].
+/// Else, recursively walk through the `path` directory and parse any
+/// JSON or Solidity file into a test definition [MetadataFile].
 ///
 /// Found tests are inserted into `tests`.
-///
-/// `path` is expected to be a directory.
 pub fn collect_metadata(path: &Path, tests: &mut Vec<MetadataFile>) {
+    if path.is_file()
+        && let Some(metadata) = MetadataFile::try_from_file(&path)
+    {
+        tests.push(metadata);
+        return;
+    }
+
     let dir_entry = match std::fs::read_dir(path) {
         Ok(dir_entry) => dir_entry,
         Err(error) => {
@@ -53,15 +59,6 @@ pub fn collect_metadata(path: &Path, tests: &mut Vec<MetadataFile>) {
         };
 
         let path = entry.path();
-        if path.is_dir() {
-            collect_metadata(&path, tests);
-            continue;
-        }
-
-        if path.is_file() {
-            if let Some(metadata) = MetadataFile::try_from_file(&path) {
-                tests.push(metadata)
-            }
-        }
+        collect_metadata(&path, tests);
     }
 }
