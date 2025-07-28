@@ -152,6 +152,10 @@ impl Instance {
             .arg("--nodiscover")
             .arg("--maxpeers")
             .arg("0")
+            .arg("--txlookuplimit")
+            .arg("0")
+            .arg("--cache.blocklogs")
+            .arg("512")
             .stderr(stderr_logs_file.try_clone()?)
             .stdout(stdout_logs_file.try_clone()?)
             .spawn()?
@@ -294,7 +298,10 @@ impl EthereumNode for Instance {
                 }
 
                 match provider.get_transaction_receipt(*transaction_hash).await {
-                    Ok(Some(receipt)) => break Ok(receipt),
+                    Ok(Some(receipt)) => {
+                        tracing::info!(?total_wait_duration, "Found receipt");
+                        break Ok(receipt);
+                    }
                     Ok(None) => {}
                     Err(error) => {
                         let error_string = error.to_string();
