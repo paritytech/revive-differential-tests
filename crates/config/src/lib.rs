@@ -54,7 +54,7 @@ pub struct Arguments {
     pub geth: PathBuf,
 
     /// The maximum time in milliseconds to wait for geth to start.
-    #[arg(long = "geth-start-timeout", default_value = "2000")]
+    #[arg(long = "geth-start-timeout", default_value = "5000")]
     pub geth_start_timeout: u64,
 
     /// The test network chain ID.
