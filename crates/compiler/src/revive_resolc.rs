@@ -8,6 +8,7 @@ use std::{
 
 use crate::{CompilerInput, CompilerOutput, SolidityCompiler};
 use revive_dt_config::Arguments;
+use revive_dt_solc_binaries::download::VersionOrRequirement;
 use revive_solc_json_interface::SolcStandardJsonOutput;
 
 // TODO: I believe that we need to also pass the solc compiler to resolc so that resolc uses the
@@ -147,7 +148,7 @@ impl SolidityCompiler for Resolc {
 
     fn get_compiler_executable(
         config: &Arguments,
-        _version: semver::Version,
+        _version: impl Into<VersionOrRequirement>,
     ) -> anyhow::Result<PathBuf> {
         if !config.resolc.as_os_str().is_empty() {
             return Ok(config.resolc.clone());

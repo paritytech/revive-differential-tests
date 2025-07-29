@@ -8,7 +8,7 @@ use std::{
 
 use crate::{CompilerInput, CompilerOutput, SolidityCompiler};
 use revive_dt_config::Arguments;
-use revive_dt_solc_binaries::download_solc;
+use revive_dt_solc_binaries::{download::VersionOrRequirement, download_solc};
 use revive_solc_json_interface::SolcStandardJsonOutput;
 
 #[derive(Debug)]
@@ -95,7 +95,7 @@ impl SolidityCompiler for Solc {
 
     fn get_compiler_executable(
         config: &Arguments,
-        version: semver::Version,
+        version: impl Into<VersionOrRequirement>,
     ) -> anyhow::Result<PathBuf> {
         let path = download_solc(config.directory(), version, config.wasm)?;
         Ok(path)

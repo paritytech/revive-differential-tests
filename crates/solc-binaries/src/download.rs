@@ -145,6 +145,28 @@ impl From<VersionReq> for VersionOrRequirement {
     }
 }
 
+impl TryFrom<VersionOrRequirement> for Version {
+    type Error = anyhow::Error;
+
+    fn try_from(value: VersionOrRequirement) -> Result<Self, Self::Error> {
+        let VersionOrRequirement::Version(version) = value else {
+            anyhow::bail!("Version or requirement was not a version");
+        };
+        Ok(version)
+    }
+}
+
+impl TryFrom<VersionOrRequirement> for VersionReq {
+    type Error = anyhow::Error;
+
+    fn try_from(value: VersionOrRequirement) -> Result<Self, Self::Error> {
+        let VersionOrRequirement::Requirement(requirement) = value else {
+            anyhow::bail!("Version or requirement was not a requirement");
+        };
+        Ok(requirement)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::{download::GHDownloader, list::List};
