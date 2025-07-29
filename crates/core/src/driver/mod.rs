@@ -3,6 +3,7 @@
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::marker::PhantomData;
+use std::path::PathBuf;
 use std::str::FromStr;
 
 use alloy::json_abi::JsonAbi;
@@ -22,7 +23,6 @@ use alloy::{
 use anyhow::Context;
 use indexmap::IndexMap;
 use semver::Version;
-use serde_json::Value;
 
 use revive_dt_common::iterators::FilesWithExtensionIterator;
 use revive_dt_compiler::{Compiler, SolidityCompiler};
@@ -34,7 +34,6 @@ use revive_dt_format::{input::Input, metadata::Metadata, mode::SolcMode};
 use revive_dt_node::Node;
 use revive_dt_node_interaction::EthereumNode;
 use revive_dt_report::reporter::{CompilationTask, Report, Span};
-use revive_solc_json_interface::SolcStandardJsonOutput;
 
 use crate::Platform;
 
@@ -48,11 +47,8 @@ pub struct State<'a, T: Platform> {
     /// The [`Span`] used in reporting.
     span: Span,
 
-    /// A vector of all of the compiled contracts. Each call to [`build_contracts`] adds a new entry
-    /// to this vector.
-    ///
-    /// [`build_contracts`]: State::build_contracts
-    contracts: Vec<SolcStandardJsonOutput>,
+    /// A map of all of the compiled contracts for the given metadata file.
+    compiled_contracts: HashMap<PathBuf, HashMap<String, (String, JsonAbi)>>,
 
     /// This map stores the contracts deployments that have been made for each case within a
     /// metadata file. Note, this means that the state can't be reused between different metadata
@@ -79,7 +75,7 @@ where
         Self {
             config,
             span,
-            contracts: Default::default(),
+            compiled_contracts: Default::default(),
             deployed_contracts: Default::default(),
             deployed_libraries: Default::default(),
             compiler_version: Default::default(),
@@ -116,8 +112,8 @@ where
         tracing::info!(%compiler_version, "Resolved the compiler version to use");
 
         let compiler = Compiler::<T::Compiler>::new()
-            .allow_path(metadata.directory()?)
-            .solc_optimizer(mode.solc_optimize());
+            .with_allow_path(metadata.directory()?)
+            .with_optimization(mode.solc_optimize());
         let mut compiler = metadata
             .files_to_compile()?
             .try_fold(compiler, |compiler, path| compiler.with_source(&path))?;
@@ -151,21 +147,21 @@ where
 
         match compiler.try_build(compiler_path) {
             Ok(output) => {
-                task.json_output = Some(output.output.clone());
-                task.error = output.error;
-                self.contracts.push(output.output);
+                task.json_output = Some(output.clone());
 
-                if let Some(last_output) = self.contracts.last() {
-                    if let Some(contracts) = &last_output.contracts {
-                        for (file, contracts_map) in contracts {
-                            for contract_name in contracts_map.keys() {
-                                tracing::debug!(
-                                    "Compiled contract: {contract_name} from file: {file}"
-                                );
-                            }
-                        }
-                    } else {
-                        tracing::warn!("Compiled contracts field is None");
+                for (contract_path, contracts) in output.contracts.into_iter() {
+                    let map = self
+                        .compiled_contracts
+                        .entry(contract_path.clone())
+                        .or_default();
+                    for (contract_name, contract_info) in contracts.into_iter() {
+                        tracing::debug!(
+                            contract_path = %contract_path.display(),
+                            contract_name = contract_name,
+                            "Compiled contract"
+                        );
+
+                        map.insert(contract_name, contract_info);
                     }
                 }
 
@@ -601,30 +597,24 @@ where
             )
         };
 
-        let compiled_contract = self.contracts.iter().rev().find_map(|output| {
-            output
-                .contracts
-                .as_ref()?
-                .get(&contract_source_path.display().to_string())
-                .and_then(|source_file_contracts| {
-                    source_file_contracts.get(contract_ident.as_ref())
-                })
-        });
-        let Some(code) = compiled_contract
-            .and_then(|contract| contract.evm.as_ref().and_then(|evm| evm.bytecode.as_ref()))
+        let Some((code, abi)) = self
+            .compiled_contracts
+            .get(&contract_source_path)
+            .and_then(|source_file_contracts| source_file_contracts.get(contract_ident.as_ref()))
+            .cloned()
         else {
             tracing::error!(
                 contract_source_path = contract_source_path.display().to_string(),
                 contract_ident = contract_ident.as_ref(),
-                "Failed to find bytecode for contract"
+                "Failed to find information for contract"
             );
             anyhow::bail!(
-                "Failed to find bytecode for contract {:?}",
+                "Failed to find information for contract {:?}",
                 contract_instance
             )
         };
 
-        let mut code = match alloy::hex::decode(&code.object) {
+        let mut code = match alloy::hex::decode(&code) {
             Ok(code) => code,
             Err(error) => {
                 tracing::error!(
@@ -635,28 +625,6 @@ where
                 );
                 anyhow::bail!("Failed to hex-decode the byte code {}", error)
             }
-        };
-
-        let Some(Value::String(metadata)) =
-            compiled_contract.and_then(|contract| contract.metadata.as_ref())
-        else {
-            tracing::error!("Contract does not have a metadata field");
-            anyhow::bail!("Contract does not have a metadata field");
-        };
-
-        let Ok(metadata) = serde_json::from_str::<Value>(metadata) else {
-            tracing::error!(%metadata, "Failed to parse solc metadata into a structured value");
-            anyhow::bail!("Failed to parse solc metadata into a structured value {metadata}");
-        };
-
-        let Some(abi) = metadata.get("output").and_then(|value| value.get("abi")) else {
-            tracing::error!(%metadata, "Failed to access the .output.abi field of the solc metadata");
-            anyhow::bail!("Failed to access the .output.abi field of the solc metadata {metadata}");
-        };
-
-        let Ok(abi) = serde_json::from_value::<JsonAbi>(abi.clone()) else {
-            tracing::error!(%metadata, "Failed to deserialize ABI into a structured format");
-            anyhow::bail!("Failed to deserialize ABI into a structured format {metadata}");
         };
 
         if let Some(calldata) = calldata {

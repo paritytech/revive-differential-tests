@@ -12,11 +12,11 @@ use std::{
 };
 
 use anyhow::Context;
+use revive_dt_compiler::{CompilerInput, CompilerOutput};
 use serde::{Deserialize, Serialize};
 
 use revive_dt_config::{Arguments, TestingPlatform};
 use revive_dt_format::{corpus::Corpus, mode::SolcMode};
-use revive_solc_json_interface::{SolcStandardJsonInput, SolcStandardJsonOutput};
 
 use crate::analyzer::CompilerStatistics;
 
@@ -44,9 +44,9 @@ pub struct Report {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct CompilationTask {
     /// The observed compiler input.
-    pub json_input: SolcStandardJsonInput,
+    pub json_input: CompilerInput,
     /// The observed compiler output.
-    pub json_output: Option<SolcStandardJsonOutput>,
+    pub json_output: Option<CompilerOutput>,
     /// The observed compiler mode.
     pub mode: SolcMode,
     /// The observed compiler version.
@@ -152,15 +152,7 @@ impl Report {
         for (platform, results) in self.compiler_results.iter() {
             for result in results {
                 // ignore if there were no errors
-                if result.compilation_task.error.is_none()
-                    && result
-                        .compilation_task
-                        .json_output
-                        .as_ref()
-                        .and_then(|output| output.errors.as_ref())
-                        .map(|errors| errors.is_empty())
-                        .unwrap_or(true)
-                {
+                if result.compilation_task.error.is_none() {
                     continue;
                 }
 

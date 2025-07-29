@@ -1,5 +1,6 @@
 //! The report analyzer enriches the raw report data.
 
+use revive_dt_compiler::CompilerOutput;
 use serde::{Deserialize, Serialize};
 
 use crate::reporter::CompilationTask;
@@ -13,41 +14,27 @@ pub struct CompilerStatistics {
     pub mean_code_size: usize,
     /// The mean size of the optimized YUL IR.
     pub mean_yul_size: usize,
-    /// Is a proxy because the YUL also containes a lot of comments.
+    /// Is a proxy because the YUL also contains a lot of comments.
     pub yul_to_bytecode_size_ratio: f32,
 }
 
 impl CompilerStatistics {
     /// Cumulatively update the statistics with the next compiler task.
     pub fn sample(&mut self, compilation_task: &CompilationTask) {
-        let Some(output) = &compilation_task.json_output else {
-            return;
-        };
-
-        let Some(contracts) = &output.contracts else {
+        let Some(CompilerOutput { contracts }) = &compilation_task.json_output else {
             return;
         };
 
         for (_solidity, contracts) in contracts.iter() {
-            for (_name, contract) in contracts.iter() {
-                let Some(evm) = &contract.evm else {
-                    continue;
-                };
-                let Some(deploy_code) = &evm.deployed_bytecode else {
-                    continue;
-                };
-
+            for (_name, (bytecode, _)) in contracts.iter() {
                 // The EVM bytecode can be unlinked and thus is not necessarily a decodable hex
                 // string; for our statistics this is a good enough approximation.
-                let bytecode_size = deploy_code.object.len() / 2;
+                let bytecode_size = bytecode.len() / 2;
 
-                let yul_size = contract
-                    .ir_optimized
-                    .as_ref()
-                    .expect("if the contract has a deploy code it should also have the opimized IR")
-                    .len();
+                // TODO: for the time being we set the yul_size to be zero. We need to change this
+                // when we overhaul the reporting.
 
-                self.update_sizes(bytecode_size, yul_size);
+                self.update_sizes(bytecode_size, 0);
             }
         }
     }
