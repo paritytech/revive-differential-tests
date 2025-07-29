@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use cache::get_or_download;
 use download::GHDownloader;
 
-use crate::download::VersionOrRequirement;
+use revive_dt_common::types::VersionOrRequirement;
 
 pub mod cache;
 pub mod download;

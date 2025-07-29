@@ -13,7 +13,7 @@ use alloy_primitives::Address;
 use revive_dt_config::Arguments;
 
 use revive_common::EVMVersion;
-use revive_dt_solc_binaries::download::VersionOrRequirement;
+use revive_dt_common::types::VersionOrRequirement;
 use revive_solc_json_interface::{
     SolcStandardJsonInput, SolcStandardJsonInputLanguage, SolcStandardJsonInputSettings,
     SolcStandardJsonInputSettingsOptimizer, SolcStandardJsonInputSettingsSelection,
@@ -42,6 +42,8 @@ pub trait SolidityCompiler {
         config: &Arguments,
         version: impl Into<VersionOrRequirement>,
     ) -> anyhow::Result<PathBuf>;
+
+    fn version(&self) -> anyhow::Result<Version>;
 }
 
 /// The generic compilation input configuration.

@@ -1,3 +1,4 @@
+use revive_dt_common::types::VersionOrRequirement;
 use semver::Version;
 use serde::de::Deserializer;
 use serde::{Deserialize, Serialize};
@@ -77,6 +78,15 @@ impl SolcMode {
         }
 
         None
+    }
+
+    /// Resolves the [`SolcMode`]'s solidity version requirement into a [`VersionOrRequirement`] if
+    /// the requirement is present on the object. Otherwise, the passed default version is used.
+    pub fn compiler_version_to_use(&self, default: Version) -> VersionOrRequirement {
+        match self.solc_version {
+            Some(ref requirement) => requirement.clone().into(),
+            None => default.into(),
+        }
     }
 }
 

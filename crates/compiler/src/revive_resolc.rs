@@ -6,10 +6,14 @@ use std::{
     process::{Command, Stdio},
 };
 
-use crate::{CompilerInput, CompilerOutput, SolidityCompiler};
+use revive_dt_common::types::VersionOrRequirement;
 use revive_dt_config::Arguments;
-use revive_dt_solc_binaries::download::VersionOrRequirement;
 use revive_solc_json_interface::SolcStandardJsonOutput;
+
+use crate::{CompilerInput, CompilerOutput, SolidityCompiler};
+
+use anyhow::Context;
+use semver::Version;
 
 // TODO: I believe that we need to also pass the solc compiler to resolc so that resolc uses the
 // specified solc compiler. I believe that currently we completely ignore the specified solc binary
@@ -155,5 +159,46 @@ impl SolidityCompiler for Resolc {
         }
 
         Ok(PathBuf::from("resolc"))
+    }
+
+    fn version(&self) -> anyhow::Result<semver::Version> {
+        // Logic for parsing the resolc version from the following string:
+        // Solidity frontend for the revive compiler version 0.3.0+commit.b238913.llvm-18.1.8
+
+        let output = Command::new(self.resolc_path.as_path())
+            .arg("--version")
+            .stdout(Stdio::piped())
+            .spawn()?
+            .wait_with_output()?
+            .stdout;
+        let output = String::from_utf8_lossy(&output);
+        let version_string = output
+            .split("version ")
+            .nth(1)
+            .context("Version parsing failed")?
+            .split("+")
+            .next()
+            .context("Version parsing failed")?;
+
+        Version::parse(version_string).map_err(Into::into)
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn compiler_version_can_be_obtained() {
+        // Arrange
+        let args = Arguments::default();
+        let path = Resolc::get_compiler_executable(&args, Version::new(0, 7, 6)).unwrap();
+        let compiler = Resolc::new(path);
+
+        // Act
+        let version = compiler.version();
+
+        // Assert
+        let _ = version.expect("Failed to get version");
     }
 }

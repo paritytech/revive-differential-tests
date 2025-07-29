@@ -21,6 +21,7 @@ use alloy::{
 };
 use anyhow::Context;
 use indexmap::IndexMap;
+use semver::Version;
 use serde_json::Value;
 
 use revive_dt_common::iterators::FilesWithExtensionIterator;
@@ -64,6 +65,9 @@ pub struct State<'a, T: Platform> {
     /// the libraries with each case.
     deployed_libraries: HashMap<ContractInstance, (Address, JsonAbi)>,
 
+    /// Stores the version of the compiler used for the given Solc mode.
+    compiler_version: HashMap<&'a SolcMode, Version>,
+
     phantom: PhantomData<T>,
 }
 
@@ -78,6 +82,7 @@ where
             contracts: Default::default(),
             deployed_contracts: Default::default(),
             deployed_libraries: Default::default(),
+            compiler_version: Default::default(),
             phantom: Default::default(),
         }
     }
@@ -87,7 +92,11 @@ where
         self.span
     }
 
-    pub fn build_contracts(&mut self, mode: &SolcMode, metadata: &Metadata) -> anyhow::Result<()> {
+    pub fn build_contracts(
+        &mut self,
+        mode: &'a SolcMode,
+        metadata: &Metadata,
+    ) -> anyhow::Result<()> {
         let mut span = self.span();
         span.next_metadata(
             metadata
@@ -97,9 +106,14 @@ where
                 .clone(),
         );
 
-        let Some(version) = mode.last_patch_version(&self.config.solc) else {
-            anyhow::bail!("unsupported solc version: {:?}", &mode.solc_version);
-        };
+        let compiler_version_or_requirement =
+            mode.compiler_version_to_use(self.config.solc.clone());
+        let compiler_path =
+            T::Compiler::get_compiler_executable(self.config, compiler_version_or_requirement)?;
+        let compiler_version = T::Compiler::new(compiler_path.clone()).version()?;
+        self.compiler_version.insert(mode, compiler_version.clone());
+
+        tracing::info!(%compiler_version, "Resolved the compiler version to use");
 
         let compiler = Compiler::<T::Compiler>::new()
             .allow_path(metadata.directory()?)
@@ -131,11 +145,10 @@ where
             json_input: compiler.input(),
             json_output: None,
             mode: mode.clone(),
-            compiler_version: format!("{}", &version),
+            compiler_version: format!("{}", &compiler_version),
             error: None,
         };
 
-        let compiler_path = T::Compiler::get_compiler_executable(self.config, version)?;
         match compiler.try_build(compiler_path) {
             Ok(output) => {
                 task.json_output = Some(output.output.clone());
@@ -170,7 +183,7 @@ where
     pub fn build_and_publish_libraries(
         &mut self,
         metadata: &Metadata,
-        mode: &SolcMode,
+        mode: &'a SolcMode,
         node: &T::Blockchain,
     ) -> anyhow::Result<()> {
         self.build_contracts(mode, metadata)?;
@@ -387,10 +400,11 @@ where
         mode: &SolcMode,
     ) -> anyhow::Result<()> {
         if let Some(ref version_requirement) = expectation.compiler_version {
-            let Some(compiler_version) = mode.last_patch_version(&self.config.solc) else {
-                anyhow::bail!("unsupported solc version: {:?}", &mode.solc_version);
-            };
-            if !version_requirement.matches(&compiler_version) {
+            let compiler_version = self
+                .compiler_version
+                .get(mode)
+                .context("Failed to find the compiler version fo the solc mode")?;
+            if !version_requirement.matches(compiler_version) {
                 return Ok(());
             }
         }

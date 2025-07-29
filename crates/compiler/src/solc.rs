@@ -7,9 +7,12 @@ use std::{
 };
 
 use crate::{CompilerInput, CompilerOutput, SolidityCompiler};
+use anyhow::Context;
+use revive_dt_common::types::VersionOrRequirement;
 use revive_dt_config::Arguments;
-use revive_dt_solc_binaries::{download::VersionOrRequirement, download_solc};
+use revive_dt_solc_binaries::download_solc;
 use revive_solc_json_interface::SolcStandardJsonOutput;
+use semver::Version;
 
 #[derive(Debug)]
 pub struct Solc {
@@ -99,5 +102,53 @@ impl SolidityCompiler for Solc {
     ) -> anyhow::Result<PathBuf> {
         let path = download_solc(config.directory(), version, config.wasm)?;
         Ok(path)
+    }
+
+    fn version(&self) -> anyhow::Result<semver::Version> {
+        // The following is the parsing code for the version from the solc version strings which
+        // look like the following:
+        // ```
+        // solc, the solidity compiler commandline interface
+        // Version: 0.8.30+commit.73712a01.Darwin.appleclang
+        // ```
+
+        let child = Command::new(self.solc_path.as_path())
+            .arg("--version")
+            .stdout(Stdio::piped())
+            .spawn()?;
+        let output = child.wait_with_output()?;
+        let output = String::from_utf8_lossy(&output.stdout);
+        let version_line = output
+            .split("Version: ")
+            .nth(1)
+            .context("Version parsing failed")?;
+        let version_string = version_line
+            .split("+")
+            .next()
+            .context("Version parsing failed")?;
+
+        Version::parse(version_string).map_err(Into::into)
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn compiler_version_can_be_obtained() {
+        // Arrange
+        let args = Arguments::default();
+        let path = Solc::get_compiler_executable(&args, Version::new(0, 7, 6)).unwrap();
+        let compiler = Solc::new(path);
+
+        // Act
+        let version = compiler.version();
+
+        // Assert
+        assert_eq!(
+            version.expect("Failed to get version"),
+            Version::new(0, 7, 6)
+        )
     }
 }
