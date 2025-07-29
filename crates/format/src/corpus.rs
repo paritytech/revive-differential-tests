@@ -35,33 +35,47 @@ impl Corpus {
 ///
 /// `path` is expected to be a directory.
 pub fn collect_metadata(path: &Path, tests: &mut Vec<MetadataFile>) {
-    let dir_entry = match std::fs::read_dir(path) {
-        Ok(dir_entry) => dir_entry,
-        Err(error) => {
-            tracing::error!("failed to read dir '{}': {error}", path.display());
-            return;
-        }
-    };
-
-    for entry in dir_entry {
-        let entry = match entry {
-            Ok(entry) => entry,
+    if path.is_dir() {
+        let dir_entry = match std::fs::read_dir(path) {
+            Ok(dir_entry) => dir_entry,
             Err(error) => {
-                tracing::error!("error reading dir entry: {error}");
-                continue;
+                tracing::error!("failed to read dir '{}': {error}", path.display());
+                return;
             }
         };
 
-        let path = entry.path();
-        if path.is_dir() {
-            collect_metadata(&path, tests);
-            continue;
-        }
+        for entry in dir_entry {
+            let entry = match entry {
+                Ok(entry) => entry,
+                Err(error) => {
+                    tracing::error!("error reading dir entry: {error}");
+                    continue;
+                }
+            };
 
-        if path.is_file() {
-            if let Some(metadata) = MetadataFile::try_from_file(&path) {
+            let path = entry.path();
+            if path.is_dir() {
+                collect_metadata(&path, tests);
+                continue;
+            }
+
+            if path.is_file() {
+                if let Some(metadata) = MetadataFile::try_from_file(&path) {
+                    tests.push(metadata)
+                }
+            }
+        }
+    } else {
+        let Some(extension) = path.extension() else {
+            tracing::error!("Failed to get file extension");
+            return;
+        };
+        if extension.eq_ignore_ascii_case("sol") || extension.eq_ignore_ascii_case("json") {
+            if let Some(metadata) = MetadataFile::try_from_file(path) {
                 tests.push(metadata)
             }
+        } else {
+            tracing::error!(?extension, "Unsupported file extension");
         }
     }
 }
