@@ -4074,7 +4074,6 @@ dependencies = [
  "revive-dt-node-interaction",
  "revive-dt-report",
  "semver 1.0.26",
- "serde_json",
  "temp-dir",
  "tracing",
  "tracing-subscriber",
