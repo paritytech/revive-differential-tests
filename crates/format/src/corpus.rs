@@ -17,7 +17,25 @@ impl Corpus {
     /// Try to read and parse the corpus definition file at given `path`.
     pub fn try_from_path(path: &Path) -> anyhow::Result<Self> {
         let file = File::open(path)?;
-        Ok(serde_json::from_reader(file)?)
+        let mut corpus: Corpus = serde_json::from_reader(file)?;
+
+        // Ensure that the path mentioned in the corpus is relative to the corpus file.
+        // Canonicalizing also helps make the path in any errors unambiguous.
+        corpus.path = path
+            .parent()
+            .ok_or_else(|| {
+                anyhow::anyhow!("Corpus path '{}' does not point to a file", path.display())
+            })?
+            .canonicalize()
+            .map_err(|error| {
+                anyhow::anyhow!(
+                    "Failed to canonicalize path to corpus '{}': {error}",
+                    path.display()
+                )
+            })?
+            .join(corpus.path);
+
+        Ok(corpus)
     }
 
     /// Scan the corpus base directory and return all tests found.
