@@ -101,30 +101,12 @@ where
             anyhow::bail!("unsupported solc version: {:?}", &mode.solc_version);
         };
 
-        // Note: if the metadata is contained within a solidity file then this is the only file that
-        // we wish to compile since this is a self-contained test. Otherwise, if it's a JSON file
-        // then we need to compile all of the contracts that are in the directory since imports are
-        // allowed in there.
-        let Some(ref metadata_file_path) = metadata.file_path else {
-            anyhow::bail!("The metadata file path is not defined");
-        };
-        let mut files_to_compile = if metadata_file_path
-            .extension()
-            .is_some_and(|extension| extension.eq_ignore_ascii_case("sol"))
-        {
-            Box::new(std::iter::once(metadata_file_path.clone())) as Box<dyn Iterator<Item = _>>
-        } else {
-            Box::new(
-                FilesWithExtensionIterator::new(metadata.directory()?)
-                    .with_allowed_extension("sol"),
-            )
-        };
-
         let compiler = Compiler::<T::Compiler>::new()
             .allow_path(metadata.directory()?)
             .solc_optimizer(mode.solc_optimize());
-        let mut compiler =
-            files_to_compile.try_fold(compiler, |compiler, path| compiler.with_source(&path))?;
+        let mut compiler = metadata
+            .files_to_compile()?
+            .try_fold(compiler, |compiler, path| compiler.with_source(&path))?;
         for (library_instance, (library_address, _)) in self.deployed_libraries.iter() {
             let library_ident = &metadata
                 .contracts

@@ -9,7 +9,7 @@ use std::{
 
 use serde::{Deserialize, Serialize};
 
-use revive_dt_common::macros::define_wrapper_type;
+use revive_dt_common::{iterators::FilesWithExtensionIterator, macros::define_wrapper_type};
 
 use crate::{
     case::Case,
@@ -210,6 +210,29 @@ impl Metadata {
                 );
                 None
             }
+        }
+    }
+
+    /// Returns an iterator over all of the solidity files that needs to be compiled for this
+    /// [`Metadata`] object
+    ///
+    /// Note: if the metadata is contained within a solidity file then this is the only file that
+    /// we wish to compile since this is a self-contained test. Otherwise, if it's a JSON file
+    /// then we need to compile all of the contracts that are in the directory since imports are
+    /// allowed in there.
+    pub fn files_to_compile(&self) -> anyhow::Result<Box<dyn Iterator<Item = PathBuf>>> {
+        let Some(ref metadata_file_path) = self.file_path else {
+            anyhow::bail!("The metadata file path is not defined");
+        };
+        if metadata_file_path
+            .extension()
+            .is_some_and(|extension| extension.eq_ignore_ascii_case("sol"))
+        {
+            Ok(Box::new(std::iter::once(metadata_file_path.clone())))
+        } else {
+            Ok(Box::new(
+                FilesWithExtensionIterator::new(self.directory()?).with_allowed_extension("sol"),
+            ))
         }
     }
 }
