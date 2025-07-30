@@ -38,20 +38,12 @@ jobs:
           rustup target add wasm32-unknown-unknown
           rustup component add rust-src
 
-          curl -sL https://github.com/paritytech/revive/releases/download/v0.3.0/resolc-x86_64-unknown-linux-musl -o resolc
-          chmod +x resolc
-          sudo mv resolc /usr/local/bin
-
       - name: Install dependencies (macOS)
         if: matrix.os == 'macos-14'
         run: |
           brew install protobuf
           rustup target add wasm32-unknown-unknown
           rustup component add rust-src
-
-          curl -sL https://github.com/paritytech/revive/releases/download/v0.3.0/resolc-universal-apple-darwin -o resolc
-          chmod +x resolc
-          sudo mv resolc /usr/local/bin
 
       - name: Cache binaries
         id: cache
@@ -130,11 +122,19 @@ jobs:
           wget -qO- "$URL" | sudo tar xz -C /usr/local/bin --strip-components=1
           geth --version
 
+          curl -sL https://github.com/paritytech/revive/releases/download/v0.3.0/resolc-x86_64-unknown-linux-musl -o resolc
+          chmod +x resolc
+          sudo mv resolc /usr/local/bin
+
       - name: Install Geth on macOS
         if: matrix.os == 'macos-14'
         run: |
           brew tap ethereum/ethereum
           brew install ethereum protobuf
+
+          curl -sL https://github.com/paritytech/revive/releases/download/v0.3.0/resolc-universal-apple-darwin -o resolc
+          chmod +x resolc
+          sudo mv resolc /usr/local/bin
 
       - name: Machete
         uses: bnjbvr/cargo-machete@v0.7.1
@@ -150,6 +150,9 @@ jobs:
 
       - name: Check eth-rpc version
         run: eth-rpc --version
+
+      - name: Check resolc version
+        run: resolc --version
 
       - name: Test cargo workspace
         run: make test
