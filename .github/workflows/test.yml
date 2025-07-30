@@ -38,12 +38,20 @@ jobs:
           rustup target add wasm32-unknown-unknown
           rustup component add rust-src
 
+          curl -sL https://github.com/paritytech/revive/releases/download/v0.3.0/resolc-x86_64-unknown-linux-musl -o resolc
+          chmod +x resolc
+          sudo mv resolc /user/local/bin
+
       - name: Install dependencies (macOS)
         if: matrix.os == 'macos-14'
         run: |
           brew install protobuf
           rustup target add wasm32-unknown-unknown
           rustup component add rust-src
+
+          curl -sL https://github.com/paritytech/revive/releases/download/v0.3.0/resolc-universal-apple-darwin -o resolc
+          chmod +x resolc
+          sudo mv resolc /user/local/bin
 
       - name: Cache binaries
         id: cache
