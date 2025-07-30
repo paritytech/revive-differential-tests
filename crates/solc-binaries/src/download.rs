@@ -5,6 +5,8 @@ use std::{
     sync::{LazyLock, Mutex},
 };
 
+use revive_dt_common::types::VersionOrRequirement;
+
 use semver::Version;
 use sha2::{Digest, Sha256};
 
@@ -52,27 +54,50 @@ impl GHDownloader {
     pub const WINDOWS_NAME: &str = "solc-windows.exe";
     pub const WASM_NAME: &str = "soljson.js";
 
-    fn new(version: Version, target: &'static str, list: &'static str) -> Self {
-        Self {
-            version,
-            target,
-            list,
+    fn new(
+        version: impl Into<VersionOrRequirement>,
+        target: &'static str,
+        list: &'static str,
+    ) -> anyhow::Result<Self> {
+        let version_or_requirement = version.into();
+        match version_or_requirement {
+            VersionOrRequirement::Version(version) => Ok(Self {
+                version,
+                target,
+                list,
+            }),
+            VersionOrRequirement::Requirement(requirement) => {
+                let Some(version) = List::download(list)?
+                    .builds
+                    .into_iter()
+                    .map(|build| build.version)
+                    .filter(|version| requirement.matches(version))
+                    .max()
+                else {
+                    anyhow::bail!("Failed to find a version that satisfies {requirement:?}");
+                };
+                Ok(Self {
+                    version,
+                    target,
+                    list,
+                })
+            }
         }
     }
 
-    pub fn linux(version: Version) -> Self {
+    pub fn linux(version: impl Into<VersionOrRequirement>) -> anyhow::Result<Self> {
         Self::new(version, Self::LINUX_NAME, List::LINUX_URL)
     }
 
-    pub fn macosx(version: Version) -> Self {
+    pub fn macosx(version: impl Into<VersionOrRequirement>) -> anyhow::Result<Self> {
         Self::new(version, Self::MACOSX_NAME, List::MACOSX_URL)
     }
 
-    pub fn windows(version: Version) -> Self {
+    pub fn windows(version: impl Into<VersionOrRequirement>) -> anyhow::Result<Self> {
         Self::new(version, Self::WINDOWS_NAME, List::WINDOWS_URL)
     }
 
-    pub fn wasm(version: Version) -> Self {
+    pub fn wasm(version: impl Into<VersionOrRequirement>) -> anyhow::Result<Self> {
         Self::new(version, Self::WASM_NAME, List::WASM_URL)
     }
 
@@ -111,24 +136,24 @@ mod tests {
     #[test]
     fn try_get_windows() {
         let version = List::download(List::WINDOWS_URL).unwrap().latest_release;
-        GHDownloader::windows(version).download().unwrap();
+        GHDownloader::windows(version).unwrap().download().unwrap();
     }
 
     #[test]
     fn try_get_macosx() {
         let version = List::download(List::MACOSX_URL).unwrap().latest_release;
-        GHDownloader::macosx(version).download().unwrap();
+        GHDownloader::macosx(version).unwrap().download().unwrap();
     }
 
     #[test]
     fn try_get_linux() {
         let version = List::download(List::LINUX_URL).unwrap().latest_release;
-        GHDownloader::linux(version).download().unwrap();
+        GHDownloader::linux(version).unwrap().download().unwrap();
     }
 
     #[test]
     fn try_get_wasm() {
         let version = List::download(List::WASM_URL).unwrap().latest_release;
-        GHDownloader::wasm(version).download().unwrap();
+        GHDownloader::wasm(version).unwrap().download().unwrap();
     }
 }

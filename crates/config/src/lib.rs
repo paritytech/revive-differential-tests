@@ -3,6 +3,7 @@
 use std::{
     fmt::Display,
     path::{Path, PathBuf},
+    sync::LazyLock,
 };
 
 use alloy::{network::EthereumWallet, signers::local::PrivateKeySigner};
@@ -144,7 +145,14 @@ impl Arguments {
 
 impl Default for Arguments {
     fn default() -> Self {
-        Arguments::parse_from(["retester"])
+        static TEMP_DIR: LazyLock<TempDir> = LazyLock::new(|| TempDir::new().unwrap());
+
+        let default = Arguments::parse_from(["retester"]);
+
+        Arguments {
+            temp_dir: Some(&TEMP_DIR),
+            ..default
+        }
     }
 }
 

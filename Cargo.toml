@@ -26,6 +26,7 @@ alloy-primitives = "1.2.1"
 alloy-sol-types = "1.2.1"
 anyhow = "1.0"
 clap = { version = "4", features = ["derive"] }
+foundry-compilers-artifacts = { version = "0.18.0" }
 futures = { version = "0.3.31" }
 hex = "0.4.3"
 reqwest = { version = "0.12.15", features = ["blocking", "json"] }

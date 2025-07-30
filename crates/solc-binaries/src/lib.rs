@@ -7,7 +7,8 @@ use std::path::{Path, PathBuf};
 
 use cache::get_or_download;
 use download::GHDownloader;
-use semver::Version;
+
+use revive_dt_common::types::VersionOrRequirement;
 
 pub mod cache;
 pub mod download;
@@ -20,7 +21,7 @@ pub mod list;
 /// and not download it again.
 pub fn download_solc(
     cache_directory: &Path,
-    version: Version,
+    version: impl Into<VersionOrRequirement>,
     wasm: bool,
 ) -> anyhow::Result<PathBuf> {
     let downloader = if wasm {
@@ -33,7 +34,7 @@ pub fn download_solc(
         GHDownloader::windows(version)
     } else {
         unimplemented!()
-    };
+    }?;
 
     get_or_download(cache_directory, &downloader)
 }

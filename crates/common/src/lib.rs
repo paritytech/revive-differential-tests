@@ -4,3 +4,4 @@
 pub mod concepts;
 pub mod iterators;
 pub mod macros;
+pub mod types;

@@ -339,6 +339,7 @@ dependencies = [
  "const-hex",
  "derive_more 2.0.1",
  "foldhash",
+ "getrandom 0.3.3",
  "hashbrown 0.15.3",
  "indexmap 2.10.0",
  "itoa",
@@ -2228,6 +2229,66 @@ dependencies = [
 ]
 
 [[package]]
+name = "foundry-compilers-artifacts"
+version = "0.18.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c2676d70082ed23680fe2d08c0b750d5f7f2438c6d946f1cb140a76c5e5e0392"
+dependencies = [
+ "foundry-compilers-artifacts-solc",
+ "foundry-compilers-artifacts-vyper",
+]
+
+[[package]]
+name = "foundry-compilers-artifacts-solc"
+version = "0.18.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a3ada94dc5946334bb08df574855ba345ab03ba8c6f233560c72c8d61fa9db80"
+dependencies = [
+ "alloy-json-abi",
+ "alloy-primitives",
+ "foundry-compilers-core",
+ "path-slash",
+ "regex",
+ "semver 1.0.26",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.12",
+ "tracing",
+ "yansi",
+]
+
+[[package]]
+name = "foundry-compilers-artifacts-vyper"
+version = "0.18.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "372052af72652e375a6e7eed22179bd8935114e25e1c5a8cca7f00e8f20bd94c"
+dependencies = [
+ "alloy-json-abi",
+ "alloy-primitives",
+ "foundry-compilers-artifacts-solc",
+ "foundry-compilers-core",
+ "path-slash",
+ "semver 1.0.26",
+ "serde",
+]
+
+[[package]]
+name = "foundry-compilers-core"
+version = "0.18.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bf0962c46855979300f6526ed57f987ccf6a025c2b92ce574b281d9cb2ef666b"
+dependencies = [
+ "alloy-primitives",
+ "cfg-if",
+ "dunce",
+ "path-slash",
+ "semver 1.0.26",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.12",
+]
+
+[[package]]
 name = "fs-err"
 version = "2.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3457,6 +3518,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "57c0d7b74b563b49d38dae00a0c37d4d6de9b432382b2892f0574ddcae73fd0a"
 
 [[package]]
+name = "path-slash"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1e91099d4268b0e11973f036e885d652fb0b21fedcf69738c627f94db6a44f42"
+
+[[package]]
 name = "pbkdf2"
 version = "0.12.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3955,6 +4022,7 @@ dependencies = [
  "anyhow",
  "futures",
  "once_cell",
+ "semver 1.0.26",
  "tokio",
  "tracing",
 ]
@@ -3963,13 +4031,17 @@ dependencies = [
 name = "revive-dt-compiler"
 version = "0.1.0"
 dependencies = [
+ "alloy",
  "alloy-primitives",
  "anyhow",
+ "foundry-compilers-artifacts",
  "revive-common",
+ "revive-dt-common",
  "revive-dt-config",
  "revive-dt-solc-binaries",
  "revive-solc-json-interface",
  "semver 1.0.26",
+ "serde",
  "serde_json",
  "tracing",
 ]
@@ -4001,8 +4073,7 @@ dependencies = [
  "revive-dt-node",
  "revive-dt-node-interaction",
  "revive-dt-report",
- "revive-solc-json-interface",
- "serde_json",
+ "semver 1.0.26",
  "temp-dir",
  "tracing",
  "tracing-subscriber",
@@ -4055,9 +4126,9 @@ name = "revive-dt-report"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "revive-dt-compiler",
  "revive-dt-config",
  "revive-dt-format",
- "revive-solc-json-interface",
  "serde",
  "serde_json",
  "tracing",
@@ -4070,6 +4141,7 @@ dependencies = [
  "anyhow",
  "hex",
  "reqwest",
+ "revive-dt-common",
  "semver 1.0.26",
  "serde",
  "sha2 0.10.9",
@@ -4167,6 +4239,9 @@ name = "rustc-hash"
 version = "2.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "357703d41365b4b27c590e3ed91eabb1b663f07c4c084095e60cbed4362dff0d"
+dependencies = [
+ "rand 0.8.5",
+]
 
 [[package]]
 name = "rustc-hex"
@@ -6216,6 +6291,12 @@ checksum = "05f360fc0b24296329c78fda852a1e9ae82de9cf7b27dae4b7f62f118f77b9ed"
 dependencies = [
  "tap",
 ]
+
+[[package]]
+name = "yansi"
+version = "1.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cfe53a6657fd280eaa890a3bc59152892ffa3e30101319d168b781ed6529b049"
 
 [[package]]
 name = "yoke"
