@@ -2,6 +2,7 @@ use std::collections::HashMap;
 
 use alloy::{
     eips::BlockNumberOrTag,
+    hex::ToHexExt,
     json_abi::JsonAbi,
     network::TransactionBuilder,
     primitives::{Address, Bytes, U256},
@@ -30,6 +31,7 @@ pub struct Input {
     pub expected: Option<Expected>,
     pub value: Option<EtherValue>,
     pub storage: Option<HashMap<String, Calldata>>,
+    pub variable_assignments: Option<VariableAssignments>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
@@ -136,6 +138,8 @@ enum Operation {
     BitwiseAnd,
     BitwiseOr,
     BitwiseXor,
+    ShiftLeft,
+    ShiftRight,
 }
 
 /// Specify how the contract is called.
@@ -164,6 +168,14 @@ define_wrapper_type!(
     pub struct EtherValue(U256);
 );
 
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
+pub struct VariableAssignments {
+    /// A vector of the variable names to assign to the return data.
+    ///
+    /// Example: `UniswapV3PoolAddress`
+    pub return_data: Vec<String>,
+}
+
 impl Input {
     pub const fn default_caller() -> Address {
         Address(FixedBytes(alloy::hex!(
@@ -186,16 +198,17 @@ impl Input {
             .ok_or_else(|| anyhow::anyhow!("instance {instance:?} not deployed"))
     }
 
-    pub fn encoded_input(
-        &self,
+    pub fn encoded_input<'a>(
+        &'a self,
         deployed_contracts: &HashMap<ContractInstance, (Address, JsonAbi)>,
+        variables: impl Into<Option<&'a HashMap<String, U256>>> + Clone,
         chain_state_provider: &impl ResolverApi,
     ) -> anyhow::Result<Bytes> {
         match self.method {
             Method::Deployer | Method::Fallback => {
-                let calldata = self
-                    .calldata
-                    .calldata(deployed_contracts, chain_state_provider)?;
+                let calldata =
+                    self.calldata
+                        .calldata(deployed_contracts, variables, chain_state_provider)?;
 
                 Ok(calldata.into())
             }
@@ -244,6 +257,7 @@ impl Input {
                 self.calldata.calldata_into_slice(
                     &mut calldata,
                     deployed_contracts,
+                    variables,
                     chain_state_provider,
                 )?;
 
@@ -253,12 +267,13 @@ impl Input {
     }
 
     /// Parse this input into a legacy transaction.
-    pub fn legacy_transaction(
-        &self,
+    pub fn legacy_transaction<'a>(
+        &'a self,
         deployed_contracts: &HashMap<ContractInstance, (Address, JsonAbi)>,
+        variables: impl Into<Option<&'a HashMap<String, U256>>> + Clone,
         chain_state_provider: &impl ResolverApi,
     ) -> anyhow::Result<TransactionRequest> {
-        let input_data = self.encoded_input(deployed_contracts, chain_state_provider)?;
+        let input_data = self.encoded_input(deployed_contracts, variables, chain_state_provider)?;
         let transaction_request = TransactionRequest::default().from(self.caller).value(
             self.value
                 .map(|value| value.into_inner())
@@ -336,20 +351,27 @@ impl Calldata {
         }
     }
 
-    pub fn calldata(
-        &self,
+    pub fn calldata<'a>(
+        &'a self,
         deployed_contracts: &HashMap<ContractInstance, (Address, JsonAbi)>,
+        variables: impl Into<Option<&'a HashMap<String, U256>>> + Clone,
         chain_state_provider: &impl ResolverApi,
     ) -> anyhow::Result<Vec<u8>> {
         let mut buffer = Vec::<u8>::with_capacity(self.size_requirement());
-        self.calldata_into_slice(&mut buffer, deployed_contracts, chain_state_provider)?;
+        self.calldata_into_slice(
+            &mut buffer,
+            deployed_contracts,
+            variables,
+            chain_state_provider,
+        )?;
         Ok(buffer)
     }
 
-    pub fn calldata_into_slice(
-        &self,
+    pub fn calldata_into_slice<'a>(
+        &'a self,
         buffer: &mut Vec<u8>,
         deployed_contracts: &HashMap<ContractInstance, (Address, JsonAbi)>,
+        variables: impl Into<Option<&'a HashMap<String, U256>>> + Clone,
         chain_state_provider: &impl ResolverApi,
     ) -> anyhow::Result<()> {
         match self {
@@ -358,7 +380,7 @@ impl Calldata {
             }
             Calldata::Compound(items) => {
                 for (arg_idx, arg) in items.iter().enumerate() {
-                    match arg.resolve(deployed_contracts, chain_state_provider) {
+                    match arg.resolve(deployed_contracts, variables.clone(), chain_state_provider) {
                         Ok(resolved) => {
                             buffer.extend(resolved.to_be_bytes::<32>());
                         }
@@ -381,10 +403,11 @@ impl Calldata {
     }
 
     /// Checks if this [`Calldata`] is equivalent to the passed calldata bytes.
-    pub fn is_equivalent(
-        &self,
+    pub fn is_equivalent<'a>(
+        &'a self,
         other: &[u8],
         deployed_contracts: &HashMap<ContractInstance, (Address, JsonAbi)>,
+        variables: impl Into<Option<&'a HashMap<String, U256>>> + Clone,
         chain_state_provider: &impl ResolverApi,
     ) -> anyhow::Result<bool> {
         match self {
@@ -407,7 +430,8 @@ impl Calldata {
                         std::borrow::Cow::Borrowed(other)
                     };
 
-                    let this = this.resolve(deployed_contracts, chain_state_provider)?;
+                    let this =
+                        this.resolve(deployed_contracts, variables.clone(), chain_state_provider)?;
                     let other = U256::from_be_slice(&other);
                     if this != other {
                         return Ok(false);
@@ -420,16 +444,17 @@ impl Calldata {
 }
 
 impl CalldataItem {
-    fn resolve(
-        &self,
+    fn resolve<'a>(
+        &'a self,
         deployed_contracts: &HashMap<ContractInstance, (Address, JsonAbi)>,
+        variables: impl Into<Option<&'a HashMap<String, U256>>> + Clone,
         chain_state_provider: &impl ResolverApi,
     ) -> anyhow::Result<U256> {
         let mut stack = Vec::<CalldataToken<U256>>::new();
 
         for token in self
             .calldata_tokens()
-            .map(|token| token.resolve(deployed_contracts, chain_state_provider))
+            .map(|token| token.resolve(deployed_contracts, variables.clone(), chain_state_provider))
         {
             let token = token?;
             let new_token = match token {
@@ -452,8 +477,14 @@ impl CalldataItem {
                         Operation::BitwiseAnd => Some(left_operand & right_operand),
                         Operation::BitwiseOr => Some(left_operand | right_operand),
                         Operation::BitwiseXor => Some(left_operand ^ right_operand),
+                        Operation::ShiftLeft => {
+                            Some(left_operand << usize::try_from(right_operand)?)
+                        }
+                        Operation::ShiftRight => {
+                            Some(left_operand >> usize::try_from(right_operand)?)
+                        }
                     }
-                    .context("Invalid calldata arithmetic operation")?;
+                    .context("Invalid calldata arithmetic operation - Invalid operation")?;
 
                     CalldataToken::Item(result)
                 }
@@ -464,8 +495,17 @@ impl CalldataItem {
         match stack.as_slice() {
             // Empty stack means that we got an empty compound calldata which we resolve to zero.
             [] => Ok(U256::ZERO),
-            [CalldataToken::Item(item)] => Ok(*item),
-            _ => Err(anyhow::anyhow!("Invalid calldata arithmetic operation")),
+            [CalldataToken::Item(item)] => {
+                tracing::debug!(
+                    original = self.0,
+                    resolved = item.to_be_bytes::<32>().encode_hex(),
+                    "Resolved a Calldata item"
+                );
+                Ok(*item)
+            }
+            _ => Err(anyhow::anyhow!(
+                "Invalid calldata arithmetic operation - Invalid stack"
+            )),
         }
     }
 
@@ -478,6 +518,8 @@ impl CalldataItem {
             "&" => CalldataToken::Operation(Operation::BitwiseAnd),
             "|" => CalldataToken::Operation(Operation::BitwiseOr),
             "^" => CalldataToken::Operation(Operation::BitwiseXor),
+            "<<" => CalldataToken::Operation(Operation::ShiftLeft),
+            ">>" => CalldataToken::Operation(Operation::ShiftRight),
             _ => CalldataToken::Item(item),
         })
     }
@@ -494,6 +536,7 @@ impl<T> CalldataToken<T> {
     const BLOCK_HASH_VARIABLE_PREFIX: &str = "$BLOCK_HASH";
     const BLOCK_NUMBER_VARIABLE: &str = "$BLOCK_NUMBER";
     const BLOCK_TIMESTAMP_VARIABLE: &str = "$BLOCK_TIMESTAMP";
+    const VARIABLE_PREFIX: &str = "$VARIABLE:";
 
     fn into_item(self) -> Option<T> {
         match self {
@@ -512,9 +555,10 @@ impl<T: AsRef<str>> CalldataToken<T> {
     /// This piece of code is taken from the matter-labs-tester repository which is licensed under
     /// MIT or Apache. The original source code can be found here:
     /// https://github.com/matter-labs/era-compiler-tester/blob/0ed598a27f6eceee7008deab3ff2311075a2ec69/compiler_tester/src/test/case/input/value.rs#L43-L146
-    fn resolve(
+    fn resolve<'a>(
         self,
         deployed_contracts: &HashMap<ContractInstance, (Address, JsonAbi)>,
+        variables: impl Into<Option<&'a HashMap<String, U256>>> + Clone,
         chain_state_provider: &impl ResolverApi,
     ) -> anyhow::Result<CalldataToken<U256>> {
         match self {
@@ -579,6 +623,16 @@ impl<T: AsRef<str>> CalldataToken<T> {
                     let timestamp =
                         chain_state_provider.block_timestamp(BlockNumberOrTag::Latest)?;
                     Ok(U256::from(timestamp))
+                } else if let Some(variable_name) = item.strip_prefix(Self::VARIABLE_PREFIX) {
+                    let Some(variables) = variables.into() else {
+                        anyhow::bail!(
+                            "Variable resolution required but no variables were passed in"
+                        );
+                    };
+                    let Some(variable) = variables.get(variable_name) else {
+                        anyhow::bail!("No variable found with the name {}", variable_name)
+                    };
+                    Ok(*variable)
                 } else {
                     Ok(U256::from_str_radix(item, 10)
                         .map_err(|error| anyhow::anyhow!("Invalid decimal literal: {}", error))?)
@@ -699,7 +753,9 @@ mod tests {
             (Address::ZERO, parsed_abi),
         );
 
-        let encoded = input.encoded_input(&contracts, &MockResolver).unwrap();
+        let encoded = input
+            .encoded_input(&contracts, None, &MockResolver)
+            .unwrap();
         assert!(encoded.0.starts_with(&selector));
 
         type T = (u64,);
@@ -741,7 +797,9 @@ mod tests {
             (Address::ZERO, parsed_abi),
         );
 
-        let encoded = input.encoded_input(&contracts, &MockResolver).unwrap();
+        let encoded = input
+            .encoded_input(&contracts, None, &MockResolver)
+            .unwrap();
         assert!(encoded.0.starts_with(&selector));
 
         type T = (alloy_primitives::Address,);
@@ -786,7 +844,9 @@ mod tests {
             (Address::ZERO, parsed_abi),
         );
 
-        let encoded = input.encoded_input(&contracts, &MockResolver).unwrap();
+        let encoded = input
+            .encoded_input(&contracts, None, &MockResolver)
+            .unwrap();
         assert!(encoded.0.starts_with(&selector));
 
         type T = (alloy_primitives::Address,);
@@ -802,7 +862,7 @@ mod tests {
         deployed_contracts: &HashMap<ContractInstance, (Address, JsonAbi)>,
         chain_state_provider: &impl ResolverApi,
     ) -> anyhow::Result<U256> {
-        CalldataItem::new(input).resolve(deployed_contracts, chain_state_provider)
+        CalldataItem::new(input).resolve(deployed_contracts, None, chain_state_provider)
     }
 
     #[test]
