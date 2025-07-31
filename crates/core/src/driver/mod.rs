@@ -37,7 +37,7 @@ use revive_dt_report::reporter::{CompilationTask, Report, Span};
 
 use crate::Platform;
 
-pub struct State<'a, T: Platform> {
+pub struct CaseState<'a, T: Platform> {
     /// The configuration that the framework was started with.
     ///
     /// This is currently used to get certain information from it such as the solc mode and other
@@ -71,7 +71,7 @@ pub struct State<'a, T: Platform> {
     phantom: PhantomData<T>,
 }
 
-impl<'a, T> State<'a, T>
+impl<'a, T> CaseState<'a, T>
 where
     T: Platform,
 {
@@ -731,7 +731,7 @@ where
     }
 }
 
-pub struct Driver<'a, Leader: Platform, Follower: Platform> {
+pub struct CaseDriver<'a, Leader: Platform, Follower: Platform> {
     metadata: &'a Metadata,
     case: &'a Case,
     case_idx: CaseIdx,
@@ -740,7 +740,7 @@ pub struct Driver<'a, Leader: Platform, Follower: Platform> {
     follower_node: &'a Follower::Blockchain,
 }
 
-impl<'a, L, F> Driver<'a, L, F>
+impl<'a, L, F> CaseDriver<'a, L, F>
 where
     L: Platform,
     F: Platform,
@@ -752,7 +752,7 @@ where
         config: &'a Arguments,
         leader_node: &'a L::Blockchain,
         follower_node: &'a F::Blockchain,
-    ) -> Driver<'a, L, F> {
+    ) -> CaseDriver<'a, L, F> {
         Self {
             metadata,
             case,
@@ -838,8 +838,8 @@ where
             let tracing_span = tracing::info_span!("With solc mode", solc_mode = ?mode);
             let _guard = tracing_span.enter();
 
-            let mut leader_state = State::<L>::new(self.config, span);
-            let mut follower_state = State::<F>::new(self.config, span);
+            let mut leader_state = CaseState::<L>::new(self.config, span);
+            let mut follower_state = CaseState::<F>::new(self.config, span);
 
             // Note: we are currently forced to do two compilation passes due to linking. In the
             // first compilation pass we compile the libraries and publish them to the chain. In the

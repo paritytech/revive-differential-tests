@@ -6,7 +6,7 @@ use rayon::{ThreadPoolBuilder, prelude::*};
 use revive_dt_config::*;
 use revive_dt_core::{
     Geth, Kitchensink, Platform,
-    driver::{Driver, State},
+    driver::{CaseDriver, CaseState},
 };
 use revive_dt_format::{corpus::Corpus, metadata::MetadataFile};
 use revive_dt_node::pool::NodePool;
@@ -119,7 +119,7 @@ where
             );
             let _guard = tracing_span.enter();
 
-            let mut driver = Driver::<L, F>::new(
+            let mut driver = CaseDriver::<L, F>::new(
                 metadata,
                 case,
                 case_idx,
@@ -176,11 +176,11 @@ fn compile_corpus(
         for mode in &metadata.solc_modes() {
             match platform {
                 TestingPlatform::Geth => {
-                    let mut state = State::<Geth>::new(config, span);
+                    let mut state = CaseState::<Geth>::new(config, span);
                     let _ = state.build_contracts(mode, metadata);
                 }
                 TestingPlatform::Kitchensink => {
-                    let mut state = State::<Kitchensink>::new(config, span);
+                    let mut state = CaseState::<Kitchensink>::new(config, span);
                     let _ = state.build_contracts(mode, metadata);
                 }
             };
