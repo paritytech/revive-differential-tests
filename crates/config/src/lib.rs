@@ -92,9 +92,13 @@ pub struct Arguments {
     #[arg(long = "compile-only")]
     pub compile_only: Option<TestingPlatform>,
 
-    /// Determines the amount of tests that are executed in parallel.
-    #[arg(long = "workers", default_value = "12")]
-    pub workers: usize,
+    /// Determines the amount of nodes that will be spawned for each chain.
+    #[arg(long, default_value = "12")]
+    pub number_of_nodes: usize,
+
+    /// Determines the amount of threads that will will be used.
+    #[arg(long, default_value = "12")]
+    pub number_of_threads: usize,
 
     /// Extract problems back to the test corpus.
     #[arg(short, long = "extract-problems")]

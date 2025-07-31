@@ -63,7 +63,7 @@ fn init_cli() -> anyhow::Result<Arguments> {
     tracing::info!("workdir: {}", args.directory().display());
 
     ThreadPoolBuilder::new()
-        .num_threads(args.workers)
+        .num_threads(args.number_of_threads)
         .build_global()?;
 
     Ok(args)
@@ -93,15 +93,25 @@ where
     let leader_nodes = NodePool::<L::Blockchain>::new(args)?;
     let follower_nodes = NodePool::<F::Blockchain>::new(args)?;
 
-    tests.par_iter().for_each(
-        |MetadataFile {
-             content: metadata,
-             path: metadata_file_path,
-         }| {
-            // Starting a new tracing span for this metadata file. This allows our logs to be clear
-            // about which metadata file the logs belong to. We can add other information into this
-            // as well to be able to associate the logs with the correct metadata file and case
-            // that's being executed.
+    let test_cases = tests
+        .iter()
+        .flat_map(
+            |MetadataFile {
+                 path,
+                 content: metadata,
+             }| {
+                metadata
+                    .cases
+                    .iter()
+                    .enumerate()
+                    .map(move |(case_idx, case)| (path, metadata, case_idx, case))
+            },
+        )
+        .collect::<Vec<_>>();
+
+    test_cases
+        .into_par_iter()
+        .for_each(|(metadata_file_path, metadata, case_idx, case)| {
             let tracing_span = tracing::span!(
                 Level::INFO,
                 "Running driver",
@@ -111,6 +121,8 @@ where
 
             let mut driver = Driver::<L, F>::new(
                 metadata,
+                case,
+                case_idx,
                 args,
                 leader_nodes.round_robbin(),
                 follower_nodes.round_robbin(),
@@ -135,8 +147,7 @@ where
             } else {
                 tracing::info!("Execution failed");
             }
-        },
-    );
+        });
 
     Ok(())
 }

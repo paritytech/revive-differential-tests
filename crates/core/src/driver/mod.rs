@@ -27,7 +27,7 @@ use semver::Version;
 use revive_dt_common::iterators::FilesWithExtensionIterator;
 use revive_dt_compiler::{Compiler, SolidityCompiler};
 use revive_dt_config::Arguments;
-use revive_dt_format::case::CaseIdx;
+use revive_dt_format::case::{Case, CaseIdx};
 use revive_dt_format::input::{Calldata, EtherValue, Expected, ExpectedOutput, Method};
 use revive_dt_format::metadata::{ContractInstance, ContractPathAndIdent};
 use revive_dt_format::{input::Input, metadata::Metadata, mode::SolcMode};
@@ -733,6 +733,8 @@ where
 
 pub struct Driver<'a, Leader: Platform, Follower: Platform> {
     metadata: &'a Metadata,
+    case: &'a Case,
+    case_idx: CaseIdx,
     config: &'a Arguments,
     leader_node: &'a Leader::Blockchain,
     follower_node: &'a Follower::Blockchain,
@@ -745,12 +747,16 @@ where
 {
     pub fn new(
         metadata: &'a Metadata,
+        case: &'a Case,
+        case_idx: impl Into<CaseIdx>,
         config: &'a Arguments,
         leader_node: &'a L::Blockchain,
         follower_node: &'a F::Blockchain,
     ) -> Driver<'a, L, F> {
         Self {
             metadata,
+            case,
+            case_idx: case_idx.into(),
             config,
             leader_node,
             follower_node,
@@ -907,125 +913,113 @@ where
 
             // For cases if one of the inputs fail then we move on to the next case and we do NOT
             // bail out of the whole thing.
-            'case_loop: for (case_idx, case) in self.metadata.cases.iter().enumerate() {
-                let tracing_span = tracing::info_span!(
-                    "Handling case",
-                    case_name = case.name,
-                    case_idx = case_idx
-                );
+            let case = self.case;
+            let case_idx = self.case_idx;
+            let tracing_span =
+                tracing::info_span!("Handling case", case_name = case.name, case_idx = *case_idx);
+            let _guard = tracing_span.enter();
+
+            let case_idx = CaseIdx::new(case_idx);
+
+            // For inputs if one of the inputs fail we move on to the next case (we do not move
+            // on to the next input as it doesn't make sense. It depends on the previous one).
+            for (input_idx, input) in case.inputs_iterator().enumerate() {
+                let tracing_span = tracing::info_span!("Handling input", input_idx);
                 let _guard = tracing_span.enter();
 
-                let case_idx = CaseIdx::new(case_idx);
-
-                // For inputs if one of the inputs fail we move on to the next case (we do not move
-                // on to the next input as it doesn't make sense. It depends on the previous one).
-                for (input_idx, input) in case.inputs_iterator().enumerate() {
-                    let tracing_span = tracing::info_span!("Handling input", input_idx);
-                    let _guard = tracing_span.enter();
-
-                    let execution_result =
-                        tracing::info_span!("Executing input", contract_name = ?input.instance)
-                            .in_scope(|| {
-                                let (leader_receipt, _, leader_diff) = match leader_state
-                                    .handle_input(
-                                        self.metadata,
+                let input_execution_result =
+                    tracing::info_span!("Executing input", contract_name = ?input.instance)
+                        .in_scope(|| {
+                            let (leader_receipt, _, leader_diff) = match leader_state.handle_input(
+                                self.metadata,
+                                case_idx,
+                                &input,
+                                self.leader_node,
+                                &mode,
+                            ) {
+                                Ok(result) => result,
+                                Err(error) => {
+                                    tracing::error!(
+                                        target = ?Target::Leader,
+                                        ?error,
+                                        "Contract execution failed"
+                                    );
+                                    execution_result.add_failed_case(
+                                        Target::Leader,
+                                        mode.clone(),
+                                        case.name.as_deref().unwrap_or("no case name").to_owned(),
                                         case_idx,
-                                        &input,
-                                        self.leader_node,
-                                        &mode,
-                                    ) {
-                                    Ok(result) => result,
-                                    Err(error) => {
-                                        tracing::error!(
-                                            target = ?Target::Leader,
-                                            ?error,
-                                            "Contract execution failed"
-                                        );
-                                        execution_result.add_failed_case(
-                                            Target::Leader,
-                                            mode.clone(),
-                                            case.name
-                                                .as_deref()
-                                                .unwrap_or("no case name")
-                                                .to_owned(),
-                                            case_idx,
-                                            input_idx,
-                                            anyhow::Error::msg(format!("{error}")),
-                                        );
-                                        return Err(error);
-                                    }
-                                };
+                                        input_idx,
+                                        anyhow::Error::msg(format!("{error}")),
+                                    );
+                                    return Err(error);
+                                }
+                            };
 
-                                let (follower_receipt, _, follower_diff) = match follower_state
-                                    .handle_input(
-                                        self.metadata,
+                            let (follower_receipt, _, follower_diff) = match follower_state
+                                .handle_input(
+                                    self.metadata,
+                                    case_idx,
+                                    &input,
+                                    self.follower_node,
+                                    &mode,
+                                ) {
+                                Ok(result) => result,
+                                Err(error) => {
+                                    tracing::error!(
+                                        target = ?Target::Follower,
+                                        ?error,
+                                        "Contract execution failed"
+                                    );
+                                    execution_result.add_failed_case(
+                                        Target::Follower,
+                                        mode.clone(),
+                                        case.name.as_deref().unwrap_or("no case name").to_owned(),
                                         case_idx,
-                                        &input,
-                                        self.follower_node,
-                                        &mode,
-                                    ) {
-                                    Ok(result) => result,
-                                    Err(error) => {
-                                        tracing::error!(
-                                            target = ?Target::Follower,
-                                            ?error,
-                                            "Contract execution failed"
-                                        );
-                                        execution_result.add_failed_case(
-                                            Target::Follower,
-                                            mode.clone(),
-                                            case.name
-                                                .as_deref()
-                                                .unwrap_or("no case name")
-                                                .to_owned(),
-                                            case_idx,
-                                            input_idx,
-                                            anyhow::Error::msg(format!("{error}")),
-                                        );
-                                        return Err(error);
-                                    }
-                                };
+                                        input_idx,
+                                        anyhow::Error::msg(format!("{error}")),
+                                    );
+                                    return Err(error);
+                                }
+                            };
 
-                                Ok((leader_receipt, leader_diff, follower_receipt, follower_diff))
-                            });
-                    let Ok((leader_receipt, leader_diff, follower_receipt, follower_diff)) =
-                        execution_result
-                    else {
-                        // Noting it again here: if something in the input fails we do not move on
-                        // to the next input, we move to the next case completely.
-                        continue 'case_loop;
-                    };
+                            Ok((leader_receipt, leader_diff, follower_receipt, follower_diff))
+                        });
+                let Ok((leader_receipt, leader_diff, follower_receipt, follower_diff)) =
+                    input_execution_result
+                else {
+                    return execution_result;
+                };
 
-                    if leader_diff == follower_diff {
-                        tracing::debug!("State diffs match between leader and follower.");
-                    } else {
-                        tracing::debug!("State diffs mismatch between leader and follower.");
-                        Self::trace_diff_mode("Leader", &leader_diff);
-                        Self::trace_diff_mode("Follower", &follower_diff);
-                    }
-
-                    if leader_receipt.logs() != follower_receipt.logs() {
-                        tracing::debug!("Log/event mismatch between leader and follower.");
-                        tracing::trace!("Leader logs: {:?}", leader_receipt.logs());
-                        tracing::trace!("Follower logs: {:?}", follower_receipt.logs());
-                    }
+                if leader_diff == follower_diff {
+                    tracing::debug!("State diffs match between leader and follower.");
+                } else {
+                    tracing::debug!("State diffs mismatch between leader and follower.");
+                    Self::trace_diff_mode("Leader", &leader_diff);
+                    Self::trace_diff_mode("Follower", &follower_diff);
                 }
 
-                // Note: Only consider the case as having been successful after we have processed
-                // all of the inputs and completed the entire loop over the input.
-                execution_result.add_successful_case(
-                    Target::Leader,
-                    mode.clone(),
-                    case.name.clone().unwrap_or("no case name".to_owned()),
-                    case_idx,
-                );
-                execution_result.add_successful_case(
-                    Target::Follower,
-                    mode.clone(),
-                    case.name.clone().unwrap_or("no case name".to_owned()),
-                    case_idx,
-                );
+                if leader_receipt.logs() != follower_receipt.logs() {
+                    tracing::debug!("Log/event mismatch between leader and follower.");
+                    tracing::trace!("Leader logs: {:?}", leader_receipt.logs());
+                    tracing::trace!("Follower logs: {:?}", follower_receipt.logs());
+                }
             }
+
+            // Note: Only consider the case as having been successful after we have processed
+            // all of the inputs and completed the entire loop over the input.
+            execution_result.add_successful_case(
+                Target::Leader,
+                mode.clone(),
+                case.name.clone().unwrap_or("no case name".to_owned()),
+                case_idx,
+            );
+            execution_result.add_successful_case(
+                Target::Follower,
+                mode.clone(),
+                case.name.clone().unwrap_or("no case name".to_owned()),
+                case_idx,
+            );
         }
 
         execution_result

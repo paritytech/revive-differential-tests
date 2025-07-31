@@ -24,7 +24,7 @@ where
 {
     /// Create a new Pool. This will start as many nodes as there are workers in `config`.
     pub fn new(config: &Arguments) -> anyhow::Result<Self> {
-        let nodes = config.workers;
+        let nodes = config.number_of_nodes;
         let genesis = read_to_string(&config.genesis_file).context(format!(
             "can not read genesis file: {}",
             config.genesis_file.display()
