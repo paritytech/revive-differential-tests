@@ -163,7 +163,9 @@ impl Default for Arguments {
 /// The Solidity compatible node implementation.
 ///
 /// This describes the solutions to be tested against on a high level.
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, ValueEnum, Serialize, Deserialize)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, ValueEnum, Serialize, Deserialize,
+)]
 #[clap(rename_all = "lower")]
 pub enum TestingPlatform {
     /// The go-ethereum reference full node EVM implementation.
