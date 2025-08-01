@@ -43,7 +43,7 @@ static NODE_COUNT: AtomicU32 = AtomicU32::new(0);
 ///
 /// Prunes the child process and the base directory on drop.
 #[derive(Debug)]
-pub struct Instance {
+pub struct GethNode {
     connection_string: String,
     base_directory: PathBuf,
     data_directory: PathBuf,
@@ -62,7 +62,7 @@ pub struct Instance {
     logs_file_to_flush: Vec<File>,
 }
 
-impl Instance {
+impl GethNode {
     const BASE_DIRECTORY: &str = "geth";
     const DATA_DIRECTORY: &str = "data";
     const LOGS_DIRECTORY: &str = "logs";
@@ -247,7 +247,7 @@ impl Instance {
     }
 }
 
-impl EthereumNode for Instance {
+impl EthereumNode for GethNode {
     #[tracing::instrument(skip_all, fields(geth_node_id = self.id))]
     async fn execute_transaction(
         &self,
@@ -353,7 +353,7 @@ impl EthereumNode for Instance {
     }
 }
 
-impl ResolverApi for Instance {
+impl ResolverApi for GethNode {
     #[tracing::instrument(skip_all, fields(geth_node_id = self.id))]
     async fn chain_id(&self) -> anyhow::Result<alloy::primitives::ChainId> {
         self.provider()
@@ -423,7 +423,7 @@ impl ResolverApi for Instance {
     }
 }
 
-impl Node for Instance {
+impl Node for GethNode {
     fn new(config: &Arguments) -> Self {
         let geth_directory = config.directory().join(Self::BASE_DIRECTORY);
         let id = NODE_COUNT.fetch_add(1, Ordering::SeqCst);
@@ -511,7 +511,7 @@ impl Node for Instance {
     }
 }
 
-impl Drop for Instance {
+impl Drop for GethNode {
     #[tracing::instrument(skip_all, fields(geth_node_id = self.id))]
     fn drop(&mut self) {
         self.shutdown().expect("Failed to shutdown")
@@ -536,9 +536,9 @@ mod tests {
         (config, temp_dir)
     }
 
-    fn new_node() -> (Instance, TempDir) {
+    fn new_node() -> (GethNode, TempDir) {
         let (args, temp_dir) = test_config();
-        let mut node = Instance::new(&args);
+        let mut node = GethNode::new(&args);
         node.init(GENESIS_JSON.to_owned())
             .expect("Failed to initialize the node")
             .spawn_process()
@@ -548,21 +548,21 @@ mod tests {
 
     #[test]
     fn init_works() {
-        Instance::new(&test_config().0)
+        GethNode::new(&test_config().0)
             .init(GENESIS_JSON.to_string())
             .unwrap();
     }
 
     #[test]
     fn spawn_works() {
-        Instance::new(&test_config().0)
+        GethNode::new(&test_config().0)
             .spawn(GENESIS_JSON.to_string())
             .unwrap();
     }
 
     #[test]
     fn version_works() {
-        let version = Instance::new(&test_config().0).version().unwrap();
+        let version = GethNode::new(&test_config().0).version().unwrap();
         assert!(
             version.starts_with("geth version"),
             "expected version string, got: '{version}'"
