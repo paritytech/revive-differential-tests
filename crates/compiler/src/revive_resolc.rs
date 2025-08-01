@@ -6,7 +6,6 @@ use std::{
     process::{Command, Stdio},
 };
 
-use alloy::json_abi::JsonAbi;
 use revive_dt_common::types::VersionOrRequirement;
 use revive_dt_config::Arguments;
 use revive_solc_json_interface::{
@@ -17,8 +16,10 @@ use revive_solc_json_interface::{
 
 use crate::{CompilerInput, CompilerOutput, SolidityCompiler};
 
+use alloy::json_abi::JsonAbi;
 use anyhow::Context;
 use semver::Version;
+use tokio::{io::AsyncWriteExt, process::Command as AsyncCommand};
 
 // TODO: I believe that we need to also pass the solc compiler to resolc so that resolc uses the
 // specified solc compiler. I believe that currently we completely ignore the specified solc binary
@@ -35,7 +36,7 @@ impl SolidityCompiler for Resolc {
     type Options = Vec<String>;
 
     #[tracing::instrument(level = "debug", ret)]
-    fn build(
+    async fn build(
         &self,
         CompilerInput {
             enable_optimization,
@@ -87,7 +88,7 @@ impl SolidityCompiler for Resolc {
             },
         };
 
-        let mut command = Command::new(&self.resolc_path);
+        let mut command = AsyncCommand::new(&self.resolc_path);
         command
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -109,9 +110,10 @@ impl SolidityCompiler for Resolc {
         let mut child = command.spawn()?;
 
         let stdin_pipe = child.stdin.as_mut().expect("stdin must be piped");
-        serde_json::to_writer(stdin_pipe, &input)?;
+        let serialized_input = serde_json::to_vec(&input)?;
+        stdin_pipe.write_all(&serialized_input).await?;
 
-        let output = child.wait_with_output()?;
+        let output = child.wait_with_output().await?;
         let stdout = output.stdout;
         let stderr = output.stderr;
 
@@ -195,7 +197,7 @@ impl SolidityCompiler for Resolc {
         Resolc { resolc_path }
     }
 
-    fn get_compiler_executable(
+    async fn get_compiler_executable(
         config: &Arguments,
         _version: impl Into<VersionOrRequirement>,
     ) -> anyhow::Result<PathBuf> {
@@ -233,11 +235,13 @@ impl SolidityCompiler for Resolc {
 mod test {
     use super::*;
 
-    #[test]
-    fn compiler_version_can_be_obtained() {
+    #[tokio::test]
+    async fn compiler_version_can_be_obtained() {
         // Arrange
         let args = Arguments::default();
-        let path = Resolc::get_compiler_executable(&args, Version::new(0, 7, 6)).unwrap();
+        let path = Resolc::get_compiler_executable(&args, Version::new(0, 7, 6))
+            .await
+            .unwrap();
         let compiler = Resolc::new(path);
 
         // Act

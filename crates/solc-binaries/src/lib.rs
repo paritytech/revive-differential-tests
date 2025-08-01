@@ -19,22 +19,22 @@ pub mod list;
 ///
 /// Subsequent calls for the same version will use a cached artifact
 /// and not download it again.
-pub fn download_solc(
+pub async fn download_solc(
     cache_directory: &Path,
     version: impl Into<VersionOrRequirement>,
     wasm: bool,
 ) -> anyhow::Result<PathBuf> {
     let downloader = if wasm {
-        GHDownloader::wasm(version)
+        GHDownloader::wasm(version).await
     } else if cfg!(target_os = "linux") {
-        GHDownloader::linux(version)
+        GHDownloader::linux(version).await
     } else if cfg!(target_os = "macos") {
-        GHDownloader::macosx(version)
+        GHDownloader::macosx(version).await
     } else if cfg!(target_os = "windows") {
-        GHDownloader::windows(version)
+        GHDownloader::windows(version).await
     } else {
         unimplemented!()
     }?;
 
-    get_or_download(cache_directory, &downloader)
+    get_or_download(cache_directory, &downloader).await
 }

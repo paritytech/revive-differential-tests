@@ -26,7 +26,7 @@ pub trait Platform {
 pub struct Geth;
 
 impl Platform for Geth {
-    type Blockchain = geth::Instance;
+    type Blockchain = geth::GethNode;
     type Compiler = solc::Solc;
 
     fn config_id() -> TestingPlatform {

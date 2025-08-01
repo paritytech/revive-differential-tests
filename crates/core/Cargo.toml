@@ -24,9 +24,10 @@ revive-dt-report = { workspace = true }
 alloy = { workspace = true }
 anyhow = { workspace = true }
 clap = { workspace = true }
+futures = { workspace = true }
 indexmap = { workspace = true }
+tokio = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
-rayon = { workspace = true }
 semver = { workspace = true }
 temp-dir = { workspace = true }

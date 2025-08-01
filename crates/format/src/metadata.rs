@@ -310,16 +310,22 @@ impl FromStr for ContractPathAndIdent {
                 identifier = Some(next_item.to_owned())
             }
         }
-        let Some(path) = path else {
-            anyhow::bail!("Path is not defined");
-        };
-        let Some(identifier) = identifier else {
-            anyhow::bail!("Contract identifier is not defined")
-        };
-        Ok(Self {
-            contract_source_path: PathBuf::from(path),
-            contract_ident: ContractIdent::new(identifier),
-        })
+        match (path, identifier) {
+            (Some(path), Some(identifier)) => Ok(Self {
+                contract_source_path: PathBuf::from(path),
+                contract_ident: ContractIdent::new(identifier),
+            }),
+            (None, Some(path)) | (Some(path), None) => {
+                let Some(identifier) = path.split(".").next().map(ToOwned::to_owned) else {
+                    anyhow::bail!("Failed to find identifier");
+                };
+                Ok(Self {
+                    contract_source_path: PathBuf::from(path),
+                    contract_ident: ContractIdent::new(identifier),
+                })
+            }
+            (None, None) => anyhow::bail!("Failed to find the path and identifier"),
+        }
     }
 }
 

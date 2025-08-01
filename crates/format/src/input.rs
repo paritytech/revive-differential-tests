@@ -198,7 +198,7 @@ impl Input {
             .ok_or_else(|| anyhow::anyhow!("instance {instance:?} not deployed"))
     }
 
-    pub fn encoded_input<'a>(
+    pub async fn encoded_input<'a>(
         &'a self,
         deployed_contracts: &HashMap<ContractInstance, (Address, JsonAbi)>,
         variables: impl Into<Option<&'a HashMap<String, U256>>> + Clone,
@@ -206,9 +206,10 @@ impl Input {
     ) -> anyhow::Result<Bytes> {
         match self.method {
             Method::Deployer | Method::Fallback => {
-                let calldata =
-                    self.calldata
-                        .calldata(deployed_contracts, variables, chain_state_provider)?;
+                let calldata = self
+                    .calldata
+                    .calldata(deployed_contracts, variables, chain_state_provider)
+                    .await?;
 
                 Ok(calldata.into())
             }
@@ -254,12 +255,14 @@ impl Input {
                 // a new buffer for each one of the resolved arguments.
                 let mut calldata = Vec::<u8>::with_capacity(4 + self.calldata.size_requirement());
                 calldata.extend(function.selector().0);
-                self.calldata.calldata_into_slice(
-                    &mut calldata,
-                    deployed_contracts,
-                    variables,
-                    chain_state_provider,
-                )?;
+                self.calldata
+                    .calldata_into_slice(
+                        &mut calldata,
+                        deployed_contracts,
+                        variables,
+                        chain_state_provider,
+                    )
+                    .await?;
 
                 Ok(calldata.into())
             }
@@ -267,13 +270,15 @@ impl Input {
     }
 
     /// Parse this input into a legacy transaction.
-    pub fn legacy_transaction<'a>(
+    pub async fn legacy_transaction<'a>(
         &'a self,
         deployed_contracts: &HashMap<ContractInstance, (Address, JsonAbi)>,
         variables: impl Into<Option<&'a HashMap<String, U256>>> + Clone,
         chain_state_provider: &impl ResolverApi,
     ) -> anyhow::Result<TransactionRequest> {
-        let input_data = self.encoded_input(deployed_contracts, variables, chain_state_provider)?;
+        let input_data = self
+            .encoded_input(deployed_contracts, variables, chain_state_provider)
+            .await?;
         let transaction_request = TransactionRequest::default().from(self.caller).value(
             self.value
                 .map(|value| value.into_inner())
@@ -351,7 +356,7 @@ impl Calldata {
         }
     }
 
-    pub fn calldata<'a>(
+    pub async fn calldata<'a>(
         &'a self,
         deployed_contracts: &HashMap<ContractInstance, (Address, JsonAbi)>,
         variables: impl Into<Option<&'a HashMap<String, U256>>> + Clone,
@@ -363,11 +368,12 @@ impl Calldata {
             deployed_contracts,
             variables,
             chain_state_provider,
-        )?;
+        )
+        .await?;
         Ok(buffer)
     }
 
-    pub fn calldata_into_slice<'a>(
+    pub async fn calldata_into_slice<'a>(
         &'a self,
         buffer: &mut Vec<u8>,
         deployed_contracts: &HashMap<ContractInstance, (Address, JsonAbi)>,
@@ -380,7 +386,10 @@ impl Calldata {
             }
             Calldata::Compound(items) => {
                 for (arg_idx, arg) in items.iter().enumerate() {
-                    match arg.resolve(deployed_contracts, variables.clone(), chain_state_provider) {
+                    match arg
+                        .resolve(deployed_contracts, variables.clone(), chain_state_provider)
+                        .await
+                    {
                         Ok(resolved) => {
                             buffer.extend(resolved.to_be_bytes::<32>());
                         }
@@ -403,7 +412,7 @@ impl Calldata {
     }
 
     /// Checks if this [`Calldata`] is equivalent to the passed calldata bytes.
-    pub fn is_equivalent<'a>(
+    pub async fn is_equivalent<'a>(
         &'a self,
         other: &[u8],
         deployed_contracts: &HashMap<ContractInstance, (Address, JsonAbi)>,
@@ -430,8 +439,9 @@ impl Calldata {
                         std::borrow::Cow::Borrowed(other)
                     };
 
-                    let this =
-                        this.resolve(deployed_contracts, variables.clone(), chain_state_provider)?;
+                    let this = this
+                        .resolve(deployed_contracts, variables.clone(), chain_state_provider)
+                        .await?;
                     let other = U256::from_be_slice(&other);
                     if this != other {
                         return Ok(false);
@@ -444,7 +454,7 @@ impl Calldata {
 }
 
 impl CalldataItem {
-    fn resolve<'a>(
+    async fn resolve<'a>(
         &'a self,
         deployed_contracts: &HashMap<ContractInstance, (Address, JsonAbi)>,
         variables: impl Into<Option<&'a HashMap<String, U256>>> + Clone,
@@ -456,7 +466,7 @@ impl CalldataItem {
             .calldata_tokens()
             .map(|token| token.resolve(deployed_contracts, variables.clone(), chain_state_provider))
         {
-            let token = token?;
+            let token = token.await?;
             let new_token = match token {
                 CalldataToken::Item(_) => token,
                 CalldataToken::Operation(operation) => {
@@ -555,7 +565,7 @@ impl<T: AsRef<str>> CalldataToken<T> {
     /// This piece of code is taken from the matter-labs-tester repository which is licensed under
     /// MIT or Apache. The original source code can be found here:
     /// https://github.com/matter-labs/era-compiler-tester/blob/0ed598a27f6eceee7008deab3ff2311075a2ec69/compiler_tester/src/test/case/input/value.rs#L43-L146
-    fn resolve<'a>(
+    async fn resolve<'a>(
         self,
         deployed_contracts: &HashMap<ContractInstance, (Address, JsonAbi)>,
         variables: impl Into<Option<&'a HashMap<String, U256>>> + Clone,
@@ -589,18 +599,22 @@ impl<T: AsRef<str>> CalldataToken<T> {
                         anyhow::anyhow!("Invalid hexadecimal literal: {}", error)
                     })?)
                 } else if item == Self::CHAIN_VARIABLE {
-                    let chain_id = chain_state_provider.chain_id()?;
+                    let chain_id = chain_state_provider.chain_id().await?;
                     Ok(U256::from(chain_id))
                 } else if item == Self::GAS_LIMIT_VARIABLE {
-                    let gas_limit =
-                        chain_state_provider.block_gas_limit(BlockNumberOrTag::Latest)?;
+                    let gas_limit = chain_state_provider
+                        .block_gas_limit(BlockNumberOrTag::Latest)
+                        .await?;
                     Ok(U256::from(gas_limit))
                 } else if item == Self::COINBASE_VARIABLE {
-                    let coinbase = chain_state_provider.block_coinbase(BlockNumberOrTag::Latest)?;
+                    let coinbase = chain_state_provider
+                        .block_coinbase(BlockNumberOrTag::Latest)
+                        .await?;
                     Ok(U256::from_be_slice(coinbase.as_ref()))
                 } else if item == Self::DIFFICULTY_VARIABLE {
-                    let block_difficulty =
-                        chain_state_provider.block_difficulty(BlockNumberOrTag::Latest)?;
+                    let block_difficulty = chain_state_provider
+                        .block_difficulty(BlockNumberOrTag::Latest)
+                        .await?;
                     Ok(block_difficulty)
                 } else if item.starts_with(Self::BLOCK_HASH_VARIABLE_PREFIX) {
                     let offset: u64 = item
@@ -609,19 +623,21 @@ impl<T: AsRef<str>> CalldataToken<T> {
                         .and_then(|value| value.parse().ok())
                         .unwrap_or_default();
 
-                    let current_block_number = chain_state_provider.last_block_number()?;
+                    let current_block_number = chain_state_provider.last_block_number().await?;
                     let desired_block_number = current_block_number - offset;
 
-                    let block_hash =
-                        chain_state_provider.block_hash(desired_block_number.into())?;
+                    let block_hash = chain_state_provider
+                        .block_hash(desired_block_number.into())
+                        .await?;
 
                     Ok(U256::from_be_bytes(block_hash.0))
                 } else if item == Self::BLOCK_NUMBER_VARIABLE {
-                    let current_block_number = chain_state_provider.last_block_number()?;
+                    let current_block_number = chain_state_provider.last_block_number().await?;
                     Ok(U256::from(current_block_number))
                 } else if item == Self::BLOCK_TIMESTAMP_VARIABLE {
-                    let timestamp =
-                        chain_state_provider.block_timestamp(BlockNumberOrTag::Latest)?;
+                    let timestamp = chain_state_provider
+                        .block_timestamp(BlockNumberOrTag::Latest)
+                        .await?;
                     Ok(U256::from(timestamp))
                 } else if let Some(variable_name) = item.strip_prefix(Self::VARIABLE_PREFIX) {
                     let Some(variables) = variables.into() else {
@@ -682,43 +698,46 @@ mod tests {
     struct MockResolver;
 
     impl ResolverApi for MockResolver {
-        fn chain_id(&self) -> anyhow::Result<alloy_primitives::ChainId> {
+        async fn chain_id(&self) -> anyhow::Result<alloy_primitives::ChainId> {
             Ok(0x123)
         }
 
-        fn block_gas_limit(&self, _: alloy::eips::BlockNumberOrTag) -> anyhow::Result<u128> {
+        async fn block_gas_limit(&self, _: alloy::eips::BlockNumberOrTag) -> anyhow::Result<u128> {
             Ok(0x1234)
         }
 
-        fn block_coinbase(&self, _: alloy::eips::BlockNumberOrTag) -> anyhow::Result<Address> {
+        async fn block_coinbase(
+            &self,
+            _: alloy::eips::BlockNumberOrTag,
+        ) -> anyhow::Result<Address> {
             Ok(Address::ZERO)
         }
 
-        fn block_difficulty(&self, _: alloy::eips::BlockNumberOrTag) -> anyhow::Result<U256> {
+        async fn block_difficulty(&self, _: alloy::eips::BlockNumberOrTag) -> anyhow::Result<U256> {
             Ok(U256::from(0x12345u128))
         }
 
-        fn block_hash(
+        async fn block_hash(
             &self,
             _: alloy::eips::BlockNumberOrTag,
         ) -> anyhow::Result<alloy_primitives::BlockHash> {
             Ok([0xEE; 32].into())
         }
 
-        fn block_timestamp(
+        async fn block_timestamp(
             &self,
             _: alloy::eips::BlockNumberOrTag,
         ) -> anyhow::Result<alloy_primitives::BlockTimestamp> {
             Ok(0x123456)
         }
 
-        fn last_block_number(&self) -> anyhow::Result<alloy_primitives::BlockNumber> {
+        async fn last_block_number(&self) -> anyhow::Result<alloy_primitives::BlockNumber> {
             Ok(0x1234567)
         }
     }
 
-    #[test]
-    fn test_encoded_input_uint256() {
+    #[tokio::test]
+    async fn test_encoded_input_uint256() {
         let raw_metadata = r#"
             [
                 {
@@ -755,6 +774,7 @@ mod tests {
 
         let encoded = input
             .encoded_input(&contracts, None, &MockResolver)
+            .await
             .unwrap();
         assert!(encoded.0.starts_with(&selector));
 
@@ -763,8 +783,8 @@ mod tests {
         assert_eq!(decoded.0, 42);
     }
 
-    #[test]
-    fn test_encoded_input_address_with_signature() {
+    #[tokio::test]
+    async fn test_encoded_input_address_with_signature() {
         let raw_abi = r#"[
         {
             "inputs": [{"name": "recipient", "type": "address"}],
@@ -799,6 +819,7 @@ mod tests {
 
         let encoded = input
             .encoded_input(&contracts, None, &MockResolver)
+            .await
             .unwrap();
         assert!(encoded.0.starts_with(&selector));
 
@@ -810,8 +831,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_encoded_input_address() {
+    #[tokio::test]
+    async fn test_encoded_input_address() {
         let raw_abi = r#"[
         {
             "inputs": [{"name": "recipient", "type": "address"}],
@@ -846,6 +867,7 @@ mod tests {
 
         let encoded = input
             .encoded_input(&contracts, None, &MockResolver)
+            .await
             .unwrap();
         assert!(encoded.0.starts_with(&selector));
 
@@ -857,50 +879,57 @@ mod tests {
         );
     }
 
-    fn resolve_calldata_item(
+    async fn resolve_calldata_item(
         input: &str,
         deployed_contracts: &HashMap<ContractInstance, (Address, JsonAbi)>,
         chain_state_provider: &impl ResolverApi,
     ) -> anyhow::Result<U256> {
-        CalldataItem::new(input).resolve(deployed_contracts, None, chain_state_provider)
+        CalldataItem::new(input)
+            .resolve(deployed_contracts, None, chain_state_provider)
+            .await
     }
 
-    #[test]
-    fn resolver_can_resolve_chain_id_variable() {
+    #[tokio::test]
+    async fn resolver_can_resolve_chain_id_variable() {
         // Arrange
         let input = "$CHAIN_ID";
 
         // Act
-        let resolved = resolve_calldata_item(input, &Default::default(), &MockResolver);
+        let resolved = resolve_calldata_item(input, &Default::default(), &MockResolver).await;
 
         // Assert
         let resolved = resolved.expect("Failed to resolve argument");
-        assert_eq!(resolved, U256::from(MockResolver.chain_id().unwrap()))
+        assert_eq!(resolved, U256::from(MockResolver.chain_id().await.unwrap()))
     }
 
-    #[test]
-    fn resolver_can_resolve_gas_limit_variable() {
+    #[tokio::test]
+    async fn resolver_can_resolve_gas_limit_variable() {
         // Arrange
         let input = "$GAS_LIMIT";
 
         // Act
-        let resolved = resolve_calldata_item(input, &Default::default(), &MockResolver);
+        let resolved = resolve_calldata_item(input, &Default::default(), &MockResolver).await;
 
         // Assert
         let resolved = resolved.expect("Failed to resolve argument");
         assert_eq!(
             resolved,
-            U256::from(MockResolver.block_gas_limit(Default::default()).unwrap())
+            U256::from(
+                MockResolver
+                    .block_gas_limit(Default::default())
+                    .await
+                    .unwrap()
+            )
         )
     }
 
-    #[test]
-    fn resolver_can_resolve_coinbase_variable() {
+    #[tokio::test]
+    async fn resolver_can_resolve_coinbase_variable() {
         // Arrange
         let input = "$COINBASE";
 
         // Act
-        let resolved = resolve_calldata_item(input, &Default::default(), &MockResolver);
+        let resolved = resolve_calldata_item(input, &Default::default(), &MockResolver).await;
 
         // Assert
         let resolved = resolved.expect("Failed to resolve argument");
@@ -909,163 +938,172 @@ mod tests {
             U256::from_be_slice(
                 MockResolver
                     .block_coinbase(Default::default())
+                    .await
                     .unwrap()
                     .as_ref()
             )
         )
     }
 
-    #[test]
-    fn resolver_can_resolve_block_difficulty_variable() {
+    #[tokio::test]
+    async fn resolver_can_resolve_block_difficulty_variable() {
         // Arrange
         let input = "$DIFFICULTY";
 
         // Act
-        let resolved = resolve_calldata_item(input, &Default::default(), &MockResolver);
+        let resolved = resolve_calldata_item(input, &Default::default(), &MockResolver).await;
 
         // Assert
         let resolved = resolved.expect("Failed to resolve argument");
         assert_eq!(
             resolved,
-            MockResolver.block_difficulty(Default::default()).unwrap()
+            MockResolver
+                .block_difficulty(Default::default())
+                .await
+                .unwrap()
         )
     }
 
-    #[test]
-    fn resolver_can_resolve_block_hash_variable() {
+    #[tokio::test]
+    async fn resolver_can_resolve_block_hash_variable() {
         // Arrange
         let input = "$BLOCK_HASH";
 
         // Act
-        let resolved = resolve_calldata_item(input, &Default::default(), &MockResolver);
+        let resolved = resolve_calldata_item(input, &Default::default(), &MockResolver).await;
 
         // Assert
         let resolved = resolved.expect("Failed to resolve argument");
         assert_eq!(
             resolved,
-            U256::from_be_bytes(MockResolver.block_hash(Default::default()).unwrap().0)
+            U256::from_be_bytes(MockResolver.block_hash(Default::default()).await.unwrap().0)
         )
     }
 
-    #[test]
-    fn resolver_can_resolve_block_number_variable() {
+    #[tokio::test]
+    async fn resolver_can_resolve_block_number_variable() {
         // Arrange
         let input = "$BLOCK_NUMBER";
 
         // Act
-        let resolved = resolve_calldata_item(input, &Default::default(), &MockResolver);
+        let resolved = resolve_calldata_item(input, &Default::default(), &MockResolver).await;
 
         // Assert
         let resolved = resolved.expect("Failed to resolve argument");
         assert_eq!(
             resolved,
-            U256::from(MockResolver.last_block_number().unwrap())
+            U256::from(MockResolver.last_block_number().await.unwrap())
         )
     }
 
-    #[test]
-    fn resolver_can_resolve_block_timestamp_variable() {
+    #[tokio::test]
+    async fn resolver_can_resolve_block_timestamp_variable() {
         // Arrange
         let input = "$BLOCK_TIMESTAMP";
 
         // Act
-        let resolved = resolve_calldata_item(input, &Default::default(), &MockResolver);
+        let resolved = resolve_calldata_item(input, &Default::default(), &MockResolver).await;
 
         // Assert
         let resolved = resolved.expect("Failed to resolve argument");
         assert_eq!(
             resolved,
-            U256::from(MockResolver.block_timestamp(Default::default()).unwrap())
+            U256::from(
+                MockResolver
+                    .block_timestamp(Default::default())
+                    .await
+                    .unwrap()
+            )
         )
     }
 
-    #[test]
-    fn simple_addition_can_be_resolved() {
+    #[tokio::test]
+    async fn simple_addition_can_be_resolved() {
         // Arrange
         let input = "2 4 +";
 
         // Act
-        let resolved = resolve_calldata_item(input, &Default::default(), &MockResolver);
+        let resolved = resolve_calldata_item(input, &Default::default(), &MockResolver).await;
 
         // Assert
         let resolved = resolved.expect("Failed to resolve argument");
         assert_eq!(resolved, U256::from(6));
     }
 
-    #[test]
-    fn simple_subtraction_can_be_resolved() {
+    #[tokio::test]
+    async fn simple_subtraction_can_be_resolved() {
         // Arrange
         let input = "4 2 -";
 
         // Act
-        let resolved = resolve_calldata_item(input, &Default::default(), &MockResolver);
+        let resolved = resolve_calldata_item(input, &Default::default(), &MockResolver).await;
 
         // Assert
         let resolved = resolved.expect("Failed to resolve argument");
         assert_eq!(resolved, U256::from(2));
     }
 
-    #[test]
-    fn simple_multiplication_can_be_resolved() {
+    #[tokio::test]
+    async fn simple_multiplication_can_be_resolved() {
         // Arrange
         let input = "4 2 *";
 
         // Act
-        let resolved = resolve_calldata_item(input, &Default::default(), &MockResolver);
+        let resolved = resolve_calldata_item(input, &Default::default(), &MockResolver).await;
 
         // Assert
         let resolved = resolved.expect("Failed to resolve argument");
         assert_eq!(resolved, U256::from(8));
     }
 
-    #[test]
-    fn simple_division_can_be_resolved() {
+    #[tokio::test]
+    async fn simple_division_can_be_resolved() {
         // Arrange
         let input = "4 2 /";
 
         // Act
-        let resolved = resolve_calldata_item(input, &Default::default(), &MockResolver);
+        let resolved = resolve_calldata_item(input, &Default::default(), &MockResolver).await;
 
         // Assert
         let resolved = resolved.expect("Failed to resolve argument");
         assert_eq!(resolved, U256::from(2));
     }
 
-    #[test]
-    fn arithmetic_errors_are_not_panics() {
+    #[tokio::test]
+    async fn arithmetic_errors_are_not_panics() {
         // Arrange
         let input = "4 0 /";
 
         // Act
-        let resolved = resolve_calldata_item(input, &Default::default(), &MockResolver);
+        let resolved = resolve_calldata_item(input, &Default::default(), &MockResolver).await;
 
         // Assert
         assert!(resolved.is_err())
     }
 
-    #[test]
-    fn arithmetic_with_resolution_works() {
+    #[tokio::test]
+    async fn arithmetic_with_resolution_works() {
         // Arrange
         let input = "$BLOCK_NUMBER 10 +";
 
         // Act
-        let resolved = resolve_calldata_item(input, &Default::default(), &MockResolver);
+        let resolved = resolve_calldata_item(input, &Default::default(), &MockResolver).await;
 
         // Assert
         let resolved = resolved.expect("Failed to resolve argument");
         assert_eq!(
             resolved,
-            U256::from(MockResolver.last_block_number().unwrap() + 10)
+            U256::from(MockResolver.last_block_number().await.unwrap() + 10)
         );
     }
 
-    #[test]
-    fn incorrect_number_of_arguments_errors() {
+    #[tokio::test]
+    async fn incorrect_number_of_arguments_errors() {
         // Arrange
         let input = "$BLOCK_NUMBER 10 + +";
 
         // Act
-        let resolved = resolve_calldata_item(input, &Default::default(), &MockResolver);
+        let resolved = resolve_calldata_item(input, &Default::default(), &MockResolver).await;
 
         // Assert
         assert!(resolved.is_err())

@@ -6,25 +6,28 @@ use anyhow::Result;
 /// crate implements to go from string calldata and into the bytes calldata.
 pub trait ResolverApi {
     /// Returns the ID of the chain that the node is on.
-    fn chain_id(&self) -> Result<ChainId>;
+    fn chain_id(&self) -> impl Future<Output = Result<ChainId>>;
 
     // TODO: This is currently a u128 due to Kitchensink needing more than 64 bits for its gas limit
     // when we implement the changes to the gas we need to adjust this to be a u64.
     /// Returns the gas limit of the specified block.
-    fn block_gas_limit(&self, number: BlockNumberOrTag) -> Result<u128>;
+    fn block_gas_limit(&self, number: BlockNumberOrTag) -> impl Future<Output = Result<u128>>;
 
     /// Returns the coinbase of the specified block.
-    fn block_coinbase(&self, number: BlockNumberOrTag) -> Result<Address>;
+    fn block_coinbase(&self, number: BlockNumberOrTag) -> impl Future<Output = Result<Address>>;
 
     /// Returns the difficulty of the specified block.
-    fn block_difficulty(&self, number: BlockNumberOrTag) -> Result<U256>;
+    fn block_difficulty(&self, number: BlockNumberOrTag) -> impl Future<Output = Result<U256>>;
 
     /// Returns the hash of the specified block.
-    fn block_hash(&self, number: BlockNumberOrTag) -> Result<BlockHash>;
+    fn block_hash(&self, number: BlockNumberOrTag) -> impl Future<Output = Result<BlockHash>>;
 
     /// Returns the timestamp of the specified block,
-    fn block_timestamp(&self, number: BlockNumberOrTag) -> Result<BlockTimestamp>;
+    fn block_timestamp(
+        &self,
+        number: BlockNumberOrTag,
+    ) -> impl Future<Output = Result<BlockTimestamp>>;
 
     /// Returns the number of the last block.
-    fn last_block_number(&self) -> Result<BlockNumber>;
+    fn last_block_number(&self) -> impl Future<Output = Result<BlockNumber>>;
 }

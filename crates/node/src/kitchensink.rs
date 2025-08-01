@@ -30,6 +30,7 @@ use alloy::{
     },
     signers::local::PrivateKeySigner,
 };
+use revive_dt_common::fs::clear_directory;
 use revive_dt_format::traits::ResolverApi;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value as JsonValue, json};
@@ -37,7 +38,6 @@ use sp_core::crypto::Ss58Codec;
 use sp_runtime::AccountId32;
 use tracing::Level;
 
-use revive_dt_common::concepts::BlockingExecutor;
 use revive_dt_config::Arguments;
 use revive_dt_node_interaction::EthereumNode;
 
@@ -86,6 +86,9 @@ impl KitchensinkNode {
 
     #[tracing::instrument(skip_all, fields(kitchensink_node_id = self.id))]
     fn init(&mut self, genesis: &str) -> anyhow::Result<&mut Self> {
+        let _ = clear_directory(&self.base_directory);
+        let _ = clear_directory(&self.logs_directory);
+
         create_dir_all(&self.base_directory)?;
         create_dir_all(&self.logs_directory)?;
 
@@ -377,49 +380,46 @@ impl KitchensinkNode {
 
 impl EthereumNode for KitchensinkNode {
     #[tracing::instrument(skip_all, fields(kitchensink_node_id = self.id))]
-    fn execute_transaction(
+    async fn execute_transaction(
         &self,
         transaction: alloy::rpc::types::TransactionRequest,
     ) -> anyhow::Result<TransactionReceipt> {
         tracing::debug!(?transaction, "Submitting transaction");
-        let provider = self.provider();
-        let receipt = BlockingExecutor::execute(async move {
-            Ok(provider
-                .await?
-                .send_transaction(transaction)
-                .await?
-                .get_receipt()
-                .await?)
-        })?;
+        let receipt = self
+            .provider()
+            .await?
+            .send_transaction(transaction)
+            .await?
+            .get_receipt()
+            .await?;
         tracing::info!(?receipt, "Submitted tx to kitchensink");
-        receipt
+        Ok(receipt)
     }
 
     #[tracing::instrument(skip_all, fields(kitchensink_node_id = self.id))]
-    fn trace_transaction(
+    async fn trace_transaction(
         &self,
         transaction: &TransactionReceipt,
         trace_options: GethDebugTracingOptions,
     ) -> anyhow::Result<alloy::rpc::types::trace::geth::GethTrace> {
         let tx_hash = transaction.transaction_hash;
-        let provider = self.provider();
-        BlockingExecutor::execute(async move {
-            Ok(provider
-                .await?
-                .debug_trace_transaction(tx_hash, trace_options)
-                .await?)
-        })?
+        Ok(self
+            .provider()
+            .await?
+            .debug_trace_transaction(tx_hash, trace_options)
+            .await?)
     }
 
     #[tracing::instrument(skip_all, fields(kitchensink_node_id = self.id))]
-    fn state_diff(&self, transaction: &TransactionReceipt) -> anyhow::Result<DiffMode> {
+    async fn state_diff(&self, transaction: &TransactionReceipt) -> anyhow::Result<DiffMode> {
         let trace_options = GethDebugTracingOptions::prestate_tracer(PreStateConfig {
             diff_mode: Some(true),
             disable_code: None,
             disable_storage: None,
         });
         match self
-            .trace_transaction(transaction, trace_options)?
+            .trace_transaction(transaction, trace_options)
+            .await?
             .try_into_pre_state_frame()?
         {
             PreStateFrame::Diff(diff) => Ok(diff),
@@ -429,85 +429,72 @@ impl EthereumNode for KitchensinkNode {
 }
 
 impl ResolverApi for KitchensinkNode {
-    #[tracing::instrument(skip_all, fields(geth_node_id = self.id))]
-    fn chain_id(&self) -> anyhow::Result<alloy::primitives::ChainId> {
-        let provider = self.provider();
-        BlockingExecutor::execute(async move {
-            provider.await?.get_chain_id().await.map_err(Into::into)
-        })?
+    #[tracing::instrument(skip_all, fields(kitchensink_node_id = self.id))]
+    async fn chain_id(&self) -> anyhow::Result<alloy::primitives::ChainId> {
+        self.provider()
+            .await?
+            .get_chain_id()
+            .await
+            .map_err(Into::into)
     }
 
-    #[tracing::instrument(skip_all, fields(geth_node_id = self.id))]
-    fn block_gas_limit(&self, number: BlockNumberOrTag) -> anyhow::Result<u128> {
-        let provider = self.provider();
-        BlockingExecutor::execute(async move {
-            provider
-                .await?
-                .get_block_by_number(number)
-                .await?
-                .ok_or(anyhow::Error::msg("Blockchain has no blocks"))
-                .map(|block| block.header.gas_limit)
-        })?
+    #[tracing::instrument(skip_all, fields(kitchensink_node_id = self.id))]
+    async fn block_gas_limit(&self, number: BlockNumberOrTag) -> anyhow::Result<u128> {
+        self.provider()
+            .await?
+            .get_block_by_number(number)
+            .await?
+            .ok_or(anyhow::Error::msg("Blockchain has no blocks"))
+            .map(|block| block.header.gas_limit as _)
     }
 
-    #[tracing::instrument(skip_all, fields(geth_node_id = self.id))]
-    fn block_coinbase(&self, number: BlockNumberOrTag) -> anyhow::Result<Address> {
-        let provider = self.provider();
-        BlockingExecutor::execute(async move {
-            provider
-                .await?
-                .get_block_by_number(number)
-                .await?
-                .ok_or(anyhow::Error::msg("Blockchain has no blocks"))
-                .map(|block| block.header.beneficiary)
-        })?
+    #[tracing::instrument(skip_all, fields(kitchensink_node_id = self.id))]
+    async fn block_coinbase(&self, number: BlockNumberOrTag) -> anyhow::Result<Address> {
+        self.provider()
+            .await?
+            .get_block_by_number(number)
+            .await?
+            .ok_or(anyhow::Error::msg("Blockchain has no blocks"))
+            .map(|block| block.header.beneficiary)
     }
 
-    #[tracing::instrument(skip_all, fields(geth_node_id = self.id))]
-    fn block_difficulty(&self, number: BlockNumberOrTag) -> anyhow::Result<U256> {
-        let provider = self.provider();
-        BlockingExecutor::execute(async move {
-            provider
-                .await?
-                .get_block_by_number(number)
-                .await?
-                .ok_or(anyhow::Error::msg("Blockchain has no blocks"))
-                .map(|block| block.header.difficulty)
-        })?
+    #[tracing::instrument(skip_all, fields(kitchensink_node_id = self.id))]
+    async fn block_difficulty(&self, number: BlockNumberOrTag) -> anyhow::Result<U256> {
+        self.provider()
+            .await?
+            .get_block_by_number(number)
+            .await?
+            .ok_or(anyhow::Error::msg("Blockchain has no blocks"))
+            .map(|block| block.header.difficulty)
     }
 
-    #[tracing::instrument(skip_all, fields(geth_node_id = self.id))]
-    fn block_hash(&self, number: BlockNumberOrTag) -> anyhow::Result<BlockHash> {
-        let provider = self.provider();
-        BlockingExecutor::execute(async move {
-            provider
-                .await?
-                .get_block_by_number(number)
-                .await?
-                .ok_or(anyhow::Error::msg("Blockchain has no blocks"))
-                .map(|block| block.header.hash)
-        })?
+    #[tracing::instrument(skip_all, fields(kitchensink_node_id = self.id))]
+    async fn block_hash(&self, number: BlockNumberOrTag) -> anyhow::Result<BlockHash> {
+        self.provider()
+            .await?
+            .get_block_by_number(number)
+            .await?
+            .ok_or(anyhow::Error::msg("Blockchain has no blocks"))
+            .map(|block| block.header.hash)
     }
 
-    #[tracing::instrument(skip_all, fields(geth_node_id = self.id))]
-    fn block_timestamp(&self, number: BlockNumberOrTag) -> anyhow::Result<BlockTimestamp> {
-        let provider = self.provider();
-        BlockingExecutor::execute(async move {
-            provider
-                .await?
-                .get_block_by_number(number)
-                .await?
-                .ok_or(anyhow::Error::msg("Blockchain has no blocks"))
-                .map(|block| block.header.timestamp)
-        })?
+    #[tracing::instrument(skip_all, fields(kitchensink_node_id = self.id))]
+    async fn block_timestamp(&self, number: BlockNumberOrTag) -> anyhow::Result<BlockTimestamp> {
+        self.provider()
+            .await?
+            .get_block_by_number(number)
+            .await?
+            .ok_or(anyhow::Error::msg("Blockchain has no blocks"))
+            .map(|block| block.header.timestamp)
     }
 
-    #[tracing::instrument(skip_all, fields(geth_node_id = self.id))]
-    fn last_block_number(&self) -> anyhow::Result<BlockNumber> {
-        let provider = self.provider();
-        BlockingExecutor::execute(async move {
-            provider.await?.get_block_number().await.map_err(Into::into)
-        })?
+    #[tracing::instrument(skip_all, fields(kitchensink_node_id = self.id))]
+    async fn last_block_number(&self) -> anyhow::Result<BlockNumber> {
+        self.provider()
+            .await?
+            .get_block_number()
+            .await
+            .map_err(Into::into)
     }
 }
 
@@ -1043,26 +1030,21 @@ mod tests {
     use revive_dt_config::Arguments;
     use std::path::PathBuf;
     use std::sync::{LazyLock, Mutex};
-    use temp_dir::TempDir;
 
     use std::fs;
 
     use super::*;
     use crate::{GENESIS_JSON, Node};
 
-    fn test_config() -> (Arguments, TempDir) {
-        let mut config = Arguments::default();
-        let temp_dir = TempDir::new().unwrap();
-
-        config.working_directory = temp_dir.path().to_path_buf().into();
-
-        config.kitchensink = PathBuf::from("substrate-node");
-        config.eth_proxy = PathBuf::from("eth-rpc");
-
-        (config, temp_dir)
+    fn test_config() -> Arguments {
+        Arguments {
+            kitchensink: PathBuf::from("substrate-node"),
+            eth_proxy: PathBuf::from("eth-rpc"),
+            ..Default::default()
+        }
     }
 
-    fn new_node() -> (KitchensinkNode, Arguments, TempDir) {
+    fn new_node() -> (KitchensinkNode, Arguments) {
         // Note: When we run the tests in the CI we found that if they're all
         // run in parallel then the CI is unable to start all of the nodes in
         // time and their start up times-out. Therefore, we want all of the
@@ -1081,20 +1063,20 @@ mod tests {
         static NODE_START_MUTEX: Mutex<()> = Mutex::new(());
         let _guard = NODE_START_MUTEX.lock().unwrap();
 
-        let (args, temp_dir) = test_config();
+        let args = test_config();
         let mut node = KitchensinkNode::new(&args);
         node.init(GENESIS_JSON)
             .expect("Failed to initialize the node")
             .spawn_process()
             .expect("Failed to spawn the node process");
-        (node, args, temp_dir)
+        (node, args)
     }
 
     /// A shared node that multiple tests can use. It starts up once.
     fn shared_node() -> &'static KitchensinkNode {
-        static NODE: LazyLock<(KitchensinkNode, TempDir)> = LazyLock::new(|| {
-            let (node, _, temp_dir) = new_node();
-            (node, temp_dir)
+        static NODE: LazyLock<(KitchensinkNode, Arguments)> = LazyLock::new(|| {
+            let (node, args) = new_node();
+            (node, args)
         });
         &NODE.0
     }
@@ -1102,7 +1084,7 @@ mod tests {
     #[tokio::test]
     async fn node_mines_simple_transfer_transaction_and_returns_receipt() {
         // Arrange
-        let (node, args, _temp_dir) = new_node();
+        let (node, args) = new_node();
 
         let provider = node.provider().await.expect("Failed to create provider");
 
@@ -1137,7 +1119,7 @@ mod tests {
         }
         "#;
 
-        let mut dummy_node = KitchensinkNode::new(&test_config().0);
+        let mut dummy_node = KitchensinkNode::new(&test_config());
 
         // Call `init()`
         dummy_node.init(genesis_content).expect("init failed");
@@ -1181,7 +1163,7 @@ mod tests {
         }
         "#;
 
-        let node = KitchensinkNode::new(&test_config().0);
+        let node = KitchensinkNode::new(&test_config());
 
         let result = node
             .extract_balance_from_genesis_file(&serde_json::from_str(genesis_json).unwrap())
@@ -1252,15 +1234,16 @@ mod tests {
 
     #[test]
     fn spawn_works() {
-        let (config, _temp_dir) = test_config();
+        let config = test_config();
 
         let mut node = KitchensinkNode::new(&config);
+
         node.spawn(GENESIS_JSON.to_string()).unwrap();
     }
 
     #[test]
     fn version_works() {
-        let (config, _temp_dir) = test_config();
+        let config = test_config();
 
         let node = KitchensinkNode::new(&config);
         let version = node.version().unwrap();
@@ -1273,7 +1256,7 @@ mod tests {
 
     #[test]
     fn eth_rpc_version_works() {
-        let (config, _temp_dir) = test_config();
+        let config = test_config();
 
         let node = KitchensinkNode::new(&config);
         let version = node.eth_rpc_version().unwrap();
@@ -1284,86 +1267,86 @@ mod tests {
         );
     }
 
-    #[test]
-    fn can_get_chain_id_from_node() {
+    #[tokio::test]
+    async fn can_get_chain_id_from_node() {
         // Arrange
         let node = shared_node();
 
         // Act
-        let chain_id = node.chain_id();
+        let chain_id = node.chain_id().await;
 
         // Assert
         let chain_id = chain_id.expect("Failed to get the chain id");
         assert_eq!(chain_id, 420_420_420);
     }
 
-    #[test]
-    fn can_get_gas_limit_from_node() {
+    #[tokio::test]
+    async fn can_get_gas_limit_from_node() {
         // Arrange
         let node = shared_node();
 
         // Act
-        let gas_limit = node.block_gas_limit(BlockNumberOrTag::Latest);
+        let gas_limit = node.block_gas_limit(BlockNumberOrTag::Latest).await;
 
         // Assert
         let _ = gas_limit.expect("Failed to get the gas limit");
     }
 
-    #[test]
-    fn can_get_coinbase_from_node() {
+    #[tokio::test]
+    async fn can_get_coinbase_from_node() {
         // Arrange
         let node = shared_node();
 
         // Act
-        let coinbase = node.block_coinbase(BlockNumberOrTag::Latest);
+        let coinbase = node.block_coinbase(BlockNumberOrTag::Latest).await;
 
         // Assert
         let _ = coinbase.expect("Failed to get the coinbase");
     }
 
-    #[test]
-    fn can_get_block_difficulty_from_node() {
+    #[tokio::test]
+    async fn can_get_block_difficulty_from_node() {
         // Arrange
         let node = shared_node();
 
         // Act
-        let block_difficulty = node.block_difficulty(BlockNumberOrTag::Latest);
+        let block_difficulty = node.block_difficulty(BlockNumberOrTag::Latest).await;
 
         // Assert
         let _ = block_difficulty.expect("Failed to get the block difficulty");
     }
 
-    #[test]
-    fn can_get_block_hash_from_node() {
+    #[tokio::test]
+    async fn can_get_block_hash_from_node() {
         // Arrange
         let node = shared_node();
 
         // Act
-        let block_hash = node.block_hash(BlockNumberOrTag::Latest);
+        let block_hash = node.block_hash(BlockNumberOrTag::Latest).await;
 
         // Assert
         let _ = block_hash.expect("Failed to get the block hash");
     }
 
-    #[test]
-    fn can_get_block_timestamp_from_node() {
+    #[tokio::test]
+    async fn can_get_block_timestamp_from_node() {
         // Arrange
         let node = shared_node();
 
         // Act
-        let block_timestamp = node.block_timestamp(BlockNumberOrTag::Latest);
+        let block_timestamp = node.block_timestamp(BlockNumberOrTag::Latest).await;
 
         // Assert
         let _ = block_timestamp.expect("Failed to get the block timestamp");
     }
 
-    #[test]
-    fn can_get_block_number_from_node() {
+    #[tokio::test]
+    async fn can_get_block_number_from_node() {
         // Arrange
         let node = shared_node();
 
         // Act
-        let block_number = node.last_block_number();
+        let block_number = node.last_block_number().await;
 
         // Assert
         let _ = block_number.expect("Failed to get the block number");

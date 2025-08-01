@@ -7,15 +7,18 @@ use anyhow::Result;
 /// An interface for all interactions with Ethereum compatible nodes.
 pub trait EthereumNode {
     /// Execute the [TransactionRequest] and return a [TransactionReceipt].
-    fn execute_transaction(&self, transaction: TransactionRequest) -> Result<TransactionReceipt>;
+    fn execute_transaction(
+        &self,
+        transaction: TransactionRequest,
+    ) -> impl Future<Output = Result<TransactionReceipt>>;
 
     /// Trace the transaction in the [TransactionReceipt] and return a [GethTrace].
     fn trace_transaction(
         &self,
         receipt: &TransactionReceipt,
         trace_options: GethDebugTracingOptions,
-    ) -> Result<GethTrace>;
+    ) -> impl Future<Output = Result<GethTrace>>;
 
     /// Returns the state diff of the transaction hash in the [TransactionReceipt].
-    fn state_diff(&self, receipt: &TransactionReceipt) -> Result<DiffMode>;
+    fn state_diff(&self, receipt: &TransactionReceipt) -> impl Future<Output = Result<DiffMode>>;
 }

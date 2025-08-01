@@ -77,7 +77,7 @@ pub struct Arguments {
     /// This argument controls which private keys the nodes should have access to and be added to
     /// its wallet signers. With a value of N, private keys (0, N] will be added to the signer set
     /// of the node.
-    #[arg(long = "private-keys-count", default_value_t = 30)]
+    #[arg(long = "private-keys-count", default_value_t = 15_000)]
     pub private_keys_to_add: usize,
 
     /// The differential testing leader node implementation.
@@ -92,9 +92,13 @@ pub struct Arguments {
     #[arg(long = "compile-only")]
     pub compile_only: Option<TestingPlatform>,
 
-    /// Determines the amount of tests that are executed in parallel.
-    #[arg(long = "workers", default_value = "12")]
-    pub workers: usize,
+    /// Determines the amount of nodes that will be spawned for each chain.
+    #[arg(long, default_value = "1")]
+    pub number_of_nodes: usize,
+
+    /// Determines the amount of threads that will will be used.
+    #[arg(long, default_value = "12")]
+    pub number_of_threads: usize,
 
     /// Extract problems back to the test corpus.
     #[arg(short, long = "extract-problems")]
@@ -159,7 +163,9 @@ impl Default for Arguments {
 /// The Solidity compatible node implementation.
 ///
 /// This describes the solutions to be tested against on a high level.
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, ValueEnum, Serialize, Deserialize)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, ValueEnum, Serialize, Deserialize,
+)]
 #[clap(rename_all = "lower")]
 pub enum TestingPlatform {
     /// The go-ethereum reference full node EVM implementation.

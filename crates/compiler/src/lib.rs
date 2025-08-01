@@ -33,14 +33,14 @@ pub trait SolidityCompiler {
         &self,
         input: CompilerInput,
         additional_options: Self::Options,
-    ) -> anyhow::Result<CompilerOutput>;
+    ) -> impl Future<Output = anyhow::Result<CompilerOutput>>;
 
     fn new(solc_executable: PathBuf) -> Self;
 
     fn get_compiler_executable(
         config: &Arguments,
         version: impl Into<VersionOrRequirement>,
-    ) -> anyhow::Result<PathBuf>;
+    ) -> impl Future<Output = anyhow::Result<PathBuf>>;
 
     fn version(&self) -> anyhow::Result<Version>;
 }
@@ -147,8 +147,13 @@ where
         self
     }
 
-    pub fn try_build(self, compiler_path: impl AsRef<Path>) -> anyhow::Result<CompilerOutput> {
-        T::new(compiler_path.as_ref().to_path_buf()).build(self.input, self.additional_options)
+    pub async fn try_build(
+        self,
+        compiler_path: impl AsRef<Path>,
+    ) -> anyhow::Result<CompilerOutput> {
+        T::new(compiler_path.as_ref().to_path_buf())
+            .build(self.input, self.additional_options)
+            .await
     }
 
     pub fn input(&self) -> CompilerInput {

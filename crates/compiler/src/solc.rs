@@ -21,6 +21,7 @@ use foundry_compilers_artifacts::{
     solc::*,
 };
 use semver::Version;
+use tokio::{io::AsyncWriteExt, process::Command as AsyncCommand};
 
 #[derive(Debug)]
 pub struct Solc {
@@ -31,7 +32,7 @@ impl SolidityCompiler for Solc {
     type Options = ();
 
     #[tracing::instrument(level = "debug", ret)]
-    fn build(
+    async fn build(
         &self,
         CompilerInput {
             enable_optimization,
@@ -90,7 +91,7 @@ impl SolidityCompiler for Solc {
             },
         };
 
-        let mut command = Command::new(&self.solc_path);
+        let mut command = AsyncCommand::new(&self.solc_path);
         command
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -112,8 +113,9 @@ impl SolidityCompiler for Solc {
         let mut child = command.spawn()?;
 
         let stdin = child.stdin.as_mut().expect("should be piped");
-        serde_json::to_writer(stdin, &input)?;
-        let output = child.wait_with_output()?;
+        let serialized_input = serde_json::to_vec(&input)?;
+        stdin.write_all(&serialized_input).await?;
+        let output = child.wait_with_output().await?;
 
         if !output.status.success() {
             let json_in = serde_json::to_string_pretty(&input)?;
@@ -177,11 +179,11 @@ impl SolidityCompiler for Solc {
         Self { solc_path }
     }
 
-    fn get_compiler_executable(
+    async fn get_compiler_executable(
         config: &Arguments,
         version: impl Into<VersionOrRequirement>,
     ) -> anyhow::Result<PathBuf> {
-        let path = download_solc(config.directory(), version, config.wasm)?;
+        let path = download_solc(config.directory(), version, config.wasm).await?;
         Ok(path)
     }
 
@@ -216,11 +218,15 @@ impl SolidityCompiler for Solc {
 mod test {
     use super::*;
 
-    #[test]
-    fn compiler_version_can_be_obtained() {
+    #[tokio::test]
+    async fn compiler_version_can_be_obtained() {
         // Arrange
         let args = Arguments::default();
-        let path = Solc::get_compiler_executable(&args, Version::new(0, 7, 6)).unwrap();
+        println!("Getting compiler path");
+        let path = Solc::get_compiler_executable(&args, Version::new(0, 7, 6))
+            .await
+            .unwrap();
+        println!("Got compiler path");
         let compiler = Solc::new(path);
 
         // Act
