@@ -4031,11 +4031,7 @@ name = "revive-dt-common"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "futures",
- "once_cell",
  "semver 1.0.26",
- "tokio",
- "tracing",
 ]
 
 [[package]]
@@ -4114,7 +4110,6 @@ version = "0.1.0"
 dependencies = [
  "alloy",
  "anyhow",
- "revive-dt-common",
  "revive-dt-config",
  "revive-dt-format",
  "revive-dt-node-interaction",
