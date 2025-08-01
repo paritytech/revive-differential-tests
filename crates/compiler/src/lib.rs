@@ -40,7 +40,7 @@ pub trait SolidityCompiler {
     fn get_compiler_executable(
         config: &Arguments,
         version: impl Into<VersionOrRequirement>,
-    ) -> anyhow::Result<PathBuf>;
+    ) -> impl Future<Output = anyhow::Result<PathBuf>>;
 
     fn version(&self) -> anyhow::Result<Version>;
 }

@@ -25,6 +25,7 @@ use alloy::{
     },
     signers::local::PrivateKeySigner,
 };
+use revive_dt_common::fs::clear_directory;
 use revive_dt_config::Arguments;
 use revive_dt_format::traits::ResolverApi;
 use revive_dt_node_interaction::EthereumNode;
@@ -80,6 +81,9 @@ impl Instance {
     /// Create the node directory and call `geth init` to configure the genesis.
     #[tracing::instrument(skip_all, fields(geth_node_id = self.id))]
     fn init(&mut self, genesis: String) -> anyhow::Result<&mut Self> {
+        clear_directory(&self.base_directory)?;
+        clear_directory(&self.logs_directory)?;
+
         create_dir_all(&self.base_directory)?;
         create_dir_all(&self.logs_directory)?;
 

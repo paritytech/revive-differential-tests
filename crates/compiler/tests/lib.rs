@@ -8,7 +8,10 @@ use semver::Version;
 async fn contracts_can_be_compiled_with_solc() {
     // Arrange
     let args = Arguments::default();
-    let compiler_path = Solc::get_compiler_executable(&args, Version::new(0, 8, 30)).unwrap();
+    let compiler_path = Solc::get_compiler_executable(&args, Version::new(0, 8, 30))
+        .await
+        .unwrap();
+    println!("About to assert");
 
     // Act
     let output = Compiler::<Solc>::new()
@@ -47,7 +50,9 @@ async fn contracts_can_be_compiled_with_solc() {
 async fn contracts_can_be_compiled_with_resolc() {
     // Arrange
     let args = Arguments::default();
-    let compiler_path = Resolc::get_compiler_executable(&args, Version::new(0, 8, 30)).unwrap();
+    let compiler_path = Resolc::get_compiler_executable(&args, Version::new(0, 8, 30))
+        .await
+        .unwrap();
 
     // Act
     let output = Compiler::<Resolc>::new()

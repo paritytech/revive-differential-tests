@@ -469,7 +469,7 @@ async fn compile_contracts<P: Platform>(
 ) -> anyhow::Result<(Version, CompilerOutput)> {
     let compiler_version_or_requirement = mode.compiler_version_to_use(config.solc.clone());
     let compiler_path =
-        P::Compiler::get_compiler_executable(config, compiler_version_or_requirement)?;
+        P::Compiler::get_compiler_executable(config, compiler_version_or_requirement).await?;
     let compiler_version = P::Compiler::new(compiler_path.clone()).version()?;
 
     let compiler = Compiler::<P::Compiler>::new()

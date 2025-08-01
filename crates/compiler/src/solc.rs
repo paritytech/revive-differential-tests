@@ -179,11 +179,11 @@ impl SolidityCompiler for Solc {
         Self { solc_path }
     }
 
-    fn get_compiler_executable(
+    async fn get_compiler_executable(
         config: &Arguments,
         version: impl Into<VersionOrRequirement>,
     ) -> anyhow::Result<PathBuf> {
-        let path = download_solc(config.directory(), version, config.wasm)?;
+        let path = download_solc(config.directory(), version, config.wasm).await?;
         Ok(path)
     }
 
@@ -218,11 +218,15 @@ impl SolidityCompiler for Solc {
 mod test {
     use super::*;
 
-    #[test]
-    fn compiler_version_can_be_obtained() {
+    #[tokio::test]
+    async fn compiler_version_can_be_obtained() {
         // Arrange
         let args = Arguments::default();
-        let path = Solc::get_compiler_executable(&args, Version::new(0, 7, 6)).unwrap();
+        println!("Getting compiler path");
+        let path = Solc::get_compiler_executable(&args, Version::new(0, 7, 6))
+            .await
+            .unwrap();
+        println!("Got compiler path");
         let compiler = Solc::new(path);
 
         // Act

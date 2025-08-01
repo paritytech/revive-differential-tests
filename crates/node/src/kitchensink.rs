@@ -30,6 +30,7 @@ use alloy::{
     },
     signers::local::PrivateKeySigner,
 };
+use revive_dt_common::fs::clear_directory;
 use revive_dt_format::traits::ResolverApi;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value as JsonValue, json};
@@ -85,6 +86,9 @@ impl KitchensinkNode {
 
     #[tracing::instrument(skip_all, fields(kitchensink_node_id = self.id))]
     fn init(&mut self, genesis: &str) -> anyhow::Result<&mut Self> {
+        clear_directory(&self.base_directory)?;
+        clear_directory(&self.logs_directory)?;
+
         create_dir_all(&self.base_directory)?;
         create_dir_all(&self.logs_directory)?;
 

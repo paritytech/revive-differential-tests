@@ -6,15 +6,17 @@ use std::{
     io::{BufWriter, Write},
     os::unix::fs::PermissionsExt,
     path::{Path, PathBuf},
-    sync::{LazyLock, Mutex},
+    sync::LazyLock,
 };
+
+use tokio::sync::Mutex;
 
 use crate::download::GHDownloader;
 
 pub const SOLC_CACHE_DIRECTORY: &str = "solc";
 pub(crate) static SOLC_CACHER: LazyLock<Mutex<HashSet<PathBuf>>> = LazyLock::new(Default::default);
 
-pub(crate) fn get_or_download(
+pub(crate) async fn get_or_download(
     working_directory: &Path,
     downloader: &GHDownloader,
 ) -> anyhow::Result<PathBuf> {
@@ -23,20 +25,20 @@ pub(crate) fn get_or_download(
         .join(downloader.version.to_string());
     let target_file = target_directory.join(downloader.target);
 
-    let mut cache = SOLC_CACHER.lock().unwrap();
+    let mut cache = SOLC_CACHER.lock().await;
     if cache.contains(&target_file) {
         tracing::debug!("using cached solc: {}", target_file.display());
         return Ok(target_file);
     }
 
     create_dir_all(target_directory)?;
-    download_to_file(&target_file, downloader)?;
+    download_to_file(&target_file, downloader).await?;
     cache.insert(target_file.clone());
 
     Ok(target_file)
 }
 
-fn download_to_file(path: &Path, downloader: &GHDownloader) -> anyhow::Result<()> {
+async fn download_to_file(path: &Path, downloader: &GHDownloader) -> anyhow::Result<()> {
     tracing::info!("caching file: {}", path.display());
 
     let Ok(file) = File::create_new(path) else {
@@ -52,7 +54,7 @@ fn download_to_file(path: &Path, downloader: &GHDownloader) -> anyhow::Result<()
     }
 
     let mut file = BufWriter::new(file);
-    file.write_all(&downloader.download()?)?;
+    file.write_all(&downloader.download().await?)?;
     file.flush()?;
     drop(file);
 

@@ -3980,9 +3980,7 @@ dependencies = [
  "base64",
  "bytes",
  "encoding_rs",
- "futures-channel",
  "futures-core",
- "futures-util",
  "h2",
  "http",
  "http-body",
@@ -4110,6 +4108,7 @@ version = "0.1.0"
 dependencies = [
  "alloy",
  "anyhow",
+ "revive-dt-common",
  "revive-dt-config",
  "revive-dt-format",
  "revive-dt-node-interaction",
@@ -4154,6 +4153,7 @@ dependencies = [
  "semver 1.0.26",
  "serde",
  "sha2 0.10.9",
+ "tokio",
  "tracing",
 ]
 
