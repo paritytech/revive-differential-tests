@@ -81,8 +81,8 @@ impl Instance {
     /// Create the node directory and call `geth init` to configure the genesis.
     #[tracing::instrument(skip_all, fields(geth_node_id = self.id))]
     fn init(&mut self, genesis: String) -> anyhow::Result<&mut Self> {
-        clear_directory(&self.base_directory)?;
-        clear_directory(&self.logs_directory)?;
+        let _ = clear_directory(&self.base_directory);
+        let _ = clear_directory(&self.logs_directory);
 
         create_dir_all(&self.base_directory)?;
         create_dir_all(&self.logs_directory)?;

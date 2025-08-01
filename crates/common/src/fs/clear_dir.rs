@@ -3,18 +3,12 @@ use std::{
     path::Path,
 };
 
-use anyhow::{Result, bail};
+use anyhow::Result;
 
 /// This method clears the passed directory of all of the files and directories contained within
 /// without deleting the directory.
 pub fn clear_directory(path: impl AsRef<Path>) -> Result<()> {
-    let path = path.as_ref();
-
-    if !path.is_dir() {
-        bail!("The provided path is not a directory: {}", path.display());
-    }
-
-    for entry in read_dir(path)? {
+    for entry in read_dir(path.as_ref())? {
         let entry = entry?;
         let entry_path = entry.path();
 
@@ -24,6 +18,5 @@ pub fn clear_directory(path: impl AsRef<Path>) -> Result<()> {
             remove_dir_all(entry_path)?
         }
     }
-
     Ok(())
 }

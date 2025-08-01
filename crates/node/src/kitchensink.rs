@@ -86,8 +86,8 @@ impl KitchensinkNode {
 
     #[tracing::instrument(skip_all, fields(kitchensink_node_id = self.id))]
     fn init(&mut self, genesis: &str) -> anyhow::Result<&mut Self> {
-        clear_directory(&self.base_directory)?;
-        clear_directory(&self.logs_directory)?;
+        let _ = clear_directory(&self.base_directory);
+        let _ = clear_directory(&self.logs_directory);
 
         create_dir_all(&self.base_directory)?;
         create_dir_all(&self.logs_directory)?;
@@ -1030,26 +1030,21 @@ mod tests {
     use revive_dt_config::Arguments;
     use std::path::PathBuf;
     use std::sync::{LazyLock, Mutex};
-    use temp_dir::TempDir;
 
     use std::fs;
 
     use super::*;
     use crate::{GENESIS_JSON, Node};
 
-    fn test_config() -> (Arguments, TempDir) {
-        let mut config = Arguments::default();
-        let temp_dir = TempDir::new().unwrap();
-
-        config.working_directory = temp_dir.path().to_path_buf().into();
-
-        config.kitchensink = PathBuf::from("substrate-node");
-        config.eth_proxy = PathBuf::from("eth-rpc");
-
-        (config, temp_dir)
+    fn test_config() -> Arguments {
+        Arguments {
+            kitchensink: PathBuf::from("substrate-node"),
+            eth_proxy: PathBuf::from("eth-rpc"),
+            ..Default::default()
+        }
     }
 
-    fn new_node() -> (KitchensinkNode, Arguments, TempDir) {
+    fn new_node() -> (KitchensinkNode, Arguments) {
         // Note: When we run the tests in the CI we found that if they're all
         // run in parallel then the CI is unable to start all of the nodes in
         // time and their start up times-out. Therefore, we want all of the
@@ -1068,20 +1063,20 @@ mod tests {
         static NODE_START_MUTEX: Mutex<()> = Mutex::new(());
         let _guard = NODE_START_MUTEX.lock().unwrap();
 
-        let (args, temp_dir) = test_config();
+        let args = test_config();
         let mut node = KitchensinkNode::new(&args);
         node.init(GENESIS_JSON)
             .expect("Failed to initialize the node")
             .spawn_process()
             .expect("Failed to spawn the node process");
-        (node, args, temp_dir)
+        (node, args)
     }
 
     /// A shared node that multiple tests can use. It starts up once.
     fn shared_node() -> &'static KitchensinkNode {
-        static NODE: LazyLock<(KitchensinkNode, TempDir)> = LazyLock::new(|| {
-            let (node, _, temp_dir) = new_node();
-            (node, temp_dir)
+        static NODE: LazyLock<(KitchensinkNode, Arguments)> = LazyLock::new(|| {
+            let (node, args) = new_node();
+            (node, args)
         });
         &NODE.0
     }
@@ -1089,7 +1084,7 @@ mod tests {
     #[tokio::test]
     async fn node_mines_simple_transfer_transaction_and_returns_receipt() {
         // Arrange
-        let (node, args, _temp_dir) = new_node();
+        let (node, args) = new_node();
 
         let provider = node.provider().await.expect("Failed to create provider");
 
@@ -1124,7 +1119,7 @@ mod tests {
         }
         "#;
 
-        let mut dummy_node = KitchensinkNode::new(&test_config().0);
+        let mut dummy_node = KitchensinkNode::new(&test_config());
 
         // Call `init()`
         dummy_node.init(genesis_content).expect("init failed");
@@ -1168,7 +1163,7 @@ mod tests {
         }
         "#;
 
-        let node = KitchensinkNode::new(&test_config().0);
+        let node = KitchensinkNode::new(&test_config());
 
         let result = node
             .extract_balance_from_genesis_file(&serde_json::from_str(genesis_json).unwrap())
@@ -1239,15 +1234,16 @@ mod tests {
 
     #[test]
     fn spawn_works() {
-        let (config, _temp_dir) = test_config();
+        let config = test_config();
 
         let mut node = KitchensinkNode::new(&config);
+
         node.spawn(GENESIS_JSON.to_string()).unwrap();
     }
 
     #[test]
     fn version_works() {
-        let (config, _temp_dir) = test_config();
+        let config = test_config();
 
         let node = KitchensinkNode::new(&config);
         let version = node.version().unwrap();
@@ -1260,7 +1256,7 @@ mod tests {
 
     #[test]
     fn eth_rpc_version_works() {
-        let (config, _temp_dir) = test_config();
+        let config = test_config();
 
         let node = KitchensinkNode::new(&config);
         let version = node.eth_rpc_version().unwrap();
