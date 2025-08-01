@@ -77,7 +77,7 @@ pub struct Arguments {
     /// This argument controls which private keys the nodes should have access to and be added to
     /// its wallet signers. With a value of N, private keys (0, N] will be added to the signer set
     /// of the node.
-    #[arg(long = "private-keys-count", default_value_t = 30)]
+    #[arg(long = "private-keys-count", default_value_t = 15_000)]
     pub private_keys_to_add: usize,
 
     /// The differential testing leader node implementation.
@@ -93,7 +93,7 @@ pub struct Arguments {
     pub compile_only: Option<TestingPlatform>,
 
     /// Determines the amount of nodes that will be spawned for each chain.
-    #[arg(long, default_value = "12")]
+    #[arg(long, default_value = "1")]
     pub number_of_nodes: usize,
 
     /// Determines the amount of threads that will will be used.
