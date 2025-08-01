@@ -67,24 +67,31 @@ where
         }
     }
 
-    pub fn handle_input(
+    pub async fn handle_input(
         &mut self,
         metadata: &Metadata,
         case_idx: CaseIdx,
         input: &Input,
         node: &T::Blockchain,
     ) -> anyhow::Result<(TransactionReceipt, GethTrace, DiffMode)> {
-        let deployment_receipts =
-            self.handle_contract_deployment(metadata, case_idx, input, node)?;
-        let execution_receipt = self.handle_input_execution(input, deployment_receipts, node)?;
-        let tracing_result = self.handle_input_call_frame_tracing(&execution_receipt, node)?;
+        let deployment_receipts = self
+            .handle_contract_deployment(metadata, case_idx, input, node)
+            .await?;
+        let execution_receipt = self
+            .handle_input_execution(input, deployment_receipts, node)
+            .await?;
+        let tracing_result = self
+            .handle_input_call_frame_tracing(&execution_receipt, node)
+            .await?;
         self.handle_input_variable_assignment(input, &tracing_result)?;
-        self.handle_input_expectations(input, &execution_receipt, node, &tracing_result)?;
+        self.handle_input_expectations(input, &execution_receipt, node, &tracing_result)
+            .await?;
         self.handle_input_diff(case_idx, execution_receipt, node)
+            .await
     }
 
     /// Handles the contract deployment for a given input performing it if it needs to be performed.
-    fn handle_contract_deployment(
+    async fn handle_contract_deployment(
         &mut self,
         metadata: &Metadata,
         case_idx: CaseIdx,
@@ -121,14 +128,17 @@ where
                 .then_some(input.value)
                 .flatten();
 
-            if let (_, _, Some(receipt)) = self.get_or_deploy_contract_instance(
-                &instance,
-                metadata,
-                input.caller,
-                calldata,
-                value,
-                node,
-            )? {
+            if let (_, _, Some(receipt)) = self
+                .get_or_deploy_contract_instance(
+                    &instance,
+                    metadata,
+                    input.caller,
+                    calldata,
+                    value,
+                    node,
+                )
+                .await?
+            {
                 receipts.insert(instance.clone(), receipt);
             }
         }
@@ -137,7 +147,7 @@ where
     }
 
     /// Handles the execution of the input in terms of the calls that need to be made.
-    fn handle_input_execution(
+    async fn handle_input_execution(
         &mut self,
         input: &Input,
         mut deployment_receipts: HashMap<ContractInstance, TransactionReceipt>,
@@ -150,22 +160,23 @@ where
                 .remove(&input.instance)
                 .context("Failed to find deployment receipt"),
             Method::Fallback | Method::FunctionName(_) => {
-                let tx =
-                    match input.legacy_transaction(&self.deployed_contracts, &self.variables, node)
-                    {
-                        Ok(tx) => {
-                            tracing::debug!("Legacy transaction data: {tx:#?}");
-                            tx
-                        }
-                        Err(err) => {
-                            tracing::error!("Failed to construct legacy transaction: {err:?}");
-                            return Err(err);
-                        }
-                    };
+                let tx = match input
+                    .legacy_transaction(&self.deployed_contracts, &self.variables, node)
+                    .await
+                {
+                    Ok(tx) => {
+                        tracing::debug!("Legacy transaction data: {tx:#?}");
+                        tx
+                    }
+                    Err(err) => {
+                        tracing::error!("Failed to construct legacy transaction: {err:?}");
+                        return Err(err);
+                    }
+                };
 
                 tracing::trace!("Executing transaction for input: {input:?}");
 
-                match node.execute_transaction(tx) {
+                match node.execute_transaction(tx).await {
                     Ok(receipt) => Ok(receipt),
                     Err(err) => {
                         tracing::error!(
@@ -180,7 +191,7 @@ where
         }
     }
 
-    fn handle_input_call_frame_tracing(
+    async fn handle_input_call_frame_tracing(
         &self,
         execution_receipt: &TransactionReceipt,
         node: &T::Blockchain,
@@ -194,6 +205,7 @@ where
                 ..Default::default()
             },
         )
+        .await
         .map(|trace| {
             trace
                 .try_into_call_frame()
@@ -226,7 +238,7 @@ where
         Ok(())
     }
 
-    fn handle_input_expectations(
+    async fn handle_input_expectations(
         &mut self,
         input: &Input,
         execution_receipt: &TransactionReceipt,
@@ -270,13 +282,14 @@ where
                 node,
                 expectation,
                 tracing_result,
-            )?;
+            )
+            .await?;
         }
 
         Ok(())
     }
 
-    fn handle_input_expectation_item(
+    async fn handle_input_expectation_item(
         &mut self,
         execution_receipt: &TransactionReceipt,
         node: &T::Blockchain,
@@ -313,12 +326,15 @@ where
         if let Some(ref expected_calldata) = expectation.return_data {
             let expected = expected_calldata;
             let actual = &tracing_result.output.as_ref().unwrap_or_default();
-            if !expected.is_equivalent(
-                actual,
-                deployed_contracts,
-                &*variables,
-                chain_state_provider,
-            )? {
+            if !expected
+                .is_equivalent(
+                    actual,
+                    deployed_contracts,
+                    &*variables,
+                    chain_state_provider,
+                )
+                .await?
+            {
                 tracing::error!(
                     ?execution_receipt,
                     ?expected,
@@ -349,7 +365,8 @@ where
                 if let Some(ref expected_address) = expected_event.address {
                     let expected = Address::from_slice(
                         Calldata::new_compound([expected_address])
-                            .calldata(deployed_contracts, &*variables, node)?
+                            .calldata(deployed_contracts, &*variables, node)
+                            .await?
                             .get(12..32)
                             .expect("Can't fail"),
                     );
@@ -374,12 +391,15 @@ where
                     .zip(actual_event.topics())
                 {
                     let expected = Calldata::new_compound([expected]);
-                    if !expected.is_equivalent(
-                        &actual.0,
-                        deployed_contracts,
-                        &*variables,
-                        chain_state_provider,
-                    )? {
+                    if !expected
+                        .is_equivalent(
+                            &actual.0,
+                            deployed_contracts,
+                            &*variables,
+                            chain_state_provider,
+                        )
+                        .await?
+                    {
                         tracing::error!(
                             ?execution_receipt,
                             ?expected,
@@ -395,12 +415,15 @@ where
                 // Handling the values assertion.
                 let expected = &expected_event.values;
                 let actual = &actual_event.data().data;
-                if !expected.is_equivalent(
-                    &actual.0,
-                    deployed_contracts,
-                    &*variables,
-                    chain_state_provider,
-                )? {
+                if !expected
+                    .is_equivalent(
+                        &actual.0,
+                        deployed_contracts,
+                        &*variables,
+                        chain_state_provider,
+                    )
+                    .await?
+                {
                     tracing::error!(
                         ?execution_receipt,
                         ?expected,
@@ -417,7 +440,7 @@ where
         Ok(())
     }
 
-    fn handle_input_diff(
+    async fn handle_input_diff(
         &mut self,
         _: CaseIdx,
         execution_receipt: TransactionReceipt,
@@ -432,8 +455,10 @@ where
             disable_storage: None,
         });
 
-        let trace = node.trace_transaction(&execution_receipt, trace_options)?;
-        let diff = node.state_diff(&execution_receipt)?;
+        let trace = node
+            .trace_transaction(&execution_receipt, trace_options)
+            .await?;
+        let diff = node.state_diff(&execution_receipt).await?;
 
         Ok((execution_receipt, trace, diff))
     }
@@ -444,7 +469,7 @@ where
     /// If a [`CaseIdx`] is not specified then this contact instance address will be stored in the
     /// cross-case deployed contracts address mapping.
     #[allow(clippy::too_many_arguments)]
-    pub fn get_or_deploy_contract_instance(
+    pub async fn get_or_deploy_contract_instance(
         &mut self,
         contract_instance: &ContractInstance,
         metadata: &Metadata,
@@ -500,7 +525,9 @@ where
         };
 
         if let Some(calldata) = calldata {
-            let calldata = calldata.calldata(&self.deployed_contracts, None, node)?;
+            let calldata = calldata
+                .calldata(&self.deployed_contracts, None, node)
+                .await?;
             code.extend(calldata);
         }
 
@@ -513,7 +540,7 @@ where
             TransactionBuilder::<Ethereum>::with_deploy_code(tx, code)
         };
 
-        let receipt = match node.execute_transaction(tx) {
+        let receipt = match node.execute_transaction(tx).await {
             Ok(receipt) => receipt,
             Err(error) => {
                 tracing::error!(
@@ -604,7 +631,7 @@ where
         }
     }
 
-    pub fn execute(&mut self) -> anyhow::Result<usize> {
+    pub async fn execute(&mut self) -> anyhow::Result<usize> {
         if !self
             .leader_node
             .matches_target(self.metadata.targets.as_deref())
@@ -624,18 +651,14 @@ where
             let tracing_span = tracing::info_span!("Handling input", input_idx);
             let _guard = tracing_span.enter();
 
-            let (leader_receipt, _, leader_diff) = self.leader_state.handle_input(
-                self.metadata,
-                self.case_idx,
-                &input,
-                self.leader_node,
-            )?;
-            let (follower_receipt, _, follower_diff) = self.follower_state.handle_input(
-                self.metadata,
-                self.case_idx,
-                &input,
-                self.follower_node,
-            )?;
+            let (leader_receipt, _, leader_diff) = self
+                .leader_state
+                .handle_input(self.metadata, self.case_idx, &input, self.leader_node)
+                .await?;
+            let (follower_receipt, _, follower_diff) = self
+                .follower_state
+                .handle_input(self.metadata, self.case_idx, &input, self.follower_node)
+                .await?;
 
             if leader_diff == follower_diff {
                 tracing::debug!("State diffs match between leader and follower.");

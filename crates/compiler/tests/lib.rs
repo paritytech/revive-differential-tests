@@ -4,8 +4,8 @@ use revive_dt_compiler::{Compiler, SolidityCompiler, revive_resolc::Resolc, solc
 use revive_dt_config::Arguments;
 use semver::Version;
 
-#[test]
-fn contracts_can_be_compiled_with_solc() {
+#[tokio::test]
+async fn contracts_can_be_compiled_with_solc() {
     // Arrange
     let args = Arguments::default();
     let compiler_path = Solc::get_compiler_executable(&args, Version::new(0, 8, 30)).unwrap();
@@ -16,7 +16,8 @@ fn contracts_can_be_compiled_with_solc() {
         .unwrap()
         .with_source("./tests/assets/array_one_element/main.sol")
         .unwrap()
-        .try_build(compiler_path);
+        .try_build(compiler_path)
+        .await;
 
     // Assert
     let output = output.expect("Failed to compile");
@@ -42,8 +43,8 @@ fn contracts_can_be_compiled_with_solc() {
     assert!(callable_file_contracts.contains_key("Callable"));
 }
 
-#[test]
-fn contracts_can_be_compiled_with_resolc() {
+#[tokio::test]
+async fn contracts_can_be_compiled_with_resolc() {
     // Arrange
     let args = Arguments::default();
     let compiler_path = Resolc::get_compiler_executable(&args, Version::new(0, 8, 30)).unwrap();
@@ -54,7 +55,8 @@ fn contracts_can_be_compiled_with_resolc() {
         .unwrap()
         .with_source("./tests/assets/array_one_element/main.sol")
         .unwrap()
-        .try_build(compiler_path);
+        .try_build(compiler_path)
+        .await;
 
     // Assert
     let output = output.expect("Failed to compile");

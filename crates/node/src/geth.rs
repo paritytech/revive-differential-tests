@@ -25,7 +25,6 @@ use alloy::{
     },
     signers::local::PrivateKeySigner,
 };
-use revive_dt_common::concepts::BlockingExecutor;
 use revive_dt_config::Arguments;
 use revive_dt_format::traits::ResolverApi;
 use revive_dt_node_interaction::EthereumNode;
@@ -246,106 +245,102 @@ impl Instance {
 
 impl EthereumNode for Instance {
     #[tracing::instrument(skip_all, fields(geth_node_id = self.id))]
-    fn execute_transaction(
+    async fn execute_transaction(
         &self,
         transaction: TransactionRequest,
     ) -> anyhow::Result<alloy::rpc::types::TransactionReceipt> {
-        let provider = self.provider();
-        BlockingExecutor::execute(async move {
-            let outer_span = tracing::debug_span!("Submitting transaction", ?transaction);
-            let _outer_guard = outer_span.enter();
+        let outer_span = tracing::debug_span!("Submitting transaction", ?transaction);
+        let _outer_guard = outer_span.enter();
 
-            let provider = provider.await?;
+        let provider = self.provider().await?;
 
-            let pending_transaction = provider.send_transaction(transaction).await?;
-            let transaction_hash = pending_transaction.tx_hash();
+        let pending_transaction = provider.send_transaction(transaction).await?;
+        let transaction_hash = pending_transaction.tx_hash();
 
-            let span = tracing::info_span!("Awaiting transaction receipt", ?transaction_hash);
-            let _guard = span.enter();
+        let span = tracing::info_span!("Awaiting transaction receipt", ?transaction_hash);
+        let _guard = span.enter();
 
-            // The following is a fix for the "transaction indexing is in progress" error that we
-            // used to get. You can find more information on this in the following GH issue in geth
-            // https://github.com/ethereum/go-ethereum/issues/28877. To summarize what's going on,
-            // before we can get the receipt of the transaction it needs to have been indexed by the
-            // node's indexer. Just because the transaction has been confirmed it doesn't mean that
-            // it has been indexed. When we call alloy's `get_receipt` it checks if the transaction
-            // was confirmed. If it has been, then it will call `eth_getTransactionReceipt` method
-            // which _might_ return the above error if the tx has not yet been indexed yet. So, we
-            // need to implement a retry mechanism for the receipt to keep retrying to get it until
-            // it eventually works, but we only do that if the error we get back is the "transaction
-            // indexing is in progress" error or if the receipt is None.
-            //
-            // Getting the transaction indexed and taking a receipt can take a long time especially
-            // when a lot of transactions are being submitted to the node. Thus, while initially we
-            // only allowed for 60 seconds of waiting with a 1 second delay in polling, we need to
-            // allow for a larger wait time. Therefore, in here we allow for 5 minutes of waiting
-            // with exponential backoff each time we attempt to get the receipt and find that it's
-            // not available.
-            let mut retries = 0;
-            let mut total_wait_duration = Duration::from_secs(0);
-            let max_allowed_wait_duration = Duration::from_secs(5 * 60);
-            loop {
-                if total_wait_duration >= max_allowed_wait_duration {
-                    tracing::error!(
-                        ?total_wait_duration,
-                        ?max_allowed_wait_duration,
-                        retry_count = retries,
-                        "Failed to get receipt after polling for it"
-                    );
-                    anyhow::bail!(
-                        "Polled for receipt for {total_wait_duration:?} but failed to get it"
-                    );
-                }
-
-                match provider.get_transaction_receipt(*transaction_hash).await {
-                    Ok(Some(receipt)) => {
-                        tracing::info!(?total_wait_duration, "Found receipt");
-                        break Ok(receipt);
-                    }
-                    Ok(None) => {}
-                    Err(error) => {
-                        let error_string = error.to_string();
-                        if !error_string.contains(Self::TRANSACTION_INDEXING_ERROR) {
-                            break Err(error.into());
-                        }
-                    }
-                };
-
-                let next_wait_duration = Duration::from_secs(2u64.pow(retries))
-                    .min(max_allowed_wait_duration - total_wait_duration);
-                total_wait_duration += next_wait_duration;
-                retries += 1;
-
-                tokio::time::sleep(next_wait_duration).await;
+        // The following is a fix for the "transaction indexing is in progress" error that we
+        // used to get. You can find more information on this in the following GH issue in geth
+        // https://github.com/ethereum/go-ethereum/issues/28877. To summarize what's going on,
+        // before we can get the receipt of the transaction it needs to have been indexed by the
+        // node's indexer. Just because the transaction has been confirmed it doesn't mean that
+        // it has been indexed. When we call alloy's `get_receipt` it checks if the transaction
+        // was confirmed. If it has been, then it will call `eth_getTransactionReceipt` method
+        // which _might_ return the above error if the tx has not yet been indexed yet. So, we
+        // need to implement a retry mechanism for the receipt to keep retrying to get it until
+        // it eventually works, but we only do that if the error we get back is the "transaction
+        // indexing is in progress" error or if the receipt is None.
+        //
+        // Getting the transaction indexed and taking a receipt can take a long time especially
+        // when a lot of transactions are being submitted to the node. Thus, while initially we
+        // only allowed for 60 seconds of waiting with a 1 second delay in polling, we need to
+        // allow for a larger wait time. Therefore, in here we allow for 5 minutes of waiting
+        // with exponential backoff each time we attempt to get the receipt and find that it's
+        // not available.
+        let mut retries = 0;
+        let mut total_wait_duration = Duration::from_secs(0);
+        let max_allowed_wait_duration = Duration::from_secs(5 * 60);
+        loop {
+            if total_wait_duration >= max_allowed_wait_duration {
+                tracing::error!(
+                    ?total_wait_duration,
+                    ?max_allowed_wait_duration,
+                    retry_count = retries,
+                    "Failed to get receipt after polling for it"
+                );
+                anyhow::bail!(
+                    "Polled for receipt for {total_wait_duration:?} but failed to get it"
+                );
             }
-        })?
+
+            match provider.get_transaction_receipt(*transaction_hash).await {
+                Ok(Some(receipt)) => {
+                    tracing::info!(?total_wait_duration, "Found receipt");
+                    break Ok(receipt);
+                }
+                Ok(None) => {}
+                Err(error) => {
+                    let error_string = error.to_string();
+                    if !error_string.contains(Self::TRANSACTION_INDEXING_ERROR) {
+                        break Err(error.into());
+                    }
+                }
+            };
+
+            let next_wait_duration = Duration::from_secs(2u64.pow(retries))
+                .min(max_allowed_wait_duration - total_wait_duration);
+            total_wait_duration += next_wait_duration;
+            retries += 1;
+
+            tokio::time::sleep(next_wait_duration).await;
+        }
     }
 
     #[tracing::instrument(skip_all, fields(geth_node_id = self.id))]
-    fn trace_transaction(
+    async fn trace_transaction(
         &self,
         transaction: &TransactionReceipt,
         trace_options: GethDebugTracingOptions,
     ) -> anyhow::Result<alloy::rpc::types::trace::geth::GethTrace> {
         let tx_hash = transaction.transaction_hash;
-        let provider = self.provider();
-        BlockingExecutor::execute(async move {
-            Ok(provider
-                .await?
-                .debug_trace_transaction(tx_hash, trace_options)
-                .await?)
-        })?
+        Ok(self
+            .provider()
+            .await?
+            .debug_trace_transaction(tx_hash, trace_options)
+            .await?)
     }
 
     #[tracing::instrument(skip_all, fields(geth_node_id = self.id))]
-    fn state_diff(&self, transaction: &TransactionReceipt) -> anyhow::Result<DiffMode> {
+    async fn state_diff(&self, transaction: &TransactionReceipt) -> anyhow::Result<DiffMode> {
         let trace_options = GethDebugTracingOptions::prestate_tracer(PreStateConfig {
             diff_mode: Some(true),
             disable_code: None,
             disable_storage: None,
         });
         match self
-            .trace_transaction(transaction, trace_options)?
+            .trace_transaction(transaction, trace_options)
+            .await?
             .try_into_pre_state_frame()?
         {
             PreStateFrame::Diff(diff) => Ok(diff),
@@ -356,84 +351,71 @@ impl EthereumNode for Instance {
 
 impl ResolverApi for Instance {
     #[tracing::instrument(skip_all, fields(geth_node_id = self.id))]
-    fn chain_id(&self) -> anyhow::Result<alloy::primitives::ChainId> {
-        let provider = self.provider();
-        BlockingExecutor::execute(async move {
-            provider.await?.get_chain_id().await.map_err(Into::into)
-        })?
+    async fn chain_id(&self) -> anyhow::Result<alloy::primitives::ChainId> {
+        self.provider()
+            .await?
+            .get_chain_id()
+            .await
+            .map_err(Into::into)
     }
 
     #[tracing::instrument(skip_all, fields(geth_node_id = self.id))]
-    fn block_gas_limit(&self, number: BlockNumberOrTag) -> anyhow::Result<u128> {
-        let provider = self.provider();
-        BlockingExecutor::execute(async move {
-            provider
-                .await?
-                .get_block_by_number(number)
-                .await?
-                .ok_or(anyhow::Error::msg("Blockchain has no blocks"))
-                .map(|block| block.header.gas_limit as _)
-        })?
+    async fn block_gas_limit(&self, number: BlockNumberOrTag) -> anyhow::Result<u128> {
+        self.provider()
+            .await?
+            .get_block_by_number(number)
+            .await?
+            .ok_or(anyhow::Error::msg("Blockchain has no blocks"))
+            .map(|block| block.header.gas_limit as _)
     }
 
     #[tracing::instrument(skip_all, fields(geth_node_id = self.id))]
-    fn block_coinbase(&self, number: BlockNumberOrTag) -> anyhow::Result<Address> {
-        let provider = self.provider();
-        BlockingExecutor::execute(async move {
-            provider
-                .await?
-                .get_block_by_number(number)
-                .await?
-                .ok_or(anyhow::Error::msg("Blockchain has no blocks"))
-                .map(|block| block.header.beneficiary)
-        })?
+    async fn block_coinbase(&self, number: BlockNumberOrTag) -> anyhow::Result<Address> {
+        self.provider()
+            .await?
+            .get_block_by_number(number)
+            .await?
+            .ok_or(anyhow::Error::msg("Blockchain has no blocks"))
+            .map(|block| block.header.beneficiary)
     }
 
     #[tracing::instrument(skip_all, fields(geth_node_id = self.id))]
-    fn block_difficulty(&self, number: BlockNumberOrTag) -> anyhow::Result<U256> {
-        let provider = self.provider();
-        BlockingExecutor::execute(async move {
-            provider
-                .await?
-                .get_block_by_number(number)
-                .await?
-                .ok_or(anyhow::Error::msg("Blockchain has no blocks"))
-                .map(|block| block.header.difficulty)
-        })?
+    async fn block_difficulty(&self, number: BlockNumberOrTag) -> anyhow::Result<U256> {
+        self.provider()
+            .await?
+            .get_block_by_number(number)
+            .await?
+            .ok_or(anyhow::Error::msg("Blockchain has no blocks"))
+            .map(|block| block.header.difficulty)
     }
 
     #[tracing::instrument(skip_all, fields(geth_node_id = self.id))]
-    fn block_hash(&self, number: BlockNumberOrTag) -> anyhow::Result<BlockHash> {
-        let provider = self.provider();
-        BlockingExecutor::execute(async move {
-            provider
-                .await?
-                .get_block_by_number(number)
-                .await?
-                .ok_or(anyhow::Error::msg("Blockchain has no blocks"))
-                .map(|block| block.header.hash)
-        })?
+    async fn block_hash(&self, number: BlockNumberOrTag) -> anyhow::Result<BlockHash> {
+        self.provider()
+            .await?
+            .get_block_by_number(number)
+            .await?
+            .ok_or(anyhow::Error::msg("Blockchain has no blocks"))
+            .map(|block| block.header.hash)
     }
 
     #[tracing::instrument(skip_all, fields(geth_node_id = self.id))]
-    fn block_timestamp(&self, number: BlockNumberOrTag) -> anyhow::Result<BlockTimestamp> {
-        let provider = self.provider();
-        BlockingExecutor::execute(async move {
-            provider
-                .await?
-                .get_block_by_number(number)
-                .await?
-                .ok_or(anyhow::Error::msg("Blockchain has no blocks"))
-                .map(|block| block.header.timestamp)
-        })?
+    async fn block_timestamp(&self, number: BlockNumberOrTag) -> anyhow::Result<BlockTimestamp> {
+        self.provider()
+            .await?
+            .get_block_by_number(number)
+            .await?
+            .ok_or(anyhow::Error::msg("Blockchain has no blocks"))
+            .map(|block| block.header.timestamp)
     }
 
     #[tracing::instrument(skip_all, fields(geth_node_id = self.id))]
-    fn last_block_number(&self) -> anyhow::Result<BlockNumber> {
-        let provider = self.provider();
-        BlockingExecutor::execute(async move {
-            provider.await?.get_block_number().await.map_err(Into::into)
-        })?
+    async fn last_block_number(&self) -> anyhow::Result<BlockNumber> {
+        self.provider()
+            .await?
+            .get_block_number()
+            .await
+            .map_err(Into::into)
     }
 }
 
@@ -583,89 +565,89 @@ mod tests {
         );
     }
 
-    #[test]
-    fn can_get_chain_id_from_node() {
+    #[tokio::test]
+    async fn can_get_chain_id_from_node() {
         // Arrange
         let (node, _temp_dir) = new_node();
 
         // Act
-        let chain_id = node.chain_id();
+        let chain_id = node.chain_id().await;
 
         // Assert
         let chain_id = chain_id.expect("Failed to get the chain id");
         assert_eq!(chain_id, 420_420_420);
     }
 
-    #[test]
-    fn can_get_gas_limit_from_node() {
+    #[tokio::test]
+    async fn can_get_gas_limit_from_node() {
         // Arrange
         let (node, _temp_dir) = new_node();
 
         // Act
-        let gas_limit = node.block_gas_limit(BlockNumberOrTag::Latest);
+        let gas_limit = node.block_gas_limit(BlockNumberOrTag::Latest).await;
 
         // Assert
         let gas_limit = gas_limit.expect("Failed to get the gas limit");
         assert_eq!(gas_limit, u32::MAX as u128)
     }
 
-    #[test]
-    fn can_get_coinbase_from_node() {
+    #[tokio::test]
+    async fn can_get_coinbase_from_node() {
         // Arrange
         let (node, _temp_dir) = new_node();
 
         // Act
-        let coinbase = node.block_coinbase(BlockNumberOrTag::Latest);
+        let coinbase = node.block_coinbase(BlockNumberOrTag::Latest).await;
 
         // Assert
         let coinbase = coinbase.expect("Failed to get the coinbase");
         assert_eq!(coinbase, Address::new([0xFF; 20]))
     }
 
-    #[test]
-    fn can_get_block_difficulty_from_node() {
+    #[tokio::test]
+    async fn can_get_block_difficulty_from_node() {
         // Arrange
         let (node, _temp_dir) = new_node();
 
         // Act
-        let block_difficulty = node.block_difficulty(BlockNumberOrTag::Latest);
+        let block_difficulty = node.block_difficulty(BlockNumberOrTag::Latest).await;
 
         // Assert
         let block_difficulty = block_difficulty.expect("Failed to get the block difficulty");
         assert_eq!(block_difficulty, U256::ZERO)
     }
 
-    #[test]
-    fn can_get_block_hash_from_node() {
+    #[tokio::test]
+    async fn can_get_block_hash_from_node() {
         // Arrange
         let (node, _temp_dir) = new_node();
 
         // Act
-        let block_hash = node.block_hash(BlockNumberOrTag::Latest);
+        let block_hash = node.block_hash(BlockNumberOrTag::Latest).await;
 
         // Assert
         let _ = block_hash.expect("Failed to get the block hash");
     }
 
-    #[test]
-    fn can_get_block_timestamp_from_node() {
+    #[tokio::test]
+    async fn can_get_block_timestamp_from_node() {
         // Arrange
         let (node, _temp_dir) = new_node();
 
         // Act
-        let block_timestamp = node.block_timestamp(BlockNumberOrTag::Latest);
+        let block_timestamp = node.block_timestamp(BlockNumberOrTag::Latest).await;
 
         // Assert
         let _ = block_timestamp.expect("Failed to get the block timestamp");
     }
 
-    #[test]
-    fn can_get_block_number_from_node() {
+    #[tokio::test]
+    async fn can_get_block_number_from_node() {
         // Arrange
         let (node, _temp_dir) = new_node();
 
         // Act
-        let block_number = node.last_block_number();
+        let block_number = node.last_block_number().await;
 
         // Assert
         let block_number = block_number.expect("Failed to get the block number");

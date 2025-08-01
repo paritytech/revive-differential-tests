@@ -1,7 +1,7 @@
 use std::{
     collections::HashMap,
     path::Path,
-    sync::{Arc, LazyLock, Mutex, RwLock},
+    sync::{Arc, LazyLock},
 };
 
 use alloy::{
@@ -12,12 +12,13 @@ use alloy::{
 };
 use anyhow::Context;
 use clap::Parser;
-use rayon::{ThreadPoolBuilder, prelude::*};
+use futures::StreamExt;
 use revive_dt_common::iterators::FilesWithExtensionIterator;
 use revive_dt_node_interaction::EthereumNode;
 use semver::Version;
 use temp_dir::TempDir;
-use tracing::Level;
+use tokio::sync::{Mutex, RwLock};
+use tracing::{Instrument, Level};
 use tracing_subscriber::{EnvFilter, FmtSubscriber};
 
 use revive_dt_compiler::SolidityCompiler;
@@ -51,18 +52,24 @@ type CompilationCache<'a> = Arc<
 fn main() -> anyhow::Result<()> {
     let args = init_cli()?;
 
-    for (corpus, tests) in collect_corpora(&args)? {
-        let span = Span::new(corpus, args.clone())?;
-
-        match &args.compile_only {
-            Some(platform) => compile_corpus(&args, &tests, platform, span),
-            None => execute_corpus(&args, &tests, span)?,
+    let body = async {
+        for (corpus, tests) in collect_corpora(&args)? {
+            let span = Span::new(corpus, args.clone())?;
+            match &args.compile_only {
+                Some(platform) => compile_corpus(&args, &tests, platform, span).await,
+                None => execute_corpus(&args, &tests, span).await?,
+            }
+            Report::save()?;
         }
+        Ok(())
+    };
 
-        Report::save()?;
-    }
-
-    Ok(())
+    tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(args.number_of_threads)
+        .enable_all()
+        .build()
+        .expect("Failed building the Runtime")
+        .block_on(body)
 }
 
 fn init_cli() -> anyhow::Result<Arguments> {
@@ -93,10 +100,6 @@ fn init_cli() -> anyhow::Result<Arguments> {
     }
     tracing::info!("workdir: {}", args.directory().display());
 
-    ThreadPoolBuilder::new()
-        .num_threads(args.number_of_threads)
-        .build_global()?;
-
     Ok(args)
 }
 
@@ -114,7 +117,11 @@ fn collect_corpora(args: &Arguments) -> anyhow::Result<HashMap<Corpus, Vec<Metad
     Ok(corpora)
 }
 
-fn run_driver<L, F>(args: &Arguments, tests: &[MetadataFile], span: Span) -> anyhow::Result<()>
+async fn run_driver<L, F>(
+    args: &Arguments,
+    tests: &[MetadataFile],
+    span: Span,
+) -> anyhow::Result<()>
 where
     L: Platform,
     F: Platform,
@@ -146,42 +153,52 @@ where
         .collect::<Vec<_>>();
 
     let compilation_cache = Arc::new(RwLock::new(HashMap::new()));
-    test_cases.into_par_iter().for_each(
-        |(metadata_file_path, metadata, case_idx, case, solc_mode)| {
-            let tracing_span = tracing::span!(
-                Level::INFO,
-                "Running driver",
-                metadata_file_path = %metadata_file_path.display(),
-                case_idx = case_idx,
-                solc_mode = ?solc_mode,
-            );
-            let _guard = tracing_span.enter();
-
-            let result = handle_case_driver::<L, F>(
-                metadata_file_path.as_path(),
-                metadata,
-                case_idx.into(),
-                case,
-                solc_mode,
-                args,
-                compilation_cache.clone(),
-                leader_nodes.round_robbin(),
-                follower_nodes.round_robbin(),
-                span,
-            );
-            match result {
-                Ok(inputs_executed) => tracing::info!(inputs_executed, "Execution succeeded"),
-                Err(error) => tracing::info!(%error, "Execution failed"),
-            }
-            tracing::info!("Execution completed");
-        },
-    );
+    futures::stream::iter(test_cases)
+        .for_each_concurrent(
+            None,
+            |(metadata_file_path, metadata, case_idx, case, solc_mode)| {
+                let compilation_cache = compilation_cache.clone();
+                let leader_node = leader_nodes.round_robbin();
+                let follower_node = follower_nodes.round_robbin();
+                let tracing_span = tracing::span!(
+                    Level::INFO,
+                    "Running driver",
+                    metadata_file_path = %metadata_file_path.display(),
+                    case_idx = case_idx,
+                    solc_mode = ?solc_mode,
+                );
+                async move {
+                    let result = handle_case_driver::<L, F>(
+                        metadata_file_path.as_path(),
+                        metadata,
+                        case_idx.into(),
+                        case,
+                        solc_mode,
+                        args,
+                        compilation_cache.clone(),
+                        leader_node,
+                        follower_node,
+                        span,
+                    )
+                    .await;
+                    match result {
+                        Ok(inputs_executed) => {
+                            tracing::info!(inputs_executed, "Execution succeeded")
+                        }
+                        Err(error) => tracing::info!(%error, "Execution failed"),
+                    }
+                    tracing::info!("Execution completed");
+                }
+                .instrument(tracing_span)
+            },
+        )
+        .await;
 
     Ok(())
 }
 
 #[allow(clippy::too_many_arguments)]
-fn handle_case_driver<'a, L, F>(
+async fn handle_case_driver<'a, L, F>(
     metadata_file_path: &'a Path,
     metadata: &'a Metadata,
     case_idx: CaseIdx,
@@ -206,7 +223,8 @@ where
         config,
         compilation_cache.clone(),
         &HashMap::new(),
-    )?;
+    )
+    .await?;
     let follower_pre_link_contracts = get_or_build_contracts::<F>(
         metadata,
         metadata_file_path,
@@ -214,7 +232,8 @@ where
         config,
         compilation_cache.clone(),
         &HashMap::new(),
-    )?;
+    )
+    .await?;
 
     let mut leader_deployed_libraries = HashMap::new();
     let mut follower_deployed_libraries = HashMap::new();
@@ -288,7 +307,7 @@ where
             follower_code,
         );
 
-        let leader_receipt = match leader_node.execute_transaction(leader_tx) {
+        let leader_receipt = match leader_node.execute_transaction(leader_tx).await {
             Ok(receipt) => receipt,
             Err(error) => {
                 tracing::error!(
@@ -299,7 +318,7 @@ where
                 return Err(error);
             }
         };
-        let follower_receipt = match follower_node.execute_transaction(follower_tx) {
+        let follower_receipt = match follower_node.execute_transaction(follower_tx).await {
             Ok(receipt) => receipt,
             Err(error) => {
                 tracing::error!(
@@ -349,7 +368,7 @@ where
             let leader_key = (metadata_file_path, mode.clone(), L::config_id());
             let follower_key = (metadata_file_path, mode.clone(), L::config_id());
             {
-                let mut cache = compilation_cache.write().expect("Poisoned");
+                let mut cache = compilation_cache.write().await;
                 cache.remove(&leader_key);
                 cache.remove(&follower_key);
             }
@@ -361,7 +380,8 @@ where
                 config,
                 compilation_cache.clone(),
                 &leader_deployed_libraries,
-            )?;
+            )
+            .await?;
             let follower_post_link_contracts = get_or_build_contracts::<F>(
                 metadata,
                 metadata_file_path,
@@ -369,7 +389,8 @@ where
                 config,
                 compilation_cache,
                 &follower_deployed_libraries,
-            )?;
+            )
+            .await?;
 
             (leader_post_link_contracts, follower_post_link_contracts)
         } else {
@@ -396,10 +417,10 @@ where
         leader_state,
         follower_state,
     );
-    driver.execute()
+    driver.execute().await
 }
 
-fn get_or_build_contracts<'a, P: Platform>(
+async fn get_or_build_contracts<'a, P: Platform>(
     metadata: &'a Metadata,
     metadata_file_path: &'a Path,
     mode: SolcMode,
@@ -408,13 +429,8 @@ fn get_or_build_contracts<'a, P: Platform>(
     deployed_libraries: &HashMap<ContractInstance, (Address, JsonAbi)>,
 ) -> anyhow::Result<Arc<(Version, CompilerOutput)>> {
     let key = (metadata_file_path, mode.clone(), P::config_id());
-    if let Some(compilation_artifact) = compilation_cache
-        .read()
-        .expect("Poisoned")
-        .get(&key)
-        .cloned()
-    {
-        let mut compilation_artifact = compilation_artifact.lock().expect("Poisoned");
+    if let Some(compilation_artifact) = compilation_cache.read().await.get(&key).cloned() {
+        let mut compilation_artifact = compilation_artifact.lock().await;
         match *compilation_artifact {
             Some(ref compiled_contracts) => {
                 tracing::debug!(?key, "Compiled contracts cache hit");
@@ -422,12 +438,9 @@ fn get_or_build_contracts<'a, P: Platform>(
             }
             None => {
                 tracing::debug!(?key, "Compiled contracts cache miss");
-                let compiled_contracts = Arc::new(compile_contracts::<P>(
-                    metadata,
-                    &mode,
-                    config,
-                    deployed_libraries,
-                )?);
+                let compiled_contracts = Arc::new(
+                    compile_contracts::<P>(metadata, &mode, config, deployed_libraries).await?,
+                );
                 *compilation_artifact = Some(compiled_contracts.clone());
                 return Ok(compiled_contracts.clone());
             }
@@ -436,23 +449,19 @@ fn get_or_build_contracts<'a, P: Platform>(
 
     tracing::debug!(?key, "Compiled contracts cache miss");
     let mutex = {
-        let mut compilation_cache = compilation_cache.write().expect("Poisoned");
+        let mut compilation_cache = compilation_cache.write().await;
         let mutex = Arc::new(Mutex::new(None));
         compilation_cache.insert(key, mutex.clone());
         mutex
     };
-    let mut compilation_artifact = mutex.lock().expect("Poisoned");
-    let compiled_contracts = Arc::new(compile_contracts::<P>(
-        metadata,
-        &mode,
-        config,
-        deployed_libraries,
-    )?);
+    let mut compilation_artifact = mutex.lock().await;
+    let compiled_contracts =
+        Arc::new(compile_contracts::<P>(metadata, &mode, config, deployed_libraries).await?);
     *compilation_artifact = Some(compiled_contracts.clone());
     Ok(compiled_contracts.clone())
 }
 
-fn compile_contracts<P: Platform>(
+async fn compile_contracts<P: Platform>(
     metadata: &Metadata,
     mode: &SolcMode,
     config: &Arguments,
@@ -489,18 +498,22 @@ fn compile_contracts<P: Platform>(
             });
     }
 
-    let compiler_output = compiler.try_build(compiler_path)?;
+    let compiler_output = compiler.try_build(compiler_path).await?;
 
     Ok((compiler_version, compiler_output))
 }
 
-fn execute_corpus(args: &Arguments, tests: &[MetadataFile], span: Span) -> anyhow::Result<()> {
+async fn execute_corpus(
+    args: &Arguments,
+    tests: &[MetadataFile],
+    span: Span,
+) -> anyhow::Result<()> {
     match (&args.leader, &args.follower) {
         (TestingPlatform::Geth, TestingPlatform::Kitchensink) => {
-            run_driver::<Geth, Kitchensink>(args, tests, span)?
+            run_driver::<Geth, Kitchensink>(args, tests, span).await?
         }
         (TestingPlatform::Geth, TestingPlatform::Geth) => {
-            run_driver::<Geth, Geth>(args, tests, span)?
+            run_driver::<Geth, Geth>(args, tests, span).await?
         }
         _ => unimplemented!(),
     }
@@ -508,27 +521,41 @@ fn execute_corpus(args: &Arguments, tests: &[MetadataFile], span: Span) -> anyho
     Ok(())
 }
 
-fn compile_corpus(config: &Arguments, tests: &[MetadataFile], platform: &TestingPlatform, _: Span) {
-    tests.par_iter().for_each(|metadata| {
-        for mode in &metadata.solc_modes() {
+async fn compile_corpus(
+    config: &Arguments,
+    tests: &[MetadataFile],
+    platform: &TestingPlatform,
+    _: Span,
+) {
+    let tests = tests.iter().flat_map(|metadata| {
+        metadata
+            .solc_modes()
+            .into_iter()
+            .map(move |solc_mode| (metadata, solc_mode))
+    });
+
+    futures::stream::iter(tests)
+        .for_each_concurrent(None, |(metadata, mode)| async move {
             match platform {
                 TestingPlatform::Geth => {
                     let _ = compile_contracts::<Geth>(
                         &metadata.content,
-                        mode,
+                        &mode,
                         config,
                         &Default::default(),
-                    );
+                    )
+                    .await;
                 }
                 TestingPlatform::Kitchensink => {
                     let _ = compile_contracts::<Geth>(
                         &metadata.content,
-                        mode,
+                        &mode,
                         config,
                         &Default::default(),
-                    );
+                    )
+                    .await;
                 }
-            };
-        }
-    });
+            }
+        })
+        .await;
 }
