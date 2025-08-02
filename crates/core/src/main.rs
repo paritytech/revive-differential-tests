@@ -241,6 +241,8 @@ where
                 for entry in entries_to_delete.drain(..) {
                     metadata_case_status_write.remove(&entry);
                 }
+
+                tokio::time::sleep(std::time::Duration::from_secs(3)).await;
             }
         }
     };
