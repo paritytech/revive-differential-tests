@@ -78,7 +78,6 @@ fn init_cli() -> anyhow::Result<Arguments> {
         .with_thread_names(true)
         .with_env_filter(EnvFilter::from_default_env())
         .with_ansi(false)
-        .with_writer(std::io::stderr)
         .pretty()
         .finish();
     tracing::subscriber::set_global_default(subscriber)?;
@@ -188,7 +187,7 @@ where
                         .any(|value| value.is_some_and(|value| !value));
 
                     if !contains_failures {
-                        println!(
+                        eprintln!(
                             "{}Succeeded:{} {} - {:?}",
                             GREEN,
                             RESET,
@@ -196,7 +195,7 @@ where
                             solc_mode
                         )
                     } else {
-                        println!(
+                        eprintln!(
                             "{}Failed:{} {} - {:?}",
                             RED,
                             RESET,
@@ -214,7 +213,7 @@ where
                     case_status.sort_by(|a, b| a.0.cmp(&b.0));
                     for (_, case_name, case_status) in case_status.into_iter() {
                         if case_status {
-                            println!(
+                            eprintln!(
                                 "{GREEN}  Case Succeeded:{RESET} {}",
                                 case_name
                                     .as_ref()
@@ -222,7 +221,7 @@ where
                                     .unwrap_or("Unnamed case")
                             )
                         } else {
-                            println!(
+                            eprintln!(
                                 "{RED}  Case Failed:{RESET} {}",
                                 case_name
                                     .as_ref()
@@ -231,7 +230,7 @@ where
                             )
                         };
                     }
-                    println!();
+                    eprintln!();
 
                     entries_to_delete.push((metadata_file_path.clone(), solc_mode.clone()));
                 }
