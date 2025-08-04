@@ -162,6 +162,20 @@ where
                 Some(false) | None => true,
             },
         )
+        .filter(
+            |(metadata_file_path, _, case_idx, case, _)| match case.ignore {
+                Some(true) => {
+                    tracing::warn!(
+                        metadata_file_path = %metadata_file_path.display(),
+                        case_idx,
+                        case_name = ?case.name,
+                        "Ignoring case"
+                    );
+                    false
+                }
+                Some(false) | None => true,
+            },
+        )
         .collect::<Vec<_>>();
 
     let metadata_case_status = Arc::new(RwLock::new(test_cases.iter().fold(
@@ -462,6 +476,17 @@ where
                 return Err(error);
             }
         };
+
+        tracing::info!(
+            ?library_instance,
+            library_address = ?leader_receipt.contract_address,
+            "Deployed library to leader"
+        );
+        tracing::info!(
+            ?library_instance,
+            library_address = ?follower_receipt.contract_address,
+            "Deployed library to follower"
+        );
 
         let Some(leader_library_address) = leader_receipt.contract_address else {
             tracing::error!("Contract deployment transaction didn't return an address");

@@ -5,6 +5,7 @@ use std::marker::PhantomData;
 use std::path::PathBuf;
 
 use alloy::eips::BlockNumberOrTag;
+use alloy::hex;
 use alloy::json_abi::JsonAbi;
 use alloy::network::{Ethereum, TransactionBuilder};
 use alloy::primitives::{BlockNumber, U256};
@@ -242,6 +243,11 @@ where
         ) {
             let value = U256::from_be_slice(output_word);
             self.variables.insert(variable_name.clone(), value);
+            tracing::info!(
+                variable_name,
+                variable_value = hex::encode(value.to_be_bytes::<32>()),
+                "Assigned variable"
+            );
         }
 
         Ok(())
