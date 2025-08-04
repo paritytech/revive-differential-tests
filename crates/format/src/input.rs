@@ -202,13 +202,13 @@ impl Input {
         &'a self,
         deployed_contracts: &HashMap<ContractInstance, (Address, JsonAbi)>,
         variables: impl Into<Option<&'a HashMap<String, U256>>> + Clone,
-        chain_state_provider: &impl ResolverApi,
+        resolver: &impl ResolverApi,
     ) -> anyhow::Result<Bytes> {
         match self.method {
             Method::Deployer | Method::Fallback => {
                 let calldata = self
                     .calldata
-                    .calldata(deployed_contracts, variables, chain_state_provider)
+                    .calldata(deployed_contracts, variables, resolver)
                     .await?;
 
                 Ok(calldata.into())
@@ -256,12 +256,7 @@ impl Input {
                 let mut calldata = Vec::<u8>::with_capacity(4 + self.calldata.size_requirement());
                 calldata.extend(function.selector().0);
                 self.calldata
-                    .calldata_into_slice(
-                        &mut calldata,
-                        deployed_contracts,
-                        variables,
-                        chain_state_provider,
-                    )
+                    .calldata_into_slice(&mut calldata, deployed_contracts, variables, resolver)
                     .await?;
 
                 Ok(calldata.into())
@@ -274,10 +269,10 @@ impl Input {
         &'a self,
         deployed_contracts: &HashMap<ContractInstance, (Address, JsonAbi)>,
         variables: impl Into<Option<&'a HashMap<String, U256>>> + Clone,
-        chain_state_provider: &impl ResolverApi,
+        resolver: &impl ResolverApi,
     ) -> anyhow::Result<TransactionRequest> {
         let input_data = self
-            .encoded_input(deployed_contracts, variables, chain_state_provider)
+            .encoded_input(deployed_contracts, variables, resolver)
             .await?;
         let transaction_request = TransactionRequest::default().from(self.caller).value(
             self.value
@@ -360,16 +355,11 @@ impl Calldata {
         &'a self,
         deployed_contracts: &HashMap<ContractInstance, (Address, JsonAbi)>,
         variables: impl Into<Option<&'a HashMap<String, U256>>> + Clone,
-        chain_state_provider: &impl ResolverApi,
+        resolver: &impl ResolverApi,
     ) -> anyhow::Result<Vec<u8>> {
         let mut buffer = Vec::<u8>::with_capacity(self.size_requirement());
-        self.calldata_into_slice(
-            &mut buffer,
-            deployed_contracts,
-            variables,
-            chain_state_provider,
-        )
-        .await?;
+        self.calldata_into_slice(&mut buffer, deployed_contracts, variables, resolver)
+            .await?;
         Ok(buffer)
     }
 
@@ -378,7 +368,7 @@ impl Calldata {
         buffer: &mut Vec<u8>,
         deployed_contracts: &HashMap<ContractInstance, (Address, JsonAbi)>,
         variables: impl Into<Option<&'a HashMap<String, U256>>> + Clone,
-        chain_state_provider: &impl ResolverApi,
+        resolver: &impl ResolverApi,
     ) -> anyhow::Result<()> {
         match self {
             Calldata::Single(bytes) => {
@@ -387,7 +377,7 @@ impl Calldata {
             Calldata::Compound(items) => {
                 for (arg_idx, arg) in items.iter().enumerate() {
                     match arg
-                        .resolve(deployed_contracts, variables.clone(), chain_state_provider)
+                        .resolve(deployed_contracts, variables.clone(), resolver)
                         .await
                     {
                         Ok(resolved) => {
@@ -417,7 +407,7 @@ impl Calldata {
         other: &[u8],
         deployed_contracts: &HashMap<ContractInstance, (Address, JsonAbi)>,
         variables: impl Into<Option<&'a HashMap<String, U256>>> + Clone,
-        chain_state_provider: &impl ResolverApi,
+        resolver: &impl ResolverApi,
     ) -> anyhow::Result<bool> {
         match self {
             Calldata::Single(calldata) => Ok(calldata == other),
@@ -440,7 +430,7 @@ impl Calldata {
                     };
 
                     let this = this
-                        .resolve(deployed_contracts, variables.clone(), chain_state_provider)
+                        .resolve(deployed_contracts, variables.clone(), resolver)
                         .await?;
                     let other = U256::from_be_slice(&other);
                     if this != other {
@@ -458,13 +448,13 @@ impl CalldataItem {
         &'a self,
         deployed_contracts: &HashMap<ContractInstance, (Address, JsonAbi)>,
         variables: impl Into<Option<&'a HashMap<String, U256>>> + Clone,
-        chain_state_provider: &impl ResolverApi,
+        resolver: &impl ResolverApi,
     ) -> anyhow::Result<U256> {
         let mut stack = Vec::<CalldataToken<U256>>::new();
 
         for token in self
             .calldata_tokens()
-            .map(|token| token.resolve(deployed_contracts, variables.clone(), chain_state_provider))
+            .map(|token| token.resolve(deployed_contracts, variables.clone(), resolver))
         {
             let token = token.await?;
             let new_token = match token {
@@ -569,7 +559,7 @@ impl<T: AsRef<str>> CalldataToken<T> {
         self,
         deployed_contracts: &HashMap<ContractInstance, (Address, JsonAbi)>,
         variables: impl Into<Option<&'a HashMap<String, U256>>> + Clone,
-        chain_state_provider: &impl ResolverApi,
+        resolver: &impl ResolverApi,
     ) -> anyhow::Result<CalldataToken<U256>> {
         match self {
             Self::Item(item) => {
@@ -599,22 +589,17 @@ impl<T: AsRef<str>> CalldataToken<T> {
                         anyhow::anyhow!("Invalid hexadecimal literal: {}", error)
                     })?)
                 } else if item == Self::CHAIN_VARIABLE {
-                    let chain_id = chain_state_provider.chain_id().await?;
+                    let chain_id = resolver.chain_id().await?;
                     Ok(U256::from(chain_id))
                 } else if item == Self::GAS_LIMIT_VARIABLE {
-                    let gas_limit = chain_state_provider
-                        .block_gas_limit(BlockNumberOrTag::Latest)
-                        .await?;
+                    let gas_limit = resolver.block_gas_limit(BlockNumberOrTag::Latest).await?;
                     Ok(U256::from(gas_limit))
                 } else if item == Self::COINBASE_VARIABLE {
-                    let coinbase = chain_state_provider
-                        .block_coinbase(BlockNumberOrTag::Latest)
-                        .await?;
+                    let coinbase = resolver.block_coinbase(BlockNumberOrTag::Latest).await?;
                     Ok(U256::from_be_slice(coinbase.as_ref()))
                 } else if item == Self::DIFFICULTY_VARIABLE {
-                    let block_difficulty = chain_state_provider
-                        .block_difficulty(BlockNumberOrTag::Latest)
-                        .await?;
+                    let block_difficulty =
+                        resolver.block_difficulty(BlockNumberOrTag::Latest).await?;
                     Ok(block_difficulty)
                 } else if item.starts_with(Self::BLOCK_HASH_VARIABLE_PREFIX) {
                     let offset: u64 = item
@@ -623,21 +608,17 @@ impl<T: AsRef<str>> CalldataToken<T> {
                         .and_then(|value| value.parse().ok())
                         .unwrap_or_default();
 
-                    let current_block_number = chain_state_provider.last_block_number().await?;
+                    let current_block_number = resolver.last_block_number().await?;
                     let desired_block_number = current_block_number - offset;
 
-                    let block_hash = chain_state_provider
-                        .block_hash(desired_block_number.into())
-                        .await?;
+                    let block_hash = resolver.block_hash(desired_block_number.into()).await?;
 
                     Ok(U256::from_be_bytes(block_hash.0))
                 } else if item == Self::BLOCK_NUMBER_VARIABLE {
-                    let current_block_number = chain_state_provider.last_block_number().await?;
+                    let current_block_number = resolver.last_block_number().await?;
                     Ok(U256::from(current_block_number))
                 } else if item == Self::BLOCK_TIMESTAMP_VARIABLE {
-                    let timestamp = chain_state_provider
-                        .block_timestamp(BlockNumberOrTag::Latest)
-                        .await?;
+                    let timestamp = resolver.block_timestamp(BlockNumberOrTag::Latest).await?;
                     Ok(U256::from(timestamp))
                 } else if let Some(variable_name) = item.strip_prefix(Self::VARIABLE_PREFIX) {
                     let Some(variables) = variables.into() else {
@@ -882,10 +863,10 @@ mod tests {
     async fn resolve_calldata_item(
         input: &str,
         deployed_contracts: &HashMap<ContractInstance, (Address, JsonAbi)>,
-        chain_state_provider: &impl ResolverApi,
+        resolver: &impl ResolverApi,
     ) -> anyhow::Result<U256> {
         CalldataItem::new(input)
-            .resolve(deployed_contracts, None, chain_state_provider)
+            .resolve(deployed_contracts, None, resolver)
             .await
     }
 

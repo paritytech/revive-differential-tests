@@ -150,6 +150,18 @@ where
                     })
             },
         )
+        .filter(
+            |(metadata_file_path, metadata, _, _, _)| match metadata.ignore {
+                Some(true) => {
+                    tracing::warn!(
+                        metadata_file_path = %metadata_file_path.display(),
+                        "Ignoring metadata file"
+                    );
+                    false
+                }
+                Some(false) | None => true,
+            },
+        )
         .collect::<Vec<_>>();
 
     let metadata_case_status = Arc::new(RwLock::new(test_cases.iter().fold(
@@ -169,6 +181,8 @@ where
             const RESET: &str = "\x1B[0m";
 
             let mut entries_to_delete = Vec::new();
+            let mut number_of_successes = 0;
+            let mut number_of_failures = 0;
             loop {
                 let metadata_case_status_read = metadata_case_status.read().await;
                 if metadata_case_status_read.is_empty() {
@@ -203,6 +217,15 @@ where
                             solc_mode
                         )
                     };
+
+                    number_of_successes += case_status
+                        .values()
+                        .filter(|value| value.is_some_and(|value| value))
+                        .count();
+                    number_of_failures += case_status
+                        .values()
+                        .filter(|value| value.is_some_and(|value| !value))
+                        .count();
 
                     let mut case_status = case_status
                         .iter()
@@ -243,6 +266,10 @@ where
 
                 tokio::time::sleep(std::time::Duration::from_secs(3)).await;
             }
+
+            eprintln!(
+                "{GREEN}{number_of_successes}{RESET} cases succeeded, {RED}{number_of_failures}{RESET} cases failed"
+            );
         }
     };
 
@@ -289,7 +316,7 @@ where
                             .entry((metadata_file_path.clone(), solc_mode))
                             .or_default()
                             .insert((CaseIdx::new(case_idx), case.name.clone()), Some(false));
-                        tracing::info!(%error, "Execution failed")
+                        tracing::error!(%error, "Execution failed")
                     }
                 }
                 tracing::info!("Execution completed");
@@ -545,7 +572,14 @@ async fn get_or_build_contracts<'a, P: Platform>(
             None => {
                 tracing::debug!(?key, "Compiled contracts cache miss");
                 let compiled_contracts = Arc::new(
-                    compile_contracts::<P>(metadata, &mode, config, deployed_libraries).await?,
+                    compile_contracts::<P>(
+                        metadata,
+                        metadata_file_path,
+                        &mode,
+                        config,
+                        deployed_libraries,
+                    )
+                    .await?,
                 );
                 *compilation_artifact = Some(compiled_contracts.clone());
                 return Ok(compiled_contracts.clone());
@@ -561,14 +595,23 @@ async fn get_or_build_contracts<'a, P: Platform>(
         mutex
     };
     let mut compilation_artifact = mutex.lock().await;
-    let compiled_contracts =
-        Arc::new(compile_contracts::<P>(metadata, &mode, config, deployed_libraries).await?);
+    let compiled_contracts = Arc::new(
+        compile_contracts::<P>(
+            metadata,
+            metadata_file_path,
+            &mode,
+            config,
+            deployed_libraries,
+        )
+        .await?,
+    );
     *compilation_artifact = Some(compiled_contracts.clone());
     Ok(compiled_contracts.clone())
 }
 
 async fn compile_contracts<P: Platform>(
     metadata: &Metadata,
+    metadata_file_path: &Path,
     mode: &SolcMode,
     config: &Arguments,
     deployed_libraries: &HashMap<ContractInstance, (Address, JsonAbi)>,
@@ -577,6 +620,13 @@ async fn compile_contracts<P: Platform>(
     let compiler_path =
         P::Compiler::get_compiler_executable(config, compiler_version_or_requirement).await?;
     let compiler_version = P::Compiler::new(compiler_path.clone()).version()?;
+
+    tracing::info!(
+        %compiler_version,
+        metadata_file_path = %metadata_file_path.display(),
+        mode = ?mode,
+        "Compiling contracts"
+    );
 
     let compiler = Compiler::<P::Compiler>::new()
         .with_allow_path(metadata.directory()?)
@@ -592,11 +642,11 @@ async fn compile_contracts<P: Platform>(
             .expect("Impossible for library to not be found in contracts")
             .contract_ident;
 
-        // Note the following: we need to tell solc which files require the libraries to be
-        // linked into them. We do not have access to this information and therefore we choose
-        // an easier, yet more compute intensive route, of telling solc that all of the files
-        // need to link the library and it will only perform the linking for the files that do
-        // actually need the library.
+        // Note the following: we need to tell solc which files require the libraries to be linked
+        // into them. We do not have access to this information and therefore we choose an easier,
+        // yet more compute intensive route, of telling solc that all of the files need to link the
+        // library and it will only perform the linking for the files that do actually need the
+        // library.
         compiler = FilesWithExtensionIterator::new(metadata.directory()?)
             .with_allowed_extension("sol")
             .fold(compiler, |compiler, path| {
@@ -646,6 +696,7 @@ async fn compile_corpus(
                 TestingPlatform::Geth => {
                     let _ = compile_contracts::<Geth>(
                         &metadata.content,
+                        &metadata.path,
                         &mode,
                         config,
                         &Default::default(),
@@ -655,6 +706,7 @@ async fn compile_corpus(
                 TestingPlatform::Kitchensink => {
                     let _ = compile_contracts::<Geth>(
                         &metadata.content,
+                        &metadata.path,
                         &mode,
                         config,
                         &Default::default(),
