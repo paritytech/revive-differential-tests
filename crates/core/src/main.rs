@@ -152,47 +152,153 @@ where
         )
         .collect::<Vec<_>>();
 
-    let compilation_cache = Arc::new(RwLock::new(HashMap::new()));
-    futures::stream::iter(test_cases)
-        .for_each_concurrent(
-            None,
-            |(metadata_file_path, metadata, case_idx, case, solc_mode)| {
-                let compilation_cache = compilation_cache.clone();
-                let leader_node = leader_nodes.round_robbin();
-                let follower_node = follower_nodes.round_robbin();
-                let tracing_span = tracing::span!(
-                    Level::INFO,
-                    "Running driver",
-                    metadata_file_path = %metadata_file_path.display(),
-                    case_idx = case_idx,
-                    solc_mode = ?solc_mode,
-                );
-                async move {
-                    let result = handle_case_driver::<L, F>(
-                        metadata_file_path.as_path(),
-                        metadata,
-                        case_idx.into(),
-                        case,
-                        solc_mode,
-                        args,
-                        compilation_cache.clone(),
-                        leader_node,
-                        follower_node,
-                        span,
-                    )
-                    .await;
-                    match result {
-                        Ok(inputs_executed) => {
-                            tracing::info!(inputs_executed, "Execution succeeded")
-                        }
-                        Err(error) => tracing::info!(%error, "Execution failed"),
-                    }
-                    tracing::info!("Execution completed");
+    let metadata_case_status = Arc::new(RwLock::new(test_cases.iter().fold(
+        HashMap::<_, HashMap<_, _>>::new(),
+        |mut map, (path, _, case_idx, case, solc_mode)| {
+            map.entry((path.to_path_buf(), solc_mode.clone()))
+                .or_default()
+                .insert((CaseIdx::new(*case_idx), case.name.clone()), None::<bool>);
+            map
+        },
+    )));
+    let status_reporter_task = {
+        let metadata_case_status = metadata_case_status.clone();
+        async move {
+            const GREEN: &str = "\x1B[32m";
+            const RED: &str = "\x1B[31m";
+            const RESET: &str = "\x1B[0m";
+
+            let mut entries_to_delete = Vec::new();
+            loop {
+                let metadata_case_status_read = metadata_case_status.read().await;
+                if metadata_case_status_read.is_empty() {
+                    break;
                 }
-                .instrument(tracing_span)
-            },
-        )
-        .await;
+
+                for ((metadata_file_path, solc_mode), case_status) in
+                    metadata_case_status_read.iter()
+                {
+                    if case_status.values().any(|value| value.is_none()) {
+                        continue;
+                    }
+
+                    let contains_failures = case_status
+                        .values()
+                        .any(|value| value.is_some_and(|value| !value));
+
+                    if !contains_failures {
+                        eprintln!(
+                            "{}Succeeded:{} {} - {:?}",
+                            GREEN,
+                            RESET,
+                            metadata_file_path.display(),
+                            solc_mode
+                        )
+                    } else {
+                        eprintln!(
+                            "{}Failed:{} {} - {:?}",
+                            RED,
+                            RESET,
+                            metadata_file_path.display(),
+                            solc_mode
+                        )
+                    };
+
+                    let mut case_status = case_status
+                        .iter()
+                        .map(|((case_idx, case_name), case_status)| {
+                            (case_idx.into_inner(), case_name, case_status.unwrap())
+                        })
+                        .collect::<Vec<_>>();
+                    case_status.sort_by(|a, b| a.0.cmp(&b.0));
+                    for (_, case_name, case_status) in case_status.into_iter() {
+                        if case_status {
+                            eprintln!(
+                                "{GREEN}  Case Succeeded:{RESET} {}",
+                                case_name
+                                    .as_ref()
+                                    .map(|string| string.as_str())
+                                    .unwrap_or("Unnamed case")
+                            )
+                        } else {
+                            eprintln!(
+                                "{RED}  Case Failed:{RESET} {}",
+                                case_name
+                                    .as_ref()
+                                    .map(|string| string.as_str())
+                                    .unwrap_or("Unnamed case")
+                            )
+                        };
+                    }
+                    eprintln!();
+
+                    entries_to_delete.push((metadata_file_path.clone(), solc_mode.clone()));
+                }
+
+                drop(metadata_case_status_read);
+                let mut metadata_case_status_write = metadata_case_status.write().await;
+                for entry in entries_to_delete.drain(..) {
+                    metadata_case_status_write.remove(&entry);
+                }
+
+                tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+            }
+        }
+    };
+
+    let compilation_cache = Arc::new(RwLock::new(HashMap::new()));
+    let driver_task = futures::stream::iter(test_cases).for_each_concurrent(
+        None,
+        |(metadata_file_path, metadata, case_idx, case, solc_mode)| {
+            let compilation_cache = compilation_cache.clone();
+            let leader_node = leader_nodes.round_robbin();
+            let follower_node = follower_nodes.round_robbin();
+            let tracing_span = tracing::span!(
+                Level::INFO,
+                "Running driver",
+                metadata_file_path = %metadata_file_path.display(),
+                case_idx = case_idx,
+                solc_mode = ?solc_mode,
+            );
+            let metadata_case_status = metadata_case_status.clone();
+            async move {
+                let result = handle_case_driver::<L, F>(
+                    metadata_file_path.as_path(),
+                    metadata,
+                    case_idx.into(),
+                    case,
+                    solc_mode.clone(),
+                    args,
+                    compilation_cache.clone(),
+                    leader_node,
+                    follower_node,
+                    span,
+                )
+                .await;
+                let mut metadata_case_status = metadata_case_status.write().await;
+                match result {
+                    Ok(inputs_executed) => {
+                        tracing::info!(inputs_executed, "Execution succeeded");
+                        metadata_case_status
+                            .entry((metadata_file_path.clone(), solc_mode))
+                            .or_default()
+                            .insert((CaseIdx::new(case_idx), case.name.clone()), Some(true));
+                    }
+                    Err(error) => {
+                        metadata_case_status
+                            .entry((metadata_file_path.clone(), solc_mode))
+                            .or_default()
+                            .insert((CaseIdx::new(case_idx), case.name.clone()), Some(false));
+                        tracing::info!(%error, "Execution failed")
+                    }
+                }
+                tracing::info!("Execution completed");
+            }
+            .instrument(tracing_span)
+        },
+    );
+
+    tokio::join!(status_reporter_task, driver_task);
 
     Ok(())
 }
