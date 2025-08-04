@@ -15,6 +15,7 @@ pub struct Case {
     pub inputs: Vec<Input>,
     pub group: Option<String>,
     pub expected: Option<Expected>,
+    pub ignore: Option<bool>,
 }
 
 impl Case {
