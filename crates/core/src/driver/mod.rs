@@ -4,9 +4,10 @@ use std::collections::HashMap;
 use std::marker::PhantomData;
 use std::path::PathBuf;
 
+use alloy::eips::BlockNumberOrTag;
 use alloy::json_abi::JsonAbi;
 use alloy::network::{Ethereum, TransactionBuilder};
-use alloy::primitives::U256;
+use alloy::primitives::{BlockNumber, U256};
 use alloy::rpc::types::TransactionReceipt;
 use alloy::rpc::types::trace::geth::{
     CallFrame, GethDebugBuiltInTracerType, GethDebugTracerType, GethDebugTracingOptions, GethTrace,
@@ -21,6 +22,7 @@ use alloy::{
 };
 use anyhow::Context;
 use indexmap::IndexMap;
+use revive_dt_format::traits::ResolverApi;
 use semver::Version;
 
 use revive_dt_format::case::{Case, CaseIdx};
@@ -29,6 +31,7 @@ use revive_dt_format::metadata::{ContractInstance, ContractPathAndIdent};
 use revive_dt_format::{input::Input, metadata::Metadata};
 use revive_dt_node::Node;
 use revive_dt_node_interaction::EthereumNode;
+use tracing::Instrument;
 
 use crate::Platform;
 
@@ -84,7 +87,13 @@ where
             .handle_input_call_frame_tracing(&execution_receipt, node)
             .await?;
         self.handle_input_variable_assignment(input, &tracing_result)?;
-        self.handle_input_expectations(input, &execution_receipt, node, &tracing_result)
+        let resolver = BlockPinnedResolver::<'_, T> {
+            node,
+            block_number: execution_receipt
+                .block_number
+                .context("Transaction was not included in a block")?,
+        };
+        self.handle_input_expectations(input, &execution_receipt, &resolver, &tracing_result)
             .await?;
         self.handle_input_diff(case_idx, execution_receipt, node)
             .await
@@ -242,7 +251,7 @@ where
         &mut self,
         input: &Input,
         execution_receipt: &TransactionReceipt,
-        node: &T::Blockchain,
+        resolver: &impl ResolverApi,
         tracing_result: &CallFrame,
     ) -> anyhow::Result<()> {
         let span = tracing::info_span!("Handling input expectations");
@@ -279,7 +288,7 @@ where
         for expectation in expectations.iter() {
             self.handle_input_expectation_item(
                 execution_receipt,
-                node,
+                resolver,
                 expectation,
                 tracing_result,
             )
@@ -292,7 +301,7 @@ where
     async fn handle_input_expectation_item(
         &mut self,
         execution_receipt: &TransactionReceipt,
-        node: &T::Blockchain,
+        resolver: &impl ResolverApi,
         expectation: &ExpectedOutput,
         tracing_result: &CallFrame,
     ) -> anyhow::Result<()> {
@@ -304,7 +313,6 @@ where
 
         let deployed_contracts = &mut self.deployed_contracts;
         let variables = &mut self.variables;
-        let chain_state_provider = node;
 
         // Handling the receipt state assertion.
         let expected = !expectation.exception;
@@ -327,12 +335,7 @@ where
             let expected = expected_calldata;
             let actual = &tracing_result.output.as_ref().unwrap_or_default();
             if !expected
-                .is_equivalent(
-                    actual,
-                    deployed_contracts,
-                    &*variables,
-                    chain_state_provider,
-                )
+                .is_equivalent(actual, deployed_contracts, &*variables, resolver)
                 .await?
             {
                 tracing::error!(
@@ -358,14 +361,16 @@ where
             }
 
             // Handling the events assertion.
-            for (expected_event, actual_event) in
-                expected_events.iter().zip(execution_receipt.logs())
+            for (event_idx, (expected_event, actual_event)) in expected_events
+                .iter()
+                .zip(execution_receipt.logs())
+                .enumerate()
             {
                 // Handling the emitter assertion.
                 if let Some(ref expected_address) = expected_event.address {
                     let expected = Address::from_slice(
                         Calldata::new_compound([expected_address])
-                            .calldata(deployed_contracts, &*variables, node)
+                            .calldata(deployed_contracts, &*variables, resolver)
                             .await?
                             .get(12..32)
                             .expect("Can't fail"),
@@ -373,6 +378,7 @@ where
                     let actual = actual_event.address();
                     if actual != expected {
                         tracing::error!(
+                            event_idx,
                             %expected,
                             %actual,
                             "Event emitter assertion failed",
@@ -392,15 +398,11 @@ where
                 {
                     let expected = Calldata::new_compound([expected]);
                     if !expected
-                        .is_equivalent(
-                            &actual.0,
-                            deployed_contracts,
-                            &*variables,
-                            chain_state_provider,
-                        )
+                        .is_equivalent(&actual.0, deployed_contracts, &*variables, resolver)
                         .await?
                     {
                         tracing::error!(
+                            event_idx,
                             ?execution_receipt,
                             ?expected,
                             ?actual,
@@ -416,15 +418,11 @@ where
                 let expected = &expected_event.values;
                 let actual = &actual_event.data().data;
                 if !expected
-                    .is_equivalent(
-                        &actual.0,
-                        deployed_contracts,
-                        &*variables,
-                        chain_state_provider,
-                    )
+                    .is_equivalent(&actual.0, deployed_contracts, &*variables, resolver)
                     .await?
                 {
                     tracing::error!(
+                        event_idx,
                         ?execution_receipt,
                         ?expected,
                         ?actual,
@@ -649,15 +647,16 @@ where
         let mut inputs_executed = 0;
         for (input_idx, input) in self.case.inputs_iterator().enumerate() {
             let tracing_span = tracing::info_span!("Handling input", input_idx);
-            let _guard = tracing_span.enter();
 
             let (leader_receipt, _, leader_diff) = self
                 .leader_state
                 .handle_input(self.metadata, self.case_idx, &input, self.leader_node)
+                .instrument(tracing_span.clone())
                 .await?;
             let (follower_receipt, _, follower_diff) = self
                 .follower_state
                 .handle_input(self.metadata, self.case_idx, &input, self.follower_node)
+                .instrument(tracing_span)
                 .await?;
 
             if leader_diff == follower_diff {
@@ -678,5 +677,69 @@ where
         }
 
         Ok(inputs_executed)
+    }
+}
+
+pub struct BlockPinnedResolver<'a, T: Platform> {
+    block_number: BlockNumber,
+    node: &'a T::Blockchain,
+}
+
+impl<'a, T: Platform> ResolverApi for BlockPinnedResolver<'a, T> {
+    async fn chain_id(&self) -> anyhow::Result<alloy::primitives::ChainId> {
+        self.node.chain_id().await
+    }
+
+    async fn block_gas_limit(&self, number: BlockNumberOrTag) -> anyhow::Result<u128> {
+        self.node
+            .block_gas_limit(self.resolve_block_number_or_tag(number))
+            .await
+    }
+
+    async fn block_coinbase(&self, number: BlockNumberOrTag) -> anyhow::Result<Address> {
+        self.node
+            .block_coinbase(self.resolve_block_number_or_tag(number))
+            .await
+    }
+
+    async fn block_difficulty(&self, number: BlockNumberOrTag) -> anyhow::Result<U256> {
+        self.node
+            .block_difficulty(self.resolve_block_number_or_tag(number))
+            .await
+    }
+
+    async fn block_hash(
+        &self,
+        number: BlockNumberOrTag,
+    ) -> anyhow::Result<alloy::primitives::BlockHash> {
+        self.node
+            .block_hash(self.resolve_block_number_or_tag(number))
+            .await
+    }
+
+    async fn block_timestamp(
+        &self,
+        number: BlockNumberOrTag,
+    ) -> anyhow::Result<alloy::primitives::BlockTimestamp> {
+        self.node
+            .block_timestamp(self.resolve_block_number_or_tag(number))
+            .await
+    }
+
+    async fn last_block_number(&self) -> anyhow::Result<alloy::primitives::BlockNumber> {
+        Ok(self.block_number)
+    }
+}
+
+impl<'a, T: Platform> BlockPinnedResolver<'a, T> {
+    fn resolve_block_number_or_tag(&self, number: BlockNumberOrTag) -> BlockNumberOrTag {
+        match number {
+            BlockNumberOrTag::Latest => BlockNumberOrTag::Number(self.block_number),
+            n @ BlockNumberOrTag::Finalized
+            | n @ BlockNumberOrTag::Safe
+            | n @ BlockNumberOrTag::Earliest
+            | n @ BlockNumberOrTag::Pending
+            | n @ BlockNumberOrTag::Number(_) => n,
+        }
     }
 }

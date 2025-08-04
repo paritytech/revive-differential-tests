@@ -77,7 +77,7 @@ pub struct Arguments {
     /// This argument controls which private keys the nodes should have access to and be added to
     /// its wallet signers. With a value of N, private keys (0, N] will be added to the signer set
     /// of the node.
-    #[arg(long = "private-keys-count", default_value_t = 15_000)]
+    #[arg(long = "private-keys-count", default_value_t = 100_000)]
     pub private_keys_to_add: usize,
 
     /// The differential testing leader node implementation.

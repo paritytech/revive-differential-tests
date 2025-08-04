@@ -209,7 +209,7 @@ impl KitchensinkNode {
         if let Err(error) = Self::wait_ready(
             self.kitchensink_stderr_log_file_path().as_path(),
             Self::SUBSTRATE_READY_MARKER,
-            Duration::from_secs(30),
+            Duration::from_secs(60),
         ) {
             tracing::error!(
                 ?error,
@@ -238,7 +238,7 @@ impl KitchensinkNode {
         if let Err(error) = Self::wait_ready(
             self.proxy_stderr_log_file_path().as_path(),
             Self::ETH_PROXY_READY_MARKER,
-            Duration::from_secs(30),
+            Duration::from_secs(60),
         ) {
             tracing::error!(?error, "Failed to start proxy, shutting down gracefully");
             self.shutdown()?;
