@@ -248,10 +248,10 @@ where
                         })
                         .collect::<Vec<_>>();
                     case_status.sort_by(|a, b| a.0.cmp(&b.0));
-                    for (_, case_name, case_status) in case_status.into_iter() {
+                    for (case_idx, case_name, case_status) in case_status.into_iter() {
                         if case_status {
                             eprintln!(
-                                "{GREEN}  Case Succeeded:{RESET} {}",
+                                "  {GREEN}Case Succeeded:{RESET} {} - Case Idx: {case_idx}",
                                 case_name
                                     .as_ref()
                                     .map(|string| string.as_str())
@@ -259,7 +259,7 @@ where
                             )
                         } else {
                             eprintln!(
-                                "{RED}  Case Failed:{RESET} {}",
+                                "  {RED}Case Failed:{RESET} {} - Case Idx: {case_idx}",
                                 case_name
                                     .as_ref()
                                     .map(|string| string.as_str())
