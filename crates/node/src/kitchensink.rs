@@ -16,12 +16,14 @@ use alloy::{
         TransactionBuilderError, UnbuiltTransactionError,
     },
     primitives::{
-        Address, B64, B256, BlockHash, BlockNumber, BlockTimestamp, Bloom, Bytes, FixedBytes, U256,
+        Address, B64, B256, BlockHash, BlockNumber, BlockTimestamp, Bloom, Bytes, FixedBytes,
+        TxHash, U256,
     },
     providers::{
         Provider, ProviderBuilder,
         ext::DebugApi,
         fillers::{CachedNonceManager, ChainIdFiller, FillProvider, NonceFiller, TxFiller},
+        layers::CacheLayer,
     },
     rpc::types::{
         TransactionReceipt,
@@ -371,6 +373,7 @@ impl KitchensinkNode {
                 ))
                 .filler(ChainIdFiller::default())
                 .filler(NonceFiller::new(nonce_manager))
+                .layer(CacheLayer::new(10_000))
                 .wallet(wallet)
                 .connect(&connection_string)
                 .await
@@ -437,6 +440,16 @@ impl ResolverApi for KitchensinkNode {
             .get_chain_id()
             .await
             .map_err(Into::into)
+    }
+
+    #[tracing::instrument(skip_all, fields(kitchensink_node_id = self.id))]
+    async fn transaction_gas_price(&self, tx_hash: &TxHash) -> anyhow::Result<u128> {
+        self.provider()
+            .await?
+            .get_transaction_receipt(*tx_hash)
+            .await?
+            .context("Failed to get the transaction receipt")
+            .map(|receipt| receipt.effective_gas_price)
     }
 
     #[tracing::instrument(skip_all, fields(kitchensink_node_id = self.id))]

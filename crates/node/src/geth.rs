@@ -17,11 +17,12 @@ use alloy::{
     eips::BlockNumberOrTag,
     genesis::{Genesis, GenesisAccount},
     network::{Ethereum, EthereumWallet, NetworkWallet},
-    primitives::{Address, BlockHash, BlockNumber, BlockTimestamp, FixedBytes, U256},
+    primitives::{Address, BlockHash, BlockNumber, BlockTimestamp, FixedBytes, TxHash, U256},
     providers::{
         Provider, ProviderBuilder,
         ext::DebugApi,
         fillers::{CachedNonceManager, ChainIdFiller, FillProvider, NonceFiller, TxFiller},
+        layers::CacheLayer,
     },
     rpc::types::{
         TransactionReceipt, TransactionRequest,
@@ -257,6 +258,7 @@ impl GethNode {
                 .filler(FallbackGasFiller::new(500_000_000, 500_000_000, 1))
                 .filler(ChainIdFiller::default())
                 .filler(NonceFiller::new(nonce_manager))
+                .layer(CacheLayer::new(10_000))
                 .wallet(wallet)
                 .connect(&connection_string)
                 .await
@@ -381,6 +383,16 @@ impl ResolverApi for GethNode {
             .get_chain_id()
             .await
             .map_err(Into::into)
+    }
+
+    #[tracing::instrument(skip_all, fields(geth_node_id = self.id))]
+    async fn transaction_gas_price(&self, tx_hash: &TxHash) -> anyhow::Result<u128> {
+        self.provider()
+            .await?
+            .get_transaction_receipt(*tx_hash)
+            .await?
+            .context("Failed to get the transaction receipt")
+            .map(|receipt| receipt.effective_gas_price)
     }
 
     #[tracing::instrument(skip_all, fields(geth_node_id = self.id))]
