@@ -3,7 +3,6 @@ use std::collections::HashMap;
 use alloy::{
     eips::BlockNumberOrTag,
     hex::ToHexExt,
-    json_abi::JsonAbi,
     network::TransactionBuilder,
     primitives::{Address, Bytes, U256},
     rpc::types::TransactionRequest,
@@ -15,8 +14,8 @@ use serde::{Deserialize, Serialize};
 
 use revive_dt_common::macros::define_wrapper_type;
 
-use crate::metadata::ContractInstance;
 use crate::traits::ResolverApi;
+use crate::{metadata::ContractInstance, traits::ResolutionContext};
 
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
 pub struct Input {
@@ -187,37 +186,21 @@ impl Input {
         ContractInstance::new("Test")
     }
 
-    fn instance_to_address(
+    pub async fn encoded_input(
         &self,
-        instance: &ContractInstance,
-        deployed_contracts: &HashMap<ContractInstance, (Address, JsonAbi)>,
-    ) -> anyhow::Result<Address> {
-        deployed_contracts
-            .get(instance)
-            .map(|(a, _)| *a)
-            .ok_or_else(|| anyhow::anyhow!("instance {instance:?} not deployed"))
-    }
-
-    pub async fn encoded_input<'a>(
-        &'a self,
-        deployed_contracts: &HashMap<ContractInstance, (Address, JsonAbi)>,
-        variables: impl Into<Option<&'a HashMap<String, U256>>> + Clone,
         resolver: &impl ResolverApi,
+        context: ResolutionContext<'_>,
     ) -> anyhow::Result<Bytes> {
         match self.method {
             Method::Deployer | Method::Fallback => {
-                let calldata = self
-                    .calldata
-                    .calldata(deployed_contracts, variables, resolver)
-                    .await?;
+                let calldata = self.calldata.calldata(resolver, context).await?;
 
                 Ok(calldata.into())
             }
             Method::FunctionName(ref function_name) => {
-                let Some(abi) = deployed_contracts.get(&self.instance).map(|(_, a)| a) else {
+                let Some(abi) = context.deployed_contract_abi(&self.instance) else {
                     tracing::error!(
                         contract_name = self.instance.as_ref(),
-                        available_abis = ?deployed_contracts.keys().collect::<Vec<_>>(),
                         "Attempted to lookup ABI of contract but it wasn't found"
                     );
                     anyhow::bail!("ABI for instance '{}' not found", self.instance.as_ref());
@@ -256,7 +239,7 @@ impl Input {
                 let mut calldata = Vec::<u8>::with_capacity(4 + self.calldata.size_requirement());
                 calldata.extend(function.selector().0);
                 self.calldata
-                    .calldata_into_slice(&mut calldata, deployed_contracts, variables, resolver)
+                    .calldata_into_slice(&mut calldata, resolver, context)
                     .await?;
 
                 Ok(calldata.into())
@@ -265,15 +248,12 @@ impl Input {
     }
 
     /// Parse this input into a legacy transaction.
-    pub async fn legacy_transaction<'a>(
-        &'a self,
-        deployed_contracts: &HashMap<ContractInstance, (Address, JsonAbi)>,
-        variables: impl Into<Option<&'a HashMap<String, U256>>> + Clone,
+    pub async fn legacy_transaction(
+        &self,
         resolver: &impl ResolverApi,
+        context: ResolutionContext<'_>,
     ) -> anyhow::Result<TransactionRequest> {
-        let input_data = self
-            .encoded_input(deployed_contracts, variables, resolver)
-            .await?;
+        let input_data = self.encoded_input(resolver, context).await?;
         let transaction_request = TransactionRequest::default().from(self.caller).value(
             self.value
                 .map(|value| value.into_inner())
@@ -282,7 +262,10 @@ impl Input {
         match self.method {
             Method::Deployer => Ok(transaction_request.with_deploy_code(input_data)),
             _ => Ok(transaction_request
-                .to(self.instance_to_address(&self.instance, deployed_contracts)?)
+                .to(context
+                    .deployed_contract_address(&self.instance)
+                    .context("Failed to get the contract address")
+                    .copied()?)
                 .input(input_data.into())),
         }
     }
@@ -351,24 +334,22 @@ impl Calldata {
         }
     }
 
-    pub async fn calldata<'a>(
-        &'a self,
-        deployed_contracts: &HashMap<ContractInstance, (Address, JsonAbi)>,
-        variables: impl Into<Option<&'a HashMap<String, U256>>> + Clone,
+    pub async fn calldata(
+        &self,
         resolver: &impl ResolverApi,
+        context: ResolutionContext<'_>,
     ) -> anyhow::Result<Vec<u8>> {
         let mut buffer = Vec::<u8>::with_capacity(self.size_requirement());
-        self.calldata_into_slice(&mut buffer, deployed_contracts, variables, resolver)
+        self.calldata_into_slice(&mut buffer, resolver, context)
             .await?;
         Ok(buffer)
     }
 
-    pub async fn calldata_into_slice<'a>(
-        &'a self,
+    pub async fn calldata_into_slice(
+        &self,
         buffer: &mut Vec<u8>,
-        deployed_contracts: &HashMap<ContractInstance, (Address, JsonAbi)>,
-        variables: impl Into<Option<&'a HashMap<String, U256>>> + Clone,
         resolver: &impl ResolverApi,
+        context: ResolutionContext<'_>,
     ) -> anyhow::Result<()> {
         match self {
             Calldata::Single(bytes) => {
@@ -376,10 +357,7 @@ impl Calldata {
             }
             Calldata::Compound(items) => {
                 for (arg_idx, arg) in items.iter().enumerate() {
-                    match arg
-                        .resolve(deployed_contracts, variables.clone(), resolver)
-                        .await
-                    {
+                    match arg.resolve(resolver, context).await {
                         Ok(resolved) => {
                             buffer.extend(resolved.to_be_bytes::<32>());
                         }
@@ -402,12 +380,11 @@ impl Calldata {
     }
 
     /// Checks if this [`Calldata`] is equivalent to the passed calldata bytes.
-    pub async fn is_equivalent<'a>(
-        &'a self,
+    pub async fn is_equivalent(
+        &self,
         other: &[u8],
-        deployed_contracts: &HashMap<ContractInstance, (Address, JsonAbi)>,
-        variables: impl Into<Option<&'a HashMap<String, U256>>> + Clone,
         resolver: &impl ResolverApi,
+        context: ResolutionContext<'_>,
     ) -> anyhow::Result<bool> {
         match self {
             Calldata::Single(calldata) => Ok(calldata == other),
@@ -429,9 +406,7 @@ impl Calldata {
                         std::borrow::Cow::Borrowed(other)
                     };
 
-                    let this = this
-                        .resolve(deployed_contracts, variables.clone(), resolver)
-                        .await?;
+                    let this = this.resolve(resolver, context).await?;
                     let other = U256::from_be_slice(&other);
                     if this != other {
                         return Ok(false);
@@ -444,17 +419,16 @@ impl Calldata {
 }
 
 impl CalldataItem {
-    async fn resolve<'a>(
-        &'a self,
-        deployed_contracts: &HashMap<ContractInstance, (Address, JsonAbi)>,
-        variables: impl Into<Option<&'a HashMap<String, U256>>> + Clone,
+    async fn resolve(
+        &self,
         resolver: &impl ResolverApi,
+        context: ResolutionContext<'_>,
     ) -> anyhow::Result<U256> {
         let mut stack = Vec::<CalldataToken<U256>>::new();
 
         for token in self
             .calldata_tokens()
-            .map(|token| token.resolve(deployed_contracts, variables.clone(), resolver))
+            .map(|token| token.resolve(resolver, context))
         {
             let token = token.await?;
             let new_token = match token {
@@ -509,7 +483,7 @@ impl CalldataItem {
         }
     }
 
-    fn calldata_tokens<'a>(&'a self) -> impl Iterator<Item = CalldataToken<&'a str>> + 'a {
+    fn calldata_tokens(&self) -> impl Iterator<Item = CalldataToken<&str>> {
         self.0.split(' ').map(|item| match item {
             "+" => CalldataToken::Operation(Operation::Addition),
             "-" => CalldataToken::Operation(Operation::Subtraction),
@@ -533,9 +507,11 @@ impl<T> CalldataToken<T> {
     const GAS_LIMIT_VARIABLE: &str = "$GAS_LIMIT";
     const COINBASE_VARIABLE: &str = "$COINBASE";
     const DIFFICULTY_VARIABLE: &str = "$DIFFICULTY";
+    const BLOCK_BASE_FEE_VARIABLE: &str = "$BASE_FEE";
     const BLOCK_HASH_VARIABLE_PREFIX: &str = "$BLOCK_HASH";
     const BLOCK_NUMBER_VARIABLE: &str = "$BLOCK_NUMBER";
     const BLOCK_TIMESTAMP_VARIABLE: &str = "$BLOCK_TIMESTAMP";
+    const TRANSACTION_GAS_PRICE: &str = "$TRANSACTION_GAS_PRICE";
     const VARIABLE_PREFIX: &str = "$VARIABLE:";
 
     fn into_item(self) -> Option<T> {
@@ -555,24 +531,21 @@ impl<T: AsRef<str>> CalldataToken<T> {
     /// This piece of code is taken from the matter-labs-tester repository which is licensed under
     /// MIT or Apache. The original source code can be found here:
     /// https://github.com/matter-labs/era-compiler-tester/blob/0ed598a27f6eceee7008deab3ff2311075a2ec69/compiler_tester/src/test/case/input/value.rs#L43-L146
-    async fn resolve<'a>(
+    async fn resolve(
         self,
-        deployed_contracts: &HashMap<ContractInstance, (Address, JsonAbi)>,
-        variables: impl Into<Option<&'a HashMap<String, U256>>> + Clone,
         resolver: &impl ResolverApi,
+        context: ResolutionContext<'_>,
     ) -> anyhow::Result<CalldataToken<U256>> {
         match self {
             Self::Item(item) => {
                 let item = item.as_ref();
                 let value = if let Some(instance) = item.strip_suffix(Self::ADDRESS_VARIABLE_SUFFIX)
                 {
-                    Ok(U256::from_be_slice(
-                        deployed_contracts
-                            .get(&ContractInstance::new(instance))
-                            .map(|(a, _)| *a)
-                            .ok_or_else(|| anyhow::anyhow!("Instance `{}` not found", instance))?
-                            .as_ref(),
-                    ))
+                    context
+                        .deployed_contract_address(&ContractInstance::new(instance))
+                        .ok_or_else(|| anyhow::anyhow!("Instance `{}` not found", instance))
+                        .map(AsRef::as_ref)
+                        .map(U256::from_be_slice)
                 } else if let Some(value) = item.strip_prefix(Self::NEGATIVE_VALUE_PREFIX) {
                     let value = U256::from_str_radix(value, 10).map_err(|error| {
                         anyhow::anyhow!("Invalid decimal literal after `-`: {}", error)
@@ -585,22 +558,36 @@ impl<T: AsRef<str>> CalldataToken<T> {
                         .ok_or_else(|| anyhow::anyhow!("`-0` is invalid literal"))?;
                     Ok(U256::MAX.checked_sub(value).expect("Always valid"))
                 } else if let Some(value) = item.strip_prefix(Self::HEX_LITERAL_PREFIX) {
-                    Ok(U256::from_str_radix(value, 16).map_err(|error| {
-                        anyhow::anyhow!("Invalid hexadecimal literal: {}", error)
-                    })?)
+                    U256::from_str_radix(value, 16)
+                        .map_err(|error| anyhow::anyhow!("Invalid hexadecimal literal: {}", error))
                 } else if item == Self::CHAIN_VARIABLE {
-                    let chain_id = resolver.chain_id().await?;
-                    Ok(U256::from(chain_id))
+                    resolver.chain_id().await.map(U256::from)
+                } else if item == Self::TRANSACTION_GAS_PRICE {
+                    context
+                        .transaction_hash()
+                        .context("No transaction hash provided to get the transaction gas price")
+                        .map(|tx_hash| resolver.transaction_gas_price(tx_hash))?
+                        .await
+                        .map(U256::from)
                 } else if item == Self::GAS_LIMIT_VARIABLE {
-                    let gas_limit = resolver.block_gas_limit(BlockNumberOrTag::Latest).await?;
-                    Ok(U256::from(gas_limit))
+                    resolver
+                        .block_gas_limit(context.resolve_block_number(BlockNumberOrTag::Latest))
+                        .await
+                        .map(U256::from)
                 } else if item == Self::COINBASE_VARIABLE {
-                    let coinbase = resolver.block_coinbase(BlockNumberOrTag::Latest).await?;
-                    Ok(U256::from_be_slice(coinbase.as_ref()))
+                    resolver
+                        .block_coinbase(context.resolve_block_number(BlockNumberOrTag::Latest))
+                        .await
+                        .map(|address| U256::from_be_slice(address.as_ref()))
                 } else if item == Self::DIFFICULTY_VARIABLE {
-                    let block_difficulty =
-                        resolver.block_difficulty(BlockNumberOrTag::Latest).await?;
-                    Ok(block_difficulty)
+                    resolver
+                        .block_difficulty(context.resolve_block_number(BlockNumberOrTag::Latest))
+                        .await
+                } else if item == Self::BLOCK_BASE_FEE_VARIABLE {
+                    resolver
+                        .block_base_fee(context.resolve_block_number(BlockNumberOrTag::Latest))
+                        .await
+                        .map(U256::from)
                 } else if item.starts_with(Self::BLOCK_HASH_VARIABLE_PREFIX) {
                     let offset: u64 = item
                         .split(':')
@@ -608,31 +595,34 @@ impl<T: AsRef<str>> CalldataToken<T> {
                         .and_then(|value| value.parse().ok())
                         .unwrap_or_default();
 
-                    let current_block_number = resolver.last_block_number().await?;
+                    let current_block_number = match context.tip_block_number() {
+                        Some(block_number) => *block_number,
+                        None => resolver.last_block_number().await?,
+                    };
                     let desired_block_number = current_block_number - offset;
 
                     let block_hash = resolver.block_hash(desired_block_number.into()).await?;
 
                     Ok(U256::from_be_bytes(block_hash.0))
                 } else if item == Self::BLOCK_NUMBER_VARIABLE {
-                    let current_block_number = resolver.last_block_number().await?;
+                    let current_block_number = match context.tip_block_number() {
+                        Some(block_number) => *block_number,
+                        None => resolver.last_block_number().await?,
+                    };
                     Ok(U256::from(current_block_number))
                 } else if item == Self::BLOCK_TIMESTAMP_VARIABLE {
-                    let timestamp = resolver.block_timestamp(BlockNumberOrTag::Latest).await?;
-                    Ok(U256::from(timestamp))
+                    resolver
+                        .block_timestamp(BlockNumberOrTag::Latest)
+                        .await
+                        .map(U256::from)
                 } else if let Some(variable_name) = item.strip_prefix(Self::VARIABLE_PREFIX) {
-                    let Some(variables) = variables.into() else {
-                        anyhow::bail!(
-                            "Variable resolution required but no variables were passed in"
-                        );
-                    };
-                    let Some(variable) = variables.get(variable_name) else {
-                        anyhow::bail!("No variable found with the name {}", variable_name)
-                    };
-                    Ok(*variable)
+                    context
+                        .variable(variable_name)
+                        .context("Variable lookup failed")
+                        .copied()
                 } else {
-                    Ok(U256::from_str_radix(item, 10)
-                        .map_err(|error| anyhow::anyhow!("Invalid decimal literal: {}", error))?)
+                    U256::from_str_radix(item, 10)
+                        .map_err(|error| anyhow::anyhow!("Invalid decimal literal: {}", error))
                 };
                 value.map(CalldataToken::Item)
             }
@@ -671,49 +661,48 @@ impl<'de> Deserialize<'de> for EtherValue {
 mod tests {
 
     use super::*;
-    use alloy::json_abi::JsonAbi;
-    use alloy_primitives::address;
+    use alloy::{eips::BlockNumberOrTag, json_abi::JsonAbi};
+    use alloy_primitives::{BlockHash, BlockNumber, BlockTimestamp, ChainId, TxHash, address};
     use alloy_sol_types::SolValue;
     use std::collections::HashMap;
 
     struct MockResolver;
 
     impl ResolverApi for MockResolver {
-        async fn chain_id(&self) -> anyhow::Result<alloy_primitives::ChainId> {
+        async fn chain_id(&self) -> anyhow::Result<ChainId> {
             Ok(0x123)
         }
 
-        async fn block_gas_limit(&self, _: alloy::eips::BlockNumberOrTag) -> anyhow::Result<u128> {
+        async fn block_gas_limit(&self, _: BlockNumberOrTag) -> anyhow::Result<u128> {
             Ok(0x1234)
         }
 
-        async fn block_coinbase(
-            &self,
-            _: alloy::eips::BlockNumberOrTag,
-        ) -> anyhow::Result<Address> {
+        async fn block_coinbase(&self, _: BlockNumberOrTag) -> anyhow::Result<Address> {
             Ok(Address::ZERO)
         }
 
-        async fn block_difficulty(&self, _: alloy::eips::BlockNumberOrTag) -> anyhow::Result<U256> {
+        async fn block_difficulty(&self, _: BlockNumberOrTag) -> anyhow::Result<U256> {
             Ok(U256::from(0x12345u128))
         }
 
-        async fn block_hash(
-            &self,
-            _: alloy::eips::BlockNumberOrTag,
-        ) -> anyhow::Result<alloy_primitives::BlockHash> {
+        async fn block_base_fee(&self, _: BlockNumberOrTag) -> anyhow::Result<u64> {
+            Ok(0x100)
+        }
+
+        async fn block_hash(&self, _: BlockNumberOrTag) -> anyhow::Result<BlockHash> {
             Ok([0xEE; 32].into())
         }
 
-        async fn block_timestamp(
-            &self,
-            _: alloy::eips::BlockNumberOrTag,
-        ) -> anyhow::Result<alloy_primitives::BlockTimestamp> {
+        async fn block_timestamp(&self, _: BlockNumberOrTag) -> anyhow::Result<BlockTimestamp> {
             Ok(0x123456)
         }
 
-        async fn last_block_number(&self) -> anyhow::Result<alloy_primitives::BlockNumber> {
+        async fn last_block_number(&self) -> anyhow::Result<BlockNumber> {
             Ok(0x1234567)
+        }
+
+        async fn transaction_gas_price(&self, _: &TxHash) -> anyhow::Result<u128> {
+            Ok(0x200)
         }
     }
 
@@ -753,10 +742,9 @@ mod tests {
             (Address::ZERO, parsed_abi),
         );
 
-        let encoded = input
-            .encoded_input(&contracts, None, &MockResolver)
-            .await
-            .unwrap();
+        let resolver = MockResolver;
+        let context = ResolutionContext::new_from_parts(&contracts, None, None, None);
+        let encoded = input.encoded_input(&resolver, context).await.unwrap();
         assert!(encoded.0.starts_with(&selector));
 
         type T = (u64,);
@@ -798,10 +786,9 @@ mod tests {
             (Address::ZERO, parsed_abi),
         );
 
-        let encoded = input
-            .encoded_input(&contracts, None, &MockResolver)
-            .await
-            .unwrap();
+        let resolver = MockResolver;
+        let context = ResolutionContext::new_from_parts(&contracts, None, None, None);
+        let encoded = input.encoded_input(&resolver, context).await.unwrap();
         assert!(encoded.0.starts_with(&selector));
 
         type T = (alloy_primitives::Address,);
@@ -846,10 +833,9 @@ mod tests {
             (Address::ZERO, parsed_abi),
         );
 
-        let encoded = input
-            .encoded_input(&contracts, None, &MockResolver)
-            .await
-            .unwrap();
+        let resolver = MockResolver;
+        let context = ResolutionContext::new_from_parts(&contracts, None, None, None);
+        let encoded = input.encoded_input(&resolver, context).await.unwrap();
         assert!(encoded.0.starts_with(&selector));
 
         type T = (alloy_primitives::Address,);
@@ -865,9 +851,8 @@ mod tests {
         deployed_contracts: &HashMap<ContractInstance, (Address, JsonAbi)>,
         resolver: &impl ResolverApi,
     ) -> anyhow::Result<U256> {
-        CalldataItem::new(input)
-            .resolve(deployed_contracts, None, resolver)
-            .await
+        let context = ResolutionContext::new_from_parts(deployed_contracts, None, None, None);
+        CalldataItem::new(input).resolve(resolver, context).await
     }
 
     #[tokio::test]
@@ -941,6 +926,26 @@ mod tests {
             MockResolver
                 .block_difficulty(Default::default())
                 .await
+                .unwrap()
+        )
+    }
+
+    #[tokio::test]
+    async fn resolver_can_resolve_block_base_fee_variable() {
+        // Arrange
+        let input = "$BASE_FEE";
+
+        // Act
+        let resolved = resolve_calldata_item(input, &Default::default(), &MockResolver).await;
+
+        // Assert
+        let resolved = resolved.expect("Failed to resolve argument");
+        assert_eq!(
+            resolved,
+            MockResolver
+                .block_base_fee(Default::default())
+                .await
+                .map(U256::from)
                 .unwrap()
         )
     }

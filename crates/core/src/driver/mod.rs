@@ -4,11 +4,10 @@ use std::collections::HashMap;
 use std::marker::PhantomData;
 use std::path::PathBuf;
 
-use alloy::eips::BlockNumberOrTag;
 use alloy::hex;
 use alloy::json_abi::JsonAbi;
 use alloy::network::{Ethereum, TransactionBuilder};
-use alloy::primitives::{BlockNumber, U256};
+use alloy::primitives::U256;
 use alloy::rpc::types::TransactionReceipt;
 use alloy::rpc::types::trace::geth::{
     CallFrame, GethDebugBuiltInTracerType, GethDebugTracerType, GethDebugTracingOptions, GethTrace,
@@ -23,7 +22,7 @@ use alloy::{
 };
 use anyhow::Context;
 use indexmap::IndexMap;
-use revive_dt_format::traits::ResolverApi;
+use revive_dt_format::traits::{ResolutionContext, ResolverApi};
 use semver::Version;
 
 use revive_dt_format::case::{Case, CaseIdx};
@@ -88,13 +87,7 @@ where
             .handle_input_call_frame_tracing(&execution_receipt, node)
             .await?;
         self.handle_input_variable_assignment(input, &tracing_result)?;
-        let resolver = BlockPinnedResolver::<'_, T> {
-            node,
-            block_number: execution_receipt
-                .block_number
-                .context("Transaction was not included in a block")?,
-        };
-        self.handle_input_expectations(input, &execution_receipt, &resolver, &tracing_result)
+        self.handle_input_expectations(input, &execution_receipt, node, &tracing_result)
             .await?;
         self.handle_input_diff(case_idx, execution_receipt, node)
             .await
@@ -171,7 +164,7 @@ where
                 .context("Failed to find deployment receipt"),
             Method::Fallback | Method::FunctionName(_) => {
                 let tx = match input
-                    .legacy_transaction(&self.deployed_contracts, &self.variables, node)
+                    .legacy_transaction(node, self.default_resolution_context())
                     .await
                 {
                     Ok(tx) => {
@@ -317,8 +310,10 @@ where
             }
         }
 
-        let deployed_contracts = &mut self.deployed_contracts;
-        let variables = &mut self.variables;
+        let resolution_context = self
+            .default_resolution_context()
+            .with_block_number(execution_receipt.block_number.as_ref())
+            .with_transaction_hash(&execution_receipt.transaction_hash);
 
         // Handling the receipt state assertion.
         let expected = !expectation.exception;
@@ -341,7 +336,7 @@ where
             let expected = expected_calldata;
             let actual = &tracing_result.output.as_ref().unwrap_or_default();
             if !expected
-                .is_equivalent(actual, deployed_contracts, &*variables, resolver)
+                .is_equivalent(actual, resolver, resolution_context)
                 .await?
             {
                 tracing::error!(
@@ -376,7 +371,7 @@ where
                 if let Some(ref expected_address) = expected_event.address {
                     let expected = Address::from_slice(
                         Calldata::new_compound([expected_address])
-                            .calldata(deployed_contracts, &*variables, resolver)
+                            .calldata(resolver, resolution_context)
                             .await?
                             .get(12..32)
                             .expect("Can't fail"),
@@ -404,7 +399,7 @@ where
                 {
                     let expected = Calldata::new_compound([expected]);
                     if !expected
-                        .is_equivalent(&actual.0, deployed_contracts, &*variables, resolver)
+                        .is_equivalent(&actual.0, resolver, resolution_context)
                         .await?
                     {
                         tracing::error!(
@@ -424,7 +419,7 @@ where
                 let expected = &expected_event.values;
                 let actual = &actual_event.data().data;
                 if !expected
-                    .is_equivalent(&actual.0, deployed_contracts, &*variables, resolver)
+                    .is_equivalent(&actual.0, resolver, resolution_context)
                     .await?
                 {
                     tracing::error!(
@@ -530,7 +525,7 @@ where
 
         if let Some(calldata) = calldata {
             let calldata = calldata
-                .calldata(&self.deployed_contracts, None, node)
+                .calldata(node, self.default_resolution_context())
                 .await?;
             code.extend(calldata);
         }
@@ -570,6 +565,12 @@ where
             .insert(contract_instance.clone(), (address, abi.clone()));
 
         Ok((address, abi, Some(receipt)))
+    }
+
+    fn default_resolution_context(&self) -> ResolutionContext<'_> {
+        ResolutionContext::default()
+            .with_deployed_contracts(&self.deployed_contracts)
+            .with_variables(&self.variables)
     }
 }
 
@@ -683,69 +684,5 @@ where
         }
 
         Ok(inputs_executed)
-    }
-}
-
-pub struct BlockPinnedResolver<'a, T: Platform> {
-    block_number: BlockNumber,
-    node: &'a T::Blockchain,
-}
-
-impl<'a, T: Platform> ResolverApi for BlockPinnedResolver<'a, T> {
-    async fn chain_id(&self) -> anyhow::Result<alloy::primitives::ChainId> {
-        self.node.chain_id().await
-    }
-
-    async fn block_gas_limit(&self, number: BlockNumberOrTag) -> anyhow::Result<u128> {
-        self.node
-            .block_gas_limit(self.resolve_block_number_or_tag(number))
-            .await
-    }
-
-    async fn block_coinbase(&self, number: BlockNumberOrTag) -> anyhow::Result<Address> {
-        self.node
-            .block_coinbase(self.resolve_block_number_or_tag(number))
-            .await
-    }
-
-    async fn block_difficulty(&self, number: BlockNumberOrTag) -> anyhow::Result<U256> {
-        self.node
-            .block_difficulty(self.resolve_block_number_or_tag(number))
-            .await
-    }
-
-    async fn block_hash(
-        &self,
-        number: BlockNumberOrTag,
-    ) -> anyhow::Result<alloy::primitives::BlockHash> {
-        self.node
-            .block_hash(self.resolve_block_number_or_tag(number))
-            .await
-    }
-
-    async fn block_timestamp(
-        &self,
-        number: BlockNumberOrTag,
-    ) -> anyhow::Result<alloy::primitives::BlockTimestamp> {
-        self.node
-            .block_timestamp(self.resolve_block_number_or_tag(number))
-            .await
-    }
-
-    async fn last_block_number(&self) -> anyhow::Result<alloy::primitives::BlockNumber> {
-        Ok(self.block_number)
-    }
-}
-
-impl<'a, T: Platform> BlockPinnedResolver<'a, T> {
-    fn resolve_block_number_or_tag(&self, number: BlockNumberOrTag) -> BlockNumberOrTag {
-        match number {
-            BlockNumberOrTag::Latest => BlockNumberOrTag::Number(self.block_number),
-            n @ BlockNumberOrTag::Finalized
-            | n @ BlockNumberOrTag::Safe
-            | n @ BlockNumberOrTag::Earliest
-            | n @ BlockNumberOrTag::Pending
-            | n @ BlockNumberOrTag::Number(_) => n,
-        }
     }
 }

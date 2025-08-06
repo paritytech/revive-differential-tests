@@ -16,12 +16,14 @@ use alloy::{
         TransactionBuilderError, UnbuiltTransactionError,
     },
     primitives::{
-        Address, B64, B256, BlockHash, BlockNumber, BlockTimestamp, Bloom, Bytes, FixedBytes, U256,
+        Address, B64, B256, BlockHash, BlockNumber, BlockTimestamp, Bloom, Bytes, FixedBytes,
+        TxHash, U256,
     },
     providers::{
         Provider, ProviderBuilder,
         ext::DebugApi,
         fillers::{CachedNonceManager, ChainIdFiller, FillProvider, NonceFiller, TxFiller},
+        layers::CacheLayer,
     },
     rpc::types::{
         TransactionReceipt,
@@ -30,6 +32,7 @@ use alloy::{
     },
     signers::local::PrivateKeySigner,
 };
+use anyhow::Context;
 use revive_dt_common::fs::clear_directory;
 use revive_dt_format::traits::ResolverApi;
 use serde::{Deserialize, Serialize};
@@ -370,6 +373,7 @@ impl KitchensinkNode {
                 ))
                 .filler(ChainIdFiller::default())
                 .filler(NonceFiller::new(nonce_manager))
+                .layer(CacheLayer::new(10_000))
                 .wallet(wallet)
                 .connect(&connection_string)
                 .await
@@ -439,6 +443,16 @@ impl ResolverApi for KitchensinkNode {
     }
 
     #[tracing::instrument(skip_all, fields(kitchensink_node_id = self.id))]
+    async fn transaction_gas_price(&self, tx_hash: &TxHash) -> anyhow::Result<u128> {
+        self.provider()
+            .await?
+            .get_transaction_receipt(*tx_hash)
+            .await?
+            .context("Failed to get the transaction receipt")
+            .map(|receipt| receipt.effective_gas_price)
+    }
+
+    #[tracing::instrument(skip_all, fields(kitchensink_node_id = self.id))]
     async fn block_gas_limit(&self, number: BlockNumberOrTag) -> anyhow::Result<u128> {
         self.provider()
             .await?
@@ -465,7 +479,22 @@ impl ResolverApi for KitchensinkNode {
             .get_block_by_number(number)
             .await?
             .ok_or(anyhow::Error::msg("Blockchain has no blocks"))
-            .map(|block| block.header.difficulty)
+            .map(|block| U256::from_be_bytes(block.header.mix_hash.0))
+    }
+
+    #[tracing::instrument(skip_all, fields(kitchensink_node_id = self.id))]
+    async fn block_base_fee(&self, number: BlockNumberOrTag) -> anyhow::Result<u64> {
+        self.provider()
+            .await?
+            .get_block_by_number(number)
+            .await?
+            .ok_or(anyhow::Error::msg("Blockchain has no blocks"))
+            .and_then(|block| {
+                block
+                    .header
+                    .base_fee_per_gas
+                    .context("Failed to get the base fee per gas")
+            })
     }
 
     #[tracing::instrument(skip_all, fields(kitchensink_node_id = self.id))]

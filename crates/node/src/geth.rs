@@ -17,11 +17,12 @@ use alloy::{
     eips::BlockNumberOrTag,
     genesis::{Genesis, GenesisAccount},
     network::{Ethereum, EthereumWallet, NetworkWallet},
-    primitives::{Address, BlockHash, BlockNumber, BlockTimestamp, FixedBytes, U256},
+    primitives::{Address, BlockHash, BlockNumber, BlockTimestamp, FixedBytes, TxHash, U256},
     providers::{
         Provider, ProviderBuilder,
         ext::DebugApi,
         fillers::{CachedNonceManager, ChainIdFiller, FillProvider, NonceFiller, TxFiller},
+        layers::CacheLayer,
     },
     rpc::types::{
         TransactionReceipt, TransactionRequest,
@@ -29,6 +30,7 @@ use alloy::{
     },
     signers::local::PrivateKeySigner,
 };
+use anyhow::Context;
 use tracing::{Instrument, Level};
 
 use revive_dt_common::{fs::clear_directory, futures::poll};
@@ -256,6 +258,7 @@ impl GethNode {
                 .filler(FallbackGasFiller::new(500_000_000, 500_000_000, 1))
                 .filler(ChainIdFiller::default())
                 .filler(NonceFiller::new(nonce_manager))
+                .layer(CacheLayer::new(10_000))
                 .wallet(wallet)
                 .connect(&connection_string)
                 .await
@@ -383,6 +386,16 @@ impl ResolverApi for GethNode {
     }
 
     #[tracing::instrument(skip_all, fields(geth_node_id = self.id))]
+    async fn transaction_gas_price(&self, tx_hash: &TxHash) -> anyhow::Result<u128> {
+        self.provider()
+            .await?
+            .get_transaction_receipt(*tx_hash)
+            .await?
+            .context("Failed to get the transaction receipt")
+            .map(|receipt| receipt.effective_gas_price)
+    }
+
+    #[tracing::instrument(skip_all, fields(geth_node_id = self.id))]
     async fn block_gas_limit(&self, number: BlockNumberOrTag) -> anyhow::Result<u128> {
         self.provider()
             .await?
@@ -409,7 +422,22 @@ impl ResolverApi for GethNode {
             .get_block_by_number(number)
             .await?
             .ok_or(anyhow::Error::msg("Blockchain has no blocks"))
-            .map(|block| block.header.difficulty)
+            .map(|block| U256::from_be_bytes(block.header.mix_hash.0))
+    }
+
+    #[tracing::instrument(skip_all, fields(geth_node_id = self.id))]
+    async fn block_base_fee(&self, number: BlockNumberOrTag) -> anyhow::Result<u64> {
+        self.provider()
+            .await?
+            .get_block_by_number(number)
+            .await?
+            .ok_or(anyhow::Error::msg("Blockchain has no blocks"))
+            .and_then(|block| {
+                block
+                    .header
+                    .base_fee_per_gas
+                    .context("Failed to get the base fee per gas")
+            })
     }
 
     #[tracing::instrument(skip_all, fields(geth_node_id = self.id))]
