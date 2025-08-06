@@ -410,7 +410,7 @@ impl ResolverApi for GethNode {
             .get_block_by_number(number)
             .await?
             .ok_or(anyhow::Error::msg("Blockchain has no blocks"))
-            .map(|block| block.header.difficulty)
+            .map(|block| U256::from_be_bytes(block.header.mix_hash.0))
     }
 
     #[tracing::instrument(skip_all, fields(geth_node_id = self.id))]
