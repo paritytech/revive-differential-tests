@@ -599,7 +599,7 @@ impl<T: AsRef<str>> CalldataToken<T> {
                         Some(block_number) => *block_number,
                         None => resolver.last_block_number().await?,
                     };
-                    let desired_block_number = current_block_number - offset;
+                    let desired_block_number = current_block_number.saturating_sub(offset);
 
                     let block_hash = resolver.block_hash(desired_block_number.into()).await?;
 
@@ -612,7 +612,7 @@ impl<T: AsRef<str>> CalldataToken<T> {
                     Ok(U256::from(current_block_number))
                 } else if item == Self::BLOCK_TIMESTAMP_VARIABLE {
                     resolver
-                        .block_timestamp(BlockNumberOrTag::Latest)
+                        .block_timestamp(context.resolve_block_number(BlockNumberOrTag::Latest))
                         .await
                         .map(U256::from)
                 } else if let Some(variable_name) = item.strip_prefix(Self::VARIABLE_PREFIX) {
