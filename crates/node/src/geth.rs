@@ -3,9 +3,13 @@
 use std::{
     fs::{File, OpenOptions, create_dir_all, remove_dir_all},
     io::{BufRead, BufReader, Read, Write},
+    ops::ControlFlow,
     path::PathBuf,
     process::{Child, Command, Stdio},
-    sync::atomic::{AtomicU32, Ordering},
+    sync::{
+        Arc,
+        atomic::{AtomicU32, Ordering},
+    },
     time::{Duration, Instant},
 };
 
@@ -25,11 +29,12 @@ use alloy::{
     },
     signers::local::PrivateKeySigner,
 };
-use revive_dt_common::fs::clear_directory;
+use tracing::{Instrument, Level};
+
+use revive_dt_common::{fs::clear_directory, futures::poll};
 use revive_dt_config::Arguments;
 use revive_dt_format::traits::ResolverApi;
 use revive_dt_node_interaction::EthereumNode;
-use tracing::Level;
 
 use crate::{Node, common::FallbackGasFiller, constants::INITIAL_BALANCE};
 
@@ -77,6 +82,10 @@ impl GethNode {
     const GETH_STDERR_LOG_FILE_NAME: &str = "node_stderr.log";
 
     const TRANSACTION_INDEXING_ERROR: &str = "transaction indexing is in progress";
+    const TRANSACTION_TRACING_ERROR: &str = "historical state not available in path scheme yet";
+
+    const RECEIPT_POLLING_DURATION: Duration = Duration::from_secs(5 * 60);
+    const TRACE_POLLING_DURATION: Duration = Duration::from_secs(60);
 
     /// Create the node directory and call `geth init` to configure the genesis.
     #[tracing::instrument(skip_all, fields(geth_node_id = self.id))]
@@ -102,6 +111,8 @@ impl GethNode {
         serde_json::to_writer(File::create(&genesis_path)?, &genesis)?;
 
         let mut child = Command::new(&self.geth)
+            .arg("--state.scheme")
+            .arg("hash")
             .arg("init")
             .arg("--datadir")
             .arg(&self.data_directory)
@@ -159,6 +170,12 @@ impl GethNode {
             .arg("0")
             .arg("--cache.blocklogs")
             .arg("512")
+            .arg("--state.scheme")
+            .arg("hash")
+            .arg("--syncmode")
+            .arg("full")
+            .arg("--gcmode")
+            .arg("archive")
             .stderr(stderr_logs_file.try_clone()?)
             .stdout(stdout_logs_file.try_clone()?)
             .spawn()?
@@ -248,21 +265,16 @@ impl GethNode {
 }
 
 impl EthereumNode for GethNode {
-    #[tracing::instrument(skip_all, fields(geth_node_id = self.id))]
+    #[tracing::instrument(level = "info", skip_all, fields(geth_node_id = self.id))]
     async fn execute_transaction(
         &self,
         transaction: TransactionRequest,
     ) -> anyhow::Result<alloy::rpc::types::TransactionReceipt> {
-        let outer_span = tracing::debug_span!("Submitting transaction", ?transaction);
-        let _outer_guard = outer_span.enter();
-
-        let provider = self.provider().await?;
-
-        let pending_transaction = provider.send_transaction(transaction).await?;
-        let transaction_hash = pending_transaction.tx_hash();
-
-        let span = tracing::info_span!("Awaiting transaction receipt", ?transaction_hash);
+        let span = tracing::debug_span!("Submitting transaction", ?transaction);
         let _guard = span.enter();
+
+        let provider = Arc::new(self.provider().await?);
+        let transaction_hash = *provider.send_transaction(transaction).await?.tx_hash();
 
         // The following is a fix for the "transaction indexing is in progress" error that we
         // used to get. You can find more information on this in the following GH issue in geth
@@ -282,57 +294,64 @@ impl EthereumNode for GethNode {
         // allow for a larger wait time. Therefore, in here we allow for 5 minutes of waiting
         // with exponential backoff each time we attempt to get the receipt and find that it's
         // not available.
-        let mut retries = 0;
-        let mut total_wait_duration = Duration::from_secs(0);
-        let max_allowed_wait_duration = Duration::from_secs(5 * 60);
-        loop {
-            if total_wait_duration >= max_allowed_wait_duration {
-                tracing::error!(
-                    ?total_wait_duration,
-                    ?max_allowed_wait_duration,
-                    retry_count = retries,
-                    "Failed to get receipt after polling for it"
-                );
-                anyhow::bail!(
-                    "Polled for receipt for {total_wait_duration:?} but failed to get it"
-                );
-            }
-
-            match provider.get_transaction_receipt(*transaction_hash).await {
-                Ok(Some(receipt)) => {
-                    tracing::info!(?total_wait_duration, "Found receipt");
-                    break Ok(receipt);
-                }
-                Ok(None) => {}
-                Err(error) => {
-                    let error_string = error.to_string();
-                    if !error_string.contains(Self::TRANSACTION_INDEXING_ERROR) {
-                        break Err(error.into());
+        poll(
+            Self::RECEIPT_POLLING_DURATION,
+            Default::default(),
+            move || {
+                let provider = provider.clone();
+                async move {
+                    match provider.get_transaction_receipt(transaction_hash).await {
+                        Ok(Some(receipt)) => Ok(ControlFlow::Break(receipt)),
+                        Ok(None) => Ok(ControlFlow::Continue(())),
+                        Err(error) => {
+                            let error_string = error.to_string();
+                            match error_string.contains(Self::TRANSACTION_INDEXING_ERROR) {
+                                true => Ok(ControlFlow::Continue(())),
+                                false => Err(error.into()),
+                            }
+                        }
                     }
                 }
-            };
-
-            let next_wait_duration = Duration::from_secs(2u64.pow(retries))
-                .min(max_allowed_wait_duration - total_wait_duration);
-            total_wait_duration += next_wait_duration;
-            retries += 1;
-
-            tokio::time::sleep(next_wait_duration).await;
-        }
+            },
+        )
+        .instrument(tracing::info_span!(
+            "Awaiting transaction receipt",
+            ?transaction_hash
+        ))
+        .await
     }
 
-    #[tracing::instrument(skip_all, fields(geth_node_id = self.id))]
+    #[tracing::instrument(level = "info", skip_all, fields(geth_node_id = self.id))]
     async fn trace_transaction(
         &self,
         transaction: &TransactionReceipt,
         trace_options: GethDebugTracingOptions,
     ) -> anyhow::Result<alloy::rpc::types::trace::geth::GethTrace> {
-        let tx_hash = transaction.transaction_hash;
-        Ok(self
-            .provider()
-            .await?
-            .debug_trace_transaction(tx_hash, trace_options)
-            .await?)
+        let provider = Arc::new(self.provider().await?);
+        poll(
+            Self::TRACE_POLLING_DURATION,
+            Default::default(),
+            move || {
+                let provider = provider.clone();
+                let trace_options = trace_options.clone();
+                async move {
+                    match provider
+                        .debug_trace_transaction(transaction.transaction_hash, trace_options)
+                        .await
+                    {
+                        Ok(trace) => Ok(ControlFlow::Break(trace)),
+                        Err(error) => {
+                            let error_string = error.to_string();
+                            match error_string.contains(Self::TRANSACTION_TRACING_ERROR) {
+                                true => Ok(ControlFlow::Continue(())),
+                                false => Err(error.into()),
+                            }
+                        }
+                    }
+                }
+            },
+        )
+        .await
     }
 
     #[tracing::instrument(skip_all, fields(geth_node_id = self.id))]

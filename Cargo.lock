@@ -4030,6 +4030,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "semver 1.0.26",
+ "tokio",
 ]
 
 [[package]]
