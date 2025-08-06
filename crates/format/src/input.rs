@@ -533,6 +533,7 @@ impl<T> CalldataToken<T> {
     const GAS_LIMIT_VARIABLE: &str = "$GAS_LIMIT";
     const COINBASE_VARIABLE: &str = "$COINBASE";
     const DIFFICULTY_VARIABLE: &str = "$DIFFICULTY";
+    const BLOCK_BASE_FEE_VARIABLE: &str = "$BASE_FEE";
     const BLOCK_HASH_VARIABLE_PREFIX: &str = "$BLOCK_HASH";
     const BLOCK_NUMBER_VARIABLE: &str = "$BLOCK_NUMBER";
     const BLOCK_TIMESTAMP_VARIABLE: &str = "$BLOCK_TIMESTAMP";
@@ -601,6 +602,11 @@ impl<T: AsRef<str>> CalldataToken<T> {
                     let block_difficulty =
                         resolver.block_difficulty(BlockNumberOrTag::Latest).await?;
                     Ok(block_difficulty)
+                } else if item == Self::BLOCK_BASE_FEE_VARIABLE {
+                    resolver
+                        .block_base_fee(BlockNumberOrTag::Latest)
+                        .await
+                        .map(U256::from)
                 } else if item.starts_with(Self::BLOCK_HASH_VARIABLE_PREFIX) {
                     let offset: u64 = item
                         .split(':')
@@ -671,48 +677,43 @@ impl<'de> Deserialize<'de> for EtherValue {
 mod tests {
 
     use super::*;
-    use alloy::json_abi::JsonAbi;
-    use alloy_primitives::address;
+    use alloy::{eips::BlockNumberOrTag, json_abi::JsonAbi};
+    use alloy_primitives::{BlockHash, BlockNumber, BlockTimestamp, ChainId, address};
     use alloy_sol_types::SolValue;
     use std::collections::HashMap;
 
     struct MockResolver;
 
     impl ResolverApi for MockResolver {
-        async fn chain_id(&self) -> anyhow::Result<alloy_primitives::ChainId> {
+        async fn chain_id(&self) -> anyhow::Result<ChainId> {
             Ok(0x123)
         }
 
-        async fn block_gas_limit(&self, _: alloy::eips::BlockNumberOrTag) -> anyhow::Result<u128> {
+        async fn block_gas_limit(&self, _: BlockNumberOrTag) -> anyhow::Result<u128> {
             Ok(0x1234)
         }
 
-        async fn block_coinbase(
-            &self,
-            _: alloy::eips::BlockNumberOrTag,
-        ) -> anyhow::Result<Address> {
+        async fn block_coinbase(&self, _: BlockNumberOrTag) -> anyhow::Result<Address> {
             Ok(Address::ZERO)
         }
 
-        async fn block_difficulty(&self, _: alloy::eips::BlockNumberOrTag) -> anyhow::Result<U256> {
+        async fn block_difficulty(&self, _: BlockNumberOrTag) -> anyhow::Result<U256> {
             Ok(U256::from(0x12345u128))
         }
 
-        async fn block_hash(
-            &self,
-            _: alloy::eips::BlockNumberOrTag,
-        ) -> anyhow::Result<alloy_primitives::BlockHash> {
+        async fn block_base_fee(&self, _: BlockNumberOrTag) -> anyhow::Result<u64> {
+            Ok(0x100)
+        }
+
+        async fn block_hash(&self, _: BlockNumberOrTag) -> anyhow::Result<BlockHash> {
             Ok([0xEE; 32].into())
         }
 
-        async fn block_timestamp(
-            &self,
-            _: alloy::eips::BlockNumberOrTag,
-        ) -> anyhow::Result<alloy_primitives::BlockTimestamp> {
+        async fn block_timestamp(&self, _: BlockNumberOrTag) -> anyhow::Result<BlockTimestamp> {
             Ok(0x123456)
         }
 
-        async fn last_block_number(&self) -> anyhow::Result<alloy_primitives::BlockNumber> {
+        async fn last_block_number(&self) -> anyhow::Result<BlockNumber> {
             Ok(0x1234567)
         }
     }
@@ -941,6 +942,26 @@ mod tests {
             MockResolver
                 .block_difficulty(Default::default())
                 .await
+                .unwrap()
+        )
+    }
+
+    #[tokio::test]
+    async fn resolver_can_resolve_block_base_fee_variable() {
+        // Arrange
+        let input = "$BASE_FEE";
+
+        // Act
+        let resolved = resolve_calldata_item(input, &Default::default(), &MockResolver).await;
+
+        // Assert
+        let resolved = resolved.expect("Failed to resolve argument");
+        assert_eq!(
+            resolved,
+            MockResolver
+                .block_base_fee(Default::default())
+                .await
+                .map(U256::from)
                 .unwrap()
         )
     }

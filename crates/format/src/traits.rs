@@ -19,6 +19,9 @@ pub trait ResolverApi {
     /// Returns the difficulty of the specified block.
     fn block_difficulty(&self, number: BlockNumberOrTag) -> impl Future<Output = Result<U256>>;
 
+    /// Returns the base fee of the specified block.
+    fn block_base_fee(&self, number: BlockNumberOrTag) -> impl Future<Output = Result<u64>>;
+
     /// Returns the hash of the specified block.
     fn block_hash(&self, number: BlockNumberOrTag) -> impl Future<Output = Result<BlockHash>>;
 

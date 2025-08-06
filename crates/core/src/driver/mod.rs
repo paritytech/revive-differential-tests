@@ -714,6 +714,12 @@ impl<'a, T: Platform> ResolverApi for BlockPinnedResolver<'a, T> {
             .await
     }
 
+    async fn block_base_fee(&self, number: BlockNumberOrTag) -> anyhow::Result<u64> {
+        self.node
+            .block_base_fee(self.resolve_block_number_or_tag(number))
+            .await
+    }
+
     async fn block_hash(
         &self,
         number: BlockNumberOrTag,

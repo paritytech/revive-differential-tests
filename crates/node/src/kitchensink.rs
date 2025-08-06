@@ -30,6 +30,7 @@ use alloy::{
     },
     signers::local::PrivateKeySigner,
 };
+use anyhow::Context;
 use revive_dt_common::fs::clear_directory;
 use revive_dt_format::traits::ResolverApi;
 use serde::{Deserialize, Serialize};
@@ -466,6 +467,21 @@ impl ResolverApi for KitchensinkNode {
             .await?
             .ok_or(anyhow::Error::msg("Blockchain has no blocks"))
             .map(|block| block.header.difficulty)
+    }
+
+    #[tracing::instrument(skip_all, fields(kitchensink_node_id = self.id))]
+    async fn block_base_fee(&self, number: BlockNumberOrTag) -> anyhow::Result<u64> {
+        self.provider()
+            .await?
+            .get_block_by_number(number)
+            .await?
+            .ok_or(anyhow::Error::msg("Blockchain has no blocks"))
+            .and_then(|block| {
+                block
+                    .header
+                    .base_fee_per_gas
+                    .context("Failed to get the base fee per gas")
+            })
     }
 
     #[tracing::instrument(skip_all, fields(kitchensink_node_id = self.id))]
