@@ -11,14 +11,14 @@ use std::{
 
 use tokio::sync::Mutex;
 
-use crate::download::GHDownloader;
+use crate::download::SolcDownloader;
 
 pub const SOLC_CACHE_DIRECTORY: &str = "solc";
 pub(crate) static SOLC_CACHER: LazyLock<Mutex<HashSet<PathBuf>>> = LazyLock::new(Default::default);
 
 pub(crate) async fn get_or_download(
     working_directory: &Path,
-    downloader: &GHDownloader,
+    downloader: &SolcDownloader,
 ) -> anyhow::Result<PathBuf> {
     let target_directory = working_directory
         .join(SOLC_CACHE_DIRECTORY)
@@ -38,7 +38,7 @@ pub(crate) async fn get_or_download(
     Ok(target_file)
 }
 
-async fn download_to_file(path: &Path, downloader: &GHDownloader) -> anyhow::Result<()> {
+async fn download_to_file(path: &Path, downloader: &SolcDownloader) -> anyhow::Result<()> {
     tracing::info!("caching file: {}", path.display());
 
     let Ok(file) = File::create_new(path) else {

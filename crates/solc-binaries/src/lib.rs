@@ -6,7 +6,7 @@
 use std::path::{Path, PathBuf};
 
 use cache::get_or_download;
-use download::GHDownloader;
+use download::SolcDownloader;
 
 use revive_dt_common::types::VersionOrRequirement;
 
@@ -25,13 +25,13 @@ pub async fn download_solc(
     wasm: bool,
 ) -> anyhow::Result<PathBuf> {
     let downloader = if wasm {
-        GHDownloader::wasm(version).await
+        SolcDownloader::wasm(version).await
     } else if cfg!(target_os = "linux") {
-        GHDownloader::linux(version).await
+        SolcDownloader::linux(version).await
     } else if cfg!(target_os = "macos") {
-        GHDownloader::macosx(version).await
+        SolcDownloader::macosx(version).await
     } else if cfg!(target_os = "windows") {
-        GHDownloader::windows(version).await
+        SolcDownloader::windows(version).await
     } else {
         unimplemented!()
     }?;

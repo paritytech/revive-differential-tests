@@ -238,4 +238,25 @@ mod test {
             Version::new(0, 7, 6)
         )
     }
+
+    #[tokio::test]
+    async fn compiler_version_can_be_obtained1() {
+        // Arrange
+        let args = Arguments::default();
+        println!("Getting compiler path");
+        let path = Solc::get_compiler_executable(&args, Version::new(0, 4, 21))
+            .await
+            .unwrap();
+        println!("Got compiler path");
+        let compiler = Solc::new(path);
+
+        // Act
+        let version = compiler.version();
+
+        // Assert
+        assert_eq!(
+            version.expect("Failed to get version"),
+            Version::new(0, 4, 21)
+        )
+    }
 }
