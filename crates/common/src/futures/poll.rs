@@ -3,6 +3,8 @@ use std::time::Duration;
 
 use anyhow::{Result, anyhow};
 
+const EXPONENTIAL_BACKOFF_MAX_WAIT_DURATION: Duration = Duration::from_secs(60);
+
 /// A function that polls for a fallible future for some period of time and errors if it fails to
 /// get a result after polling.
 ///
@@ -42,6 +44,7 @@ where
                     PollingWaitBehavior::Constant(duration) => duration,
                     PollingWaitBehavior::ExponentialBackoff => {
                         Duration::from_secs(2u64.pow(retries))
+                            .min(EXPONENTIAL_BACKOFF_MAX_WAIT_DURATION)
                     }
                 };
                 let next_wait_duration =

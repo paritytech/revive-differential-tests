@@ -11,4 +11,4 @@ rust-version.workspace = true
 [dependencies]
 anyhow = { workspace = true }
 semver = { workspace = true }
-tokio = { workspace = true }
+tokio = { workspace = true, default-features = false, features = ["time"] }
