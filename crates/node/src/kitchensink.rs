@@ -23,7 +23,6 @@ use alloy::{
         Provider, ProviderBuilder,
         ext::DebugApi,
         fillers::{CachedNonceManager, ChainIdFiller, FillProvider, NonceFiller, TxFiller},
-        layers::CacheLayer,
     },
     rpc::types::{
         TransactionReceipt,
@@ -373,7 +372,6 @@ impl KitchensinkNode {
                 ))
                 .filler(ChainIdFiller::default())
                 .filler(NonceFiller::new(nonce_manager))
-                .layer(CacheLayer::new(10_000))
                 .wallet(wallet)
                 .connect(&connection_string)
                 .await
