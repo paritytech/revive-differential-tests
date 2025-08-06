@@ -38,21 +38,21 @@ impl List {
     }
 }
 
-/// Download solc binaries from GitHub releases (IPFS links aren't reliable).
+/// Download solc binaries from the official SolidityLang site
 #[derive(Clone, Debug)]
-pub struct GHDownloader {
+pub struct SolcDownloader {
     pub version: Version,
     pub target: &'static str,
     pub list: &'static str,
 }
 
-impl GHDownloader {
-    pub const BASE_URL: &str = "https://github.com/ethereum/solidity/releases/download";
+impl SolcDownloader {
+    pub const BASE_URL: &str = "https://binaries.soliditylang.org";
 
-    pub const LINUX_NAME: &str = "solc-static-linux";
-    pub const MACOSX_NAME: &str = "solc-macos";
-    pub const WINDOWS_NAME: &str = "solc-windows.exe";
-    pub const WASM_NAME: &str = "soljson.js";
+    pub const LINUX_NAME: &str = "linux-amd64";
+    pub const MACOSX_NAME: &str = "macosx-amd64";
+    pub const WINDOWS_NAME: &str = "windows-amd64";
+    pub const WASM_NAME: &str = "wasm";
 
     async fn new(
         version: impl Into<VersionOrRequirement>,
@@ -102,26 +102,27 @@ impl GHDownloader {
         Self::new(version, Self::WASM_NAME, List::WASM_URL).await
     }
 
-    /// Returns the download link.
-    pub fn url(&self) -> String {
-        format!("{}/v{}/{}", Self::BASE_URL, &self.version, &self.target)
-    }
-
     /// Download the solc binary.
     ///
     /// Errors out if the download fails or the digest of the downloaded file
     /// mismatches the expected digest from the release [List].
     pub async fn download(&self) -> anyhow::Result<Vec<u8>> {
         tracing::info!("downloading solc: {self:?}");
-        let expected_digest = List::download(self.list)
-            .await?
-            .builds
+        let builds = List::download(self.list).await?.builds;
+        let build = builds
             .iter()
             .find(|build| build.version == self.version)
-            .ok_or_else(|| anyhow::anyhow!("solc v{} not found builds", self.version))
-            .map(|b| b.sha256.strip_prefix("0x").unwrap_or(&b.sha256).to_string())?;
+            .ok_or_else(|| anyhow::anyhow!("solc v{} not found builds", self.version))?;
 
-        let file = reqwest::get(self.url()).await?.bytes().await?.to_vec();
+        let path = build.path.clone();
+        let expected_digest = build
+            .sha256
+            .strip_prefix("0x")
+            .unwrap_or(&build.sha256)
+            .to_string();
+        let url = format!("{}/{}/{}", Self::BASE_URL, self.target, path.display());
+
+        let file = reqwest::get(url).await?.bytes().await?.to_vec();
 
         if hex::encode(Sha256::digest(&file)) != expected_digest {
             anyhow::bail!("sha256 mismatch for solc version {}", self.version);
@@ -133,7 +134,7 @@ impl GHDownloader {
 
 #[cfg(test)]
 mod tests {
-    use crate::{download::GHDownloader, list::List};
+    use crate::{download::SolcDownloader, list::List};
 
     #[tokio::test]
     async fn try_get_windows() {
@@ -141,7 +142,7 @@ mod tests {
             .await
             .unwrap()
             .latest_release;
-        GHDownloader::windows(version)
+        SolcDownloader::windows(version)
             .await
             .unwrap()
             .download()
@@ -155,7 +156,7 @@ mod tests {
             .await
             .unwrap()
             .latest_release;
-        GHDownloader::macosx(version)
+        SolcDownloader::macosx(version)
             .await
             .unwrap()
             .download()
@@ -169,7 +170,7 @@ mod tests {
             .await
             .unwrap()
             .latest_release;
-        GHDownloader::linux(version)
+        SolcDownloader::linux(version)
             .await
             .unwrap()
             .download()
@@ -180,7 +181,7 @@ mod tests {
     #[tokio::test]
     async fn try_get_wasm() {
         let version = List::download(List::WASM_URL).await.unwrap().latest_release;
-        GHDownloader::wasm(version)
+        SolcDownloader::wasm(version)
             .await
             .unwrap()
             .download()
