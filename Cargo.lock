@@ -4095,10 +4095,12 @@ dependencies = [
  "alloy-primitives",
  "alloy-sol-types",
  "anyhow",
+ "regex",
  "revive-dt-common",
  "semver 1.0.26",
  "serde",
  "serde_json",
+ "thiserror 2.0.12",
  "tokio",
  "tracing",
 ]
