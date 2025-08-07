@@ -24,3 +24,4 @@ revive-common = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true }
+indoc = { workspace = true }
