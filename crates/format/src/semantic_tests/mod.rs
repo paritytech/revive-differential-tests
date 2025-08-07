@@ -3,8 +3,10 @@
 //!
 //! [`Metadata`]: crate::metadata::Metadata
 
+mod function_parser;
 mod sections;
 mod test_configuration;
 
+pub use function_parser::*;
 pub use sections::*;
 pub use test_configuration::*;

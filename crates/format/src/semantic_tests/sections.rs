@@ -1,6 +1,7 @@
-use std::{collections::VecDeque, path::PathBuf};
+use std::{collections::VecDeque, path::PathBuf, sync::LazyLock};
 
 use anyhow::{Context, Result, anyhow};
+use regex::Regex;
 
 use crate::semantic_tests::TestConfiguration;
 
@@ -146,6 +147,9 @@ impl SemanticTestSection {
     /// section then no changes will be made to the current section and instead the line will be
     /// interpreted according to the rules of new sections.
     pub fn append_line(&mut self, line: impl AsRef<str>) -> Result<Option<Self>> {
+        static COMMENT_REPLACEMENT_REGEX: LazyLock<Regex> =
+            LazyLock::new(|| Regex::new("#.*#$").unwrap());
+
         let line = line.as_ref();
         if line.is_empty() {
             Ok(None)
@@ -207,8 +211,9 @@ impl SemanticTestSection {
                         .strip_prefix("//")
                         .ok_or_else(|| anyhow!("Line doesn't contain test input prefix: {line}"))
                         .map(str::trim)?;
-                    if !line.starts_with('#') {
-                        lines.push(line.to_owned());
+                    let line = COMMENT_REPLACEMENT_REGEX.replace_all(line, "");
+                    if !line.starts_with('#') && !line.chars().all(|char| char.is_whitespace()) {
+                        lines.push(line.to_string());
                     }
                     Ok(None)
                 }

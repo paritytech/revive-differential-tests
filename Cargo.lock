@@ -4102,6 +4102,7 @@ dependencies = [
  "alloy-sol-types",
  "anyhow",
  "indoc",
+ "regex",
  "revive-common",
  "revive-dt-common",
  "semver 1.0.26",
