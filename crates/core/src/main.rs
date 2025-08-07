@@ -2,6 +2,7 @@ use std::{
     collections::HashMap,
     path::Path,
     sync::{Arc, LazyLock},
+    time::Instant,
 };
 
 use alloy::{
@@ -189,6 +190,7 @@ where
     )));
     let status_reporter_task = {
         let metadata_case_status = metadata_case_status.clone();
+        let start = Instant::now();
         async move {
             const GREEN: &str = "\x1B[32m";
             const RED: &str = "\x1B[31m";
@@ -281,8 +283,12 @@ where
                 tokio::time::sleep(std::time::Duration::from_secs(3)).await;
             }
 
+            let elapsed = start.elapsed();
             eprintln!(
-                "{GREEN}{number_of_successes}{RESET} cases succeeded, {RED}{number_of_failures}{RESET} cases failed"
+                "{GREEN}{}{RESET} cases succeeded, {RED}{}{RESET} cases failed in {} seconds",
+                number_of_successes,
+                number_of_failures,
+                elapsed.as_secs()
             );
         }
     };
