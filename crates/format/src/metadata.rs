@@ -291,7 +291,7 @@ impl FromStr for ContractPathAndIdent {
     type Err = anyhow::Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let mut splitted_string = s.split(":").peekable();
+        let mut splitted_string = s.split(':').peekable();
         let mut path = None::<String>;
         let mut identifier = None::<String>;
         loop {
@@ -316,7 +316,7 @@ impl FromStr for ContractPathAndIdent {
                 contract_ident: ContractIdent::new(identifier),
             }),
             (None, Some(path)) | (Some(path), None) => {
-                let Some(identifier) = path.split(".").next().map(ToOwned::to_owned) else {
+                let Some(identifier) = path.split('.').next().map(ToOwned::to_owned) else {
                     anyhow::bail!("Failed to find identifier");
                 };
                 Ok(Self {

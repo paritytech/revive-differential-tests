@@ -4095,6 +4095,7 @@ dependencies = [
  "alloy-primitives",
  "alloy-sol-types",
  "anyhow",
+ "revive-common",
  "revive-dt-common",
  "semver 1.0.26",
  "serde",

@@ -6,3 +6,5 @@ pub mod input;
 pub mod metadata;
 pub mod mode;
 pub mod traits;
+
+mod semantic_tests;
