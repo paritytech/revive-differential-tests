@@ -34,7 +34,7 @@ use revive_dt_format::{
     corpus::Corpus,
     input::Input,
     metadata::{ContractInstance, ContractPathAndIdent, Metadata, MetadataFile},
-    mode::{Mode, ModeOptimizerSetting, ModePipeline},
+    mode::Mode,
 };
 use revive_dt_node::pool::NodePool;
 use revive_dt_report::reporter::{Report, Span};
@@ -661,8 +661,8 @@ async fn compile_contracts<P: Platform>(
 
     let compiler = Compiler::<P::Compiler>::new()
         .with_allow_path(metadata.directory()?)
-        .with_optimization(mode.optimize_setting != ModeOptimizerSetting::M0)
-        .with_via_ir(mode.pipeline == ModePipeline::Y);
+        .with_optimization(mode.optimize_setting)
+        .with_via_ir(mode.via_yul_ir());
     let mut compiler = metadata
         .files_to_compile()?
         .try_fold(compiler, |compiler, path| compiler.with_source(&path))?;

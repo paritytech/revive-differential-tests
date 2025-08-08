@@ -14,7 +14,7 @@ use revive_solc_json_interface::{
     SolcStandardJsonOutput,
 };
 
-use crate::{CompilerInput, CompilerOutput, SolidityCompiler};
+use crate::{CompilerInput, CompilerOutput, ModeOptimizerSetting, SolidityCompiler};
 
 use alloy::json_abi::JsonAbi;
 use anyhow::Context;
@@ -39,7 +39,7 @@ impl SolidityCompiler for Resolc {
     async fn build(
         &self,
         CompilerInput {
-            enable_optimization,
+            optimization,
             // Ignored and not honored since this is required for the resolc compilation.
             via_ir: _via_ir,
             evm_version,
@@ -78,7 +78,9 @@ impl SolidityCompiler for Resolc {
                 output_selection: Some(SolcStandardJsonInputSettingsSelection::new_required()),
                 via_ir: Some(true),
                 optimizer: SolcStandardJsonInputSettingsOptimizer::new(
-                    enable_optimization.unwrap_or(false),
+                    optimization
+                        .unwrap_or(ModeOptimizerSetting::M0)
+                        .optimizations_enabled(),
                     None,
                     &Version::new(0, 0, 0),
                     false,

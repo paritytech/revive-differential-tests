@@ -4044,6 +4044,7 @@ dependencies = [
  "revive-common",
  "revive-dt-common",
  "revive-dt-config",
+ "revive-dt-format",
  "revive-dt-solc-binaries",
  "revive-solc-json-interface",
  "semver 1.0.26",

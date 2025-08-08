@@ -35,7 +35,7 @@ impl SolidityCompiler for Solc {
     async fn build(
         &self,
         CompilerInput {
-            enable_optimization,
+            optimization,
             via_ir,
             evm_version,
             allow_paths,
@@ -55,7 +55,7 @@ impl SolidityCompiler for Solc {
             ),
             settings: Settings {
                 optimizer: Optimizer {
-                    enabled: enable_optimization,
+                    enabled: optimization.map(|o| o.optimizations_enabled()),
                     details: Some(Default::default()),
                     ..Default::default()
                 },

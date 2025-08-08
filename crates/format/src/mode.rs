@@ -1,7 +1,6 @@
 use regex::Regex;
 use revive_dt_common::types::VersionOrRequirement;
 use semver::Version;
-use serde::de::Deserializer;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::fmt::Display;
@@ -11,10 +10,10 @@ use std::sync::LazyLock;
 /// This represents a mode that a given test should be run with, if possible.
 ///
 /// We obtain this by taking a [`ParsedMode`], which may be looser or more strict
-/// in its requirements, and then expanding it out into a list of [`TestMode`]s.
+/// in its requirements, and then expanding it out into a list of [`Mode`]s.
 ///
 /// Use [`ParsedMode::to_test_modes()`] to do this.
-#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize)]
 pub struct Mode {
     pub pipeline: ModePipeline,
     pub optimize_setting: ModeOptimizerSetting,
@@ -62,6 +61,11 @@ impl Mode {
             None => default.into(),
         }
     }
+
+    /// Should we go via Yul IR?
+    pub fn via_yul_ir(&self) -> bool {
+        self.pipeline == ModePipeline::Y
+    }
 }
 
 /// This represents a mode that has been parsed from test metadata.
@@ -73,7 +77,8 @@ impl Mode {
 /// ```
 ///
 /// We can parse valid mode strings into [`ParsedMode`] using [`ParsedMode::from_str`].
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Deserialize, Serialize)]
+#[serde(try_from = "String", into = "String")]
 pub struct ParsedMode {
     pub pipeline: Option<ModePipeline>,
     pub optimize_flag: Option<bool>,
@@ -129,26 +134,6 @@ impl FromStr for ParsedMode {
     }
 }
 
-impl<'de> Deserialize<'de> for ParsedMode {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let mode_string = String::deserialize(deserializer)?;
-        ParsedMode::from_str(&mode_string).map_err(serde::de::Error::custom)
-    }
-}
-
-impl Serialize for ParsedMode {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        let mode_string = self.to_string();
-        serializer.serialize_str(&mode_string)
-    }
-}
-
 impl Display for ParsedMode {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         fmt_mode_parts(
@@ -158,6 +143,19 @@ impl Display for ParsedMode {
             self.version.as_ref(),
             f,
         )
+    }
+}
+
+impl From<ParsedMode> for String {
+    fn from(parsed_mode: ParsedMode) -> Self {
+        parsed_mode.to_string()
+    }
+}
+
+impl TryFrom<String> for ParsedMode {
+    type Error = ParseModeError;
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        ParsedMode::from_str(&value)
     }
 }
 
@@ -204,8 +202,8 @@ impl ParsedMode {
             |p| EitherIter::B(std::iter::once(*p)),
         );
 
-        let optimize_flag_setting = self.optimize_flag.map(|b| {
-            if b {
+        let optimize_flag_setting = self.optimize_flag.map(|flag| {
+            if flag {
                 ModeOptimizerSetting::M3
             } else {
                 ModeOptimizerSetting::M0
@@ -345,6 +343,11 @@ impl ModeOptimizerSetting {
             ModeOptimizerSetting::M3,
         ]
         .into_iter()
+    }
+
+    /// Are any optimizations enabled?
+    pub fn optimizations_enabled(&self) -> bool {
+        !matches!(self, ModeOptimizerSetting::M0)
     }
 }
 

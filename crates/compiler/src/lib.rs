@@ -19,6 +19,9 @@ use revive_common::EVMVersion;
 use revive_dt_common::types::VersionOrRequirement;
 use revive_dt_config::Arguments;
 
+// Re-export this as it's a part of the compiler interface.
+pub use revive_dt_format::mode::ModeOptimizerSetting;
+
 pub mod revive_js;
 pub mod revive_resolc;
 pub mod solc;
@@ -48,7 +51,7 @@ pub trait SolidityCompiler {
 /// The generic compilation input configuration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CompilerInput {
-    pub enable_optimization: Option<bool>,
+    pub optimization: Option<ModeOptimizerSetting>,
     pub via_ir: Option<bool>,
     pub evm_version: Option<EVMVersion>,
     pub allow_paths: Vec<PathBuf>,
@@ -84,7 +87,7 @@ where
     pub fn new() -> Self {
         Self {
             input: CompilerInput {
-                enable_optimization: Default::default(),
+                optimization: Default::default(),
                 via_ir: Default::default(),
                 evm_version: Default::default(),
                 allow_paths: Default::default(),
@@ -96,8 +99,8 @@ where
         }
     }
 
-    pub fn with_optimization(mut self, value: impl Into<Option<bool>>) -> Self {
-        self.input.enable_optimization = value.into();
+    pub fn with_optimization(mut self, value: impl Into<Option<ModeOptimizerSetting>>) -> Self {
+        self.input.optimization = value.into();
         self
     }
 
