@@ -14,14 +14,14 @@ use std::collections::HashSet;
 /// in its requirements, and then expanding it out into a list of [`TestMode`]s.
 /// 
 /// Use [`ParsedMode::to_test_modes()`] to do this.
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub struct TestMode {
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct Mode {
     pub pipeline: ModePipeline,
     pub optimize_setting: ModeOptimizerSetting,
     pub version: Option<semver::VersionReq>,
 }
 
-impl Display for TestMode {
+impl Display for Mode {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         fmt_mode_parts(
             Some(&self.pipeline),
@@ -33,7 +33,7 @@ impl Display for TestMode {
     }
 }
 
-impl TestMode {
+impl Mode {
     /// Return a set of [`TestMode`]s that correspond to the given [`ParsedMode`]s.
     /// This avoids any duplicate entries. 
     pub fn from_parsed_modes<'a>(parsed: impl Iterator<Item = &'a ParsedMode>) -> impl Iterator<Item = Self> {
@@ -62,7 +62,7 @@ impl TestMode {
 /// ```
 /// 
 /// We can parse valid mode strings into [`ParsedMode`] using [`ParsedMode::from_str`].
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct ParsedMode {
     pub pipeline: Option<ModePipeline>,
     pub optimize_flag: Option<bool>,
@@ -118,6 +118,26 @@ impl FromStr for ParsedMode {
     }
 }
 
+impl<'de> Deserialize<'de> for ParsedMode {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let mode_string = String::deserialize(deserializer)?;
+        ParsedMode::from_str(&mode_string).map_err(serde::de::Error::custom)
+    }
+}
+
+impl Serialize for ParsedMode {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let mode_string = self.to_string();
+        serializer.serialize_str(&mode_string)
+    }
+}
+
 impl Display for ParsedMode {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         fmt_mode_parts(
@@ -163,7 +183,7 @@ fn fmt_mode_parts(
 
 impl ParsedMode {
     /// This takes a [`ParsedMode`] and expands it into a list of [`TestMode`]s that we should try.
-    pub fn to_test_modes(&self) -> impl Iterator<Item = TestMode> {
+    pub fn to_test_modes(&self) -> impl Iterator<Item = Mode> {
         let pipeline_iter = self.pipeline.as_ref().map_or_else(
             || EitherIter::A(ModePipeline::test_cases()),
             |p| EitherIter::B(std::iter::once(*p)),
@@ -185,7 +205,7 @@ impl ParsedMode {
 
         pipeline_iter.flat_map(move |pipeline| {
             optimize_settings_iter.clone().map(move |optimize_setting| {
-                TestMode {
+                Mode {
                     pipeline,
                     optimize_setting,
                     version: self.version.clone(),
@@ -208,7 +228,7 @@ pub enum ParseModeError {
 }
 
 /// What do we want the compiler to do?
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
 pub enum ModePipeline {
     /// Compile Solidity code via Yul IR
     Y,
@@ -247,7 +267,7 @@ impl ModePipeline {
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
 pub enum ModeOptimizerSetting {
     /// 0 / -: Don't apply any optimizations
     M0,
@@ -395,7 +415,7 @@ mod tests {
 
 
 
-
+/*
 
 
 
@@ -500,3 +520,5 @@ impl<'de> Deserialize<'de> for Mode {
         Ok(Self::Unknown(mode_string))
     }
 }
+
+*/

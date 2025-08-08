@@ -34,7 +34,7 @@ use revive_dt_format::{
     corpus::Corpus,
     input::Input,
     metadata::{ContractInstance, ContractPathAndIdent, Metadata, MetadataFile},
-    mode::SolcMode,
+    mode::Mode,
 };
 use revive_dt_node::pool::NodePool;
 use revive_dt_report::reporter::{Report, Span};
@@ -44,7 +44,7 @@ static TEMP_DIR: LazyLock<TempDir> = LazyLock::new(|| TempDir::new().unwrap());
 type CompilationCache<'a> = Arc<
     RwLock<
         HashMap<
-            (&'a Path, SolcMode, TestingPlatform),
+            (&'a Path, Mode, TestingPlatform),
             Arc<Mutex<Option<Arc<(Version, CompilerOutput)>>>>,
         >,
     >,
@@ -145,7 +145,7 @@ where
                     .enumerate()
                     .flat_map(move |(case_idx, case)| {
                         metadata
-                            .solc_modes()
+                            .test_modes()
                             .into_iter()
                             .map(move |solc_mode| (path, metadata, case_idx, case, solc_mode))
                     })
@@ -587,7 +587,7 @@ where
 async fn get_or_build_contracts<'a, P: Platform>(
     metadata: &'a Metadata,
     metadata_file_path: &'a Path,
-    mode: SolcMode,
+    mode: Mode,
     config: &Arguments,
     compilation_cache: CompilationCache<'a>,
     deployed_libraries: &HashMap<ContractInstance, (Address, JsonAbi)>,
@@ -643,7 +643,7 @@ async fn get_or_build_contracts<'a, P: Platform>(
 async fn compile_contracts<P: Platform>(
     metadata: &Metadata,
     metadata_file_path: &Path,
-    mode: &SolcMode,
+    mode: &Mode,
     config: &Arguments,
     deployed_libraries: &HashMap<ContractInstance, (Address, JsonAbi)>,
 ) -> anyhow::Result<(Version, CompilerOutput)> {

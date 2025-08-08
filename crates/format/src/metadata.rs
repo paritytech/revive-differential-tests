@@ -13,7 +13,7 @@ use revive_dt_common::{iterators::FilesWithExtensionIterator, macros::define_wra
 
 use crate::{
     case::Case,
-    mode::{Mode, SolcMode},
+    mode::{Mode, ParsedMode},
 };
 
 pub const METADATA_FILE_EXTENSION: &str = "json";
@@ -51,26 +51,17 @@ pub struct Metadata {
     // TODO: Convert into wrapper types for clarity.
     pub libraries: Option<BTreeMap<PathBuf, BTreeMap<ContractIdent, ContractInstance>>>,
     pub ignore: Option<bool>,
-    pub modes: Option<Vec<Mode>>,
+    pub modes: Option<Vec<ParsedMode>>,
     pub file_path: Option<PathBuf>,
 }
 
 impl Metadata {
-    /// Returns the solc modes of this metadata, inserting a default mode if not present.
-    pub fn solc_modes(&self) -> Vec<SolcMode> {
-        self.modes
-            .to_owned()
-            .unwrap_or_else(|| vec![Mode::Solidity(Default::default())])
-            .iter()
-            .filter_map(|mode| match mode {
-                Mode::Solidity(solc_mode) => Some(solc_mode),
-                Mode::Unknown(mode) => {
-                    tracing::debug!("compiler: ignoring unknown mode '{mode}'");
-                    None
-                }
-            })
-            .cloned()
-            .collect()
+    /// Returns the modes that we should test from this metadata.
+    pub fn test_modes(&self) -> Vec<Mode> {
+        match &self.modes {
+            Some(modes) => Mode::from_parsed_modes(modes.iter()).collect(),
+            None => Mode::all().collect()
+        }
     }
 
     /// Returns the base directory of this metadata.

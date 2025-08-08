@@ -16,7 +16,7 @@ use revive_dt_compiler::{CompilerInput, CompilerOutput};
 use serde::{Deserialize, Serialize};
 
 use revive_dt_config::{Arguments, TestingPlatform};
-use revive_dt_format::{corpus::Corpus, mode::SolcMode};
+use revive_dt_format::{corpus::Corpus, mode::Mode};
 
 use crate::analyzer::CompilerStatistics;
 
@@ -48,7 +48,7 @@ pub struct CompilationTask {
     /// The observed compiler output.
     pub json_output: Option<CompilerOutput>,
     /// The observed compiler mode.
-    pub mode: SolcMode,
+    pub mode: Mode,
     /// The observed compiler version.
     pub compiler_version: String,
     /// The observed error, if any.
