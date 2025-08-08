@@ -6,6 +6,7 @@ use std::fmt::Display;
 use std::sync::LazyLock;
 use std::str::FromStr;
 use regex::Regex;
+use std::collections::HashSet;
 
 /// This represents a mode that a given test should be run with, if possible.
 /// 
@@ -13,17 +14,42 @@ use regex::Regex;
 /// in its requirements, and then expanding it out into a list of [`TestMode`]s.
 /// 
 /// Use [`ParsedMode::to_test_modes()`] to do this.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct TestMode {
     pub pipeline: ModePipeline,
     pub optimize_setting: ModeOptimizerSetting,
     pub version: Option<semver::VersionReq>,
 }
 
+impl Display for TestMode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        fmt_mode_parts(
+            Some(&self.pipeline),
+            None,
+            Some(&self.optimize_setting),
+            self.version.as_ref(),
+            f,
+        )
+    }
+}
+
 impl TestMode {
-    /// Return a set of [`TestMode`]s that correspond to the given [`ParsedMode`]. 
-    pub fn from_parsed_mode(parsed: &ParsedMode) -> impl Iterator<Item = Self> {
-        parsed.to_test_modes()
+    /// Return a set of [`TestMode`]s that correspond to the given [`ParsedMode`]s.
+    /// This avoids any duplicate entries. 
+    pub fn from_parsed_modes<'a>(parsed: impl Iterator<Item = &'a ParsedMode>) -> impl Iterator<Item = Self> {
+       let modes: HashSet<_> = parsed.flat_map(|p| p.to_test_modes()).collect();
+       modes.into_iter()
+    }
+
+    /// Return all of the test modes that we want to run when no specific [`ParsedMode`] is specified.
+    pub fn all() -> impl Iterator<Item = Self> {
+        ParsedMode {
+            pipeline: None,
+            optimize_flag: None,
+            optimize_setting: None,
+            version: None,
+        }
+        .to_test_modes()
     }
 }
 
@@ -94,29 +120,45 @@ impl FromStr for ParsedMode {
 
 impl Display for ParsedMode {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let mut has_written = false;
-
-        if let Some(pipeline) = &self.pipeline {
-            pipeline.fmt(f)?;
-            if let Some(optimize_flag) = self.optimize_flag {
-                f.write_str(if optimize_flag { "+" } else { "-" })?;
-            }
-            has_written = true;
-        }
-
-        if let Some(optimize_setting) = &self.optimize_setting {
-            if has_written { f.write_str(" ")?; }
-            optimize_setting.fmt(f)?;
-            has_written = true;
-        }
-
-        if let Some(version) = &self.version {
-            if has_written { f.write_str(" ")?; }
-            version.fmt(f)?;
-        }
-
-        Ok(())
+        fmt_mode_parts(
+            self.pipeline.as_ref(),
+            self.optimize_flag,
+            self.optimize_setting.as_ref(),
+            self.version.as_ref(),
+            f,
+        )
     }
+}
+
+fn fmt_mode_parts(
+    pipeline: Option<&ModePipeline>, 
+    optimize_flag: Option<bool>, 
+    optimize_setting: Option<&ModeOptimizerSetting>, 
+    version: Option<&semver::VersionReq>, 
+    f: &mut std::fmt::Formatter<'_>
+) -> std::fmt::Result {
+    let mut has_written = false;
+
+    if let Some(pipeline) = pipeline {
+        pipeline.fmt(f)?;
+        if let Some(optimize_flag) = optimize_flag {
+            f.write_str(if optimize_flag { "+" } else { "-" })?;
+        }
+        has_written = true;
+    }
+
+    if let Some(optimize_setting) = optimize_setting {
+        if has_written { f.write_str(" ")?; }
+        optimize_setting.fmt(f)?;
+        has_written = true;
+    }
+
+    if let Some(version) = version {
+        if has_written { f.write_str(" ")?; }
+        version.fmt(f)?;
+    }
+
+    Ok(())
 }
 
 impl ParsedMode {
@@ -318,11 +360,34 @@ mod tests {
             // We can parse +- _and_ M1/M2 but the latter takes priority.
             ("Y+ M1 0.8.0", "Y+ M1 ^0.8.0"),
             ("E- M2 0.7.0", "E- M2 ^0.7.0"),
+            // We don't see this in the wild but it is parsed.
+            ("<=0.8", "<=0.8"),
         ];
 
         for (actual, expected) in strings {
             let parsed = ParsedMode::from_str(actual).expect(format!("Failed to parse mode string '{actual}'").as_str());
             assert_eq!(expected, parsed.to_string(), "Mode string '{actual}' did not parse to '{expected}': got '{parsed}'");
+        }
+    }
+
+    #[test]
+    fn test_parsed_mode_to_test_modes() {
+        let strings = vec![
+            ("Mz", vec!["Y Mz", "E Mz"]),
+            ("Y", vec!["Y M0", "Y M3"]),
+            ("E", vec!["E M0", "E M3"]),
+            ("Y+", vec!["Y M3"]),
+            ("Y-", vec!["Y M0"]),
+            ("Y <=0.8", vec!["Y M0 <=0.8", "Y M3 <=0.8"]),
+            ("<=0.8", vec!["Y M0 <=0.8", "Y M3 <=0.8", "E M0 <=0.8", "E M3 <=0.8"]),
+        ];
+
+        for (actual, expected) in strings {
+            let parsed = ParsedMode::from_str(actual).expect(format!("Failed to parse mode string '{actual}'").as_str());
+            let expected_set: HashSet<_> = expected.into_iter().map(|s| s.to_owned()).collect();
+            let actual_set: HashSet<_> = parsed.to_test_modes().map(|m| m.to_string()).collect();
+
+            assert_eq!(expected_set, actual_set, "Mode string '{actual}' did not expand to '{expected_set:?}': got '{actual_set:?}'");
         }
     }
 
