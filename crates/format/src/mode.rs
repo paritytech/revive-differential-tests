@@ -105,10 +105,7 @@ impl FromStr for ParsedMode {
             None => None,
         };
 
-        let optimize_flag = match caps.name("optimize_flag") {
-            Some(m) => Some(m.as_str() == "+"),
-            None => None,
-        };
+        let optimize_flag = caps.name("optimize_flag").map(|m| m.as_str() == "+");
 
         let optimize_setting = match caps.name("optimize_setting") {
             Some(m) => Some(ModeOptimizerSetting::from_str(m.as_str())?),
