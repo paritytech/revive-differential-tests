@@ -34,7 +34,7 @@ use revive_dt_format::{
     corpus::Corpus,
     input::Input,
     metadata::{ContractInstance, ContractPathAndIdent, Metadata, MetadataFile},
-    mode::{Mode, ModePipeline, ModeOptimizerSetting},
+    mode::{Mode, ModeOptimizerSetting, ModePipeline},
 };
 use revive_dt_node::pool::NodePool;
 use revive_dt_report::reporter::{Report, Span};

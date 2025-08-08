@@ -1,18 +1,18 @@
+use regex::Regex;
 use revive_dt_common::types::VersionOrRequirement;
 use semver::Version;
 use serde::de::Deserializer;
 use serde::{Deserialize, Serialize};
-use std::fmt::Display;
-use std::sync::LazyLock;
-use std::str::FromStr;
-use regex::Regex;
 use std::collections::HashSet;
+use std::fmt::Display;
+use std::str::FromStr;
+use std::sync::LazyLock;
 
 /// This represents a mode that a given test should be run with, if possible.
-/// 
+///
 /// We obtain this by taking a [`ParsedMode`], which may be looser or more strict
 /// in its requirements, and then expanding it out into a list of [`TestMode`]s.
-/// 
+///
 /// Use [`ParsedMode::to_test_modes()`] to do this.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Mode {
@@ -35,10 +35,12 @@ impl Display for Mode {
 
 impl Mode {
     /// Return a set of [`TestMode`]s that correspond to the given [`ParsedMode`]s.
-    /// This avoids any duplicate entries. 
-    pub fn from_parsed_modes<'a>(parsed: impl Iterator<Item = &'a ParsedMode>) -> impl Iterator<Item = Self> {
-       let modes: HashSet<_> = parsed.flat_map(|p| p.to_test_modes()).collect();
-       modes.into_iter()
+    /// This avoids any duplicate entries.
+    pub fn from_parsed_modes<'a>(
+        parsed: impl Iterator<Item = &'a ParsedMode>,
+    ) -> impl Iterator<Item = Self> {
+        let modes: HashSet<_> = parsed.flat_map(|p| p.to_test_modes()).collect();
+        modes.into_iter()
     }
 
     /// Return all of the test modes that we want to run when no specific [`ParsedMode`] is specified.
@@ -63,13 +65,13 @@ impl Mode {
 }
 
 /// This represents a mode that has been parsed from test metadata.
-/// 
+///
 /// Mode strings can take the following form (in pseudo-regex):
-/// 
+///
 /// ```text
 /// [YEILV][+-]? (M[0123sz])? <semver>?
 /// ```
-/// 
+///
 /// We can parse valid mode strings into [`ParsedMode`] using [`ParsedMode::from_str`].
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct ParsedMode {
@@ -93,7 +95,7 @@ impl FromStr for ParsedMode {
                 $
             ").unwrap()
         });
-        
+
         let Some(caps) = REGEX.captures(s) else {
             return Err(ParseModeError::CannotParse);
         };
@@ -114,7 +116,10 @@ impl FromStr for ParsedMode {
         };
 
         let version = match caps.name("version") {
-            Some(m) => Some(semver::VersionReq::parse(m.as_str()).map_err(|e| ParseModeError::InvalidVersion(e.to_string()))?),
+            Some(m) => Some(
+                semver::VersionReq::parse(m.as_str())
+                    .map_err(|e| ParseModeError::InvalidVersion(e.to_string()))?,
+            ),
             None => None,
         };
 
@@ -160,11 +165,11 @@ impl Display for ParsedMode {
 }
 
 fn fmt_mode_parts(
-    pipeline: Option<&ModePipeline>, 
-    optimize_flag: Option<bool>, 
-    optimize_setting: Option<&ModeOptimizerSetting>, 
-    version: Option<&semver::VersionReq>, 
-    f: &mut std::fmt::Formatter<'_>
+    pipeline: Option<&ModePipeline>,
+    optimize_flag: Option<bool>,
+    optimize_setting: Option<&ModeOptimizerSetting>,
+    version: Option<&semver::VersionReq>,
+    f: &mut std::fmt::Formatter<'_>,
 ) -> std::fmt::Result {
     let mut has_written = false;
 
@@ -177,13 +182,17 @@ fn fmt_mode_parts(
     }
 
     if let Some(optimize_setting) = optimize_setting {
-        if has_written { f.write_str(" ")?; }
+        if has_written {
+            f.write_str(" ")?;
+        }
         optimize_setting.fmt(f)?;
         has_written = true;
     }
 
     if let Some(version) = version {
-        if has_written { f.write_str(" ")?; }
+        if has_written {
+            f.write_str(" ")?;
+        }
         version.fmt(f)?;
     }
 
@@ -199,7 +208,11 @@ impl ParsedMode {
         );
 
         let optimize_flag_setting = self.optimize_flag.map(|b| {
-            if b { ModeOptimizerSetting::M3 } else { ModeOptimizerSetting::M0 }
+            if b {
+                ModeOptimizerSetting::M3
+            } else {
+                ModeOptimizerSetting::M0
+            }
         });
 
         let optimize_flag_iter = match optimize_flag_setting {
@@ -213,20 +226,22 @@ impl ParsedMode {
         );
 
         pipeline_iter.flat_map(move |pipeline| {
-            optimize_settings_iter.clone().map(move |optimize_setting| {
-                Mode {
+            optimize_settings_iter
+                .clone()
+                .map(move |optimize_setting| Mode {
                     pipeline,
                     optimize_setting,
                     version: self.version.clone(),
-                }
-            })
+                })
         })
     }
 }
 
 #[derive(thiserror::Error, Debug, Clone)]
 pub enum ParseModeError {
-    #[error("Cannot parse compiler mode via regex: expecting something like 'Y', 'E+ <0.8', 'Y Mz =0.8'")]
+    #[error(
+        "Cannot parse compiler mode via regex: expecting something like 'Y', 'E+ <0.8', 'Y Mz =0.8'"
+    )]
     CannotParse,
     #[error("Unsupported compiler pipeline mode: {0}. We support Y and E modes only.")]
     UnsupportedPipeline(char),
@@ -254,7 +269,9 @@ impl FromStr for ModePipeline {
             // Don't go via Yul IR
             "E" => Ok(ModePipeline::E),
             // Anything else that we see isn't a mode at all
-            _ => Err(ParseModeError::UnsupportedPipeline(s.chars().next().unwrap_or('?')))
+            _ => Err(ParseModeError::UnsupportedPipeline(
+                s.chars().next().unwrap_or('?'),
+            )),
         }
     }
 }
@@ -302,7 +319,7 @@ impl FromStr for ModeOptimizerSetting {
             "M3" => Ok(ModeOptimizerSetting::M3),
             "Ms" => Ok(ModeOptimizerSetting::Ms),
             "Mz" => Ok(ModeOptimizerSetting::Mz),
-            _ => Err(ParseModeError::UnsupportedOptimizerSetting(s.to_owned()))
+            _ => Err(ParseModeError::UnsupportedOptimizerSetting(s.to_owned())),
         }
     }
 }
@@ -338,7 +355,7 @@ impl ModeOptimizerSetting {
 #[derive(Clone, Debug)]
 enum EitherIter<A, B> {
     A(A),
-    B(B)
+    B(B),
 }
 
 impl<A, B> Iterator for EitherIter<A, B>
@@ -394,8 +411,13 @@ mod tests {
         ];
 
         for (actual, expected) in strings {
-            let parsed = ParsedMode::from_str(actual).expect(format!("Failed to parse mode string '{actual}'").as_str());
-            assert_eq!(expected, parsed.to_string(), "Mode string '{actual}' did not parse to '{expected}': got '{parsed}'");
+            let parsed = ParsedMode::from_str(actual)
+                .expect(format!("Failed to parse mode string '{actual}'").as_str());
+            assert_eq!(
+                expected,
+                parsed.to_string(),
+                "Mode string '{actual}' did not parse to '{expected}': got '{parsed}'"
+            );
         }
     }
 
@@ -408,16 +430,22 @@ mod tests {
             ("Y+", vec!["Y M3"]),
             ("Y-", vec!["Y M0"]),
             ("Y <=0.8", vec!["Y M0 <=0.8", "Y M3 <=0.8"]),
-            ("<=0.8", vec!["Y M0 <=0.8", "Y M3 <=0.8", "E M0 <=0.8", "E M3 <=0.8"]),
+            (
+                "<=0.8",
+                vec!["Y M0 <=0.8", "Y M3 <=0.8", "E M0 <=0.8", "E M3 <=0.8"],
+            ),
         ];
 
         for (actual, expected) in strings {
-            let parsed = ParsedMode::from_str(actual).expect(format!("Failed to parse mode string '{actual}'").as_str());
+            let parsed = ParsedMode::from_str(actual)
+                .expect(format!("Failed to parse mode string '{actual}'").as_str());
             let expected_set: HashSet<_> = expected.into_iter().map(|s| s.to_owned()).collect();
             let actual_set: HashSet<_> = parsed.to_test_modes().map(|m| m.to_string()).collect();
 
-            assert_eq!(expected_set, actual_set, "Mode string '{actual}' did not expand to '{expected_set:?}': got '{actual_set:?}'");
+            assert_eq!(
+                expected_set, actual_set,
+                "Mode string '{actual}' did not expand to '{expected_set:?}': got '{actual_set:?}'"
+            );
         }
     }
-
 }
