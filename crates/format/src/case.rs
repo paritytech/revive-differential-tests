@@ -4,14 +4,14 @@ use revive_dt_common::macros::define_wrapper_type;
 
 use crate::{
     input::{Expected, Input},
-    mode::Mode,
+    mode::ParsedMode,
 };
 
 #[derive(Debug, Default, Deserialize, Clone, Eq, PartialEq)]
 pub struct Case {
     pub name: Option<String>,
     pub comment: Option<String>,
-    pub modes: Option<Vec<Mode>>,
+    pub modes: Option<Vec<ParsedMode>>,
     pub inputs: Vec<Input>,
     pub group: Option<String>,
     pub expected: Option<Expected>,
