@@ -57,7 +57,7 @@ pub struct Metadata {
 
 impl Metadata {
     /// Returns the modes that we should test from this metadata.
-    pub fn test_modes(&self) -> Vec<Mode> {
+    pub fn solc_modes(&self) -> Vec<Mode> {
         match &self.modes {
             Some(modes) => Mode::from_parsed_modes(modes.iter()).collect(),
             None => Mode::all().collect()
