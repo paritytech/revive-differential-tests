@@ -10,7 +10,7 @@ use revive_dt_common::types::VersionOrRequirement;
 use revive_dt_config::Arguments;
 use revive_dt_solc_binaries::download_solc;
 
-use crate::{CompilerInput, CompilerOutput, SolidityCompiler};
+use crate::{CompilerInput, CompilerOutput, ModeOptimizerSetting, ModePipeline, SolidityCompiler};
 
 use anyhow::Context;
 use foundry_compilers_artifacts::{
@@ -35,8 +35,8 @@ impl SolidityCompiler for Solc {
     async fn build(
         &self,
         CompilerInput {
+            pipeline,
             optimization,
-            via_ir,
             evm_version,
             allow_paths,
             base_path,
@@ -70,7 +70,7 @@ impl SolidityCompiler for Solc {
                     .map(|item| item.to_string()),
                 ),
                 evm_version: evm_version.map(|version| version.to_string().parse().unwrap()),
-                via_ir,
+                via_ir: pipeline.map(|p| p.via_yul_ir()),
                 libraries: Libraries {
                     libs: libraries
                         .into_iter()
@@ -211,6 +211,17 @@ impl SolidityCompiler for Solc {
             .context("Version parsing failed")?;
 
         Version::parse(version_string).map_err(Into::into)
+    }
+
+    fn supports_mode(
+        compiler_version: &Version,
+        _optimize_setting: ModeOptimizerSetting,
+        pipeline: ModePipeline,
+    ) -> bool {
+        // solc 0.8.13 and above supports --via-ir, and less than that does not. Thus, we support mode E
+        // (ie no Yul IR) in either case, but only support Y (via Yul IR) if the compiler is new enough.
+        pipeline == ModePipeline::E
+            || (pipeline == ModePipeline::Y && compiler_version >= &Version::new(0, 8, 13))
     }
 }
 

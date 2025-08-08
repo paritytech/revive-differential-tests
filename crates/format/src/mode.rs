@@ -61,11 +61,6 @@ impl Mode {
             None => default.into(),
         }
     }
-
-    /// Should we go via Yul IR?
-    pub fn via_yul_ir(&self) -> bool {
-        self.pipeline == ModePipeline::Y
-    }
 }
 
 /// This represents a mode that has been parsed from test metadata.
@@ -281,6 +276,11 @@ impl Display for ModePipeline {
 }
 
 impl ModePipeline {
+    /// Should we go via Yul IR?
+    pub fn via_yul_ir(&self) -> bool {
+        matches!(self, ModePipeline::Y)
+    }
+
     /// An iterator over the available pipelines that we'd like to test,
     /// when an explicit pipeline was not specified.
     pub fn test_cases() -> impl Iterator<Item = ModePipeline> + Clone {

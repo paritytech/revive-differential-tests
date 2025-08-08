@@ -20,7 +20,7 @@ use revive_dt_common::types::VersionOrRequirement;
 use revive_dt_config::Arguments;
 
 // Re-export this as it's a part of the compiler interface.
-pub use revive_dt_format::mode::ModeOptimizerSetting;
+pub use revive_dt_format::mode::{Mode, ModeOptimizerSetting, ModePipeline};
 
 pub mod revive_js;
 pub mod revive_resolc;
@@ -46,13 +46,20 @@ pub trait SolidityCompiler {
     ) -> impl Future<Output = anyhow::Result<PathBuf>>;
 
     fn version(&self) -> anyhow::Result<Version>;
+
+    /// Does the compiler support the provided mode and version settings?
+    fn supports_mode(
+        compiler_version: &Version,
+        optimize_setting: ModeOptimizerSetting,
+        pipeline: ModePipeline,
+    ) -> bool;
 }
 
 /// The generic compilation input configuration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CompilerInput {
+    pub pipeline: Option<ModePipeline>,
     pub optimization: Option<ModeOptimizerSetting>,
-    pub via_ir: Option<bool>,
     pub evm_version: Option<EVMVersion>,
     pub allow_paths: Vec<PathBuf>,
     pub base_path: Option<PathBuf>,
@@ -87,8 +94,8 @@ where
     pub fn new() -> Self {
         Self {
             input: CompilerInput {
+                pipeline: Default::default(),
                 optimization: Default::default(),
-                via_ir: Default::default(),
                 evm_version: Default::default(),
                 allow_paths: Default::default(),
                 base_path: Default::default(),
@@ -104,8 +111,8 @@ where
         self
     }
 
-    pub fn with_via_ir(mut self, value: impl Into<Option<bool>>) -> Self {
-        self.input.via_ir = value.into();
+    pub fn with_pipeline(mut self, value: impl Into<Option<ModePipeline>>) -> Self {
+        self.input.pipeline = value.into();
         self
     }
 
