@@ -1,4 +1,4 @@
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use revive_dt_common::macros::define_wrapper_type;
 
@@ -7,7 +7,7 @@ use crate::{
     mode::Mode,
 };
 
-#[derive(Debug, Default, Deserialize, Clone, Eq, PartialEq)]
+#[derive(Debug, Default, Serialize, Deserialize, Clone, Eq, PartialEq)]
 pub struct Case {
     pub name: Option<String>,
     pub comment: Option<String>,

@@ -17,7 +17,7 @@ use revive_dt_common::macros::define_wrapper_type;
 use crate::traits::ResolverApi;
 use crate::{metadata::ContractInstance, traits::ResolutionContext};
 
-#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize, Eq, PartialEq)]
 pub struct Input {
     #[serde(default = "Input::default_caller")]
     pub caller: Address,
@@ -33,7 +33,7 @@ pub struct Input {
     pub variable_assignments: Option<VariableAssignments>,
 }
 
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq)]
 #[serde(untagged)]
 pub enum Expected {
     Calldata(Calldata),
@@ -41,7 +41,7 @@ pub enum Expected {
     ExpectedMany(Vec<ExpectedOutput>),
 }
 
-#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize, Eq, PartialEq)]
 pub struct ExpectedOutput {
     pub compiler_version: Option<VersionReq>,
     pub return_data: Option<Calldata>,
@@ -50,7 +50,7 @@ pub struct ExpectedOutput {
     pub exception: bool,
 }
 
-#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize, Eq, PartialEq)]
 pub struct Event {
     pub address: Option<String>,
     pub topics: Vec<String>,
@@ -108,7 +108,7 @@ pub struct Event {
 /// [`Single`]: Calldata::Single
 /// [`Compound`]: Calldata::Compound
 /// [reverse polish notation]: https://en.wikipedia.org/wiki/Reverse_Polish_notation
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq)]
 #[serde(untagged)]
 pub enum Calldata {
     Single(Bytes),
@@ -142,7 +142,7 @@ enum Operation {
 }
 
 /// Specify how the contract is called.
-#[derive(Debug, Default, Deserialize, Clone, Eq, PartialEq)]
+#[derive(Debug, Default, Serialize, Deserialize, Clone, Eq, PartialEq)]
 pub enum Method {
     /// Initiate a deploy transaction, calling contracts constructor.
     ///
@@ -167,7 +167,7 @@ define_wrapper_type!(
     pub struct EtherValue(U256);
 );
 
-#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize, Eq, PartialEq)]
 pub struct VariableAssignments {
     /// A vector of the variable names to assign to the return data.
     ///
