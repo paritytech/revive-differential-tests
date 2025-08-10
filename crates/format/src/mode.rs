@@ -16,6 +16,7 @@ pub struct SolcMode {
     pub solc_version: Option<semver::VersionReq>,
     solc_optimize: Option<bool>,
     pub llvm_optimizer_settings: Vec<String>,
+    mode_string: String,
 }
 
 impl SolcMode {
@@ -29,7 +30,10 @@ impl SolcMode {
     /// - A solc `SemVer version requirement` string
     /// - One or more `-OX` where X is a supposed to be an LLVM opt mode
     pub fn parse_from_mode_string(mode_string: &str) -> Option<Self> {
-        let mut result = Self::default();
+        let mut result = Self {
+            mode_string: mode_string.to_string(),
+            ..Default::default()
+        };
 
         let mut parts = mode_string.trim().split(" ");
 
@@ -102,5 +106,18 @@ impl<'de> Deserialize<'de> for Mode {
         }
 
         Ok(Self::Unknown(mode_string))
+    }
+}
+
+impl Serialize for Mode {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let string = match self {
+            Mode::Solidity(solc_mode) => &solc_mode.mode_string,
+            Mode::Unknown(string) => string,
+        };
+        string.serialize(serializer)
     }
 }
