@@ -28,6 +28,8 @@ pub enum Step {
     FunctionCall(Box<Input>),
     /// A step for performing a balance assertion on some account or contract.
     BalanceAssertion(Box<BalanceAssertion>),
+    /// A step for asserting that the storage of some contract or account is empty.
+    StorageEmptyAssertion(Box<StorageEmptyAssertion>),
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, Eq, PartialEq)]
@@ -58,6 +60,20 @@ pub struct BalanceAssertion {
 
     /// The amount of balance to assert that the account or contract has.
     pub expected_balance: U256,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize, Eq, PartialEq)]
+pub struct StorageEmptyAssertion {
+    /// The address that the balance assertion should be done on.
+    ///
+    /// This is a string which will be resolved into an address when being processed. Therefore,
+    /// this could be a normal hex address, a variable such as `Test.address`, or perhaps even a
+    /// full on variable like `$VARIABLE:Uniswap`. It follows the same resolution rules that are
+    /// followed in the calldata.
+    pub address: String,
+
+    /// A boolean of whether the storage of the address is empty or not.
+    pub is_storage_empty: bool,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq)]
