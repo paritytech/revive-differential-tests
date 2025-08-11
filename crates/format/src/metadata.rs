@@ -45,12 +45,18 @@ impl Deref for MetadataFile {
 
 #[derive(Debug, Default, Serialize, Deserialize, Clone, Eq, PartialEq)]
 pub struct Metadata {
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub targets: Option<Vec<String>>,
     pub cases: Vec<Case>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub contracts: Option<BTreeMap<ContractInstance, ContractPathAndIdent>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub libraries: Option<BTreeMap<PathBuf, BTreeMap<ContractIdent, ContractInstance>>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub ignore: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub modes: Option<Vec<Mode>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub file_path: Option<PathBuf>,
 }
 

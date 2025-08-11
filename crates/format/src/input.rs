@@ -36,15 +36,20 @@ pub enum Step {
 pub struct Input {
     #[serde(default = "Input::default_caller")]
     pub caller: Address,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub comment: Option<String>,
     #[serde(default = "Input::default_instance")]
     pub instance: ContractInstance,
     pub method: Method,
     #[serde(default)]
     pub calldata: Calldata,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub expected: Option<Expected>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub value: Option<EtherValue>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub storage: Option<HashMap<String, Calldata>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub variable_assignments: Option<VariableAssignments>,
 }
 
@@ -86,8 +91,11 @@ pub enum Expected {
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, Eq, PartialEq)]
 pub struct ExpectedOutput {
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub compiler_version: Option<VersionReq>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub return_data: Option<Calldata>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub events: Option<Vec<Event>>,
     #[serde(default)]
     pub exception: bool,
@@ -95,6 +103,7 @@ pub struct ExpectedOutput {
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, Eq, PartialEq)]
 pub struct Event {
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub address: Option<String>,
     pub topics: Vec<String>,
     pub values: Calldata,
