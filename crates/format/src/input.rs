@@ -57,7 +57,7 @@ pub struct BalanceAssertion {
     pub address: String,
 
     /// The amount of balance to assert that the account or contract has.
-    pub amount: U256,
+    pub expected_balance: U256,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq)]

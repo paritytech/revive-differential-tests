@@ -527,7 +527,7 @@ where
         &mut self,
         BalanceAssertion {
             address: address_string,
-            amount,
+            expected_balance: amount,
         }: &BalanceAssertion,
         node: &T::Blockchain,
     ) -> anyhow::Result<()> {

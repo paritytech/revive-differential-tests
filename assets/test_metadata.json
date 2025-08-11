@@ -9,6 +9,10 @@
             "name": "first",
             "inputs": [
                 {
+                    "address": "0xdeadbeef00000000000000000000000000000042",
+                    "expected_balance": "1233"
+                },
+                {
                     "instance": "WBTC_1",
                     "method": "#deployer",
                     "calldata": [
