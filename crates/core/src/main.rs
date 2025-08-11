@@ -32,7 +32,7 @@ use revive_dt_core::{
 use revive_dt_format::{
     case::{Case, CaseIdx},
     corpus::Corpus,
-    input::Input,
+    input::{Input, Step},
     metadata::{ContractInstance, ContractPathAndIdent, Metadata, MetadataFile},
     mode::SolcMode,
 };
@@ -446,9 +446,11 @@ where
         // doing the deployments from different accounts and therefore we're not slowed down by
         // the nonce.
         let deployer_address = case
-            .inputs
+            .steps
             .iter()
-            .map(|input| input.caller)
+            .filter_map(|step| match step {
+                Step::FunctionCall(input) => Some(input.caller),
+            })
             .next()
             .unwrap_or(Input::default_caller());
         let leader_tx = TransactionBuilder::<Ethereum>::with_deploy_code(

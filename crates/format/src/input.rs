@@ -17,6 +17,17 @@ use revive_dt_common::macros::define_wrapper_type;
 use crate::traits::ResolverApi;
 use crate::{metadata::ContractInstance, traits::ResolutionContext};
 
+/// A test step.
+///
+/// A test step can be anything. It could be an invocation to a function, an assertion, or any other
+/// action that needs to be run or executed on the nodes used in the tests.
+#[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq)]
+#[serde(untagged)]
+pub enum Step {
+    /// A function call or an invocation to some function on some smart contract.
+    FunctionCall(Input),
+}
+
 #[derive(Clone, Debug, Default, Serialize, Deserialize, Eq, PartialEq)]
 pub struct Input {
     #[serde(default = "Input::default_caller")]
