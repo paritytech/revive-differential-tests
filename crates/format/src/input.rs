@@ -55,6 +55,10 @@ pub struct Input {
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, Eq, PartialEq)]
 pub struct BalanceAssertion {
+    /// An optional comment on the balance assertion.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub comment: Option<String>,
+
     /// The address that the balance assertion should be done on.
     ///
     /// This is a string which will be resolved into an address when being processed. Therefore,
@@ -69,6 +73,10 @@ pub struct BalanceAssertion {
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, Eq, PartialEq)]
 pub struct StorageEmptyAssertion {
+    /// An optional comment on the storage empty assertion.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub comment: Option<String>,
+
     /// The address that the balance assertion should be done on.
     ///
     /// This is a string which will be resolved into an address when being processed. Therefore,
