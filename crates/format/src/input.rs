@@ -26,6 +26,8 @@ use crate::{metadata::ContractInstance, traits::ResolutionContext};
 pub enum Step {
     /// A function call or an invocation to some function on some smart contract.
     FunctionCall(Input),
+    /// A step for performing a balance assertion on some account or contract.
+    BalanceAssertion(BalanceAssertion),
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, Eq, PartialEq)]
@@ -42,6 +44,20 @@ pub struct Input {
     pub value: Option<EtherValue>,
     pub storage: Option<HashMap<String, Calldata>>,
     pub variable_assignments: Option<VariableAssignments>,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize, Eq, PartialEq)]
+pub struct BalanceAssertion {
+    /// The address that the balance assertion should be done on.
+    ///
+    /// This is a string which will be resolved into an address when being processed. Therefore,
+    /// this could be a normal hex address, a variable such as `Test.address`, or perhaps even a
+    /// full on variable like `$VARIABLE:Uniswap`. It follows the same resolution rules that are
+    /// followed in the calldata.
+    pub address: String,
+
+    /// The amount of balance to assert that the account or contract has.
+    pub amount: U256,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq)]

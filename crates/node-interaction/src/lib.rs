@@ -1,5 +1,6 @@
 //! This crate implements all node interactions.
 
+use alloy::primitives::{Address, U256};
 use alloy::rpc::types::trace::geth::{DiffMode, GethDebugTracingOptions, GethTrace};
 use alloy::rpc::types::{TransactionReceipt, TransactionRequest};
 use anyhow::Result;
@@ -21,4 +22,7 @@ pub trait EthereumNode {
 
     /// Returns the state diff of the transaction hash in the [TransactionReceipt].
     fn state_diff(&self, receipt: &TransactionReceipt) -> impl Future<Output = Result<DiffMode>>;
+
+    /// Returns the balance of the provided [`Address`] back.
+    fn balance_of(&self, address: Address) -> impl Future<Output = Result<U256>>;
 }

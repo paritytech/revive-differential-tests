@@ -450,6 +450,7 @@ where
             .iter()
             .filter_map(|step| match step {
                 Step::FunctionCall(input) => Some(input.caller),
+                Step::BalanceAssertion(..) => None,
             })
             .next()
             .unwrap_or(Input::default_caller());

@@ -371,6 +371,15 @@ impl EthereumNode for GethNode {
             _ => anyhow::bail!("expected a diff mode trace"),
         }
     }
+
+    #[tracing::instrument(skip_all, fields(geth_node_id = self.id))]
+    async fn balance_of(&self, address: Address) -> anyhow::Result<U256> {
+        self.provider()
+            .await?
+            .get_balance(address)
+            .await
+            .map_err(Into::into)
+    }
 }
 
 impl ResolverApi for GethNode {

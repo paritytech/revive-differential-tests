@@ -26,7 +26,9 @@ use revive_dt_format::traits::{ResolutionContext, ResolverApi};
 use semver::Version;
 
 use revive_dt_format::case::{Case, CaseIdx};
-use revive_dt_format::input::{Calldata, EtherValue, Expected, ExpectedOutput, Input, Method};
+use revive_dt_format::input::{
+    BalanceAssertion, Calldata, EtherValue, Expected, ExpectedOutput, Input, Method,
+};
 use revive_dt_format::metadata::{ContractInstance, ContractPathAndIdent};
 use revive_dt_format::{input::Step, metadata::Metadata};
 use revive_dt_node::Node;
@@ -83,6 +85,11 @@ where
                     self.handle_input(metadata, case_idx, input, node).await?;
                 Ok(StepOutput::FunctionCall(receipt, geth_trace, diff_mode))
             }
+            Step::BalanceAssertion(balance_assertion) => {
+                self.handle_balance_assertion(metadata, case_idx, balance_assertion, node)
+                    .await?;
+                Ok(StepOutput::BalanceAssertion)
+            }
         }
     }
 
@@ -107,6 +114,19 @@ where
             .await?;
         self.handle_input_diff(case_idx, execution_receipt, node)
             .await
+    }
+
+    pub async fn handle_balance_assertion(
+        &mut self,
+        metadata: &Metadata,
+        _: CaseIdx,
+        balance_assertion: &BalanceAssertion,
+        node: &T::Blockchain,
+    ) -> anyhow::Result<()> {
+        self.handle_balance_assertion_contract_deployment(metadata, balance_assertion, node)
+            .await?;
+
+        Ok(())
     }
 
     /// Handles the contract deployment for a given input performing it if it needs to be performed.
@@ -478,6 +498,65 @@ where
         Ok((execution_receipt, trace, diff))
     }
 
+    pub async fn handle_balance_assertion_contract_deployment(
+        &mut self,
+        metadata: &Metadata,
+        balance_assertion: &BalanceAssertion,
+        node: &T::Blockchain,
+    ) -> anyhow::Result<()> {
+        let Some(instance) = balance_assertion
+            .address
+            .strip_prefix(".address")
+            .map(ContractInstance::new)
+        else {
+            return Ok(());
+        };
+        self.get_or_deploy_contract_instance(
+            &instance,
+            metadata,
+            Input::default_caller(),
+            None,
+            None,
+            node,
+        )
+        .await?;
+        Ok(())
+    }
+
+    pub async fn handle_balance_assertion_execution(
+        &mut self,
+        BalanceAssertion {
+            address: address_string,
+            amount,
+        }: &BalanceAssertion,
+        node: &T::Blockchain,
+    ) -> anyhow::Result<()> {
+        let address = Address::from_slice(
+            Calldata::new_compound([address_string])
+                .calldata(node, self.default_resolution_context())
+                .await?
+                .get(12..32)
+                .expect("Can't fail"),
+        );
+
+        let balance = node.balance_of(address).await?;
+
+        let expected = *amount;
+        let actual = balance;
+        if expected != actual {
+            tracing::error!(%expected, %actual, %address, "Balance assertion failed");
+            anyhow::bail!(
+                "Balance assertion failed - Expected {} but got {} for {} resolved to {}",
+                expected,
+                actual,
+                address_string,
+                address,
+            )
+        }
+
+        Ok(())
+    }
+
     /// Gets the information of a deployed contract or library from the state. If it's found to not
     /// be deployed then it will be deployed.
     ///
@@ -700,6 +779,8 @@ where
                         tracing::trace!("Follower logs: {:?}", follower_receipt.logs());
                     }
                 }
+                (StepOutput::BalanceAssertion, StepOutput::BalanceAssertion) => {}
+                _ => unreachable!("The two step outputs can not be of a different kind"),
             }
 
             steps_executed += 1;
@@ -712,4 +793,5 @@ where
 #[derive(Clone, Debug)]
 pub enum StepOutput {
     FunctionCall(TransactionReceipt, GethTrace, DiffMode),
+    BalanceAssertion,
 }
