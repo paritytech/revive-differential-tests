@@ -26,9 +26,11 @@ use revive_dt_format::traits::{ResolutionContext, ResolverApi};
 use semver::Version;
 
 use revive_dt_format::case::{Case, CaseIdx};
-use revive_dt_format::input::{Calldata, EtherValue, Expected, ExpectedOutput, Method};
+use revive_dt_format::input::{
+    BalanceAssertion, Calldata, EtherValue, Expected, ExpectedOutput, Input, Method,
+};
 use revive_dt_format::metadata::{ContractInstance, ContractPathAndIdent};
-use revive_dt_format::{input::Input, metadata::Metadata};
+use revive_dt_format::{input::Step, metadata::Metadata};
 use revive_dt_node::Node;
 use revive_dt_node_interaction::EthereumNode;
 use tracing::Instrument;
@@ -70,6 +72,27 @@ where
         }
     }
 
+    pub async fn handle_step(
+        &mut self,
+        metadata: &Metadata,
+        case_idx: CaseIdx,
+        step: &Step,
+        node: &T::Blockchain,
+    ) -> anyhow::Result<StepOutput> {
+        match step {
+            Step::FunctionCall(input) => {
+                let (receipt, geth_trace, diff_mode) =
+                    self.handle_input(metadata, case_idx, input, node).await?;
+                Ok(StepOutput::FunctionCall(receipt, geth_trace, diff_mode))
+            }
+            Step::BalanceAssertion(balance_assertion) => {
+                self.handle_balance_assertion(metadata, case_idx, balance_assertion, node)
+                    .await?;
+                Ok(StepOutput::BalanceAssertion)
+            }
+        }
+    }
+
     pub async fn handle_input(
         &mut self,
         metadata: &Metadata,
@@ -78,7 +101,7 @@ where
         node: &T::Blockchain,
     ) -> anyhow::Result<(TransactionReceipt, GethTrace, DiffMode)> {
         let deployment_receipts = self
-            .handle_contract_deployment(metadata, case_idx, input, node)
+            .handle_input_contract_deployment(metadata, case_idx, input, node)
             .await?;
         let execution_receipt = self
             .handle_input_execution(input, deployment_receipts, node)
@@ -93,8 +116,21 @@ where
             .await
     }
 
+    pub async fn handle_balance_assertion(
+        &mut self,
+        metadata: &Metadata,
+        _: CaseIdx,
+        balance_assertion: &BalanceAssertion,
+        node: &T::Blockchain,
+    ) -> anyhow::Result<()> {
+        self.handle_balance_assertion_contract_deployment(metadata, balance_assertion, node)
+            .await?;
+
+        Ok(())
+    }
+
     /// Handles the contract deployment for a given input performing it if it needs to be performed.
-    async fn handle_contract_deployment(
+    async fn handle_input_contract_deployment(
         &mut self,
         metadata: &Metadata,
         case_idx: CaseIdx,
@@ -462,6 +498,65 @@ where
         Ok((execution_receipt, trace, diff))
     }
 
+    pub async fn handle_balance_assertion_contract_deployment(
+        &mut self,
+        metadata: &Metadata,
+        balance_assertion: &BalanceAssertion,
+        node: &T::Blockchain,
+    ) -> anyhow::Result<()> {
+        let Some(instance) = balance_assertion
+            .address
+            .strip_prefix(".address")
+            .map(ContractInstance::new)
+        else {
+            return Ok(());
+        };
+        self.get_or_deploy_contract_instance(
+            &instance,
+            metadata,
+            Input::default_caller(),
+            None,
+            None,
+            node,
+        )
+        .await?;
+        Ok(())
+    }
+
+    pub async fn handle_balance_assertion_execution(
+        &mut self,
+        BalanceAssertion {
+            address: address_string,
+            expected_balance: amount,
+        }: &BalanceAssertion,
+        node: &T::Blockchain,
+    ) -> anyhow::Result<()> {
+        let address = Address::from_slice(
+            Calldata::new_compound([address_string])
+                .calldata(node, self.default_resolution_context())
+                .await?
+                .get(12..32)
+                .expect("Can't fail"),
+        );
+
+        let balance = node.balance_of(address).await?;
+
+        let expected = *amount;
+        let actual = balance;
+        if expected != actual {
+            tracing::error!(%expected, %actual, %address, "Balance assertion failed");
+            anyhow::bail!(
+                "Balance assertion failed - Expected {} but got {} for {} resolved to {}",
+                expected,
+                actual,
+                address_string,
+                address,
+            )
+        }
+
+        Ok(())
+    }
+
     /// Gets the information of a deployed contract or library from the state. If it's found to not
     /// be deployed then it will be deployed.
     ///
@@ -651,38 +746,53 @@ where
             return Ok(0);
         }
 
-        let mut inputs_executed = 0;
-        for (input_idx, input) in self.case.inputs_iterator().enumerate() {
-            let tracing_span = tracing::info_span!("Handling input", input_idx);
+        let mut steps_executed = 0;
+        for (step_idx, step) in self.case.steps_iterator().enumerate() {
+            let tracing_span = tracing::info_span!("Handling input", step_idx);
 
-            let (leader_receipt, _, leader_diff) = self
+            let leader_step_output = self
                 .leader_state
-                .handle_input(self.metadata, self.case_idx, &input, self.leader_node)
+                .handle_step(self.metadata, self.case_idx, &step, self.leader_node)
                 .instrument(tracing_span.clone())
                 .await?;
-            let (follower_receipt, _, follower_diff) = self
+            let follower_step_output = self
                 .follower_state
-                .handle_input(self.metadata, self.case_idx, &input, self.follower_node)
+                .handle_step(self.metadata, self.case_idx, &step, self.follower_node)
                 .instrument(tracing_span)
                 .await?;
+            match (leader_step_output, follower_step_output) {
+                (
+                    StepOutput::FunctionCall(leader_receipt, _, leader_diff),
+                    StepOutput::FunctionCall(follower_receipt, _, follower_diff),
+                ) => {
+                    if leader_diff == follower_diff {
+                        tracing::debug!("State diffs match between leader and follower.");
+                    } else {
+                        tracing::debug!("State diffs mismatch between leader and follower.");
+                        Self::trace_diff_mode("Leader", &leader_diff);
+                        Self::trace_diff_mode("Follower", &follower_diff);
+                    }
 
-            if leader_diff == follower_diff {
-                tracing::debug!("State diffs match between leader and follower.");
-            } else {
-                tracing::debug!("State diffs mismatch between leader and follower.");
-                Self::trace_diff_mode("Leader", &leader_diff);
-                Self::trace_diff_mode("Follower", &follower_diff);
+                    if leader_receipt.logs() != follower_receipt.logs() {
+                        tracing::debug!("Log/event mismatch between leader and follower.");
+                        tracing::trace!("Leader logs: {:?}", leader_receipt.logs());
+                        tracing::trace!("Follower logs: {:?}", follower_receipt.logs());
+                    }
+                }
+                (StepOutput::BalanceAssertion, StepOutput::BalanceAssertion) => {}
+                _ => unreachable!("The two step outputs can not be of a different kind"),
             }
 
-            if leader_receipt.logs() != follower_receipt.logs() {
-                tracing::debug!("Log/event mismatch between leader and follower.");
-                tracing::trace!("Leader logs: {:?}", leader_receipt.logs());
-                tracing::trace!("Follower logs: {:?}", follower_receipt.logs());
-            }
-
-            inputs_executed += 1;
+            steps_executed += 1;
         }
 
-        Ok(inputs_executed)
+        Ok(steps_executed)
     }
+}
+
+#[derive(Clone, Debug)]
+#[allow(clippy::large_enum_variant)]
+pub enum StepOutput {
+    FunctionCall(TransactionReceipt, GethTrace, DiffMode),
+    BalanceAssertion,
 }

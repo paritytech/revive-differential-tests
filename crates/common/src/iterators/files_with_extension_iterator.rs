@@ -1,4 +1,8 @@
-use std::{borrow::Cow, collections::HashSet, path::PathBuf};
+use std::{
+    borrow::Cow,
+    collections::HashSet,
+    path::{Path, PathBuf},
+};
 
 /// An iterator that finds files of a certain extension in the provided directory. You can think of
 /// this a glob pattern similar to: `${path}/**/*.md`
@@ -18,10 +22,10 @@ pub struct FilesWithExtensionIterator {
 }
 
 impl FilesWithExtensionIterator {
-    pub fn new(root_directory: PathBuf) -> Self {
+    pub fn new(root_directory: impl AsRef<Path>) -> Self {
         Self {
             allowed_extensions: Default::default(),
-            directories_to_search: vec![root_directory],
+            directories_to_search: vec![root_directory.as_ref().to_path_buf()],
             files_matching_allowed_extensions: Default::default(),
         }
     }
