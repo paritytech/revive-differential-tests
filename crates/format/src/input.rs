@@ -25,9 +25,9 @@ use crate::{metadata::ContractInstance, traits::ResolutionContext};
 #[serde(untagged)]
 pub enum Step {
     /// A function call or an invocation to some function on some smart contract.
-    FunctionCall(Input),
+    FunctionCall(Box<Input>),
     /// A step for performing a balance assertion on some account or contract.
-    BalanceAssertion(BalanceAssertion),
+    BalanceAssertion(Box<BalanceAssertion>),
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, Eq, PartialEq)]
