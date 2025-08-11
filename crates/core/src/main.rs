@@ -679,7 +679,7 @@ async fn compile_contracts<P: Platform>(
             %compiler_version,
             metadata_file_path = %metadata_file_path.display(),
             mode = ?mode,
-            "Skipping compilation: compiler does not support this mode"
+            "Skipping compilation: compiler does not support this mode or version"
         );
         return Ok(None);
     }

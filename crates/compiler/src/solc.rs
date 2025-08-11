@@ -23,6 +23,9 @@ use foundry_compilers_artifacts::{
 use semver::Version;
 use tokio::{io::AsyncWriteExt, process::Command as AsyncCommand};
 
+/// This is the first version of solc that supports the `--via-ir` flag / "viaIR" input JSON.
+const VERSION_SUPPORTING_VIA_IR: Version = Version::new(0, 8, 13);
+
 #[derive(Debug)]
 pub struct Solc {
     solc_path: PathBuf,
@@ -45,6 +48,17 @@ impl SolidityCompiler for Solc {
         }: CompilerInput,
         _: Self::Options,
     ) -> anyhow::Result<CompilerOutput> {
+        let compiler_supports_via_ir = self.version()? >= VERSION_SUPPORTING_VIA_IR;
+
+        // Be careful to entirely omit the viaIR field if the compiler does not support it,
+        // as it will error if you provide fields it does not know about. Because
+        // `supports_mode` is called prior to instantiating a compiler, we should never
+        // ask for something which is invalid.
+        let via_ir = match (pipeline, compiler_supports_via_ir) {
+            (pipeline, true) => pipeline.map(|p| p.via_yul_ir()),
+            (_pipeline, false) => None,
+        };
+
         let input = SolcInput {
             language: SolcLanguage::Solidity,
             sources: Sources(
@@ -70,7 +84,7 @@ impl SolidityCompiler for Solc {
                     .map(|item| item.to_string()),
                 ),
                 evm_version: evm_version.map(|version| version.to_string().parse().unwrap()),
-                via_ir: pipeline.map(|p| p.via_yul_ir()),
+                via_ir,
                 libraries: Libraries {
                     libs: libraries
                         .into_iter()
@@ -221,7 +235,7 @@ impl SolidityCompiler for Solc {
         // solc 0.8.13 and above supports --via-ir, and less than that does not. Thus, we support mode E
         // (ie no Yul IR) in either case, but only support Y (via Yul IR) if the compiler is new enough.
         pipeline == ModePipeline::E
-            || (pipeline == ModePipeline::Y && compiler_version >= &Version::new(0, 8, 13))
+            || (pipeline == ModePipeline::Y && compiler_version >= &VERSION_SUPPORTING_VIA_IR)
     }
 }
 
