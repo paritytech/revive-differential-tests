@@ -451,6 +451,7 @@ where
             .filter_map(|step| match step {
                 Step::FunctionCall(input) => Some(input.caller),
                 Step::BalanceAssertion(..) => None,
+                Step::StorageEmptyAssertion(..) => None,
             })
             .next()
             .unwrap_or(Input::default_caller());

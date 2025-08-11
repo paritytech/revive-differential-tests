@@ -4,6 +4,7 @@ use std::collections::HashMap;
 use std::marker::PhantomData;
 use std::path::PathBuf;
 
+use alloy::consensus::EMPTY_ROOT_HASH;
 use alloy::hex;
 use alloy::json_abi::JsonAbi;
 use alloy::network::{Ethereum, TransactionBuilder};
@@ -28,6 +29,7 @@ use semver::Version;
 use revive_dt_format::case::{Case, CaseIdx};
 use revive_dt_format::input::{
     BalanceAssertion, Calldata, EtherValue, Expected, ExpectedOutput, Input, Method,
+    StorageEmptyAssertion,
 };
 use revive_dt_format::metadata::{ContractInstance, ContractPathAndIdent};
 use revive_dt_format::{input::Step, metadata::Metadata};
@@ -90,6 +92,11 @@ where
                     .await?;
                 Ok(StepOutput::BalanceAssertion)
             }
+            Step::StorageEmptyAssertion(storage_empty) => {
+                self.handle_storage_empty(metadata, case_idx, storage_empty, node)
+                    .await?;
+                Ok(StepOutput::StorageEmptyAssertion)
+            }
         }
     }
 
@@ -125,7 +132,22 @@ where
     ) -> anyhow::Result<()> {
         self.handle_balance_assertion_contract_deployment(metadata, balance_assertion, node)
             .await?;
+        self.handle_balance_assertion_execution(balance_assertion, node)
+            .await?;
+        Ok(())
+    }
 
+    pub async fn handle_storage_empty(
+        &mut self,
+        metadata: &Metadata,
+        _: CaseIdx,
+        storage_empty: &StorageEmptyAssertion,
+        node: &T::Blockchain,
+    ) -> anyhow::Result<()> {
+        self.handle_storage_empty_assertion_contract_deployment(metadata, storage_empty, node)
+            .await?;
+        self.handle_storage_empty_assertion_execution(storage_empty, node)
+            .await?;
         Ok(())
     }
 
@@ -557,6 +579,67 @@ where
         Ok(())
     }
 
+    pub async fn handle_storage_empty_assertion_contract_deployment(
+        &mut self,
+        metadata: &Metadata,
+        storage_empty_assertion: &StorageEmptyAssertion,
+        node: &T::Blockchain,
+    ) -> anyhow::Result<()> {
+        let Some(instance) = storage_empty_assertion
+            .address
+            .strip_prefix(".address")
+            .map(ContractInstance::new)
+        else {
+            return Ok(());
+        };
+        self.get_or_deploy_contract_instance(
+            &instance,
+            metadata,
+            Input::default_caller(),
+            None,
+            None,
+            node,
+        )
+        .await?;
+        Ok(())
+    }
+
+    pub async fn handle_storage_empty_assertion_execution(
+        &mut self,
+        StorageEmptyAssertion {
+            address: address_string,
+            is_storage_empty,
+        }: &StorageEmptyAssertion,
+        node: &T::Blockchain,
+    ) -> anyhow::Result<()> {
+        let address = Address::from_slice(
+            Calldata::new_compound([address_string])
+                .calldata(node, self.default_resolution_context())
+                .await?
+                .get(12..32)
+                .expect("Can't fail"),
+        );
+
+        let storage = node.latest_state_proof(address, Default::default()).await?;
+        let is_empty = storage.storage_hash == EMPTY_ROOT_HASH;
+
+        let expected = is_storage_empty;
+        let actual = is_empty;
+
+        if *expected != actual {
+            tracing::error!(%expected, %actual, %address, "Storage Empty Assertion failed");
+            anyhow::bail!(
+                "Storage Empty Assertion failed - Expected {} but got {} for {} resolved to {}",
+                expected,
+                actual,
+                address_string,
+                address,
+            )
+        };
+
+        Ok(())
+    }
+
     /// Gets the information of a deployed contract or library from the state. If it's found to not
     /// be deployed then it will be deployed.
     ///
@@ -780,6 +863,7 @@ where
                     }
                 }
                 (StepOutput::BalanceAssertion, StepOutput::BalanceAssertion) => {}
+                (StepOutput::StorageEmptyAssertion, StepOutput::StorageEmptyAssertion) => {}
                 _ => unreachable!("The two step outputs can not be of a different kind"),
             }
 
@@ -795,4 +879,5 @@ where
 pub enum StepOutput {
     FunctionCall(TransactionReceipt, GethTrace, DiffMode),
     BalanceAssertion,
+    StorageEmptyAssertion,
 }
