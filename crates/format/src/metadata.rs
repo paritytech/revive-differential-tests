@@ -399,7 +399,7 @@ impl EvmVersionRequirement {
         }
     }
 
-    pub fn new_less_or_equals_than(version: EVMVersion) -> Self {
+    pub fn new_less_than_or_equals(version: EVMVersion) -> Self {
         Self {
             ordering: Ordering::Less,
             or_equal: true,
