@@ -9,13 +9,19 @@ use crate::{
 
 #[derive(Debug, Default, Serialize, Deserialize, Clone, Eq, PartialEq)]
 pub struct Case {
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub comment: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub modes: Option<Vec<Mode>>,
     #[serde(rename = "inputs")]
     pub steps: Vec<Step>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub group: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub expected: Option<Expected>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub ignore: Option<bool>,
 }
 
