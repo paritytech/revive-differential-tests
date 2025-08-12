@@ -1,6 +1,6 @@
 use std::{
     collections::HashMap,
-    path::Path,
+    path::{Path, PathBuf},
     sync::{Arc, LazyLock},
     time::Instant,
 };
@@ -18,7 +18,7 @@ use revive_dt_common::iterators::FilesWithExtensionIterator;
 use revive_dt_node_interaction::EthereumNode;
 use semver::Version;
 use temp_dir::TempDir;
-use tokio::sync::{Mutex, RwLock};
+use tokio::sync::{Mutex, RwLock, mpsc};
 use tracing::{Instrument, Level};
 use tracing_subscriber::{EnvFilter, FmtSubscriber};
 
@@ -41,14 +41,26 @@ use revive_dt_report::reporter::{Report, Span};
 
 static TEMP_DIR: LazyLock<TempDir> = LazyLock::new(|| TempDir::new().unwrap());
 
-type CompilationCache<'a> = Arc<
+type CompilationCache = Arc<
     RwLock<
         HashMap<
-            (&'a Path, SolcMode, TestingPlatform),
+            (PathBuf, SolcMode, TestingPlatform),
             Arc<Mutex<Option<Arc<(Version, CompilerOutput)>>>>,
         >,
     >,
 >;
+
+/// this represents a single "test"; a mode, path and collection of cases.
+#[derive(Clone)]
+struct Test {
+    metadata: Metadata,
+    path: PathBuf,
+    mode: SolcMode,
+    cases: Vec<Case>,
+}
+
+/// This represents the results that we gather from running test cases.
+type CaseResults = Vec<Result<usize, anyhow::Error>>;
 
 fn main() -> anyhow::Result<()> {
     let args = init_cli()?;
@@ -65,8 +77,14 @@ fn main() -> anyhow::Result<()> {
         Ok(())
     };
 
-    tokio::runtime::Builder::new_multi_thread()
-        .worker_threads(args.number_of_threads)
+    let mut runtime_builder = tokio::runtime::Builder::new_multi_thread();
+
+    if let Some(num_threads) = args.number_of_threads {
+        // Allow it to default to number of CPU cores if not specified.
+        runtime_builder.worker_threads(num_threads);
+    }
+
+    runtime_builder
         .enable_all()
         .build()
         .expect("Failed building the Runtime")
@@ -120,7 +138,7 @@ fn collect_corpora(args: &Arguments) -> anyhow::Result<HashMap<Corpus, Vec<Metad
 
 async fn run_driver<L, F>(
     args: &Arguments,
-    tests: &[MetadataFile],
+    metadata_files: &[MetadataFile],
     span: Span,
 ) -> anyhow::Result<()>
 where
@@ -129,55 +147,27 @@ where
     L::Blockchain: revive_dt_node::Node + Send + Sync + 'static,
     F::Blockchain: revive_dt_node::Node + Send + Sync + 'static,
 {
-    let leader_nodes = NodePool::<L::Blockchain>::new(args)?;
-    let follower_nodes = NodePool::<F::Blockchain>::new(args)?;
+    let (report_tx, report_rx) = mpsc::unbounded_channel::<(Test, CaseResults)>();
 
-    let test_cases = tests
+    let tests = prepare_tests::<L, F>(metadata_files);
+    let driver_task = spawn_driver_task::<L, F>(args, tests, span, report_tx)?;
+    let status_reporter_task = spawn_reporter_task(report_rx);
+
+    tokio::join!(status_reporter_task, driver_task);
+
+    Ok(())
+}
+
+fn prepare_tests<L, F>(metadata_files: &[MetadataFile]) -> impl Iterator<Item = Test>
+where
+    L: Platform,
+    F: Platform,
+    L::Blockchain: revive_dt_node::Node + Send + Sync + 'static,
+    F::Blockchain: revive_dt_node::Node + Send + Sync + 'static,
+{
+    metadata_files
         .iter()
-        .flat_map(
-            |MetadataFile {
-                 path,
-                 content: metadata,
-             }| {
-                metadata
-                    .cases
-                    .iter()
-                    .enumerate()
-                    .flat_map(move |(case_idx, case)| {
-                        metadata
-                            .solc_modes()
-                            .into_iter()
-                            .map(move |solc_mode| (path, metadata, case_idx, case, solc_mode))
-                    })
-            },
-        )
-        .filter(
-            |(metadata_file_path, metadata, _, _, _)| match metadata.ignore {
-                Some(true) => {
-                    tracing::warn!(
-                        metadata_file_path = %metadata_file_path.display(),
-                        "Ignoring metadata file"
-                    );
-                    false
-                }
-                Some(false) | None => true,
-            },
-        )
-        .filter(
-            |(metadata_file_path, _, case_idx, case, _)| match case.ignore {
-                Some(true) => {
-                    tracing::warn!(
-                        metadata_file_path = %metadata_file_path.display(),
-                        case_idx,
-                        case_name = ?case.name,
-                        "Ignoring case"
-                    );
-                    false
-                }
-                Some(false) | None => true,
-            },
-        )
-        .filter(|(metadata_file_path, metadata, ..)| match metadata.required_evm_version {
+        .filter(|file| match file.content.required_evm_version {
             Some(evm_version_requirement) => {
                 let is_allowed = evm_version_requirement
                     .matches(&<L::Blockchain as revive_dt_node::Node>::evm_version())
@@ -186,7 +176,7 @@ where
 
                 if !is_allowed {
                     tracing::warn!(
-                        metadata_file_path = %metadata_file_path.display(),
+                        metadata_file_path = %file.path.display(),
                         leader_evm_version = %<L::Blockchain as revive_dt_node::Node>::evm_version(),
                         follower_evm_version = %<F::Blockchain as revive_dt_node::Node>::evm_version(),
                         version_requirement = %evm_version_requirement,
@@ -198,188 +188,190 @@ where
             }
             None => true,
         })
-        .collect::<Vec<_>>();
-
-    let metadata_case_status = Arc::new(RwLock::new(test_cases.iter().fold(
-        HashMap::<_, HashMap<_, _>>::new(),
-        |mut map, (path, _, case_idx, case, solc_mode)| {
-            map.entry((path.to_path_buf(), solc_mode.clone()))
-                .or_default()
-                .insert((CaseIdx::new(*case_idx), case.name.clone()), None::<bool>);
-            map
-        },
-    )));
-    let status_reporter_task = {
-        let metadata_case_status = metadata_case_status.clone();
-        let start = Instant::now();
-        async move {
-            const GREEN: &str = "\x1B[32m";
-            const RED: &str = "\x1B[31m";
-            const RESET: &str = "\x1B[0m";
-
-            let mut entries_to_delete = Vec::new();
-            let mut number_of_successes = 0;
-            let mut number_of_failures = 0;
-            loop {
-                let metadata_case_status_read = metadata_case_status.read().await;
-                if metadata_case_status_read.is_empty() {
-                    break;
-                }
-
-                for ((metadata_file_path, solc_mode), case_status) in
-                    metadata_case_status_read.iter()
-                {
-                    if case_status.values().any(|value| value.is_none()) {
-                        continue;
-                    }
-
-                    let contains_failures = case_status
-                        .values()
-                        .any(|value| value.is_some_and(|value| !value));
-
-                    if !contains_failures {
-                        eprintln!(
-                            "{}Succeeded:{} {} - {:?}",
-                            GREEN,
-                            RESET,
-                            metadata_file_path.display(),
-                            solc_mode
-                        )
+        .flat_map(|MetadataFile { path, content: metadata }| {
+            let cases = metadata
+                .cases
+                .iter()
+                .enumerate()
+                .filter_map(|(case_idx, case)| {
+                    if case.ignore.unwrap_or_default() {
+                        tracing::warn!(
+                            metadata_file_path = %path.display(),
+                            case_idx,
+                            case_name = ?case.name,
+                            "Ignoring case"
+                        );
+                        None
                     } else {
-                        eprintln!(
-                            "{}Failed:{} {} - {:?}",
-                            RED,
-                            RESET,
-                            metadata_file_path.display(),
-                            solc_mode
-                        )
-                    };
-
-                    number_of_successes += case_status
-                        .values()
-                        .filter(|value| value.is_some_and(|value| value))
-                        .count();
-                    number_of_failures += case_status
-                        .values()
-                        .filter(|value| value.is_some_and(|value| !value))
-                        .count();
-
-                    let mut case_status = case_status
-                        .iter()
-                        .map(|((case_idx, case_name), case_status)| {
-                            (case_idx.into_inner(), case_name, case_status.unwrap())
-                        })
-                        .collect::<Vec<_>>();
-                    case_status.sort_by(|a, b| a.0.cmp(&b.0));
-                    for (case_idx, case_name, case_status) in case_status.into_iter() {
-                        if case_status {
-                            eprintln!(
-                                "  {GREEN}Case Succeeded:{RESET} {} - Case Idx: {case_idx}",
-                                case_name
-                                    .as_ref()
-                                    .map(|string| string.as_str())
-                                    .unwrap_or("Unnamed case")
-                            )
-                        } else {
-                            eprintln!(
-                                "  {RED}Case Failed:{RESET} {} - Case Idx: {case_idx}",
-                                case_name
-                                    .as_ref()
-                                    .map(|string| string.as_str())
-                                    .unwrap_or("Unnamed case")
-                            )
-                        };
+                        Some(case.clone())
                     }
-                    eprintln!();
+                })
+                .collect::<Vec<_>>();
 
-                    entries_to_delete.push((metadata_file_path.clone(), solc_mode.clone()));
-                }
+            metadata.solc_modes().into_iter().map(move |solc_mode| Test {
+                metadata: metadata.clone(),
+                path: path.to_path_buf(),
+                mode: solc_mode,
+                cases: cases.clone(),
+            })
+        })
+}
 
-                drop(metadata_case_status_read);
-                let mut metadata_case_status_write = metadata_case_status.write().await;
-                for entry in entries_to_delete.drain(..) {
-                    metadata_case_status_write.remove(&entry);
-                }
-
-                tokio::time::sleep(std::time::Duration::from_secs(3)).await;
-            }
-
-            let elapsed = start.elapsed();
-            eprintln!(
-                "{GREEN}{}{RESET} cases succeeded, {RED}{}{RESET} cases failed in {} seconds",
-                number_of_successes,
-                number_of_failures,
-                elapsed.as_secs()
-            );
-        }
-    };
-
+fn spawn_driver_task<L, F>(
+    args: &Arguments,
+    tests: impl Iterator<Item = Test>,
+    span: Span,
+    report_tx: mpsc::UnboundedSender<(Test, CaseResults)>,
+) -> anyhow::Result<impl Future<Output = ()>>
+where
+    L: Platform,
+    F: Platform,
+    L::Blockchain: revive_dt_node::Node + Send + Sync + 'static,
+    F::Blockchain: revive_dt_node::Node + Send + Sync + 'static,
+{
+    let leader_nodes = Arc::new(NodePool::<L::Blockchain>::new(args)?);
+    let follower_nodes = Arc::new(NodePool::<F::Blockchain>::new(args)?);
     let compilation_cache = Arc::new(RwLock::new(HashMap::new()));
-    let driver_task = futures::stream::iter(test_cases).for_each_concurrent(
-        None,
-        |(metadata_file_path, metadata, case_idx, case, solc_mode)| {
+    let number_concurrent_tasks = args
+        .number_concurrent_tasks
+        .unwrap_or(args.number_of_nodes * 10);
+
+    Ok(futures::stream::iter(tests).for_each_concurrent(
+        // We want to limit the concurrent tasks here because:
+        //
+        // 1. We don't want to overwhelm the nodes with too many requests, leading to responses timing out.
+        // 2. We don't want to open too many files at once, leading to the OS running out of file descriptors.
+        //
+        // By default, we allow maximum of 10 ongoing requests per node in order to limit (1), and assume that
+        // this number will automatically be low enough to address (2). The user can override this.
+        Some(number_concurrent_tasks),
+        move |test| {
+            let leader_nodes = leader_nodes.clone();
+            let follower_nodes = follower_nodes.clone();
             let compilation_cache = compilation_cache.clone();
-            let leader_node = leader_nodes.round_robbin();
-            let follower_node = follower_nodes.round_robbin();
-            let tracing_span = tracing::span!(
-                Level::INFO,
-                "Running driver",
-                metadata_file_path = %metadata_file_path.display(),
-                case_idx = case_idx,
-                solc_mode = ?solc_mode,
-            );
-            let metadata_case_status = metadata_case_status.clone();
+            let report_tx = report_tx.clone();
+
             async move {
-                let result = handle_case_driver::<L, F>(
-                    metadata_file_path.as_path(),
-                    metadata,
-                    case_idx.into(),
-                    case,
-                    solc_mode.clone(),
-                    args,
-                    compilation_cache.clone(),
-                    leader_node,
-                    follower_node,
-                    span,
-                )
-                .await;
-                let mut metadata_case_status = metadata_case_status.write().await;
-                match result {
-                    Ok(inputs_executed) => {
-                        tracing::info!(inputs_executed, "Execution succeeded");
-                        metadata_case_status
-                            .entry((metadata_file_path.clone(), solc_mode))
-                            .or_default()
-                            .insert((CaseIdx::new(case_idx), case.name.clone()), Some(true));
-                    }
-                    Err(error) => {
-                        metadata_case_status
-                            .entry((metadata_file_path.clone(), solc_mode))
-                            .or_default()
-                            .insert((CaseIdx::new(case_idx), case.name.clone()), Some(false));
-                        tracing::error!(%error, "Execution failed")
-                    }
+                let leader_node = leader_nodes.round_robbin();
+                let follower_node = follower_nodes.round_robbin();
+
+                let mut case_results = vec![];
+                for (case_idx, case) in test.cases.iter().enumerate() {
+                    let tracing_span = tracing::span!(
+                        Level::INFO,
+                        "Running driver",
+                        metadata_file_path = %test.path.display(),
+                        case_idx = case_idx,
+                        solc_mode = ?test.mode,
+                    );
+
+                    let result = handle_case_driver::<L, F>(
+                        &test.path,
+                        &test.metadata,
+                        case_idx.into(),
+                        case,
+                        test.mode.clone(),
+                        args,
+                        compilation_cache.clone(),
+                        leader_node,
+                        follower_node,
+                        span,
+                    )
+                    .instrument(tracing_span)
+                    .await;
+
+                    case_results.push(result);
                 }
-                tracing::info!("Execution completed");
+
+                report_tx
+                    .send((test, case_results))
+                    .expect("Failed to send report");
             }
-            .instrument(tracing_span)
         },
+    ))
+}
+
+async fn spawn_reporter_task(mut report_rx: mpsc::UnboundedReceiver<(Test, CaseResults)>) {
+    let start = Instant::now();
+
+    const GREEN: &str = "\x1B[32m";
+    const RED: &str = "\x1B[31m";
+    const RESET: &str = "\x1B[0m";
+
+    let mut number_of_successes = 0;
+    let mut number_of_failures = 0;
+
+    // Wait for reports to come from our test runner. When the channel closes, this ends.
+    while let Some((test, case_results)) = report_rx.recv().await {
+        let tracing_span = tracing::span!(
+            Level::INFO,
+            "Test completed",
+            metadata_file_path = %test.path.display(),
+            solc_mode = ?test.mode,
+        );
+        let _ = tracing_span.enter();
+
+        let contains_failures = case_results.iter().any(|res| res.is_err());
+
+        if !contains_failures {
+            eprintln!(
+                "{}Succeeded:{} {} - {:?}",
+                GREEN,
+                RESET,
+                test.path.display(),
+                test.mode
+            )
+        } else {
+            eprintln!(
+                "{}Failed:{} {} - {:?}",
+                RED,
+                RESET,
+                test.path.display(),
+                test.mode
+            )
+        };
+
+        for (case_idx, (case, result)) in test.cases.iter().zip(case_results).enumerate() {
+            let case_name = case.name.as_deref().unwrap_or("Unnamed case");
+
+            match result {
+                Ok(_inputs_executed) => {
+                    number_of_successes += 1;
+                    eprintln!("  {GREEN}Case Succeeded:{RESET} {case_name} - Case Idx: {case_idx}",);
+                }
+                Err(err) => {
+                    number_of_failures += 1;
+                    eprintln!("  {RED}Case Failed:{RESET} {case_name} - Case Idx: {case_idx}",);
+                    tracing::info!(
+                        case_idx,
+                        case_name,
+                        %err,
+                        "Case failed with error"
+                    )
+                }
+            }
+        }
+        eprintln!();
+    }
+
+    let elapsed = start.elapsed();
+    eprintln!(
+        "{GREEN}{}{RESET} cases succeeded, {RED}{}{RESET} cases failed in {} seconds",
+        number_of_successes,
+        number_of_failures,
+        elapsed.as_secs()
     );
-
-    tokio::join!(status_reporter_task, driver_task);
-
-    Ok(())
 }
 
 #[allow(clippy::too_many_arguments)]
-async fn handle_case_driver<'a, L, F>(
-    metadata_file_path: &'a Path,
-    metadata: &'a Metadata,
+async fn handle_case_driver<L, F>(
+    metadata_file_path: &Path,
+    metadata: &Metadata,
     case_idx: CaseIdx,
     case: &Case,
     mode: SolcMode,
     config: &Arguments,
-    compilation_cache: CompilationCache<'a>,
+    compilation_cache: CompilationCache,
     leader_node: &L::Blockchain,
     follower_node: &F::Blockchain,
     _: Span,
@@ -554,8 +546,16 @@ where
         .any(|(code, _)| !code.chars().all(|char| char.is_ascii_hexdigit()));
     let (leader_compiled_contracts, follower_compiled_contracts) =
         if metadata_file_contains_libraries && compiled_contracts_require_linking {
-            let leader_key = (metadata_file_path, mode.clone(), L::config_id());
-            let follower_key = (metadata_file_path, mode.clone(), L::config_id());
+            let leader_key = (
+                metadata_file_path.to_path_buf(),
+                mode.clone(),
+                L::config_id(),
+            );
+            let follower_key = (
+                metadata_file_path.to_path_buf(),
+                mode.clone(),
+                L::config_id(),
+            );
             {
                 let mut cache = compilation_cache.write().await;
                 cache.remove(&leader_key);
@@ -609,15 +609,19 @@ where
     driver.execute().await
 }
 
-async fn get_or_build_contracts<'a, P: Platform>(
-    metadata: &'a Metadata,
-    metadata_file_path: &'a Path,
+async fn get_or_build_contracts<P: Platform>(
+    metadata: &Metadata,
+    metadata_file_path: &Path,
     mode: SolcMode,
     config: &Arguments,
-    compilation_cache: CompilationCache<'a>,
+    compilation_cache: CompilationCache,
     deployed_libraries: &HashMap<ContractInstance, (Address, JsonAbi)>,
 ) -> anyhow::Result<Arc<(Version, CompilerOutput)>> {
-    let key = (metadata_file_path, mode.clone(), P::config_id());
+    let key = (
+        metadata_file_path.to_path_buf(),
+        mode.clone(),
+        P::config_id(),
+    );
     if let Some(compilation_artifact) = compilation_cache.read().await.get(&key).cloned() {
         let mut compilation_artifact = compilation_artifact.lock().await;
         match *compilation_artifact {

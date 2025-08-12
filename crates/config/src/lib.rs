@@ -96,9 +96,13 @@ pub struct Arguments {
     #[arg(long, default_value = "1")]
     pub number_of_nodes: usize,
 
-    /// Determines the amount of threads that will will be used.
-    #[arg(long, default_value = "12")]
-    pub number_of_threads: usize,
+    /// Determines the amount of tokio worker threads that will will be used. Defaults to the number of CPU cores.
+    #[arg(long)]
+    pub number_of_threads: Option<usize>,
+
+    /// Determines the amount of concurrent tasks that will be spawned to run tests. Defaults to 10 x the number of nodes.
+    #[arg(long)]
+    pub number_concurrent_tasks: Option<usize>,
 
     /// Extract problems back to the test corpus.
     #[arg(short, long = "extract-problems")]
