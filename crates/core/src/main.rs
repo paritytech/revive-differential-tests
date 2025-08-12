@@ -150,8 +150,8 @@ where
     let (report_tx, report_rx) = mpsc::unbounded_channel::<(Test, CaseResults)>();
 
     let tests = prepare_tests::<L, F>(metadata_files);
-    let driver_task = spawn_driver_task::<L, F>(args, tests, span, report_tx)?;
-    let status_reporter_task = spawn_reporter_task(report_rx);
+    let driver_task = start_driver_task::<L, F>(args, tests, span, report_tx)?;
+    let status_reporter_task = start_reporter_task(report_rx);
 
     tokio::join!(status_reporter_task, driver_task);
 
@@ -217,7 +217,7 @@ where
         })
 }
 
-fn spawn_driver_task<L, F>(
+fn start_driver_task<L, F>(
     args: &Arguments,
     tests: impl Iterator<Item = Test>,
     span: Span,
@@ -291,7 +291,7 @@ where
     ))
 }
 
-async fn spawn_reporter_task(mut report_rx: mpsc::UnboundedReceiver<(Test, CaseResults)>) {
+async fn start_reporter_task(mut report_rx: mpsc::UnboundedReceiver<(Test, CaseResults)>) {
     let start = Instant::now();
 
     const GREEN: &str = "\x1B[32m";
