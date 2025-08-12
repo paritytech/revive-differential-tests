@@ -32,6 +32,7 @@ use alloy::{
     signers::local::PrivateKeySigner,
 };
 use anyhow::Context;
+use revive_common::EVMVersion;
 use tracing::{Instrument, Level};
 
 use revive_dt_common::{fs::clear_directory, futures::poll};
@@ -578,6 +579,10 @@ impl Node for GethNode {
             None => true,
             Some(targets) => targets.iter().any(|str| str.as_str() == "evm"),
         }
+    }
+
+    fn evm_version() -> EVMVersion {
+        EVMVersion::Cancun
     }
 }
 

@@ -32,6 +32,7 @@ use alloy::{
     signers::local::PrivateKeySigner,
 };
 use anyhow::Context;
+use revive_common::EVMVersion;
 use revive_dt_common::fs::clear_directory;
 use revive_dt_format::traits::ResolverApi;
 use serde::{Deserialize, Serialize};
@@ -637,6 +638,10 @@ impl Node for KitchensinkNode {
             None => true,
             Some(targets) => targets.iter().any(|str| str.as_str() == "pvm"),
         }
+    }
+
+    fn evm_version() -> EVMVersion {
+        EVMVersion::Cancun
     }
 }
 
