@@ -1,4 +1,5 @@
 use std::{
+    cmp::Ordering,
     collections::BTreeMap,
     fmt::Display,
     fs::{File, read_to_string},
@@ -9,6 +10,7 @@ use std::{
 
 use serde::{Deserialize, Serialize};
 
+use revive_common::EVMVersion;
 use revive_dt_common::{iterators::FilesWithExtensionIterator, macros::define_wrapper_type};
 
 use crate::{
@@ -58,6 +60,12 @@ pub struct Metadata {
     pub modes: Option<Vec<Mode>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub file_path: Option<PathBuf>,
+
+    /// This field specifies an EVM version requirement that the test case has
+    /// where the test might be run of the evm version of the nodes match the
+    /// evm version specified here.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub required_evm_version: Option<EvmVersionRequirement>,
 }
 
 impl Metadata {
@@ -344,6 +352,131 @@ impl TryFrom<String> for ContractPathAndIdent {
 
 impl From<ContractPathAndIdent> for String {
     fn from(value: ContractPathAndIdent) -> Self {
+        value.to_string()
+    }
+}
+
+/// An EVM version requirement that the test case has. This gets serialized and
+/// deserialized from and into [`String`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(try_from = "String", into = "String")]
+pub struct EvmVersionRequirement {
+    ordering: Ordering,
+    or_equal: bool,
+    evm_version: EVMVersion,
+}
+
+impl EvmVersionRequirement {
+    pub fn new_greater_than_or_equals(version: EVMVersion) -> Self {
+        Self {
+            ordering: Ordering::Greater,
+            or_equal: true,
+            evm_version: version,
+        }
+    }
+
+    pub fn new_greater_than(version: EVMVersion) -> Self {
+        Self {
+            ordering: Ordering::Greater,
+            or_equal: false,
+            evm_version: version,
+        }
+    }
+
+    pub fn new_equals(version: EVMVersion) -> Self {
+        Self {
+            ordering: Ordering::Equal,
+            or_equal: false,
+            evm_version: version,
+        }
+    }
+
+    pub fn new_less_than(version: EVMVersion) -> Self {
+        Self {
+            ordering: Ordering::Less,
+            or_equal: false,
+            evm_version: version,
+        }
+    }
+
+    pub fn new_less_or_equals_than(version: EVMVersion) -> Self {
+        Self {
+            ordering: Ordering::Less,
+            or_equal: true,
+            evm_version: version,
+        }
+    }
+
+    pub fn matches(&self, other: &EVMVersion) -> bool {
+        let ordering = other.cmp(&self.evm_version);
+        ordering == self.ordering || (self.or_equal && matches!(ordering, Ordering::Equal))
+    }
+}
+
+impl Display for EvmVersionRequirement {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let Self {
+            ordering,
+            or_equal,
+            evm_version,
+        } = self;
+        match ordering {
+            Ordering::Less => write!(f, "<")?,
+            Ordering::Equal => write!(f, "=")?,
+            Ordering::Greater => write!(f, ">")?,
+        }
+        if *or_equal && !matches!(ordering, Ordering::Equal) {
+            write!(f, "=")?;
+        }
+        write!(f, "{evm_version}")
+    }
+}
+
+impl FromStr for EvmVersionRequirement {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.as_bytes() {
+            [b'>', b'=', remaining @ ..] => Ok(Self {
+                ordering: Ordering::Greater,
+                or_equal: true,
+                evm_version: str::from_utf8(remaining)?.try_into()?,
+            }),
+            [b'>', remaining @ ..] => Ok(Self {
+                ordering: Ordering::Greater,
+                or_equal: false,
+                evm_version: str::from_utf8(remaining)?.try_into()?,
+            }),
+            [b'<', b'=', remaining @ ..] => Ok(Self {
+                ordering: Ordering::Less,
+                or_equal: true,
+                evm_version: str::from_utf8(remaining)?.try_into()?,
+            }),
+            [b'<', remaining @ ..] => Ok(Self {
+                ordering: Ordering::Less,
+                or_equal: false,
+                evm_version: str::from_utf8(remaining)?.try_into()?,
+            }),
+            [b'=', remaining @ ..] => Ok(Self {
+                ordering: Ordering::Equal,
+                or_equal: false,
+                evm_version: str::from_utf8(remaining)?.try_into()?,
+            }),
+            _ => anyhow::bail!("Invalid EVM version requirement {s}"),
+        }
+    }
+}
+
+impl TryFrom<String> for EvmVersionRequirement {
+    type Error = anyhow::Error;
+
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        value.parse()
+    }
+}
+
+impl From<EvmVersionRequirement> for String {
+    fn from(value: EvmVersionRequirement) -> Self {
         value.to_string()
     }
 }

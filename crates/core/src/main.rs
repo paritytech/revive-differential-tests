@@ -177,6 +177,27 @@ where
                 Some(false) | None => true,
             },
         )
+        .filter(|(metadata_file_path, metadata, ..)| match metadata.required_evm_version {
+            Some(evm_version_requirement) => {
+                let is_allowed = evm_version_requirement
+                    .matches(&<L::Blockchain as revive_dt_node::Node>::evm_version())
+                    && evm_version_requirement
+                        .matches(&<F::Blockchain as revive_dt_node::Node>::evm_version());
+
+                if !is_allowed {
+                    tracing::warn!(
+                        metadata_file_path = %metadata_file_path.display(),
+                        leader_evm_version = %<L::Blockchain as revive_dt_node::Node>::evm_version(),
+                        follower_evm_version = %<F::Blockchain as revive_dt_node::Node>::evm_version(),
+                        version_requirement = %evm_version_requirement,
+                        "Skipped test since the EVM version requirement was not fulfilled."
+                    );
+                }
+
+                is_allowed
+            }
+            None => true,
+        })
         .collect::<Vec<_>>();
 
     let metadata_case_status = Arc::new(RwLock::new(test_cases.iter().fold(

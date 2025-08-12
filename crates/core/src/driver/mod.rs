@@ -550,6 +550,7 @@ where
         BalanceAssertion {
             address: address_string,
             expected_balance: amount,
+            ..
         }: &BalanceAssertion,
         node: &T::Blockchain,
     ) -> anyhow::Result<()> {
@@ -609,6 +610,7 @@ where
         StorageEmptyAssertion {
             address: address_string,
             is_storage_empty,
+            ..
         }: &StorageEmptyAssertion,
         node: &T::Blockchain,
     ) -> anyhow::Result<()> {
