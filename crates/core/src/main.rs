@@ -341,6 +341,7 @@ async fn start_reporter_task(mut report_rx: mpsc::UnboundedReceiver<(Test, CaseR
         }
     }
 
+    eprintln!();
     let elapsed = start.elapsed();
 
     // Now, log the failures with more complete errors at the bottom, like `cargo test` does, so
