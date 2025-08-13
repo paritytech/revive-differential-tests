@@ -42,6 +42,7 @@ impl SolidityCompiler for Solc {
             base_path,
             sources,
             libraries,
+            revert_string_handling,
         }: CompilerInput,
         _: Self::Options,
     ) -> anyhow::Result<CompilerOutput> {
@@ -87,6 +88,15 @@ impl SolidityCompiler for Solc {
                         })
                         .collect(),
                 },
+                debug: revert_string_handling.map(|revert_string_handling| DebuggingSettings {
+                    revert_strings: match revert_string_handling {
+                        crate::RevertString::Default => Some(RevertStrings::Default),
+                        crate::RevertString::Debug => Some(RevertStrings::Debug),
+                        crate::RevertString::Strip => Some(RevertStrings::Strip),
+                        crate::RevertString::VerboseDebug => Some(RevertStrings::VerboseDebug),
+                    },
+                    debug_info: Default::default(),
+                }),
                 ..Default::default()
             },
         };
