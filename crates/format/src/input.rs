@@ -17,23 +17,79 @@ use revive_dt_common::macros::define_wrapper_type;
 use crate::traits::ResolverApi;
 use crate::{metadata::ContractInstance, traits::ResolutionContext};
 
-#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
+/// A test step.
+///
+/// A test step can be anything. It could be an invocation to a function, an assertion, or any other
+/// action that needs to be run or executed on the nodes used in the tests.
+#[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq)]
+#[serde(untagged)]
+pub enum Step {
+    /// A function call or an invocation to some function on some smart contract.
+    FunctionCall(Box<Input>),
+    /// A step for performing a balance assertion on some account or contract.
+    BalanceAssertion(Box<BalanceAssertion>),
+    /// A step for asserting that the storage of some contract or account is empty.
+    StorageEmptyAssertion(Box<StorageEmptyAssertion>),
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize, Eq, PartialEq)]
 pub struct Input {
     #[serde(default = "Input::default_caller")]
     pub caller: Address,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub comment: Option<String>,
     #[serde(default = "Input::default_instance")]
     pub instance: ContractInstance,
     pub method: Method,
     #[serde(default)]
     pub calldata: Calldata,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub expected: Option<Expected>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub value: Option<EtherValue>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub storage: Option<HashMap<String, Calldata>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub variable_assignments: Option<VariableAssignments>,
 }
 
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize, Eq, PartialEq)]
+pub struct BalanceAssertion {
+    /// An optional comment on the balance assertion.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub comment: Option<String>,
+
+    /// The address that the balance assertion should be done on.
+    ///
+    /// This is a string which will be resolved into an address when being processed. Therefore,
+    /// this could be a normal hex address, a variable such as `Test.address`, or perhaps even a
+    /// full on variable like `$VARIABLE:Uniswap`. It follows the same resolution rules that are
+    /// followed in the calldata.
+    pub address: String,
+
+    /// The amount of balance to assert that the account or contract has.
+    pub expected_balance: U256,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize, Eq, PartialEq)]
+pub struct StorageEmptyAssertion {
+    /// An optional comment on the storage empty assertion.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub comment: Option<String>,
+
+    /// The address that the balance assertion should be done on.
+    ///
+    /// This is a string which will be resolved into an address when being processed. Therefore,
+    /// this could be a normal hex address, a variable such as `Test.address`, or perhaps even a
+    /// full on variable like `$VARIABLE:Uniswap`. It follows the same resolution rules that are
+    /// followed in the calldata.
+    pub address: String,
+
+    /// A boolean of whether the storage of the address is empty or not.
+    pub is_storage_empty: bool,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq)]
 #[serde(untagged)]
 pub enum Expected {
     Calldata(Calldata),
@@ -41,17 +97,21 @@ pub enum Expected {
     ExpectedMany(Vec<ExpectedOutput>),
 }
 
-#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize, Eq, PartialEq)]
 pub struct ExpectedOutput {
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub compiler_version: Option<VersionReq>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub return_data: Option<Calldata>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub events: Option<Vec<Event>>,
     #[serde(default)]
     pub exception: bool,
 }
 
-#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize, Eq, PartialEq)]
 pub struct Event {
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub address: Option<String>,
     pub topics: Vec<String>,
     pub values: Calldata,
@@ -108,7 +168,7 @@ pub struct Event {
 /// [`Single`]: Calldata::Single
 /// [`Compound`]: Calldata::Compound
 /// [reverse polish notation]: https://en.wikipedia.org/wiki/Reverse_Polish_notation
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq)]
 #[serde(untagged)]
 pub enum Calldata {
     Single(Bytes),
@@ -142,7 +202,7 @@ enum Operation {
 }
 
 /// Specify how the contract is called.
-#[derive(Debug, Default, Deserialize, Clone, Eq, PartialEq)]
+#[derive(Debug, Default, Serialize, Deserialize, Clone, Eq, PartialEq)]
 pub enum Method {
     /// Initiate a deploy transaction, calling contracts constructor.
     ///
@@ -167,7 +227,7 @@ define_wrapper_type!(
     pub struct EtherValue(U256);
 );
 
-#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize, Eq, PartialEq)]
 pub struct VariableAssignments {
     /// A vector of the variable names to assign to the return data.
     ///

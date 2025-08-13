@@ -17,19 +17,22 @@ use alloy::{
     eips::BlockNumberOrTag,
     genesis::{Genesis, GenesisAccount},
     network::{Ethereum, EthereumWallet, NetworkWallet},
-    primitives::{Address, BlockHash, BlockNumber, BlockTimestamp, FixedBytes, TxHash, U256},
+    primitives::{
+        Address, BlockHash, BlockNumber, BlockTimestamp, FixedBytes, StorageKey, TxHash, U256,
+    },
     providers::{
         Provider, ProviderBuilder,
         ext::DebugApi,
         fillers::{CachedNonceManager, ChainIdFiller, FillProvider, NonceFiller, TxFiller},
     },
     rpc::types::{
-        TransactionReceipt, TransactionRequest,
+        EIP1186AccountProofResponse, TransactionReceipt, TransactionRequest,
         trace::geth::{DiffMode, GethDebugTracingOptions, PreStateConfig, PreStateFrame},
     },
     signers::local::PrivateKeySigner,
 };
 use anyhow::Context;
+use revive_common::EVMVersion;
 use tracing::{Instrument, Level};
 
 use revive_dt_common::{fs::clear_directory, futures::poll};
@@ -371,6 +374,29 @@ impl EthereumNode for GethNode {
             _ => anyhow::bail!("expected a diff mode trace"),
         }
     }
+
+    #[tracing::instrument(skip_all, fields(geth_node_id = self.id))]
+    async fn balance_of(&self, address: Address) -> anyhow::Result<U256> {
+        self.provider()
+            .await?
+            .get_balance(address)
+            .await
+            .map_err(Into::into)
+    }
+
+    #[tracing::instrument(skip_all, fields(geth_node_id = self.id))]
+    async fn latest_state_proof(
+        &self,
+        address: Address,
+        keys: Vec<StorageKey>,
+    ) -> anyhow::Result<EIP1186AccountProofResponse> {
+        self.provider()
+            .await?
+            .get_proof(address, keys)
+            .latest()
+            .await
+            .map_err(Into::into)
+    }
 }
 
 impl ResolverApi for GethNode {
@@ -553,6 +579,10 @@ impl Node for GethNode {
             None => true,
             Some(targets) => targets.iter().any(|str| str.as_str() == "evm"),
         }
+    }
+
+    fn evm_version() -> EVMVersion {
+        EVMVersion::Cancun
     }
 }
 

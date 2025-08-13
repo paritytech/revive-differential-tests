@@ -17,7 +17,7 @@ use alloy::{
     },
     primitives::{
         Address, B64, B256, BlockHash, BlockNumber, BlockTimestamp, Bloom, Bytes, FixedBytes,
-        TxHash, U256,
+        StorageKey, TxHash, U256,
     },
     providers::{
         Provider, ProviderBuilder,
@@ -25,13 +25,14 @@ use alloy::{
         fillers::{CachedNonceManager, ChainIdFiller, FillProvider, NonceFiller, TxFiller},
     },
     rpc::types::{
-        TransactionReceipt,
+        EIP1186AccountProofResponse, TransactionReceipt,
         eth::{Block, Header, Transaction},
         trace::geth::{DiffMode, GethDebugTracingOptions, PreStateConfig, PreStateFrame},
     },
     signers::local::PrivateKeySigner,
 };
 use anyhow::Context;
+use revive_common::EVMVersion;
 use revive_dt_common::fs::clear_directory;
 use revive_dt_format::traits::ResolverApi;
 use serde::{Deserialize, Serialize};
@@ -428,6 +429,29 @@ impl EthereumNode for KitchensinkNode {
             _ => anyhow::bail!("expected a diff mode trace"),
         }
     }
+
+    #[tracing::instrument(skip_all, fields(kitchensink_node_id = self.id))]
+    async fn balance_of(&self, address: Address) -> anyhow::Result<U256> {
+        self.provider()
+            .await?
+            .get_balance(address)
+            .await
+            .map_err(Into::into)
+    }
+
+    #[tracing::instrument(skip_all, fields(kitchensink_node_id = self.id))]
+    async fn latest_state_proof(
+        &self,
+        address: Address,
+        keys: Vec<StorageKey>,
+    ) -> anyhow::Result<EIP1186AccountProofResponse> {
+        self.provider()
+            .await?
+            .get_proof(address, keys)
+            .latest()
+            .await
+            .map_err(Into::into)
+    }
 }
 
 impl ResolverApi for KitchensinkNode {
@@ -614,6 +638,10 @@ impl Node for KitchensinkNode {
             None => true,
             Some(targets) => targets.iter().any(|str| str.as_str() == "pvm"),
         }
+    }
+
+    fn evm_version() -> EVMVersion {
+        EVMVersion::Cancun
     }
 }
 

@@ -8,6 +8,18 @@
             "name": "first",
             "inputs": [
                 {
+                    "address": "0xdeadbeef00000000000000000000000000000042",
+                    "expected_balance": "1233"
+                },
+                {
+                    "address": "0xdeadbeef00000000000000000000000000000042",
+                    "is_storage_empty": true
+                },
+                {
+                    "address": "0xdeadbeef00000000000000000000000000000042",
+                    "is_storage_empty": false
+                },
+                {
                     "instance": "WBTC_1",
                     "method": "#deployer",
                     "calldata": [

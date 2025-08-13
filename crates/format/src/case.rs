@@ -1,32 +1,44 @@
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use revive_dt_common::macros::define_wrapper_type;
 
 use crate::{
-    input::{Expected, Input},
+    input::{Expected, Step},
     mode::ParsedMode,
 };
 
-#[derive(Debug, Default, Deserialize, Clone, Eq, PartialEq)]
+#[derive(Debug, Default, Serialize, Deserialize, Clone, Eq, PartialEq)]
 pub struct Case {
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub comment: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub modes: Option<Vec<ParsedMode>>,
-    pub inputs: Vec<Input>,
+    #[serde(rename = "inputs")]
+    pub steps: Vec<Step>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub group: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub expected: Option<Expected>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub ignore: Option<bool>,
 }
 
 impl Case {
-    pub fn inputs_iterator(&self) -> impl Iterator<Item = Input> {
-        let inputs_len = self.inputs.len();
-        self.inputs
+    #[allow(irrefutable_let_patterns)]
+    pub fn steps_iterator(&self) -> impl Iterator<Item = Step> {
+        let steps_len = self.steps.len();
+        self.steps
             .clone()
             .into_iter()
             .enumerate()
-            .map(move |(idx, mut input)| {
-                if idx + 1 == inputs_len {
+            .map(move |(idx, mut step)| {
+                let Step::FunctionCall(ref mut input) = step else {
+                    return step;
+                };
+
+                if idx + 1 == steps_len {
                     if input.expected.is_none() {
                         input.expected = self.expected.clone();
                     }
@@ -36,9 +48,9 @@ impl Case {
                     // the case? What are we supposed to do with that final expected field on the
                     // case?
 
-                    input
+                    step
                 } else {
-                    input
+                    step
                 }
             })
     }

@@ -4097,6 +4097,7 @@ dependencies = [
  "alloy-sol-types",
  "anyhow",
  "regex",
+ "revive-common",
  "revive-dt-common",
  "semver 1.0.26",
  "serde",
@@ -4112,6 +4113,7 @@ version = "0.1.0"
 dependencies = [
  "alloy",
  "anyhow",
+ "revive-common",
  "revive-dt-common",
  "revive-dt-config",
  "revive-dt-format",
