@@ -71,9 +71,8 @@ pub struct Metadata {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub file_path: Option<PathBuf>,
 
-    /// This field specifies an EVM version requirement that the test case has
-    /// where the test might be run of the evm version of the nodes match the
-    /// evm version specified here.
+    /// This field specifies an EVM version requirement that the test case has where the test might
+    /// be run of the evm version of the nodes match the evm version specified here.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub required_evm_version: Option<EvmVersionRequirement>,
 }
