@@ -92,7 +92,7 @@ impl GethNode {
     const TRACE_POLLING_DURATION: Duration = Duration::from_secs(60);
 
     /// Create the node directory and call `geth init` to configure the genesis.
-    #[tracing::instrument(skip_all, fields(geth_node_id = self.id))]
+    #[tracing::instrument(level = "info", skip_all, fields(geth_node_id = self.id))]
     fn init(&mut self, genesis: String) -> anyhow::Result<&mut Self> {
         let _ = clear_directory(&self.base_directory);
         let _ = clear_directory(&self.logs_directory);
@@ -142,7 +142,7 @@ impl GethNode {
     /// Spawn the go-ethereum node child process.
     ///
     /// [Instance::init] must be called prior.
-    #[tracing::instrument(skip_all, fields(geth_node_id = self.id))]
+    #[tracing::instrument(level = "info", skip_all, fields(geth_node_id = self.id))]
     fn spawn_process(&mut self) -> anyhow::Result<&mut Self> {
         // This is the `OpenOptions` that we wish to use for all of the log files that we will be
         // opening in this method. We need to construct it in this way to:
@@ -200,7 +200,7 @@ impl GethNode {
     /// Wait for the g-ethereum node child process getting ready.
     ///
     /// [Instance::spawn_process] must be called priorly.
-    #[tracing::instrument(skip_all, fields(geth_node_id = self.id))]
+    #[tracing::instrument(level = "info", skip_all, fields(geth_node_id = self.id))]
     fn wait_ready(&mut self) -> anyhow::Result<&mut Self> {
         let start_time = Instant::now();
 
@@ -269,7 +269,7 @@ impl GethNode {
 }
 
 impl EthereumNode for GethNode {
-    #[tracing::instrument(level = "info", skip_all, fields(geth_node_id = self.id))]
+    #[tracing::instrument(level = "info", skip_all, fields(geth_node_id = self.id), err)]
     async fn execute_transaction(
         &self,
         transaction: TransactionRequest,
@@ -325,7 +325,7 @@ impl EthereumNode for GethNode {
         .await
     }
 
-    #[tracing::instrument(level = "info", skip_all, fields(geth_node_id = self.id))]
+    #[tracing::instrument(level = "info", skip_all, fields(geth_node_id = self.id), err)]
     async fn trace_transaction(
         &self,
         transaction: &TransactionReceipt,
@@ -358,7 +358,7 @@ impl EthereumNode for GethNode {
         .await
     }
 
-    #[tracing::instrument(skip_all, fields(geth_node_id = self.id))]
+    #[tracing::instrument(level = "info", skip_all, fields(geth_node_id = self.id), err)]
     async fn state_diff(&self, transaction: &TransactionReceipt) -> anyhow::Result<DiffMode> {
         let trace_options = GethDebugTracingOptions::prestate_tracer(PreStateConfig {
             diff_mode: Some(true),
@@ -375,7 +375,7 @@ impl EthereumNode for GethNode {
         }
     }
 
-    #[tracing::instrument(skip_all, fields(geth_node_id = self.id))]
+    #[tracing::instrument(level = "info", skip_all, fields(geth_node_id = self.id), err)]
     async fn balance_of(&self, address: Address) -> anyhow::Result<U256> {
         self.provider()
             .await?
@@ -384,7 +384,7 @@ impl EthereumNode for GethNode {
             .map_err(Into::into)
     }
 
-    #[tracing::instrument(skip_all, fields(geth_node_id = self.id))]
+    #[tracing::instrument(level = "info", skip_all, fields(geth_node_id = self.id), err)]
     async fn latest_state_proof(
         &self,
         address: Address,
@@ -400,7 +400,7 @@ impl EthereumNode for GethNode {
 }
 
 impl ResolverApi for GethNode {
-    #[tracing::instrument(skip_all, fields(geth_node_id = self.id))]
+    #[tracing::instrument(level = "info", skip_all, fields(geth_node_id = self.id), err)]
     async fn chain_id(&self) -> anyhow::Result<alloy::primitives::ChainId> {
         self.provider()
             .await?
@@ -409,7 +409,7 @@ impl ResolverApi for GethNode {
             .map_err(Into::into)
     }
 
-    #[tracing::instrument(skip_all, fields(geth_node_id = self.id))]
+    #[tracing::instrument(level = "info", skip_all, fields(geth_node_id = self.id), err)]
     async fn transaction_gas_price(&self, tx_hash: &TxHash) -> anyhow::Result<u128> {
         self.provider()
             .await?
@@ -419,7 +419,7 @@ impl ResolverApi for GethNode {
             .map(|receipt| receipt.effective_gas_price)
     }
 
-    #[tracing::instrument(skip_all, fields(geth_node_id = self.id))]
+    #[tracing::instrument(level = "info", skip_all, fields(geth_node_id = self.id), err)]
     async fn block_gas_limit(&self, number: BlockNumberOrTag) -> anyhow::Result<u128> {
         self.provider()
             .await?
@@ -429,7 +429,7 @@ impl ResolverApi for GethNode {
             .map(|block| block.header.gas_limit as _)
     }
 
-    #[tracing::instrument(skip_all, fields(geth_node_id = self.id))]
+    #[tracing::instrument(level = "info", skip_all, fields(geth_node_id = self.id), err)]
     async fn block_coinbase(&self, number: BlockNumberOrTag) -> anyhow::Result<Address> {
         self.provider()
             .await?
@@ -439,7 +439,7 @@ impl ResolverApi for GethNode {
             .map(|block| block.header.beneficiary)
     }
 
-    #[tracing::instrument(skip_all, fields(geth_node_id = self.id))]
+    #[tracing::instrument(level = "info", skip_all, fields(geth_node_id = self.id), err)]
     async fn block_difficulty(&self, number: BlockNumberOrTag) -> anyhow::Result<U256> {
         self.provider()
             .await?
@@ -449,7 +449,7 @@ impl ResolverApi for GethNode {
             .map(|block| U256::from_be_bytes(block.header.mix_hash.0))
     }
 
-    #[tracing::instrument(skip_all, fields(geth_node_id = self.id))]
+    #[tracing::instrument(level = "info", skip_all, fields(geth_node_id = self.id), err)]
     async fn block_base_fee(&self, number: BlockNumberOrTag) -> anyhow::Result<u64> {
         self.provider()
             .await?
@@ -464,7 +464,7 @@ impl ResolverApi for GethNode {
             })
     }
 
-    #[tracing::instrument(skip_all, fields(geth_node_id = self.id))]
+    #[tracing::instrument(level = "info", skip_all, fields(geth_node_id = self.id), err)]
     async fn block_hash(&self, number: BlockNumberOrTag) -> anyhow::Result<BlockHash> {
         self.provider()
             .await?
@@ -474,7 +474,7 @@ impl ResolverApi for GethNode {
             .map(|block| block.header.hash)
     }
 
-    #[tracing::instrument(skip_all, fields(geth_node_id = self.id))]
+    #[tracing::instrument(level = "info", skip_all, fields(geth_node_id = self.id), err)]
     async fn block_timestamp(&self, number: BlockNumberOrTag) -> anyhow::Result<BlockTimestamp> {
         self.provider()
             .await?
@@ -484,7 +484,7 @@ impl ResolverApi for GethNode {
             .map(|block| block.header.timestamp)
     }
 
-    #[tracing::instrument(skip_all, fields(geth_node_id = self.id))]
+    #[tracing::instrument(level = "info", skip_all, fields(geth_node_id = self.id), err)]
     async fn last_block_number(&self) -> anyhow::Result<BlockNumber> {
         self.provider()
             .await?
@@ -527,12 +527,12 @@ impl Node for GethNode {
         }
     }
 
-    #[tracing::instrument(skip_all, fields(geth_node_id = self.id))]
+    #[tracing::instrument(level = "info", skip_all, fields(geth_node_id = self.id))]
     fn connection_string(&self) -> String {
         self.connection_string.clone()
     }
 
-    #[tracing::instrument(skip_all, fields(geth_node_id = self.id))]
+    #[tracing::instrument(level = "info", skip_all, fields(geth_node_id = self.id), err)]
     fn shutdown(&mut self) -> anyhow::Result<()> {
         // Terminate the processes in a graceful manner to allow for the output to be flushed.
         if let Some(mut child) = self.handle.take() {
@@ -554,13 +554,13 @@ impl Node for GethNode {
         Ok(())
     }
 
-    #[tracing::instrument(skip_all, fields(geth_node_id = self.id))]
+    #[tracing::instrument(level = "info", skip_all, fields(geth_node_id = self.id), err)]
     fn spawn(&mut self, genesis: String) -> anyhow::Result<()> {
         self.init(genesis)?.spawn_process()?;
         Ok(())
     }
 
-    #[tracing::instrument(skip_all, fields(geth_node_id = self.id))]
+    #[tracing::instrument(level = "info", skip_all, fields(geth_node_id = self.id), err)]
     fn version(&self) -> anyhow::Result<String> {
         let output = Command::new(&self.geth)
             .arg("--version")
@@ -573,7 +573,7 @@ impl Node for GethNode {
         Ok(String::from_utf8_lossy(&output).into())
     }
 
-    #[tracing::instrument(skip_all, fields(geth_node_id = self.id))]
+    #[tracing::instrument(level = "info", skip_all, fields(geth_node_id = self.id))]
     fn matches_target(&self, targets: Option<&[String]>) -> bool {
         match targets {
             None => true,
@@ -587,7 +587,7 @@ impl Node for GethNode {
 }
 
 impl Drop for GethNode {
-    #[tracing::instrument(skip_all, fields(geth_node_id = self.id))]
+    #[tracing::instrument(level = "info", skip_all, fields(geth_node_id = self.id))]
     fn drop(&mut self) {
         self.shutdown().expect("Failed to shutdown")
     }

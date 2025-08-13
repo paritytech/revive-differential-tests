@@ -11,8 +11,8 @@ use alloy::network::{Ethereum, TransactionBuilder};
 use alloy::primitives::U256;
 use alloy::rpc::types::TransactionReceipt;
 use alloy::rpc::types::trace::geth::{
-    CallFrame, GethDebugBuiltInTracerType, GethDebugTracerType, GethDebugTracingOptions, GethTrace,
-    PreStateConfig,
+    CallFrame, GethDebugBuiltInTracerType, GethDebugTracerConfig, GethDebugTracerType,
+    GethDebugTracingOptions, GethTrace, PreStateConfig,
 };
 use alloy::{
     primitives::Address,
@@ -263,6 +263,11 @@ where
                 tracer: Some(GethDebugTracerType::BuiltInTracer(
                     GethDebugBuiltInTracerType::CallTracer,
                 )),
+                tracer_config: GethDebugTracerConfig(serde_json::json! {{
+                    "onlyTopCall": true,
+                    "withLog": false,
+                    "withReturnData": false
+                }}),
                 ..Default::default()
             },
         )
@@ -528,7 +533,7 @@ where
     ) -> anyhow::Result<()> {
         let Some(instance) = balance_assertion
             .address
-            .strip_prefix(".address")
+            .strip_suffix(".address")
             .map(ContractInstance::new)
         else {
             return Ok(());
@@ -588,7 +593,7 @@ where
     ) -> anyhow::Result<()> {
         let Some(instance) = storage_empty_assertion
             .address
-            .strip_prefix(".address")
+            .strip_suffix(".address")
             .map(ContractInstance::new)
         else {
             return Ok(());
