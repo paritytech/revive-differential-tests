@@ -96,9 +96,14 @@ pub struct Arguments {
     #[arg(long, default_value = "1")]
     pub number_of_nodes: usize,
 
-    /// Determines the amount of tokio worker threads that will will be used. Defaults to the number of CPU cores.
-    #[arg(long)]
-    pub number_of_threads: Option<usize>,
+    /// Determines the amount of tokio worker threads that will will be used.
+    #[arg(
+        long,
+        default_value_t = std::thread::available_parallelism()
+            .map(|n| n.get())
+            .unwrap_or(1)
+    )]
+    pub number_of_threads: usize,
 
     /// Determines the amount of concurrent tasks that will be spawned to run tests. Defaults to 10 x the number of nodes.
     #[arg(long)]
@@ -136,6 +141,13 @@ impl Arguments {
         }
 
         panic!("should have a workdir configured")
+    }
+
+    /// Return the number of concurrent tasks to run. This is provided via the
+    /// `--number-concurrent-tasks` argument, and otherwise defaults to --number-of-nodes * 20.
+    pub fn number_of_concurrent_tasks(&self) -> usize {
+        self.number_concurrent_tasks
+            .unwrap_or(20 * self.number_of_nodes)
     }
 
     /// Try to parse `self.account` into a [PrivateKeySigner],
