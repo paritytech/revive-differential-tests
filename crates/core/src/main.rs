@@ -330,19 +330,19 @@ async fn start_reporter_task(mut report_rx: mpsc::UnboundedReceiver<(Test, CaseR
             Ok(Some(_inputs)) => {
                 number_of_successes += 1;
                 eprintln!(
-                    "{GREEN}Case Succeeded:{COLOUR_RESET} {test_path} -> {case_name}:{case_idx} (mode: {test_mode:?})"
+                    "{GREEN}Case Succeeded:{COLOUR_RESET} {test_path} -> {case_name}:{case_idx} (mode: {test_mode})"
                 );
             }
             Ok(None) => {
                 number_of_ignored += 1;
                 eprintln!(
-                    "{GRAY}Case Ignored:{COLOUR_RESET} {test_path} -> {case_name}:{case_idx} (mode: {test_mode:?})"
+                    "{GRAY}Case Ignored:{COLOUR_RESET} {test_path} -> {case_name}:{case_idx} (mode: {test_mode})"
                 );
             }
             Err(err) => {
                 number_of_failures += 1;
                 eprintln!(
-                    "{RED}Case Failed:{COLOUR_RESET} {test_path} -> {case_name}:{case_idx} (mode: {test_mode:?})"
+                    "{RED}Case Failed:{COLOUR_RESET} {test_path} -> {case_name}:{case_idx} (mode: {test_mode})"
                 );
                 failures.push((test, err));
             }
@@ -365,7 +365,7 @@ async fn start_reporter_task(mut report_rx: mpsc::UnboundedReceiver<(Test, CaseR
             let test_mode = test.mode.clone();
 
             eprintln!(
-                "---- {RED}Case Failed:{COLOUR_RESET} {test_path} -> {case_name}:{case_idx} (mode: {test_mode:?}) ----\n\n{err}\n"
+                "---- {RED}Case Failed:{COLOUR_RESET} {test_path} -> {case_name}:{case_idx} (mode: {test_mode}) ----\n\n{err}\n"
             );
         }
     }
