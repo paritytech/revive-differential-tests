@@ -160,7 +160,7 @@ impl KitchensinkNode {
         Ok(self)
     }
 
-    #[tracing::instrument(skip_all, fields(kitchensink_node_id = self.id))]
+    #[tracing::instrument(skip_all, fields(kitchensink_node_id = self.id), err)]
     fn spawn_process(&mut self) -> anyhow::Result<()> {
         let substrate_rpc_port = Self::BASE_SUBSTRATE_RPC_PORT + self.id as u16;
         let proxy_rpc_port = Self::BASE_PROXY_RPC_PORT + self.id as u16;
@@ -258,7 +258,7 @@ impl KitchensinkNode {
         Ok(())
     }
 
-    #[tracing::instrument(skip_all, fields(kitchensink_node_id = self.id))]
+    #[tracing::instrument(skip_all, fields(kitchensink_node_id = self.id), err)]
     fn extract_balance_from_genesis_file(
         &self,
         genesis: &Genesis,
@@ -307,7 +307,7 @@ impl KitchensinkNode {
         }
     }
 
-    #[tracing::instrument(skip_all, fields(kitchensink_node_id = self.id))]
+    #[tracing::instrument(skip_all, fields(kitchensink_node_id = self.id), err)]
     pub fn eth_rpc_version(&self) -> anyhow::Result<String> {
         let output = Command::new(&self.eth_proxy_binary)
             .arg("--version")
@@ -382,7 +382,7 @@ impl KitchensinkNode {
 }
 
 impl EthereumNode for KitchensinkNode {
-    #[tracing::instrument(skip_all, fields(kitchensink_node_id = self.id))]
+    #[tracing::instrument(skip_all, fields(kitchensink_node_id = self.id), err)]
     async fn execute_transaction(
         &self,
         transaction: alloy::rpc::types::TransactionRequest,
@@ -399,7 +399,7 @@ impl EthereumNode for KitchensinkNode {
         Ok(receipt)
     }
 
-    #[tracing::instrument(skip_all, fields(kitchensink_node_id = self.id))]
+    #[tracing::instrument(skip_all, fields(kitchensink_node_id = self.id), err)]
     async fn trace_transaction(
         &self,
         transaction: &TransactionReceipt,
@@ -413,7 +413,7 @@ impl EthereumNode for KitchensinkNode {
             .await?)
     }
 
-    #[tracing::instrument(skip_all, fields(kitchensink_node_id = self.id))]
+    #[tracing::instrument(skip_all, fields(kitchensink_node_id = self.id), err)]
     async fn state_diff(&self, transaction: &TransactionReceipt) -> anyhow::Result<DiffMode> {
         let trace_options = GethDebugTracingOptions::prestate_tracer(PreStateConfig {
             diff_mode: Some(true),
@@ -430,7 +430,7 @@ impl EthereumNode for KitchensinkNode {
         }
     }
 
-    #[tracing::instrument(skip_all, fields(kitchensink_node_id = self.id))]
+    #[tracing::instrument(skip_all, fields(kitchensink_node_id = self.id), err)]
     async fn balance_of(&self, address: Address) -> anyhow::Result<U256> {
         self.provider()
             .await?
@@ -439,7 +439,7 @@ impl EthereumNode for KitchensinkNode {
             .map_err(Into::into)
     }
 
-    #[tracing::instrument(skip_all, fields(kitchensink_node_id = self.id))]
+    #[tracing::instrument(skip_all, fields(kitchensink_node_id = self.id), err)]
     async fn latest_state_proof(
         &self,
         address: Address,
@@ -455,7 +455,7 @@ impl EthereumNode for KitchensinkNode {
 }
 
 impl ResolverApi for KitchensinkNode {
-    #[tracing::instrument(skip_all, fields(kitchensink_node_id = self.id))]
+    #[tracing::instrument(skip_all, fields(kitchensink_node_id = self.id), err)]
     async fn chain_id(&self) -> anyhow::Result<alloy::primitives::ChainId> {
         self.provider()
             .await?
@@ -464,7 +464,7 @@ impl ResolverApi for KitchensinkNode {
             .map_err(Into::into)
     }
 
-    #[tracing::instrument(skip_all, fields(kitchensink_node_id = self.id))]
+    #[tracing::instrument(skip_all, fields(kitchensink_node_id = self.id), err)]
     async fn transaction_gas_price(&self, tx_hash: &TxHash) -> anyhow::Result<u128> {
         self.provider()
             .await?
@@ -474,7 +474,7 @@ impl ResolverApi for KitchensinkNode {
             .map(|receipt| receipt.effective_gas_price)
     }
 
-    #[tracing::instrument(skip_all, fields(kitchensink_node_id = self.id))]
+    #[tracing::instrument(skip_all, fields(kitchensink_node_id = self.id), err)]
     async fn block_gas_limit(&self, number: BlockNumberOrTag) -> anyhow::Result<u128> {
         self.provider()
             .await?
@@ -484,7 +484,7 @@ impl ResolverApi for KitchensinkNode {
             .map(|block| block.header.gas_limit as _)
     }
 
-    #[tracing::instrument(skip_all, fields(kitchensink_node_id = self.id))]
+    #[tracing::instrument(skip_all, fields(kitchensink_node_id = self.id), err)]
     async fn block_coinbase(&self, number: BlockNumberOrTag) -> anyhow::Result<Address> {
         self.provider()
             .await?
@@ -494,7 +494,7 @@ impl ResolverApi for KitchensinkNode {
             .map(|block| block.header.beneficiary)
     }
 
-    #[tracing::instrument(skip_all, fields(kitchensink_node_id = self.id))]
+    #[tracing::instrument(skip_all, fields(kitchensink_node_id = self.id), err)]
     async fn block_difficulty(&self, number: BlockNumberOrTag) -> anyhow::Result<U256> {
         self.provider()
             .await?
@@ -504,7 +504,7 @@ impl ResolverApi for KitchensinkNode {
             .map(|block| U256::from_be_bytes(block.header.mix_hash.0))
     }
 
-    #[tracing::instrument(skip_all, fields(kitchensink_node_id = self.id))]
+    #[tracing::instrument(skip_all, fields(kitchensink_node_id = self.id), err)]
     async fn block_base_fee(&self, number: BlockNumberOrTag) -> anyhow::Result<u64> {
         self.provider()
             .await?
@@ -519,7 +519,7 @@ impl ResolverApi for KitchensinkNode {
             })
     }
 
-    #[tracing::instrument(skip_all, fields(kitchensink_node_id = self.id))]
+    #[tracing::instrument(skip_all, fields(kitchensink_node_id = self.id), err)]
     async fn block_hash(&self, number: BlockNumberOrTag) -> anyhow::Result<BlockHash> {
         self.provider()
             .await?
@@ -529,7 +529,7 @@ impl ResolverApi for KitchensinkNode {
             .map(|block| block.header.hash)
     }
 
-    #[tracing::instrument(skip_all, fields(kitchensink_node_id = self.id))]
+    #[tracing::instrument(skip_all, fields(kitchensink_node_id = self.id), err)]
     async fn block_timestamp(&self, number: BlockNumberOrTag) -> anyhow::Result<BlockTimestamp> {
         self.provider()
             .await?
@@ -539,7 +539,7 @@ impl ResolverApi for KitchensinkNode {
             .map(|block| block.header.timestamp)
     }
 
-    #[tracing::instrument(skip_all, fields(kitchensink_node_id = self.id))]
+    #[tracing::instrument(skip_all, fields(kitchensink_node_id = self.id), err)]
     async fn last_block_number(&self) -> anyhow::Result<BlockNumber> {
         self.provider()
             .await?
@@ -587,7 +587,7 @@ impl Node for KitchensinkNode {
         self.rpc_url.clone()
     }
 
-    #[tracing::instrument(skip_all, fields(kitchensink_node_id = self.id))]
+    #[tracing::instrument(skip_all, fields(kitchensink_node_id = self.id), err)]
     fn shutdown(&mut self) -> anyhow::Result<()> {
         // Terminate the processes in a graceful manner to allow for the output to be flushed.
         if let Some(mut child) = self.process_proxy.take() {
@@ -614,12 +614,12 @@ impl Node for KitchensinkNode {
         Ok(())
     }
 
-    #[tracing::instrument(skip_all, fields(kitchensink_node_id = self.id))]
+    #[tracing::instrument(skip_all, fields(kitchensink_node_id = self.id), err)]
     fn spawn(&mut self, genesis: String) -> anyhow::Result<()> {
         self.init(&genesis)?.spawn_process()
     }
 
-    #[tracing::instrument(skip_all, fields(kitchensink_node_id = self.id))]
+    #[tracing::instrument(skip_all, fields(kitchensink_node_id = self.id), err)]
     fn version(&self) -> anyhow::Result<String> {
         let output = Command::new(&self.substrate_binary)
             .arg("--version")

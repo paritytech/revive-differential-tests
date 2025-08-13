@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use alloy::{
     eips::BlockNumberOrTag,
     hex::ToHexExt,
+    json_abi::Function,
     network::TransactionBuilder,
     primitives::{Address, Bytes, U256},
     rpc::types::TransactionRequest,
@@ -36,19 +37,27 @@ pub enum Step {
 pub struct Input {
     #[serde(default = "Input::default_caller")]
     pub caller: Address,
+
     #[serde(skip_serializing_if = "Option::is_none")]
     pub comment: Option<String>,
+
     #[serde(default = "Input::default_instance")]
     pub instance: ContractInstance,
+
     pub method: Method,
+
     #[serde(default)]
     pub calldata: Calldata,
+
     #[serde(skip_serializing_if = "Option::is_none")]
     pub expected: Option<Expected>,
+
     #[serde(skip_serializing_if = "Option::is_none")]
     pub value: Option<EtherValue>,
+
     #[serde(skip_serializing_if = "Option::is_none")]
     pub storage: Option<HashMap<String, Calldata>>,
+
     #[serde(skip_serializing_if = "Option::is_none")]
     pub variable_assignments: Option<VariableAssignments>,
 }
@@ -271,17 +280,27 @@ impl Input {
                 // We follow the same logic that's implemented in the matter-labs-tester where they resolve
                 // the function name into a function selector and they assume that he function doesn't have
                 // any existing overloads.
+                // Overloads are handled by providing the full function signature in the "function
+                // name".
                 // https://github.com/matter-labs/era-compiler-tester/blob/1dfa7d07cba0734ca97e24704f12dd57f6990c2c/compiler_tester/src/test/case/input/mod.rs#L158-L190
-                let function = abi
-                    .functions()
-                    .find(|function| function.signature().starts_with(function_name))
-                    .ok_or_else(|| {
-                        anyhow::anyhow!(
-                            "Function with name {:?} not found in ABI for the instance {:?}",
-                            function_name,
-                            &self.instance
-                        )
-                    })?;
+                let selector = if function_name.contains('(') && function_name.contains(')') {
+                    Function::parse(function_name)
+                        .context(
+                            "Failed to parse the provided function name into a function signature",
+                        )?
+                        .selector()
+                } else {
+                    abi.functions()
+                        .find(|function| function.signature().starts_with(function_name))
+                        .ok_or_else(|| {
+                            anyhow::anyhow!(
+                                "Function with name {:?} not found in ABI for the instance {:?}",
+                                function_name,
+                                &self.instance
+                            )
+                        })?
+                        .selector()
+                };
 
                 tracing::trace!("Functions found for instance: {}", self.instance.as_ref());
 
@@ -297,7 +316,7 @@ impl Input {
                 // We're using indices in the following code in order to avoid the need for us to allocate
                 // a new buffer for each one of the resolved arguments.
                 let mut calldata = Vec::<u8>::with_capacity(4 + self.calldata.size_requirement());
-                calldata.extend(function.selector().0);
+                calldata.extend(selector.0);
                 self.calldata
                     .calldata_into_slice(&mut calldata, resolver, context)
                     .await?;
