@@ -52,6 +52,9 @@ pub struct Metadata {
     pub comment: Option<String>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub ignore: Option<bool>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub targets: Option<Vec<String>>,
 
     pub cases: Vec<Case>,
@@ -61,9 +64,6 @@ pub struct Metadata {
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub libraries: Option<BTreeMap<PathBuf, BTreeMap<ContractIdent, ContractInstance>>>,
-
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub ignore: Option<bool>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub modes: Option<Vec<Mode>>,
