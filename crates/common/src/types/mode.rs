@@ -245,9 +245,11 @@ pub enum ParseModeError {
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
 pub enum ModePipeline {
     /// Compile Solidity code via Yul IR
-    Y,
+    #[serde(rename = "Y")]
+    ViaYulIR,
     /// Compile Solidity direct to assembly
-    E,
+    #[serde(rename = "E")]
+    ViaEVMAssembly,
 }
 
 impl FromStr for ModePipeline {
@@ -255,9 +257,9 @@ impl FromStr for ModePipeline {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
             // via Yul IR
-            "Y" => Ok(ModePipeline::Y),
+            "Y" => Ok(ModePipeline::ViaYulIR),
             // Don't go via Yul IR
-            "E" => Ok(ModePipeline::E),
+            "E" => Ok(ModePipeline::ViaEVMAssembly),
             // Anything else that we see isn't a mode at all
             _ => Err(ParseModeError::UnsupportedPipeline(
                 s.chars().next().unwrap_or('?'),
@@ -269,8 +271,8 @@ impl FromStr for ModePipeline {
 impl Display for ModePipeline {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ModePipeline::Y => f.write_str("Y"),
-            ModePipeline::E => f.write_str("E"),
+            ModePipeline::ViaYulIR => f.write_str("Y"),
+            ModePipeline::ViaEVMAssembly => f.write_str("E"),
         }
     }
 }
@@ -278,13 +280,13 @@ impl Display for ModePipeline {
 impl ModePipeline {
     /// Should we go via Yul IR?
     pub fn via_yul_ir(&self) -> bool {
-        matches!(self, ModePipeline::Y)
+        matches!(self, ModePipeline::ViaYulIR)
     }
 
     /// An iterator over the available pipelines that we'd like to test,
     /// when an explicit pipeline was not specified.
     pub fn test_cases() -> impl Iterator<Item = ModePipeline> + Clone {
-        [ModePipeline::Y, ModePipeline::E].into_iter()
+        [ModePipeline::ViaYulIR, ModePipeline::ViaEVMAssembly].into_iter()
     }
 }
 

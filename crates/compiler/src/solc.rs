@@ -10,7 +10,7 @@ use revive_dt_common::types::VersionOrRequirement;
 use revive_dt_config::Arguments;
 use revive_dt_solc_binaries::download_solc;
 
-use super::constants::VERSION_SUPPORTING_VIA_IR;
+use super::constants::SOLC_VERSION_SUPPORTING_VIA_YUL_IR;
 use crate::{CompilerInput, CompilerOutput, ModeOptimizerSetting, ModePipeline, SolidityCompiler};
 
 use anyhow::Context;
@@ -47,7 +47,7 @@ impl SolidityCompiler for Solc {
         }: CompilerInput,
         _: Self::Options,
     ) -> anyhow::Result<CompilerOutput> {
-        let compiler_supports_via_ir = self.version()? >= VERSION_SUPPORTING_VIA_IR;
+        let compiler_supports_via_ir = self.version()? >= SOLC_VERSION_SUPPORTING_VIA_YUL_IR;
 
         // Be careful to entirely omit the viaIR field if the compiler does not support it,
         // as it will error if you provide fields it does not know about. Because
@@ -242,8 +242,9 @@ impl SolidityCompiler for Solc {
     ) -> bool {
         // solc 0.8.13 and above supports --via-ir, and less than that does not. Thus, we support mode E
         // (ie no Yul IR) in either case, but only support Y (via Yul IR) if the compiler is new enough.
-        pipeline == ModePipeline::E
-            || (pipeline == ModePipeline::Y && compiler_version >= &VERSION_SUPPORTING_VIA_IR)
+        pipeline == ModePipeline::ViaEVMAssembly
+            || (pipeline == ModePipeline::ViaYulIR
+                && compiler_version >= &SOLC_VERSION_SUPPORTING_VIA_YUL_IR)
     }
 }
 
