@@ -56,7 +56,7 @@ struct Test {
     metadata: Metadata,
     path: PathBuf,
     mode: Mode,
-    case_idx: usize,
+    case_idx: CaseIdx,
     case: Case,
 }
 
@@ -231,7 +231,7 @@ where
                 metadata: metadata.clone(),
                 path: metadata_file_path.to_path_buf(),
                 mode: solc_mode,
-                case_idx,
+                case_idx: case_idx.into(),
                 case: case.clone(),
             }
         })

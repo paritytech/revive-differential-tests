@@ -11,6 +11,7 @@ use revive_dt_config::Arguments;
 use revive_dt_solc_binaries::download_solc;
 
 use crate::{CompilerInput, CompilerOutput, ModeOptimizerSetting, ModePipeline, SolidityCompiler};
+use super::constants::VERSION_SUPPORTING_VIA_IR;
 
 use anyhow::Context;
 use foundry_compilers_artifacts::{
@@ -22,9 +23,6 @@ use foundry_compilers_artifacts::{
 };
 use semver::Version;
 use tokio::{io::AsyncWriteExt, process::Command as AsyncCommand};
-
-/// This is the first version of solc that supports the `--via-ir` flag / "viaIR" input JSON.
-const VERSION_SUPPORTING_VIA_IR: Version = Version::new(0, 8, 13);
 
 #[derive(Debug)]
 pub struct Solc {

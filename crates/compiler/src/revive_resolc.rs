@@ -15,6 +15,7 @@ use revive_solc_json_interface::{
 };
 
 use crate::{CompilerInput, CompilerOutput, ModeOptimizerSetting, ModePipeline, SolidityCompiler};
+use super::constants::VERSION_SUPPORTING_VIA_IR;
 
 use alloy::json_abi::JsonAbi;
 use anyhow::Context;
@@ -246,7 +247,7 @@ impl SolidityCompiler for Resolc {
         // We only support the Y (IE compile via Yul IR) mode here, which also means that we can
         // only use solc version 0.8.13 and above. We must always compile via Yul IR as resolc
         // needs this to translate to LLVM IR and then RISCV.
-        pipeline == ModePipeline::Y && compiler_version >= &Version::new(0, 8, 13)
+        pipeline == ModePipeline::Y && compiler_version >= &VERSION_SUPPORTING_VIA_IR
     }
 }
 

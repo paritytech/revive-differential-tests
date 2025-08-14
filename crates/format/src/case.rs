@@ -67,3 +67,9 @@ define_wrapper_type!(
     #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
     pub struct CaseIdx(usize);
 );
+
+impl std::fmt::Display for CaseIdx {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}

@@ -3,6 +3,8 @@
 //! - Polkadot revive resolc compiler
 //! - Polkadot revive Wasm compiler
 
+mod constants;
+
 use std::{
     collections::HashMap,
     fs::read_to_string,
