@@ -20,7 +20,7 @@ use revive_dt_common::types::VersionOrRequirement;
 use revive_dt_config::Arguments;
 
 // Re-export this as it's a part of the compiler interface.
-pub use revive_dt_format::mode::{Mode, ModeOptimizerSetting, ModePipeline};
+pub use revive_dt_common::types::{Mode, ModeOptimizerSetting, ModePipeline};
 
 pub mod revive_js;
 pub mod revive_resolc;

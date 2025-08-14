@@ -39,7 +39,6 @@ impl SolidityCompiler for Resolc {
     async fn build(
         &self,
         CompilerInput {
-            // Ignored as we only support one pipeline (Y)
             pipeline,
             optimization,
             evm_version,
@@ -53,6 +52,10 @@ impl SolidityCompiler for Resolc {
         }: CompilerInput,
         additional_options: Self::Options,
     ) -> anyhow::Result<CompilerOutput> {
+        if !matches!(pipeline, None | Some(ModePipeline::Y)) {
+            anyhow::bail!("Resolc only supports the Y (via Yul IR) pipeline, but the provided pipeline is {pipeline:?}");
+        }
+
         let input = SolcStandardJsonInput {
             language: SolcStandardJsonInputLanguage::Solidity,
             sources: sources

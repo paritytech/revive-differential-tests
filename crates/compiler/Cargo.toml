@@ -12,7 +12,6 @@ rust-version.workspace = true
 revive-solc-json-interface = { workspace = true }
 revive-dt-common = { workspace = true }
 revive-dt-config = { workspace = true }
-revive-dt-format = { workspace = true }
 revive-dt-solc-binaries = { workspace = true }
 revive-common = { workspace = true }
 
