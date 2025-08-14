@@ -19,6 +19,11 @@ pub struct FilesWithExtensionIterator {
     /// this vector then they will be returned when the [`Iterator::next`] method is called. If not
     /// then we visit one of the next directories to visit.
     files_matching_allowed_extensions: Vec<PathBuf>,
+
+    /// This option controls if the the cached file system should be used or not. This could be
+    /// better for certain cases where the entries in the directories do not change and therefore
+    /// caching can be used.
+    use_cached_fs: bool,
 }
 
 impl FilesWithExtensionIterator {
@@ -27,6 +32,7 @@ impl FilesWithExtensionIterator {
             allowed_extensions: Default::default(),
             directories_to_search: vec![root_directory.as_ref().to_path_buf()],
             files_matching_allowed_extensions: Default::default(),
+            use_cached_fs: Default::default(),
         }
     }
 
@@ -35,6 +41,11 @@ impl FilesWithExtensionIterator {
         allowed_extension: impl Into<Cow<'static, str>>,
     ) -> Self {
         self.allowed_extensions.insert(allowed_extension.into());
+        self
+    }
+
+    pub fn with_use_cached_fs(mut self, use_cached_fs: bool) -> Self {
+        self.use_cached_fs = use_cached_fs;
         self
     }
 }
@@ -49,16 +60,19 @@ impl Iterator for FilesWithExtensionIterator {
 
         let directory_to_search = self.directories_to_search.pop()?;
 
-        // Read all of the entries in the directory. If we failed to read this dir's entires then we
-        // elect to just ignore it and look in the next directory, we do that by calling the next
-        // method again on the iterator, which is an intentional decision that we made here instead
-        // of panicking.
-        let Ok(dir_entries) = std::fs::read_dir(directory_to_search) else {
-            return self.next();
+        let iterator = if self.use_cached_fs {
+            let Ok(dir_entries) = crate::cached_fs::read_dir(directory_to_search.as_path()) else {
+                return self.next();
+            };
+            Box::new(dir_entries) as Box<dyn Iterator<Item = std::io::Result<PathBuf>>>
+        } else {
+            let Ok(dir_entries) = std::fs::read_dir(directory_to_search) else {
+                return self.next();
+            };
+            Box::new(dir_entries.map(|maybe_entry| maybe_entry.map(|entry| entry.path()))) as Box<_>
         };
 
-        for entry in dir_entries.flatten() {
-            let entry_path = entry.path();
+        for entry_path in iterator.flatten() {
             if entry_path.is_dir() {
                 self.directories_to_search.push(entry_path)
             } else if entry_path.is_file()
