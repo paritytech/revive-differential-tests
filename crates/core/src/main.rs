@@ -154,8 +154,8 @@ where
     Ok(())
 }
 
-fn prepare_tests<'args, L, F>(
-    args: &'args Arguments,
+fn prepare_tests<L, F>(
+    args: &Arguments,
     metadata_files: &[MetadataFile],
 ) -> impl Stream<Item = Test>
 where
@@ -326,7 +326,7 @@ where
                 let result = handle_case_driver::<L, F>(
                     &test.path,
                     &test.metadata,
-                    test.case_idx.into(),
+                    test.case_idx,
                     &test.case,
                     test.mode.clone(),
                     args,
