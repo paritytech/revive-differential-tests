@@ -47,6 +47,9 @@ impl SolidityCompiler for Resolc {
             base_path,
             sources,
             libraries,
+            // TODO: this is currently not being handled since there is no way to pass it into
+            // resolc. So, we need to go back to this later once it's supported.
+            revert_string_handling: _,
         }: CompilerInput,
         additional_options: Self::Options,
     ) -> anyhow::Result<CompilerOutput> {
