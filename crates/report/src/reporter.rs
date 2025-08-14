@@ -12,11 +12,12 @@ use std::{
 };
 
 use anyhow::Context;
-use revive_dt_compiler::{CompilerInput, CompilerOutput};
 use serde::Serialize;
 
+use revive_dt_common::types::Mode;
+use revive_dt_compiler::{CompilerInput, CompilerOutput};
 use revive_dt_config::{Arguments, TestingPlatform};
-use revive_dt_format::{corpus::Corpus, mode::Mode};
+use revive_dt_format::corpus::Corpus;
 
 use crate::analyzer::CompilerStatistics;
 

@@ -4142,6 +4142,7 @@ name = "revive-dt-report"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "revive-dt-common",
  "revive-dt-compiler",
  "revive-dt-config",
  "revive-dt-format",

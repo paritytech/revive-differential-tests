@@ -86,7 +86,7 @@ impl Metadata {
     /// Returns the modes that we should test from this metadata.
     pub fn solc_modes(&self) -> Vec<Mode> {
         match &self.modes {
-            Some(modes) => Mode::from_parsed_modes(modes.iter()).collect(),
+            Some(modes) => ParsedMode::many_to_modes(modes.iter()).collect(),
             None => Mode::all().collect(),
         }
     }
