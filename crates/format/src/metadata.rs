@@ -75,6 +75,12 @@ pub struct Metadata {
     /// be run of the evm version of the nodes match the evm version specified here.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub required_evm_version: Option<EvmVersionRequirement>,
+
+    /// A set of compilation directives that will be passed to the compiler whenever the contracts for
+    /// the test are being compiled. Note that this differs from the [`Mode`]s in that a [`Mode`] is
+    /// just a filter for when a test can run whereas this is an instruction to the compiler.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub compiler_directives: Option<CompilationDirectives>,
 }
 
 impl Metadata {
@@ -479,6 +485,31 @@ impl From<EvmVersionRequirement> for String {
     fn from(value: EvmVersionRequirement) -> Self {
         value.to_string()
     }
+}
+
+/// A set of compilation directives that will be passed to the compiler whenever the contracts for
+/// the test are being compiled. Note that this differs from the [`Mode`]s in that a [`Mode`] is
+/// just a filter for when a test can run whereas this is an instruction to the compiler.
+/// Defines how the compiler should handle revert strings.
+#[derive(
+    Clone, Debug, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default, Serialize, Deserialize,
+)]
+pub struct CompilationDirectives {
+    /// Defines how the revert strings should be handled.
+    pub revert_string_handling: Option<RevertString>,
+}
+
+/// Defines how the compiler should handle revert strings.
+#[derive(
+    Clone, Debug, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default, Serialize, Deserialize,
+)]
+#[serde(rename_all = "camelCase")]
+pub enum RevertString {
+    #[default]
+    Default,
+    Debug,
+    Strip,
+    VerboseDebug,
 }
 
 #[cfg(test)]

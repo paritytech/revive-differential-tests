@@ -65,6 +65,7 @@ pub struct CompilerInput {
     pub base_path: Option<PathBuf>,
     pub sources: HashMap<PathBuf, String>,
     pub libraries: HashMap<PathBuf, HashMap<String, Address>>,
+    pub revert_string_handling: Option<RevertString>,
 }
 
 /// The generic compilation output configuration.
@@ -101,6 +102,7 @@ where
                 base_path: Default::default(),
                 sources: Default::default(),
                 libraries: Default::default(),
+                revert_string_handling: Default::default(),
             },
             additional_options: T::Options::default(),
         }
@@ -152,6 +154,14 @@ where
         self
     }
 
+    pub fn with_revert_string_handling(
+        mut self,
+        revert_string_handling: impl Into<Option<RevertString>>,
+    ) -> Self {
+        self.input.revert_string_handling = revert_string_handling.into();
+        self
+    }
+
     pub fn with_additional_options(mut self, options: impl Into<T::Options>) -> Self {
         self.additional_options = options.into();
         self
@@ -169,4 +179,16 @@ where
     pub fn input(&self) -> CompilerInput {
         self.input.clone()
     }
+}
+
+/// Defines how the compiler should handle revert strings.
+#[derive(
+    Clone, Debug, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default, Serialize, Deserialize,
+)]
+pub enum RevertString {
+    #[default]
+    Default,
+    Debug,
+    Strip,
+    VerboseDebug,
 }
