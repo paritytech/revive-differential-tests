@@ -11,12 +11,11 @@ use std::{
 use serde::{Deserialize, Serialize};
 
 use revive_common::EVMVersion;
-use revive_dt_common::{iterators::FilesWithExtensionIterator, macros::define_wrapper_type, types::Mode};
-
-use crate::{
-    case::Case,
-    mode::ParsedMode,
+use revive_dt_common::{
+    iterators::FilesWithExtensionIterator, macros::define_wrapper_type, types::Mode,
 };
+
+use crate::{case::Case, mode::ParsedMode};
 
 pub const METADATA_FILE_EXTENSION: &str = "json";
 pub const SOLIDITY_CASE_FILE_EXTENSION: &str = "sol";

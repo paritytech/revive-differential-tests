@@ -22,10 +22,10 @@ use tokio::sync::{Mutex, RwLock, mpsc};
 use tracing::{Instrument, Level};
 use tracing_subscriber::{EnvFilter, FmtSubscriber};
 
+use revive_dt_common::types::Mode;
 use revive_dt_compiler::SolidityCompiler;
 use revive_dt_compiler::{Compiler, CompilerOutput};
 use revive_dt_config::*;
-use revive_dt_common::types::Mode;
 use revive_dt_core::{
     Geth, Kitchensink, Platform,
     driver::{CaseDriver, CaseState},

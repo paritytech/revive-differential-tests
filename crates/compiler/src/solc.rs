@@ -10,8 +10,8 @@ use revive_dt_common::types::VersionOrRequirement;
 use revive_dt_config::Arguments;
 use revive_dt_solc_binaries::download_solc;
 
-use crate::{CompilerInput, CompilerOutput, ModeOptimizerSetting, ModePipeline, SolidityCompiler};
 use super::constants::VERSION_SUPPORTING_VIA_IR;
+use crate::{CompilerInput, CompilerOutput, ModeOptimizerSetting, ModePipeline, SolidityCompiler};
 
 use anyhow::Context;
 use foundry_compilers_artifacts::{

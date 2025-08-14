@@ -1,5 +1,5 @@
-use regex::Regex;
 use crate::types::VersionOrRequirement;
+use regex::Regex;
 use semver::Version;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;

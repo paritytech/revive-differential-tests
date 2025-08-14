@@ -14,8 +14,8 @@ use revive_solc_json_interface::{
     SolcStandardJsonOutput,
 };
 
-use crate::{CompilerInput, CompilerOutput, ModeOptimizerSetting, ModePipeline, SolidityCompiler};
 use super::constants::VERSION_SUPPORTING_VIA_IR;
+use crate::{CompilerInput, CompilerOutput, ModeOptimizerSetting, ModePipeline, SolidityCompiler};
 
 use alloy::json_abi::JsonAbi;
 use anyhow::Context;
@@ -54,7 +54,9 @@ impl SolidityCompiler for Resolc {
         additional_options: Self::Options,
     ) -> anyhow::Result<CompilerOutput> {
         if !matches!(pipeline, None | Some(ModePipeline::Y)) {
-            anyhow::bail!("Resolc only supports the Y (via Yul IR) pipeline, but the provided pipeline is {pipeline:?}");
+            anyhow::bail!(
+                "Resolc only supports the Y (via Yul IR) pipeline, but the provided pipeline is {pipeline:?}"
+            );
         }
 
         let input = SolcStandardJsonInput {
