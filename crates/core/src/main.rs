@@ -67,7 +67,7 @@ fn main() -> anyhow::Result<()> {
     let args = init_cli()?;
 
     let body = async {
-        for (corpus, tests) in collect_corpora(&args)? {
+        for (corpus, tests) in collect_corpora(&args).await? {
             let span = Span::new(corpus, args.clone())?;
             match &args.compile_only {
                 Some(platform) => compile_corpus(&args, &tests, platform, span).await,
@@ -117,13 +117,13 @@ fn init_cli() -> anyhow::Result<Arguments> {
     Ok(args)
 }
 
-fn collect_corpora(args: &Arguments) -> anyhow::Result<HashMap<Corpus, Vec<MetadataFile>>> {
+async fn collect_corpora(args: &Arguments) -> anyhow::Result<HashMap<Corpus, Vec<MetadataFile>>> {
     let mut corpora = HashMap::new();
 
     for path in &args.corpus {
         let corpus = Corpus::try_from_path(path)?;
         tracing::info!("found corpus: {}", path.display());
-        let tests = corpus.enumerate_tests();
+        let tests = corpus.enumerate_tests().await;
         tracing::info!("corpus '{}' contains {} tests", &corpus.name, tests.len());
         corpora.insert(corpus, tests);
     }
@@ -145,7 +145,7 @@ where
     let (report_tx, report_rx) = mpsc::unbounded_channel::<(Test, CaseResult)>();
 
     let tests = prepare_tests::<L, F>(metadata_files);
-    let driver_task = start_driver_task::<L, F>(args, tests, span, report_tx)?;
+    let driver_task = start_driver_task::<L, F>(args, tests, span, report_tx).await?;
     let status_reporter_task = start_reporter_task(report_rx);
 
     tokio::join!(status_reporter_task, driver_task);
@@ -237,7 +237,7 @@ where
         })
 }
 
-fn start_driver_task<L, F>(
+async fn start_driver_task<L, F>(
     args: &Arguments,
     tests: impl Iterator<Item = Test>,
     span: Span,
@@ -249,8 +249,8 @@ where
     L::Blockchain: revive_dt_node::Node + Send + Sync + 'static,
     F::Blockchain: revive_dt_node::Node + Send + Sync + 'static,
 {
-    let leader_nodes = Arc::new(NodePool::<L::Blockchain>::new(args)?);
-    let follower_nodes = Arc::new(NodePool::<F::Blockchain>::new(args)?);
+    let leader_nodes = Arc::new(NodePool::<L::Blockchain>::new(args).await?);
+    let follower_nodes = Arc::new(NodePool::<F::Blockchain>::new(args).await?);
     let compilation_cache = Arc::new(RwLock::new(HashMap::new()));
     let number_concurrent_tasks = args.number_of_concurrent_tasks();
 
@@ -693,12 +693,12 @@ async fn compile_contracts<P: Platform>(
         "Compiling contracts"
     );
 
-    let compiler = Compiler::<P::Compiler>::new()
+    let mut compiler = Compiler::<P::Compiler>::new()
         .with_allow_path(metadata.directory()?)
         .with_optimization(mode.solc_optimize());
-    let mut compiler = metadata
-        .files_to_compile()?
-        .try_fold(compiler, |compiler, path| compiler.with_source(&path))?;
+    for path in metadata.files_to_compile()? {
+        compiler = compiler.with_source(path).await?;
+    }
     for (library_instance, (library_address, _)) in deployed_libraries.iter() {
         let library_ident = &metadata
             .contracts

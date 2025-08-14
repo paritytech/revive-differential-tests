@@ -1,12 +1,12 @@
 //! This crate implements concurrent handling of testing node.
 
 use std::{
-    fs::read_to_string,
     sync::atomic::{AtomicUsize, Ordering},
     thread,
 };
 
 use anyhow::Context;
+use revive_dt_common::fs::CachedFileSystem;
 use revive_dt_config::Arguments;
 
 use crate::Node;
@@ -23,12 +23,11 @@ where
     T: Node + Send + 'static,
 {
     /// Create a new Pool. This will start as many nodes as there are workers in `config`.
-    pub fn new(config: &Arguments) -> anyhow::Result<Self> {
+    pub async fn new(config: &Arguments) -> anyhow::Result<Self> {
         let nodes = config.number_of_nodes;
-        let genesis = read_to_string(&config.genesis_file).context(format!(
-            "can not read genesis file: {}",
-            config.genesis_file.display()
-        ))?;
+        let genesis = CachedFileSystem::read_to_string(&config.genesis_file)
+            .await
+            .context("Failed to read genesis file")?;
 
         let mut handles = Vec::with_capacity(nodes);
         for _ in 0..nodes {

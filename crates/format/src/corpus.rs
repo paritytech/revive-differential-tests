@@ -39,9 +39,9 @@ impl Corpus {
     }
 
     /// Scan the corpus base directory and return all tests found.
-    pub fn enumerate_tests(&self) -> Vec<MetadataFile> {
+    pub async fn enumerate_tests(&self) -> Vec<MetadataFile> {
         let mut tests = Vec::new();
-        collect_metadata(&self.path, &mut tests);
+        collect_metadata(&self.path, &mut tests).await;
         tests
     }
 }
@@ -52,7 +52,7 @@ impl Corpus {
 /// Found tests are inserted into `tests`.
 ///
 /// `path` is expected to be a directory.
-pub fn collect_metadata(path: &Path, tests: &mut Vec<MetadataFile>) {
+pub async fn collect_metadata(path: &Path, tests: &mut Vec<MetadataFile>) {
     if path.is_dir() {
         let dir_entry = match std::fs::read_dir(path) {
             Ok(dir_entry) => dir_entry,
@@ -73,12 +73,12 @@ pub fn collect_metadata(path: &Path, tests: &mut Vec<MetadataFile>) {
 
             let path = entry.path();
             if path.is_dir() {
-                collect_metadata(&path, tests);
+                Box::pin(collect_metadata(&path, tests)).await;
                 continue;
             }
 
             if path.is_file() {
-                if let Some(metadata) = MetadataFile::try_from_file(&path) {
+                if let Some(metadata) = MetadataFile::try_from_file(&path).await {
                     tests.push(metadata)
                 }
             }
@@ -89,7 +89,7 @@ pub fn collect_metadata(path: &Path, tests: &mut Vec<MetadataFile>) {
             return;
         };
         if extension.eq_ignore_ascii_case("sol") || extension.eq_ignore_ascii_case("json") {
-            if let Some(metadata) = MetadataFile::try_from_file(path) {
+            if let Some(metadata) = MetadataFile::try_from_file(path).await {
                 tests.push(metadata)
             }
         } else {

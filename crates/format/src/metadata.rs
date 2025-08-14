@@ -2,7 +2,6 @@ use std::{
     cmp::Ordering,
     collections::BTreeMap,
     fmt::Display,
-    fs::{File, read_to_string},
     ops::Deref,
     path::{Path, PathBuf},
     str::FromStr,
@@ -11,7 +10,9 @@ use std::{
 use serde::{Deserialize, Serialize};
 
 use revive_common::EVMVersion;
-use revive_dt_common::{iterators::FilesWithExtensionIterator, macros::define_wrapper_type};
+use revive_dt_common::{
+    fs::CachedFileSystem, iterators::FilesWithExtensionIterator, macros::define_wrapper_type,
+};
 
 use crate::{
     case::Case,
@@ -29,8 +30,8 @@ pub struct MetadataFile {
 }
 
 impl MetadataFile {
-    pub fn try_from_file(path: &Path) -> Option<Self> {
-        Metadata::try_from_file(path).map(|metadata| Self {
+    pub async fn try_from_file(path: &Path) -> Option<Self> {
+        Metadata::try_from_file(path).await.map(|metadata| Self {
             path: path.to_owned(),
             content: metadata,
         })
@@ -151,7 +152,7 @@ impl Metadata {
     ///
     /// # Panics
     /// Expects the supplied `path` to be a file.
-    pub fn try_from_file(path: &Path) -> Option<Self> {
+    pub async fn try_from_file(path: &Path) -> Option<Self> {
         assert!(path.is_file(), "not a file: {}", path.display());
 
         let Some(file_extension) = path.extension() else {
@@ -160,19 +161,20 @@ impl Metadata {
         };
 
         if file_extension == METADATA_FILE_EXTENSION {
-            return Self::try_from_json(path);
+            return Self::try_from_json(path).await;
         }
 
         if file_extension == SOLIDITY_CASE_FILE_EXTENSION {
-            return Self::try_from_solidity(path);
+            return Self::try_from_solidity(path).await;
         }
 
         tracing::debug!("ignoring invalid corpus file: {}", path.display());
         None
     }
 
-    fn try_from_json(path: &Path) -> Option<Self> {
-        let file = File::open(path)
+    async fn try_from_json(path: &Path) -> Option<Self> {
+        let content = CachedFileSystem::read(path)
+            .await
             .inspect_err(|error| {
                 tracing::error!(
                     "opening JSON test metadata file '{}' error: {error}",
@@ -181,7 +183,7 @@ impl Metadata {
             })
             .ok()?;
 
-        match serde_json::from_reader::<_, Metadata>(file) {
+        match serde_json::from_slice::<Metadata>(content.as_slice()) {
             Ok(mut metadata) => {
                 metadata.file_path = Some(path.to_path_buf());
                 Some(metadata)
@@ -196,8 +198,9 @@ impl Metadata {
         }
     }
 
-    fn try_from_solidity(path: &Path) -> Option<Self> {
-        let spec = read_to_string(path)
+    async fn try_from_solidity(path: &Path) -> Option<Self> {
+        let spec = CachedFileSystem::read_to_string(path)
+            .await
             .inspect_err(|error| {
                 tracing::error!(
                     "opening JSON test metadata file '{}' error: {error}",

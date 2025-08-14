@@ -5,7 +5,6 @@
 
 use std::{
     collections::HashMap,
-    fs::read_to_string,
     hash::Hash,
     path::{Path, PathBuf},
 };
@@ -16,7 +15,7 @@ use semver::Version;
 use serde::{Deserialize, Serialize};
 
 use revive_common::EVMVersion;
-use revive_dt_common::types::VersionOrRequirement;
+use revive_dt_common::{fs::CachedFileSystem, types::VersionOrRequirement};
 use revive_dt_config::Arguments;
 
 pub mod revive_js;
@@ -123,10 +122,11 @@ where
         self
     }
 
-    pub fn with_source(mut self, path: impl AsRef<Path>) -> anyhow::Result<Self> {
-        self.input
-            .sources
-            .insert(path.as_ref().to_path_buf(), read_to_string(path.as_ref())?);
+    pub async fn with_source(mut self, path: impl AsRef<Path>) -> anyhow::Result<Self> {
+        self.input.sources.insert(
+            path.as_ref().to_path_buf(),
+            CachedFileSystem::read_to_string(path.as_ref()).await?,
+        );
         Ok(self)
     }
 
