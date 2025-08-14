@@ -4029,10 +4029,8 @@ name = "revive-dt-common"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "regex",
  "semver 1.0.26",
  "serde",
- "thiserror 2.0.12",
  "tokio",
 ]
 
