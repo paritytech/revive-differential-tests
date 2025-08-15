@@ -216,13 +216,13 @@ impl GethNode {
         let mut lines = vec![];
         loop {
             if let Some(Ok(line)) = stderr.next() {
-                lines.push(line);
                 if line.contains(Self::ERROR_MARKER) {
                     anyhow::bail!("Failed to start geth {line}");
                 }
                 if line.contains(Self::READY_MARKER) {
                     return Ok(self);
                 }
+                lines.push(line);
             }
             if Instant::now().duration_since(start_time) > maximum_wait_time {
                 anyhow::bail!(
