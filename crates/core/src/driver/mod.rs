@@ -35,7 +35,7 @@ use revive_dt_format::metadata::{ContractInstance, ContractPathAndIdent};
 use revive_dt_format::{input::Step, metadata::Metadata};
 use revive_dt_node::Node;
 use revive_dt_node_interaction::EthereumNode;
-use tracing::Instrument;
+use tracing::{Instrument, instrument};
 
 use crate::Platform;
 
@@ -152,6 +152,7 @@ where
     }
 
     /// Handles the contract deployment for a given input performing it if it needs to be performed.
+    #[instrument(level = "info", skip_all, ret)]
     async fn handle_input_contract_deployment(
         &mut self,
         metadata: &Metadata,
@@ -208,6 +209,7 @@ where
     }
 
     /// Handles the execution of the input in terms of the calls that need to be made.
+    #[instrument(level = "info", skip_all, ret)]
     async fn handle_input_execution(
         &mut self,
         input: &Input,
@@ -252,6 +254,7 @@ where
         }
     }
 
+    #[instrument(level = "info", skip_all, ret)]
     async fn handle_input_call_frame_tracing(
         &self,
         execution_receipt: &TransactionReceipt,
@@ -279,6 +282,7 @@ where
         })
     }
 
+    #[instrument(level = "info", skip_all, ret)]
     fn handle_input_variable_assignment(
         &mut self,
         input: &Input,
@@ -309,6 +313,7 @@ where
         Ok(())
     }
 
+    #[instrument(level = "info", skip_all, ret)]
     async fn handle_input_expectations(
         &mut self,
         input: &Input,
@@ -360,6 +365,7 @@ where
         Ok(())
     }
 
+    #[instrument(level = "info", skip_all, ret)]
     async fn handle_input_expectation_item(
         &mut self,
         execution_receipt: &TransactionReceipt,
@@ -502,6 +508,7 @@ where
         Ok(())
     }
 
+    #[instrument(level = "info", skip_all, ret)]
     async fn handle_input_diff(
         &mut self,
         _: CaseIdx,

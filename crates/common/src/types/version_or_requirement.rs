@@ -1,6 +1,9 @@
+use std::{fmt::Display, str::FromStr};
+
+use anyhow::{Error, bail};
 use semver::{Version, VersionReq};
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum VersionOrRequirement {
     Version(Version),
     Requirement(VersionReq),
@@ -37,5 +40,28 @@ impl TryFrom<VersionOrRequirement> for VersionReq {
             anyhow::bail!("Version or requirement was not a requirement");
         };
         Ok(requirement)
+    }
+}
+
+impl FromStr for VersionOrRequirement {
+    type Err = Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        if let Ok(version) = Version::parse(s) {
+            Ok(Self::Version(version))
+        } else if let Ok(version_req) = VersionReq::parse(s) {
+            Ok(Self::Requirement(version_req))
+        } else {
+            bail!("Not a valid version or version requirement")
+        }
+    }
+}
+
+impl Display for VersionOrRequirement {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            VersionOrRequirement::Version(version) => version.fmt(f),
+            VersionOrRequirement::Requirement(version_req) => version_req.fmt(f),
+        }
     }
 }

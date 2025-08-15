@@ -34,7 +34,7 @@ use revive_dt_format::{
     corpus::Corpus,
     input::{Input, Step},
     metadata::{ContractInstance, ContractPathAndIdent, Metadata, MetadataFile},
-    mode::SolcMode,
+    mode::{Mode, SolcMode},
 };
 use revive_dt_node::pool::NodePool;
 use revive_dt_report::reporter::{Report, Span};
@@ -172,8 +172,7 @@ where
                     .iter()
                     .enumerate()
                     .flat_map(move |(case_idx, case)| {
-                        metadata
-                            .solc_modes()
+                        SolcMode::ALL
                             .into_iter()
                             .map(move |solc_mode| (path, metadata, case_idx, case, solc_mode))
                     })
@@ -225,6 +224,27 @@ where
                 is_allowed
             }
             None => true,
+        })
+        .flat_map(|(path, metadata, case_idx, case, solc_mode)| {
+            if let Some(ref case_modes) = case.modes {
+                case_modes
+                    .iter()
+                    .filter_map(Mode::as_solc_mode)
+                    .filter(|case_mode| case_mode.matches(&solc_mode))
+                    .map(|case_mode| (path, metadata, case_idx, case, case_mode.clone()))
+                    .collect::<Vec<_>>()
+                    .into_iter()
+            } else if let Some(ref metadata_modes) = metadata.modes {
+                metadata_modes
+                    .iter()
+                    .filter_map(Mode::as_solc_mode)
+                    .filter(|metadata_mode| metadata_mode.matches(&solc_mode))
+                    .map(|metadata_mode| (path, metadata, case_idx, case, metadata_mode.clone()))
+                    .collect::<Vec<_>>()
+                    .into_iter()
+            } else {
+                vec![(path, metadata, case_idx, case, solc_mode)].into_iter()
+            }
         })
         .map(|(metadata_file_path, metadata, case_idx, case, solc_mode)| {
             Test {
@@ -328,13 +348,13 @@ async fn start_reporter_task(mut report_rx: mpsc::UnboundedReceiver<(Test, CaseR
             Ok(_inputs) => {
                 number_of_successes += 1;
                 eprintln!(
-                    "{GREEN}Case Succeeded:{COLOUR_RESET} {test_path} -> {case_name}:{case_idx} (mode: {test_mode:?})"
+                    "{GREEN}Case Succeeded:{COLOUR_RESET} {test_path} -> {case_name}:{case_idx} (mode: {test_mode})"
                 );
             }
             Err(err) => {
                 number_of_failures += 1;
                 eprintln!(
-                    "{RED}Case Failed:{COLOUR_RESET} {test_path} -> {case_name}:{case_idx} (mode: {test_mode:?})"
+                    "{RED}Case Failed:{COLOUR_RESET} {test_path} -> {case_name}:{case_idx} (mode: {test_mode})"
                 );
                 failures.push((test, err));
             }
@@ -695,7 +715,8 @@ async fn compile_contracts<P: Platform>(
 
     let compiler = Compiler::<P::Compiler>::new()
         .with_allow_path(metadata.directory()?)
-        .with_optimization(mode.solc_optimize());
+        .with_optimization(mode.optimize)
+        .with_via_ir(mode.via_ir);
     let mut compiler = metadata
         .files_to_compile()?
         .try_fold(compiler, |compiler, path| compiler.with_source(&path))?;

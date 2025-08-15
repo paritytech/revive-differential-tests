@@ -1,9 +1,12 @@
+use std::collections::HashSet;
+
 use serde::{Deserialize, Serialize};
 
 use revive_dt_common::macros::define_wrapper_type;
 
 use crate::{
     input::{Expected, Step},
+    metadata::{deserialize_compilation_modes, serialize_compilation_modes},
     mode::Mode,
 };
 
@@ -15,8 +18,13 @@ pub struct Case {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub comment: Option<String>,
 
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub modes: Option<Vec<Mode>>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_compilation_modes",
+        serialize_with = "serialize_compilation_modes"
+    )]
+    pub modes: Option<HashSet<Mode>>,
 
     #[serde(rename = "inputs")]
     pub steps: Vec<Step>,
@@ -32,7 +40,6 @@ pub struct Case {
 }
 
 impl Case {
-    #[allow(irrefutable_let_patterns)]
     pub fn steps_iterator(&self) -> impl Iterator<Item = Step> {
         let steps_len = self.steps.len();
         self.steps

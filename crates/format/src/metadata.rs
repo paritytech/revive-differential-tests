@@ -1,6 +1,6 @@
 use std::{
     cmp::Ordering,
-    collections::BTreeMap,
+    collections::{BTreeMap, HashSet},
     fmt::Display,
     fs::{File, read_to_string},
     ops::Deref,
@@ -8,7 +8,7 @@ use std::{
     str::FromStr,
 };
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use revive_common::EVMVersion;
 use revive_dt_common::{iterators::FilesWithExtensionIterator, macros::define_wrapper_type};
@@ -65,8 +65,13 @@ pub struct Metadata {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub libraries: Option<BTreeMap<PathBuf, BTreeMap<ContractIdent, ContractInstance>>>,
 
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub modes: Option<Vec<Mode>>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_compilation_modes",
+        serialize_with = "serialize_compilation_modes"
+    )]
+    pub modes: Option<HashSet<Mode>>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub file_path: Option<PathBuf>,
@@ -88,7 +93,7 @@ impl Metadata {
     pub fn solc_modes(&self) -> Vec<SolcMode> {
         self.modes
             .to_owned()
-            .unwrap_or_else(|| vec![Mode::Solidity(Default::default())])
+            .unwrap_or_else(|| SolcMode::ALL.map(Mode::Solidity).iter().cloned().collect())
             .iter()
             .filter_map(|mode| match mode {
                 Mode::Solidity(solc_mode) => Some(solc_mode),
@@ -261,6 +266,37 @@ impl Metadata {
             Ok(Box::new(
                 FilesWithExtensionIterator::new(self.directory()?).with_allowed_extension("sol"),
             ))
+        }
+    }
+}
+
+pub fn deserialize_compilation_modes<'de, D>(
+    deserializer: D,
+) -> Result<Option<HashSet<Mode>>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let maybe_strings = Option::<Vec<String>>::deserialize(deserializer)?;
+    Ok(maybe_strings.map(|strings| {
+        strings
+            .into_iter()
+            .flat_map(Mode::parse_from_string)
+            .collect()
+    }))
+}
+
+pub fn serialize_compilation_modes<S>(
+    value: &Option<HashSet<Mode>>,
+    serializer: S,
+) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    match value {
+        None => serializer.serialize_none(),
+        Some(modes) => {
+            let strings: Vec<String> = modes.iter().cloned().map(Into::<String>::into).collect();
+            serializer.serialize_some(&strings)
         }
     }
 }
