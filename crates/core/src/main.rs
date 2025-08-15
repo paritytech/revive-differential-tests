@@ -735,6 +735,7 @@ async fn compile_contracts<P: Platform>(
         // library.
         compiler = FilesWithExtensionIterator::new(metadata.directory()?)
             .with_allowed_extension("sol")
+            .with_use_cached_fs(true)
             .fold(compiler, |compiler, path| {
                 compiler.with_library(&path, library_ident.as_str(), *library_address)
             });

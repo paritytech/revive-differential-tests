@@ -2,7 +2,7 @@ use std::{
     cmp::Ordering,
     collections::{BTreeMap, HashSet},
     fmt::Display,
-    fs::{File, read_to_string},
+    fs::File,
     ops::Deref,
     path::{Path, PathBuf},
     str::FromStr,
@@ -11,7 +11,9 @@ use std::{
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use revive_common::EVMVersion;
-use revive_dt_common::{iterators::FilesWithExtensionIterator, macros::define_wrapper_type};
+use revive_dt_common::{
+    cached_fs::read_to_string, iterators::FilesWithExtensionIterator, macros::define_wrapper_type,
+};
 
 use crate::{
     case::Case,
@@ -264,7 +266,9 @@ impl Metadata {
             Ok(Box::new(std::iter::once(metadata_file_path.clone())))
         } else {
             Ok(Box::new(
-                FilesWithExtensionIterator::new(self.directory()?).with_allowed_extension("sol"),
+                FilesWithExtensionIterator::new(self.directory()?)
+                    .with_allowed_extension("sol")
+                    .with_use_cached_fs(true),
             ))
         }
     }

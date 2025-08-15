@@ -1,10 +1,11 @@
 //! This crate implements concurrent handling of testing node.
 
 use std::{
-    fs::read_to_string,
     sync::atomic::{AtomicUsize, Ordering},
     thread,
 };
+
+use revive_dt_common::cached_fs::read_to_string;
 
 use anyhow::Context;
 use revive_dt_config::Arguments;

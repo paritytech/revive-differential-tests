@@ -5,7 +5,6 @@
 
 use std::{
     collections::HashMap,
-    fs::read_to_string,
     hash::Hash,
     path::{Path, PathBuf},
 };
@@ -16,6 +15,7 @@ use semver::Version;
 use serde::{Deserialize, Serialize};
 
 use revive_common::EVMVersion;
+use revive_dt_common::cached_fs::read_to_string;
 use revive_dt_common::types::VersionOrRequirement;
 use revive_dt_config::Arguments;
 
