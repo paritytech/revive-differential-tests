@@ -213,8 +213,10 @@ impl GethNode {
 
         let maximum_wait_time = Duration::from_millis(self.start_timeout);
         let mut stderr = BufReader::new(logs_file).lines();
+        let mut lines = vec![];
         loop {
             if let Some(Ok(line)) = stderr.next() {
+                lines.push(line);
                 if line.contains(Self::ERROR_MARKER) {
                     anyhow::bail!("Failed to start geth {line}");
                 }
@@ -224,8 +226,9 @@ impl GethNode {
             }
             if Instant::now().duration_since(start_time) > maximum_wait_time {
                 anyhow::bail!(
-                    "Timeout in starting geth: took longer than {}ms",
-                    self.start_timeout
+                    "Timeout in starting geth: took longer than {}ms. stdout:\n\n{}\n",
+                    self.start_timeout,
+                    lines.join("\n")
                 );
             }
         }
