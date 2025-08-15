@@ -3,6 +3,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use revive_dt_common::cached_fs::read_dir;
 use serde::{Deserialize, Serialize};
 
 use crate::metadata::MetadataFile;
@@ -54,7 +55,7 @@ impl Corpus {
 /// `path` is expected to be a directory.
 pub fn collect_metadata(path: &Path, tests: &mut Vec<MetadataFile>) {
     if path.is_dir() {
-        let dir_entry = match std::fs::read_dir(path) {
+        let dir_entry = match read_dir(path) {
             Ok(dir_entry) => dir_entry,
             Err(error) => {
                 tracing::error!("failed to read dir '{}': {error}", path.display());
@@ -62,8 +63,8 @@ pub fn collect_metadata(path: &Path, tests: &mut Vec<MetadataFile>) {
             }
         };
 
-        for entry in dir_entry {
-            let entry = match entry {
+        for path in dir_entry {
+            let path = match path {
                 Ok(entry) => entry,
                 Err(error) => {
                     tracing::error!("error reading dir entry: {error}");
@@ -71,7 +72,6 @@ pub fn collect_metadata(path: &Path, tests: &mut Vec<MetadataFile>) {
                 }
             };
 
-            let path = entry.path();
             if path.is_dir() {
                 collect_metadata(&path, tests);
                 continue;
