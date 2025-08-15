@@ -264,6 +264,7 @@ impl GethNode {
                 .connect(&connection_string)
                 .await
                 .map_err(Into::into)
+                .inspect_err(|err| tracing::error!(%err, "Failed to create the alloy provider"))
         })
     }
 }
@@ -280,24 +281,23 @@ impl EthereumNode for GethNode {
         let provider = Arc::new(self.provider().await?);
         let transaction_hash = *provider.send_transaction(transaction).await?.tx_hash();
 
-        // The following is a fix for the "transaction indexing is in progress" error that we
-        // used to get. You can find more information on this in the following GH issue in geth
+        // The following is a fix for the "transaction indexing is in progress" error that we used
+        // to get. You can find more information on this in the following GH issue in geth
         // https://github.com/ethereum/go-ethereum/issues/28877. To summarize what's going on,
         // before we can get the receipt of the transaction it needs to have been indexed by the
-        // node's indexer. Just because the transaction has been confirmed it doesn't mean that
-        // it has been indexed. When we call alloy's `get_receipt` it checks if the transaction
-        // was confirmed. If it has been, then it will call `eth_getTransactionReceipt` method
-        // which _might_ return the above error if the tx has not yet been indexed yet. So, we
-        // need to implement a retry mechanism for the receipt to keep retrying to get it until
-        // it eventually works, but we only do that if the error we get back is the "transaction
+        // node's indexer. Just because the transaction has been confirmed it doesn't mean that it
+        // has been indexed. When we call alloy's `get_receipt` it checks if the transaction was
+        // confirmed. If it has been, then it will call `eth_getTransactionReceipt` method which
+        // _might_ return the above error if the tx has not yet been indexed yet. So, we need to
+        // implement a retry mechanism for the receipt to keep retrying to get it until it
+        // eventually works, but we only do that if the error we get back is the "transaction
         // indexing is in progress" error or if the receipt is None.
         //
         // Getting the transaction indexed and taking a receipt can take a long time especially
-        // when a lot of transactions are being submitted to the node. Thus, while initially we
-        // only allowed for 60 seconds of waiting with a 1 second delay in polling, we need to
-        // allow for a larger wait time. Therefore, in here we allow for 5 minutes of waiting
-        // with exponential backoff each time we attempt to get the receipt and find that it's
-        // not available.
+        // when a lot of transactions are being submitted to the node. Thus, while initially we only
+        // allowed for 60 seconds of waiting with a 1 second delay in polling, we need to allow for
+        // a larger wait time. Therefore, in here we allow for 5 minutes of waiting with exponential
+        // backoff each time we attempt to get the receipt and find that it's not available.
         poll(
             Self::RECEIPT_POLLING_DURATION,
             Default::default(),

@@ -2,6 +2,7 @@
 //! compiling contracts to EVM bytecode.
 
 use std::{
+    os::unix::process::CommandExt,
     path::PathBuf,
     process::{Command, Stdio},
 };
@@ -102,11 +103,14 @@ impl SolidityCompiler for Solc {
         };
 
         let mut command = AsyncCommand::new(&self.solc_path);
-        command
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .arg("--standard-json");
+        unsafe {
+            command
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .arg("--standard-json")
+                .pre_exec(|| Ok(()))
+        };
 
         if let Some(ref base_path) = base_path {
             command.arg("--base-path").arg(base_path);
@@ -120,12 +124,20 @@ impl SolidityCompiler for Solc {
                     .join(","),
             );
         }
-        let mut child = command.spawn()?;
+        let mut child = command
+            .spawn()
+            .inspect_err(|err| tracing::error!(%err, "Failed to spawn the solc command"))?;
 
         let stdin = child.stdin.as_mut().expect("should be piped");
         let serialized_input = serde_json::to_vec(&input)?;
-        stdin.write_all(&serialized_input).await?;
-        let output = child.wait_with_output().await?;
+        stdin
+            .write_all(&serialized_input)
+            .await
+            .inspect_err(|err| tracing::error!(%err, "Failed to write standard JSON to stdin"))?;
+        let output = child
+            .wait_with_output()
+            .await
+            .inspect_err(|err| tracing::error!(%err, "Failed to get the output of solc"))?;
 
         if !output.status.success() {
             let json_in = serde_json::to_string_pretty(&input)?;
@@ -162,10 +174,13 @@ impl SolidityCompiler for Solc {
 
         let mut compiler_output = CompilerOutput::default();
         for (contract_path, contracts) in parsed.contracts {
-            let map = compiler_output
-                .contracts
-                .entry(contract_path.canonicalize()?)
-                .or_default();
+            let map =
+                compiler_output
+                    .contracts
+                    .entry(contract_path.canonicalize().inspect_err(
+                        |err| tracing::error!(%err, "Canonicalization of path failed"),
+                    )?)
+                    .or_default();
             for (contract_name, contract_info) in contracts.into_iter() {
                 let source_code = contract_info
                     .evm
@@ -205,10 +220,13 @@ impl SolidityCompiler for Solc {
         // Version: 0.8.30+commit.73712a01.Darwin.appleclang
         // ```
 
-        let child = Command::new(self.solc_path.as_path())
-            .arg("--version")
-            .stdout(Stdio::piped())
-            .spawn()?;
+        let child = unsafe {
+            Command::new(self.solc_path.as_path())
+                .arg("--version")
+                .stdout(Stdio::piped())
+                .pre_exec(|| Ok(()))
+                .spawn()?
+        };
         let output = child.wait_with_output()?;
         let output = String::from_utf8_lossy(&output.stdout);
         let version_line = output

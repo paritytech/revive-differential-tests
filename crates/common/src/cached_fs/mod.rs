@@ -47,3 +47,27 @@ pub fn read_dir(path: impl AsRef<Path>) -> Result<Box<dyn Iterator<Item = Result
         }
     }
 }
+
+pub trait PathExt {
+    fn cached_canonicalize(&self) -> Result<PathBuf>;
+}
+
+impl<T> PathExt for T
+where
+    T: AsRef<Path>,
+{
+    fn cached_canonicalize(&self) -> Result<PathBuf> {
+        static CANONICALIZATION_CACHE: Lazy<Cache<PathBuf, PathBuf>> =
+            Lazy::new(|| Cache::new(10_000));
+
+        let path = self.as_ref().to_path_buf();
+        match CANONICALIZATION_CACHE.get(&path) {
+            Some(canonicalized) => Ok(canonicalized),
+            None => {
+                let canonicalized = path.canonicalize()?;
+                CANONICALIZATION_CACHE.insert(path, canonicalized.clone());
+                Ok(canonicalized)
+            }
+        }
+    }
+}

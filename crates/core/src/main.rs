@@ -19,7 +19,7 @@ use revive_dt_node_interaction::EthereumNode;
 use semver::Version;
 use temp_dir::TempDir;
 use tokio::sync::{Mutex, RwLock, mpsc};
-use tracing::{Instrument, Level};
+use tracing::{Instrument, Level, instrument};
 use tracing_subscriber::{EnvFilter, FmtSubscriber};
 
 use revive_dt_compiler::SolidityCompiler;
@@ -298,7 +298,7 @@ where
                     "Running driver",
                     metadata_file_path = %test.path.display(),
                     case_idx = ?test.case_idx,
-                    solc_mode = ?test.mode,
+                    solc_mode = %test.mode,
                 );
 
                 let result = handle_case_driver::<L, F>(
@@ -694,6 +694,16 @@ async fn get_or_build_contracts<P: Platform>(
     Ok(compiled_contracts.clone())
 }
 
+#[instrument(
+    level = "info",
+    skip_all,
+    fields(
+        metadata_file_path = %metadata_file_path.display(),
+        mode = %mode,
+        deployed_libraries = deployed_libraries.len(),
+    ),
+    err
+)]
 async fn compile_contracts<P: Platform>(
     metadata: &Metadata,
     metadata_file_path: &Path,
@@ -704,17 +714,23 @@ async fn compile_contracts<P: Platform>(
     let compiler_version_or_requirement = mode.compiler_version_to_use(config.solc.clone());
     let compiler_path =
         P::Compiler::get_compiler_executable(config, compiler_version_or_requirement).await?;
-    let compiler_version = P::Compiler::new(compiler_path.clone()).version()?;
+    let compiler_version = P::Compiler::new(compiler_path.clone())
+        .version()
+        .inspect_err(|err| tracing::error!(%err, "Failed to get compiler version"))?;
 
     tracing::info!(
         %compiler_version,
         metadata_file_path = %metadata_file_path.display(),
-        mode = ?mode,
+        mode = %mode,
         "Compiling contracts"
     );
 
     let compiler = Compiler::<P::Compiler>::new()
-        .with_allow_path(metadata.directory()?)
+        .with_allow_path(
+            metadata
+                .directory()
+                .inspect_err(|err| tracing::error!(%err, "Failed to get the metadata directory"))?,
+        )
         .with_optimization(mode.optimize)
         .with_via_ir(mode.via_ir);
     let mut compiler = metadata
@@ -733,7 +749,10 @@ async fn compile_contracts<P: Platform>(
         // yet more compute intensive route, of telling solc that all of the files need to link the
         // library and it will only perform the linking for the files that do actually need the
         // library.
-        compiler = FilesWithExtensionIterator::new(metadata.directory()?)
+        compiler =
+            FilesWithExtensionIterator::new(metadata.directory().inspect_err(
+                |err| tracing::error!(%err, "Failed to get the metadata directory"),
+            )?)
             .with_allowed_extension("sol")
             .with_use_cached_fs(true)
             .fold(compiler, |compiler, path| {
@@ -741,7 +760,17 @@ async fn compile_contracts<P: Platform>(
             });
     }
 
-    let compiler_output = compiler.try_build(compiler_path).await?;
+    let compiler_output = compiler
+        .try_build(compiler_path)
+        .await
+        .inspect_err(|err| tracing::error!(%err, "Contract compilation failed"))?;
+
+    tracing::info!(
+        %compiler_version,
+        metadata_file_path = %metadata_file_path.display(),
+        mode = %mode,
+        "Compiled contracts"
+    );
 
     Ok((compiler_version, compiler_output))
 }
