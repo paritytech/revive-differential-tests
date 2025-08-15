@@ -60,7 +60,6 @@ pub struct GethNode {
     geth: PathBuf,
     id: u32,
     handle: Option<Child>,
-    network_id: u64,
     start_timeout: u64,
     wallet: EthereumWallet,
     nonce_manager: CachedNonceManager,
@@ -165,8 +164,6 @@ impl GethNode {
             .arg(&self.data_directory)
             .arg("--ipcpath")
             .arg(&self.connection_string)
-            .arg("--networkid")
-            .arg(self.network_id.to_string())
             .arg("--nodiscover")
             .arg("--maxpeers")
             .arg("0")
@@ -527,7 +524,6 @@ impl Node for GethNode {
             geth: config.geth.clone(),
             id,
             handle: None,
-            network_id: config.network_id,
             start_timeout: config.geth_start_timeout,
             wallet,
             // We know that we only need to be storing 2 files so we can specify that when creating
