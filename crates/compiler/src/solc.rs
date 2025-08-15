@@ -2,6 +2,7 @@
 //! compiling contracts to EVM bytecode.
 
 use std::{
+    os::unix::process::CommandExt,
     path::PathBuf,
     process::{Command, Stdio},
 };
@@ -102,11 +103,14 @@ impl SolidityCompiler for Solc {
         };
 
         let mut command = AsyncCommand::new(&self.solc_path);
-        command
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .arg("--standard-json");
+        unsafe {
+            command
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .arg("--standard-json")
+                .pre_exec(|| Ok(()))
+        };
 
         if let Some(ref base_path) = base_path {
             command.arg("--base-path").arg(base_path);
@@ -205,10 +209,13 @@ impl SolidityCompiler for Solc {
         // Version: 0.8.30+commit.73712a01.Darwin.appleclang
         // ```
 
-        let child = Command::new(self.solc_path.as_path())
-            .arg("--version")
-            .stdout(Stdio::piped())
-            .spawn()?;
+        let child = unsafe {
+            Command::new(self.solc_path.as_path())
+                .arg("--version")
+                .stdout(Stdio::piped())
+                .pre_exec(|| Ok(()))
+                .spawn()
+        }?;
         let output = child.wait_with_output()?;
         let output = String::from_utf8_lossy(&output.stdout);
         let version_line = output

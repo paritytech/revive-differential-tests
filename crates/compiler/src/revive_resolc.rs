@@ -2,6 +2,7 @@
 //! compiling contracts to PolkaVM (PVM) bytecode.
 
 use std::{
+    os::unix::process::CommandExt,
     path::PathBuf,
     process::{Command, Stdio},
 };
@@ -92,11 +93,14 @@ impl SolidityCompiler for Resolc {
         };
 
         let mut command = AsyncCommand::new(&self.resolc_path);
-        command
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .arg("--standard-json");
+        unsafe {
+            command
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .arg("--standard-json")
+                .pre_exec(|| Ok(()))
+        };
 
         if let Some(ref base_path) = base_path {
             command.arg("--base-path").arg(base_path);
@@ -215,12 +219,15 @@ impl SolidityCompiler for Resolc {
         // Logic for parsing the resolc version from the following string:
         // Solidity frontend for the revive compiler version 0.3.0+commit.b238913.llvm-18.1.8
 
-        let output = Command::new(self.resolc_path.as_path())
-            .arg("--version")
-            .stdout(Stdio::piped())
-            .spawn()?
-            .wait_with_output()?
-            .stdout;
+        let output = unsafe {
+            Command::new(self.resolc_path.as_path())
+                .arg("--version")
+                .stdout(Stdio::piped())
+                .pre_exec(|| Ok(()))
+                .spawn()?
+                .wait_with_output()?
+                .stdout
+        };
         let output = String::from_utf8_lossy(&output);
         let version_string = output
             .split("version ")
