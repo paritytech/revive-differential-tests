@@ -32,7 +32,7 @@ pub struct Solc {
 impl SolidityCompiler for Solc {
     type Options = ();
 
-    #[tracing::instrument(level = "debug", ret)]
+    #[tracing::instrument(level = "info", ret)]
     async fn build(
         &self,
         CompilerInput {

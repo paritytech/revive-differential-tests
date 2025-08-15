@@ -329,7 +329,7 @@ async fn start_reporter_task(mut report_rx: mpsc::UnboundedReceiver<(Test, CaseR
 
     const GREEN: &str = "\x1B[32m";
     const RED: &str = "\x1B[31m";
-    const COLOUR_RESET: &str = "\x1B[0m";
+    const COLOR_RESET: &str = "\x1B[0m";
     const BOLD: &str = "\x1B[1m";
     const BOLD_RESET: &str = "\x1B[22m";
 
@@ -348,13 +348,13 @@ async fn start_reporter_task(mut report_rx: mpsc::UnboundedReceiver<(Test, CaseR
             Ok(_inputs) => {
                 number_of_successes += 1;
                 eprintln!(
-                    "{GREEN}Case Succeeded:{COLOUR_RESET} {test_path} -> {case_name}:{case_idx} (mode: {test_mode})"
+                    "{GREEN}Case Succeeded:{COLOR_RESET} {test_path} -> {case_name}:{case_idx} (mode: {test_mode})"
                 );
             }
             Err(err) => {
                 number_of_failures += 1;
                 eprintln!(
-                    "{RED}Case Failed:{COLOUR_RESET} {test_path} -> {case_name}:{case_idx} (mode: {test_mode})"
+                    "{RED}Case Failed:{COLOR_RESET} {test_path} -> {case_name}:{case_idx} (mode: {test_mode})"
                 );
                 failures.push((test, err));
             }
@@ -377,14 +377,14 @@ async fn start_reporter_task(mut report_rx: mpsc::UnboundedReceiver<(Test, CaseR
             let test_mode = test.mode.clone();
 
             eprintln!(
-                "---- {RED}Case Failed:{COLOUR_RESET} {test_path} -> {case_name}:{case_idx} (mode: {test_mode:?}) ----\n\n{err}\n"
+                "---- {RED}Case Failed:{COLOR_RESET} {test_path} -> {case_name}:{case_idx} (mode: {test_mode}) ----\n\n{err}\n"
             );
         }
     }
 
     // Summary at the end.
     eprintln!(
-        "{} cases: {GREEN}{number_of_successes}{COLOUR_RESET} cases succeeded, {RED}{number_of_failures}{COLOUR_RESET} cases failed in {} seconds",
+        "{} cases: {GREEN}{number_of_successes}{COLOR_RESET} cases succeeded, {RED}{number_of_failures}{COLOR_RESET} cases failed in {} seconds",
         number_of_successes + number_of_failures,
         elapsed.as_secs()
     );

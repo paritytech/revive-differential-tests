@@ -33,7 +33,7 @@ use alloy::{
 };
 use anyhow::Context;
 use revive_common::EVMVersion;
-use tracing::{Instrument, Level};
+use tracing::Instrument;
 
 use revive_dt_common::{fs::clear_directory, futures::poll};
 use revive_dt_config::Arguments;
@@ -48,7 +48,7 @@ static NODE_COUNT: AtomicU32 = AtomicU32::new(0);
 ///
 /// Implements helpers to initialize, spawn and wait the node.
 ///
-/// Assumes dev mode and IPC only (`P2P`, `http`` etc. are kept disabled).
+/// Assumes dev mode and IPC only (`P2P`, `http` etc. are kept disabled).
 ///
 /// Prunes the child process and the base directory on drop.
 #[derive(Debug)]
@@ -228,12 +228,12 @@ impl GethNode {
         }
     }
 
-    #[tracing::instrument(skip_all, fields(geth_node_id = self.id), level = Level::TRACE)]
+    #[tracing::instrument(skip_all, fields(geth_node_id = self.id), level = "trace")]
     fn geth_stdout_log_file_path(&self) -> PathBuf {
         self.logs_directory.join(Self::GETH_STDOUT_LOG_FILE_NAME)
     }
 
-    #[tracing::instrument(skip_all, fields(geth_node_id = self.id), level = Level::TRACE)]
+    #[tracing::instrument(skip_all, fields(geth_node_id = self.id), level = "trace")]
     fn geth_stderr_log_file_path(&self) -> PathBuf {
         self.logs_directory.join(Self::GETH_STDERR_LOG_FILE_NAME)
     }
@@ -257,7 +257,11 @@ impl GethNode {
         Box::pin(async move {
             ProviderBuilder::new()
                 .disable_recommended_fillers()
-                .filler(FallbackGasFiller::new(500_000_000, 500_000_000, 1))
+                .filler(FallbackGasFiller::new(
+                    25_000_000,
+                    100_000_000_000,
+                    1_000_000_000,
+                ))
                 .filler(ChainIdFiller::default())
                 .filler(NonceFiller::new(nonce_manager))
                 .wallet(wallet)
@@ -278,7 +282,7 @@ impl EthereumNode for GethNode {
         let span = tracing::debug_span!("Submitting transaction", ?transaction);
         let _guard = span.enter();
 
-        let provider = Arc::new(self.provider().await?);
+        let provider = self.provider().await.map(Arc::new)?;
         let transaction_hash = *provider.send_transaction(transaction).await?.tx_hash();
 
         // The following is a fix for the "transaction indexing is in progress" error that we used
@@ -323,6 +327,7 @@ impl EthereumNode for GethNode {
             ?transaction_hash
         ))
         .await
+        .inspect(|receipt| tracing::info!(gas_used = receipt.gas_used, "Gas used on transaction"))
     }
 
     #[tracing::instrument(level = "info", skip_all, fields(geth_node_id = self.id), err)]
