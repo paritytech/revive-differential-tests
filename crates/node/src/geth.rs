@@ -223,7 +223,10 @@ impl GethNode {
                 }
             }
             if Instant::now().duration_since(start_time) > maximum_wait_time {
-                anyhow::bail!("Timeout in starting geth");
+                anyhow::bail!(
+                    "Timeout in starting geth: took longer than {}ms",
+                    self.start_timeout
+                );
             }
         }
     }
