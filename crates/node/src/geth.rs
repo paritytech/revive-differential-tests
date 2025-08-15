@@ -257,7 +257,7 @@ impl GethNode {
         Box::pin(async move {
             ProviderBuilder::new()
                 .disable_recommended_fillers()
-                .filler(FallbackGasFiller::new(500_000_000, 500_000_000, 1))
+                .filler(FallbackGasFiller::new(25_000_000, 1_000_000_000, 1_000_000_000))
                 .filler(ChainIdFiller::default())
                 .filler(NonceFiller::new(nonce_manager))
                 .wallet(wallet)
