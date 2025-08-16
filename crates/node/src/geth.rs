@@ -60,7 +60,6 @@ pub struct GethNode {
     geth: PathBuf,
     id: u32,
     handle: Option<Child>,
-    network_id: u64,
     start_timeout: u64,
     wallet: EthereumWallet,
     nonce_manager: CachedNonceManager,
@@ -165,8 +164,6 @@ impl GethNode {
             .arg(&self.data_directory)
             .arg("--ipcpath")
             .arg(&self.connection_string)
-            .arg("--networkid")
-            .arg(self.network_id.to_string())
             .arg("--nodiscover")
             .arg("--maxpeers")
             .arg("0")
@@ -213,6 +210,7 @@ impl GethNode {
 
         let maximum_wait_time = Duration::from_millis(self.start_timeout);
         let mut stderr = BufReader::new(logs_file).lines();
+        let mut lines = vec![];
         loop {
             if let Some(Ok(line)) = stderr.next() {
                 if line.contains(Self::ERROR_MARKER) {
@@ -221,9 +219,14 @@ impl GethNode {
                 if line.contains(Self::READY_MARKER) {
                     return Ok(self);
                 }
+                lines.push(line);
             }
             if Instant::now().duration_since(start_time) > maximum_wait_time {
-                anyhow::bail!("Timeout in starting geth");
+                anyhow::bail!(
+                    "Timeout in starting geth: took longer than {}ms. stdout:\n\n{}\n",
+                    self.start_timeout,
+                    lines.join("\n")
+                );
             }
         }
     }
@@ -257,7 +260,11 @@ impl GethNode {
         Box::pin(async move {
             ProviderBuilder::new()
                 .disable_recommended_fillers()
-                .filler(FallbackGasFiller::new(500_000_000, 500_000_000, 1))
+                .filler(FallbackGasFiller::new(
+                    25_000_000,
+                    1_000_000_000,
+                    1_000_000_000,
+                ))
                 .filler(ChainIdFiller::default())
                 .filler(NonceFiller::new(nonce_manager))
                 .wallet(wallet)
@@ -517,7 +524,6 @@ impl Node for GethNode {
             geth: config.geth.clone(),
             id,
             handle: None,
-            network_id: config.network_id,
             start_timeout: config.geth_start_timeout,
             wallet,
             // We know that we only need to be storing 2 files so we can specify that when creating

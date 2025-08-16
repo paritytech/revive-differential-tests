@@ -4,7 +4,7 @@ use revive_dt_common::macros::define_wrapper_type;
 
 use crate::{
     input::{Expected, Step},
-    mode::Mode,
+    mode::ParsedMode,
 };
 
 #[derive(Debug, Default, Serialize, Deserialize, Clone, Eq, PartialEq)]
@@ -16,7 +16,7 @@ pub struct Case {
     pub comment: Option<String>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub modes: Option<Vec<Mode>>,
+    pub modes: Option<Vec<ParsedMode>>,
 
     #[serde(rename = "inputs")]
     pub steps: Vec<Step>,
@@ -67,3 +67,9 @@ define_wrapper_type!(
     #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
     pub struct CaseIdx(usize);
 );
+
+impl std::fmt::Display for CaseIdx {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
