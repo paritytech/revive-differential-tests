@@ -19,7 +19,7 @@ use once_cell::sync::Lazy;
 use semver::Version;
 use serde::{Deserialize, Serialize};
 use tokio::sync::{Mutex, RwLock};
-use tracing::{debug, debug_span, instrument};
+use tracing::{Instrument, debug, debug_span, instrument};
 
 use crate::Platform;
 
@@ -40,7 +40,8 @@ impl CachedCompiler {
         skip_all,
         fields(
             metadata_file_path = %metadata_file_path.as_ref().display(),
-            %mode
+            %mode,
+            platform = P::config_id().to_string()
         ),
         err
     )]
@@ -70,24 +71,26 @@ impl CachedCompiler {
             metadata_file_path: metadata_file_path.as_ref().to_path_buf(),
             solc_mode: mode.clone(),
         };
-        debug_span!(
-            "Running compilation for the cache key",
-            cache_key.platform_key = %cache_key.platform_key,
-            cache_key.compiler_version = %cache_key.compiler_version,
-            cache_key.metadata_file_path = %cache_key.metadata_file_path.display(),
-            cache_key.solc_mode = %cache_key.solc_mode,
-        );
 
-        let compilation_callback = || async move {
-            compile_contracts::<P>(
-                metadata.directory()?,
-                compiler_path,
-                metadata.files_to_compile()?,
-                mode,
-                deployed_libraries,
-            )
-            .map(|compilation_result| compilation_result.map(CacheValue::new))
-            .await
+        let compilation_callback = || {
+            async move {
+                compile_contracts::<P>(
+                    metadata.directory()?,
+                    compiler_path,
+                    metadata.files_to_compile()?,
+                    mode,
+                    deployed_libraries,
+                )
+                .map(|compilation_result| compilation_result.map(CacheValue::new))
+                .await
+            }
+            .instrument(debug_span!(
+                "Running compilation for the cache key",
+                cache_key.platform_key = %cache_key.platform_key,
+                cache_key.compiler_version = %cache_key.compiler_version,
+                cache_key.metadata_file_path = %cache_key.metadata_file_path.display(),
+                cache_key.solc_mode = %cache_key.solc_mode,
+            ))
         };
 
         let compiled_contracts = match deployed_libraries {
@@ -95,12 +98,13 @@ impl CachedCompiler {
             // means that linking is required in this case.
             Some(_) => {
                 debug!("Deployed libraries defined, recompilation must take place");
+                debug!("Cache miss");
                 compilation_callback().await?.compiler_output
             }
             // If no deployed libraries are specified then we can follow the cached flow and attempt
             // to lookup the compilation artifacts in the cache.
             None => {
-                debug!("Deployed contract undefined, attempting to make use of cache");
+                debug!("Deployed libraries undefined, attempting to make use of cache");
 
                 // Lock this specific cache key such that we do not get inconsistent state. We want
                 // that when multiple cases come in asking for the compilation artifacts then they
@@ -182,6 +186,7 @@ impl ArtifactsCache {
         }
     }
 
+    #[instrument(level = "debug", skip_all, err)]
     pub async fn with_invalidated_cache(self) -> Result<Self> {
         cacache::clear(self.path.as_path())
             .await
@@ -189,24 +194,24 @@ impl ArtifactsCache {
         Ok(self)
     }
 
-    pub async fn insert(&self, key: CacheKey, value: CacheValue) -> Result<()> {
-        let key = bincode::serde::encode_to_vec(key, bincode::config::standard())?;
-        let value = bincode::serde::encode_to_vec(value, bincode::config::standard())?;
+    #[instrument(level = "debug", skip_all, err)]
+    pub async fn insert(&self, key: &CacheKey, value: &CacheValue) -> Result<()> {
+        let key = bson::to_vec(key)?;
+        let value = bson::to_vec(value)?;
         cacache::write(self.path.as_path(), key.encode_hex(), value).await?;
         Ok(())
     }
 
     pub async fn get(&self, key: &CacheKey) -> Option<CacheValue> {
-        let key = bincode::serde::encode_to_vec(key, bincode::config::standard()).ok()?;
+        let key = bson::to_vec(key).ok()?;
         let value = cacache::read(self.path.as_path(), key.encode_hex())
             .await
             .ok()?;
-        let (value, _) =
-            bincode::serde::decode_from_slice::<CacheValue, _>(&value, bincode::config::standard())
-                .ok()?;
+        let value = bson::from_slice::<CacheValue>(&value).ok()?;
         Some(value)
     }
 
+    #[instrument(level = "debug", skip_all, err)]
     pub async fn get_or_insert_with(
         &self,
         key: &CacheKey,
@@ -220,7 +225,7 @@ impl ArtifactsCache {
             None => {
                 debug!("Cache miss");
                 let value = callback().await?;
-                self.insert(key.clone(), value.clone()).await?;
+                self.insert(key, &value).await?;
                 Ok(value)
             }
         }

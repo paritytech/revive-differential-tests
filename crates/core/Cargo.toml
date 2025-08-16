@@ -23,7 +23,7 @@ revive-dt-report = { workspace = true }
 
 alloy = { workspace = true }
 anyhow = { workspace = true }
-bincode = { workspace = true }
+bson = { workspace = true }
 cacache = { workspace = true }
 clap = { workspace = true }
 futures = { workspace = true }

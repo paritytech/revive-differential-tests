@@ -155,17 +155,10 @@ where
     async fn handle_input_contract_deployment(
         &mut self,
         metadata: &Metadata,
-        case_idx: CaseIdx,
+        _: CaseIdx,
         input: &Input,
         node: &T::Blockchain,
     ) -> anyhow::Result<HashMap<ContractInstance, TransactionReceipt>> {
-        let span = tracing::debug_span!(
-            "Handling contract deployment",
-            ?case_idx,
-            instance = ?input.instance
-        );
-        let _guard = span.enter();
-
         let mut instances_we_must_deploy = IndexMap::<ContractInstance, bool>::new();
         for instance in input.find_all_contract_instances().into_iter() {
             if !self.deployed_contracts.contains_key(&instance) {
@@ -316,9 +309,6 @@ where
         resolver: &impl ResolverApi,
         tracing_result: &CallFrame,
     ) -> anyhow::Result<()> {
-        let span = tracing::info_span!("Handling input expectations");
-        let _guard = span.enter();
-
         // Resolving the `input.expected` into a series of expectations that we can then assert on.
         let mut expectations = match input {
             Input {
@@ -508,9 +498,6 @@ where
         execution_receipt: TransactionReceipt,
         node: &T::Blockchain,
     ) -> anyhow::Result<(TransactionReceipt, GethTrace, DiffMode)> {
-        let span = tracing::info_span!("Handling input diff");
-        let _guard = span.enter();
-
         let trace_options = GethDebugTracingOptions::prestate_tracer(PreStateConfig {
             diff_mode: Some(true),
             disable_code: None,

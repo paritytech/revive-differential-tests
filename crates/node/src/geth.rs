@@ -281,9 +281,6 @@ impl EthereumNode for GethNode {
         &self,
         transaction: TransactionRequest,
     ) -> anyhow::Result<alloy::rpc::types::TransactionReceipt> {
-        let span = tracing::debug_span!("Submitting transaction", ?transaction);
-        let _guard = span.enter();
-
         let provider = Arc::new(self.provider().await?);
         let transaction_hash = *provider.send_transaction(transaction).await?.tx_hash();
 

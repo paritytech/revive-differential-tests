@@ -236,18 +236,17 @@ where
             let is_supported = does_compiler_support_mode::<L>(args, &test.mode).await.ok().unwrap_or(false) &&
                 does_compiler_support_mode::<F>(args, &test.mode).await.ok().unwrap_or(false);
 
-            tracing::warn!(
-                metadata_file_path = %test.path.display(),
-                case_idx = %test.case_idx,
-                case_name = ?test.case.name,
-                mode = %test.mode,
-                "Skipping test as one or both of the compilers don't support it"
-            );
-
             // We filter_map to avoid needing to clone `test`, but return it as-is.
             if is_supported {
                 Some(test)
             } else {
+                tracing::warn!(
+                    metadata_file_path = %test.path.display(),
+                    case_idx = %test.case_idx,
+                    case_name = ?test.case.name,
+                    mode = %test.mode,
+                    "Skipping test as one or both of the compilers don't support it"
+                );
                 None
             }
         })
