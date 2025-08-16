@@ -12,18 +12,19 @@ use std::{
 };
 
 use anyhow::Context;
-use revive_dt_compiler::{CompilerInput, CompilerOutput};
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
+use revive_dt_common::types::Mode;
+use revive_dt_compiler::{CompilerInput, CompilerOutput};
 use revive_dt_config::{Arguments, TestingPlatform};
-use revive_dt_format::{corpus::Corpus, mode::SolcMode};
+use revive_dt_format::corpus::Corpus;
 
 use crate::analyzer::CompilerStatistics;
 
 pub(crate) static REPORTER: OnceLock<Mutex<Report>> = OnceLock::new();
 
 /// The `Report` datastructure stores all relevant inforamtion required for generating reports.
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Serialize)]
 pub struct Report {
     /// The configuration used during the test.
     pub config: Arguments,
@@ -41,14 +42,14 @@ pub struct Report {
 }
 
 /// Contains a compiled contract.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize)]
 pub struct CompilationTask {
     /// The observed compiler input.
     pub json_input: CompilerInput,
     /// The observed compiler output.
     pub json_output: Option<CompilerOutput>,
     /// The observed compiler mode.
-    pub mode: SolcMode,
+    pub mode: Mode,
     /// The observed compiler version.
     pub compiler_version: String,
     /// The observed error, if any.
@@ -56,7 +57,7 @@ pub struct CompilationTask {
 }
 
 /// Represents a report about a compilation task.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize)]
 pub struct CompilationResult {
     /// The observed compilation task.
     pub compilation_task: CompilationTask,
@@ -65,7 +66,7 @@ pub struct CompilationResult {
 }
 
 /// The [Span] struct indicates the context of what is being reported.
-#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Serialize)]
 pub struct Span {
     /// The corpus index this belongs to.
     corpus: usize,

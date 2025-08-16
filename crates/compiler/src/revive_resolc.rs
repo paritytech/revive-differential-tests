@@ -15,7 +15,8 @@ use revive_solc_json_interface::{
     SolcStandardJsonOutput,
 };
 
-use crate::{CompilerInput, CompilerOutput, SolidityCompiler};
+use super::constants::SOLC_VERSION_SUPPORTING_VIA_YUL_IR;
+use crate::{CompilerInput, CompilerOutput, ModeOptimizerSetting, ModePipeline, SolidityCompiler};
 
 use alloy::json_abi::JsonAbi;
 use anyhow::Context;
@@ -40,9 +41,8 @@ impl SolidityCompiler for Resolc {
     async fn build(
         &self,
         CompilerInput {
-            enable_optimization,
-            // Ignored and not honored since this is required for the resolc compilation.
-            via_ir: _via_ir,
+            pipeline,
+            optimization,
             evm_version,
             allow_paths,
             base_path,
@@ -54,6 +54,12 @@ impl SolidityCompiler for Resolc {
         }: CompilerInput,
         additional_options: Self::Options,
     ) -> anyhow::Result<CompilerOutput> {
+        if !matches!(pipeline, None | Some(ModePipeline::ViaYulIR)) {
+            anyhow::bail!(
+                "Resolc only supports the Y (via Yul IR) pipeline, but the provided pipeline is {pipeline:?}"
+            );
+        }
+
         let input = SolcStandardJsonInput {
             language: SolcStandardJsonInputLanguage::Solidity,
             sources: sources
@@ -82,7 +88,9 @@ impl SolidityCompiler for Resolc {
                 output_selection: Some(SolcStandardJsonInputSettingsSelection::new_required()),
                 via_ir: Some(true),
                 optimizer: SolcStandardJsonInputSettingsOptimizer::new(
-                    enable_optimization.unwrap_or(false),
+                    optimization
+                        .unwrap_or(ModeOptimizerSetting::M0)
+                        .optimizations_enabled(),
                     None,
                     &Version::new(0, 0, 0),
                     false,
@@ -238,6 +246,18 @@ impl SolidityCompiler for Resolc {
             .context("Version parsing failed")?;
 
         Version::parse(version_string).map_err(Into::into)
+    }
+
+    fn supports_mode(
+        compiler_version: &Version,
+        _optimize_setting: ModeOptimizerSetting,
+        pipeline: ModePipeline,
+    ) -> bool {
+        // We only support the Y (IE compile via Yul IR) mode here, which also means that we can
+        // only use solc version 0.8.13 and above. We must always compile via Yul IR as resolc
+        // needs this to translate to LLVM IR and then RISCV.
+        pipeline == ModePipeline::ViaYulIR
+            && compiler_version >= &SOLC_VERSION_SUPPORTING_VIA_YUL_IR
     }
 }
 

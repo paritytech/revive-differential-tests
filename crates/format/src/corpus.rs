@@ -8,42 +8,73 @@ use serde::{Deserialize, Serialize};
 
 use crate::metadata::MetadataFile;
 
-#[derive(Clone, Debug, Default, Serialize, Deserialize, Eq, PartialEq, Hash)]
-pub struct Corpus {
-    pub name: String,
-    pub path: PathBuf,
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum Corpus {
+    SinglePath { name: String, path: PathBuf },
+    MultiplePaths { name: String, paths: Vec<PathBuf> },
 }
 
 impl Corpus {
-    /// Try to read and parse the corpus definition file at given `path`.
-    pub fn try_from_path(path: &Path) -> anyhow::Result<Self> {
-        let file = File::open(path)?;
-        let mut corpus: Corpus = serde_json::from_reader(file)?;
+    pub fn try_from_path(file_path: impl AsRef<Path>) -> anyhow::Result<Self> {
+        let mut corpus = File::open(file_path.as_ref())
+            .map_err(Into::<anyhow::Error>::into)
+            .and_then(|file| serde_json::from_reader::<_, Corpus>(file).map_err(Into::into))?;
 
-        // Ensure that the path mentioned in the corpus is relative to the corpus file.
-        // Canonicalizing also helps make the path in any errors unambiguous.
-        corpus.path = path
-            .parent()
-            .ok_or_else(|| {
-                anyhow::anyhow!("Corpus path '{}' does not point to a file", path.display())
-            })?
-            .canonicalize()
-            .map_err(|error| {
-                anyhow::anyhow!(
-                    "Failed to canonicalize path to corpus '{}': {error}",
-                    path.display()
-                )
-            })?
-            .join(corpus.path);
+        for path in corpus.paths_iter_mut() {
+            *path = file_path
+                .as_ref()
+                .parent()
+                .ok_or_else(|| {
+                    anyhow::anyhow!("Corpus path '{}' does not point to a file", path.display())
+                })?
+                .canonicalize()
+                .map_err(|error| {
+                    anyhow::anyhow!(
+                        "Failed to canonicalize path to corpus '{}': {error}",
+                        path.display()
+                    )
+                })?
+                .join(path.as_path())
+        }
 
         Ok(corpus)
     }
 
-    /// Scan the corpus base directory and return all tests found.
     pub fn enumerate_tests(&self) -> Vec<MetadataFile> {
         let mut tests = Vec::new();
-        collect_metadata(&self.path, &mut tests);
+        for path in self.paths_iter() {
+            collect_metadata(path, &mut tests);
+        }
         tests
+    }
+
+    pub fn name(&self) -> &str {
+        match self {
+            Corpus::SinglePath { name, .. } | Corpus::MultiplePaths { name, .. } => name.as_str(),
+        }
+    }
+
+    pub fn paths_iter(&self) -> impl Iterator<Item = &Path> {
+        match self {
+            Corpus::SinglePath { path, .. } => {
+                Box::new(std::iter::once(path.as_path())) as Box<dyn Iterator<Item = _>>
+            }
+            Corpus::MultiplePaths { paths, .. } => {
+                Box::new(paths.iter().map(|path| path.as_path())) as Box<dyn Iterator<Item = _>>
+            }
+        }
+    }
+
+    pub fn paths_iter_mut(&mut self) -> impl Iterator<Item = &mut PathBuf> {
+        match self {
+            Corpus::SinglePath { path, .. } => {
+                Box::new(std::iter::once(path)) as Box<dyn Iterator<Item = _>>
+            }
+            Corpus::MultiplePaths { paths, .. } => {
+                Box::new(paths.iter_mut()) as Box<dyn Iterator<Item = _>>
+            }
+        }
     }
 }
 

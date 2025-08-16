@@ -3,6 +3,8 @@
 //! - Polkadot revive resolc compiler
 //! - Polkadot revive Wasm compiler
 
+mod constants;
+
 use std::{
     collections::HashMap,
     hash::Hash,
@@ -18,6 +20,9 @@ use revive_common::EVMVersion;
 use revive_dt_common::cached_fs::read_to_string;
 use revive_dt_common::types::VersionOrRequirement;
 use revive_dt_config::Arguments;
+
+// Re-export this as it's a part of the compiler interface.
+pub use revive_dt_common::types::{Mode, ModeOptimizerSetting, ModePipeline};
 
 pub mod revive_js;
 pub mod revive_resolc;
@@ -43,13 +48,20 @@ pub trait SolidityCompiler {
     ) -> impl Future<Output = anyhow::Result<PathBuf>>;
 
     fn version(&self) -> anyhow::Result<Version>;
+
+    /// Does the compiler support the provided mode and version settings?
+    fn supports_mode(
+        compiler_version: &Version,
+        optimize_setting: ModeOptimizerSetting,
+        pipeline: ModePipeline,
+    ) -> bool;
 }
 
 /// The generic compilation input configuration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CompilerInput {
-    pub enable_optimization: Option<bool>,
-    pub via_ir: Option<bool>,
+    pub pipeline: Option<ModePipeline>,
+    pub optimization: Option<ModeOptimizerSetting>,
     pub evm_version: Option<EVMVersion>,
     pub allow_paths: Vec<PathBuf>,
     pub base_path: Option<PathBuf>,
@@ -85,8 +97,8 @@ where
     pub fn new() -> Self {
         Self {
             input: CompilerInput {
-                enable_optimization: Default::default(),
-                via_ir: Default::default(),
+                pipeline: Default::default(),
+                optimization: Default::default(),
                 evm_version: Default::default(),
                 allow_paths: Default::default(),
                 base_path: Default::default(),
@@ -98,13 +110,13 @@ where
         }
     }
 
-    pub fn with_optimization(mut self, value: impl Into<Option<bool>>) -> Self {
-        self.input.enable_optimization = value.into();
+    pub fn with_optimization(mut self, value: impl Into<Option<ModeOptimizerSetting>>) -> Self {
+        self.input.optimization = value.into();
         self
     }
 
-    pub fn with_via_ir(mut self, value: impl Into<Option<bool>>) -> Self {
-        self.input.via_ir = value.into();
+    pub fn with_pipeline(mut self, value: impl Into<Option<ModePipeline>>) -> Self {
+        self.input.pipeline = value.into();
         self
     }
 
@@ -155,6 +167,14 @@ where
     pub fn with_additional_options(mut self, options: impl Into<T::Options>) -> Self {
         self.additional_options = options.into();
         self
+    }
+
+    pub fn then(self, callback: impl FnOnce(Self) -> Self) -> Self {
+        callback(self)
+    }
+
+    pub fn try_then<E>(self, callback: impl FnOnce(Self) -> Result<Self, E>) -> Result<Self, E> {
+        callback(self)
     }
 
     pub async fn try_build(

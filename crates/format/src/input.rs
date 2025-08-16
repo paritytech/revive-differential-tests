@@ -739,11 +739,13 @@ impl<'de> Deserialize<'de> for EtherValue {
 #[cfg(test)]
 mod tests {
 
-    use super::*;
     use alloy::{eips::BlockNumberOrTag, json_abi::JsonAbi};
     use alloy_primitives::{BlockHash, BlockNumber, BlockTimestamp, ChainId, TxHash, address};
     use alloy_sol_types::SolValue;
     use std::collections::HashMap;
+
+    use super::*;
+    use crate::metadata::ContractIdent;
 
     struct MockResolver;
 
@@ -818,11 +820,11 @@ mod tests {
         let mut contracts = HashMap::new();
         contracts.insert(
             ContractInstance::new("Contract"),
-            (Address::ZERO, parsed_abi),
+            (ContractIdent::new("Contract"), Address::ZERO, parsed_abi),
         );
 
         let resolver = MockResolver;
-        let context = ResolutionContext::new_from_parts(&contracts, None, None, None);
+        let context = ResolutionContext::default().with_deployed_contracts(&contracts);
         let encoded = input.encoded_input(&resolver, context).await.unwrap();
         assert!(encoded.0.starts_with(&selector));
 
@@ -862,11 +864,11 @@ mod tests {
         let mut contracts = HashMap::new();
         contracts.insert(
             ContractInstance::new("Contract"),
-            (Address::ZERO, parsed_abi),
+            (ContractIdent::new("Contract"), Address::ZERO, parsed_abi),
         );
 
         let resolver = MockResolver;
-        let context = ResolutionContext::new_from_parts(&contracts, None, None, None);
+        let context = ResolutionContext::default().with_deployed_contracts(&contracts);
         let encoded = input.encoded_input(&resolver, context).await.unwrap();
         assert!(encoded.0.starts_with(&selector));
 
@@ -909,11 +911,11 @@ mod tests {
         let mut contracts = HashMap::new();
         contracts.insert(
             ContractInstance::new("Contract"),
-            (Address::ZERO, parsed_abi),
+            (ContractIdent::new("Contract"), Address::ZERO, parsed_abi),
         );
 
         let resolver = MockResolver;
-        let context = ResolutionContext::new_from_parts(&contracts, None, None, None);
+        let context = ResolutionContext::default().with_deployed_contracts(&contracts);
         let encoded = input.encoded_input(&resolver, context).await.unwrap();
         assert!(encoded.0.starts_with(&selector));
 
@@ -927,10 +929,10 @@ mod tests {
 
     async fn resolve_calldata_item(
         input: &str,
-        deployed_contracts: &HashMap<ContractInstance, (Address, JsonAbi)>,
+        deployed_contracts: &HashMap<ContractInstance, (ContractIdent, Address, JsonAbi)>,
         resolver: &impl ResolverApi,
     ) -> anyhow::Result<U256> {
-        let context = ResolutionContext::new_from_parts(deployed_contracts, None, None, None);
+        let context = ResolutionContext::default().with_deployed_contracts(deployed_contracts);
         CalldataItem::new(input).resolve(resolver, context).await
     }
 

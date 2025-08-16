@@ -8,6 +8,7 @@ repository.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+revive-dt-common = { workspace = true }
 revive-dt-config = { workspace = true }
 revive-dt-format = { workspace = true }
 revive-dt-compiler = { workspace = true }
