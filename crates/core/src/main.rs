@@ -115,7 +115,7 @@ fn collect_corpora(args: &Arguments) -> anyhow::Result<HashMap<Corpus, Vec<Metad
         let corpus = Corpus::try_from_path(path)?;
         tracing::info!("found corpus: {}", path.display());
         let tests = corpus.enumerate_tests();
-        tracing::info!("corpus '{}' contains {} tests", &corpus.name, tests.len());
+        tracing::info!("corpus '{}' contains {} tests", &corpus.name(), tests.len());
         corpora.insert(corpus, tests);
     }
 
