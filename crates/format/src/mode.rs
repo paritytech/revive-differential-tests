@@ -1,123 +1,262 @@
-use revive_dt_common::types::VersionOrRequirement;
-use semver::Version;
-use serde::de::Deserializer;
+use regex::Regex;
+use revive_dt_common::types::{Mode, ModeOptimizerSetting, ModePipeline};
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
+use std::fmt::Display;
+use std::str::FromStr;
+use std::sync::LazyLock;
 
-/// Specifies the compilation mode of the test artifact.
-#[derive(Hash, Debug, Clone, Eq, PartialEq)]
-pub enum Mode {
-    Solidity(SolcMode),
-    Unknown(String),
+/// This represents a mode that has been parsed from test metadata.
+///
+/// Mode strings can take the following form (in pseudo-regex):
+///
+/// ```text
+/// [YEILV][+-]? (M[0123sz])? <semver>?
+/// ```
+///
+/// We can parse valid mode strings into [`ParsedMode`] using [`ParsedMode::from_str`].
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Deserialize, Serialize)]
+#[serde(try_from = "String", into = "String")]
+pub struct ParsedMode {
+    pub pipeline: Option<ModePipeline>,
+    pub optimize_flag: Option<bool>,
+    pub optimize_setting: Option<ModeOptimizerSetting>,
+    pub version: Option<semver::VersionReq>,
 }
 
-/// Specify Solidity specific compiler options.
-#[derive(Hash, Debug, Default, Clone, Eq, PartialEq, Serialize, Deserialize)]
-pub struct SolcMode {
-    pub solc_version: Option<semver::VersionReq>,
-    solc_optimize: Option<bool>,
-    pub llvm_optimizer_settings: Vec<String>,
-    mode_string: String,
-}
+impl FromStr for ParsedMode {
+    type Err = anyhow::Error;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        static REGEX: LazyLock<Regex> = LazyLock::new(|| {
+            Regex::new(r"(?x)
+                ^
+                (?:(?P<pipeline>[YEILV])(?P<optimize_flag>[+-])?)? # Pipeline to use eg Y, E+, E-
+                \s*
+                (?P<optimize_setting>M[a-zA-Z0-9])?                # Optimize setting eg M0, Ms, Mz
+                \s*
+                (?P<version>[>=<]*\d+(?:\.\d+)*)?                  # Optional semver version eg >=0.8.0, 0.7, <0.8
+                $
+            ").unwrap()
+        });
 
-impl SolcMode {
-    /// Try to parse a mode string into a solc mode.
-    /// Returns `None` if the string wasn't a solc YUL mode string.
-    ///
-    /// The mode string is expected to start with the `Y` ID (YUL ID),
-    /// optionally followed by `+` or `-` for the solc optimizer settings.
-    ///
-    /// Options can be separated by a whitespace contain the following
-    /// - A solc `SemVer version requirement` string
-    /// - One or more `-OX` where X is a supposed to be an LLVM opt mode
-    pub fn parse_from_mode_string(mode_string: &str) -> Option<Self> {
-        let mut result = Self {
-            mode_string: mode_string.to_string(),
-            ..Default::default()
+        let Some(caps) = REGEX.captures(s) else {
+            anyhow::bail!("Cannot parse mode '{s}' from string");
         };
 
-        let mut parts = mode_string.trim().split(" ");
-
-        match parts.next()? {
-            "Y" => {}
-            "Y+" => result.solc_optimize = Some(true),
-            "Y-" => result.solc_optimize = Some(false),
-            _ => return None,
-        }
-
-        for part in parts {
-            if let Ok(solc_version) = semver::VersionReq::parse(part) {
-                result.solc_version = Some(solc_version);
-                continue;
-            }
-            if let Some(level) = part.strip_prefix("-O") {
-                result.llvm_optimizer_settings.push(level.to_string());
-                continue;
-            }
-            panic!("the YUL mode string {mode_string} failed to parse, invalid part: {part}")
-        }
-
-        Some(result)
-    }
-
-    /// Returns whether to enable the solc optimizer.
-    pub fn solc_optimize(&self) -> bool {
-        self.solc_optimize.unwrap_or(true)
-    }
-
-    /// Calculate the latest matching solc patch version. Returns:
-    /// - `latest_supported` if no version request was specified.
-    /// - A matching version with the same minor version as `latest_supported`, if any.
-    /// - `None` if no minor version of the `latest_supported` version matches.
-    pub fn last_patch_version(&self, latest_supported: &Version) -> Option<Version> {
-        let Some(version_req) = self.solc_version.as_ref() else {
-            return Some(latest_supported.to_owned());
+        let pipeline = match caps.name("pipeline") {
+            Some(m) => Some(ModePipeline::from_str(m.as_str())?),
+            None => None,
         };
 
-        // lgtm
-        for patch in (0..latest_supported.patch + 1).rev() {
-            let version = Version::new(0, latest_supported.minor, patch);
-            if version_req.matches(&version) {
-                return Some(version);
+        let optimize_flag = caps.name("optimize_flag").map(|m| m.as_str() == "+");
+
+        let optimize_setting = match caps.name("optimize_setting") {
+            Some(m) => Some(ModeOptimizerSetting::from_str(m.as_str())?),
+            None => None,
+        };
+
+        let version = match caps.name("version") {
+            Some(m) => Some(semver::VersionReq::parse(m.as_str()).map_err(|e| {
+                anyhow::anyhow!("Cannot parse the version requirement '{}': {e}", m.as_str())
+            })?),
+            None => None,
+        };
+
+        Ok(ParsedMode {
+            pipeline,
+            optimize_flag,
+            optimize_setting,
+            version,
+        })
+    }
+}
+
+impl Display for ParsedMode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut has_written = false;
+
+        if let Some(pipeline) = self.pipeline {
+            pipeline.fmt(f)?;
+            if let Some(optimize_flag) = self.optimize_flag {
+                f.write_str(if optimize_flag { "+" } else { "-" })?;
             }
+            has_written = true;
         }
 
-        None
+        if let Some(optimize_setting) = self.optimize_setting {
+            if has_written {
+                f.write_str(" ")?;
+            }
+            optimize_setting.fmt(f)?;
+            has_written = true;
+        }
+
+        if let Some(version) = &self.version {
+            if has_written {
+                f.write_str(" ")?;
+            }
+            version.fmt(f)?;
+        }
+
+        Ok(())
+    }
+}
+
+impl From<ParsedMode> for String {
+    fn from(parsed_mode: ParsedMode) -> Self {
+        parsed_mode.to_string()
+    }
+}
+
+impl TryFrom<String> for ParsedMode {
+    type Error = anyhow::Error;
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        ParsedMode::from_str(&value)
+    }
+}
+
+impl ParsedMode {
+    /// This takes a [`ParsedMode`] and expands it into a list of [`Mode`]s that we should try.
+    pub fn to_modes(&self) -> impl Iterator<Item = Mode> {
+        let pipeline_iter = self.pipeline.as_ref().map_or_else(
+            || EitherIter::A(ModePipeline::test_cases()),
+            |p| EitherIter::B(std::iter::once(*p)),
+        );
+
+        let optimize_flag_setting = self.optimize_flag.map(|flag| {
+            if flag {
+                ModeOptimizerSetting::M3
+            } else {
+                ModeOptimizerSetting::M0
+            }
+        });
+
+        let optimize_flag_iter = match optimize_flag_setting {
+            Some(setting) => EitherIter::A(std::iter::once(setting)),
+            None => EitherIter::B(ModeOptimizerSetting::test_cases()),
+        };
+
+        let optimize_settings_iter = self.optimize_setting.as_ref().map_or_else(
+            || EitherIter::A(optimize_flag_iter),
+            |s| EitherIter::B(std::iter::once(*s)),
+        );
+
+        pipeline_iter.flat_map(move |pipeline| {
+            optimize_settings_iter
+                .clone()
+                .map(move |optimize_setting| Mode {
+                    pipeline,
+                    optimize_setting,
+                    version: self.version.clone(),
+                })
+        })
     }
 
-    /// Resolves the [`SolcMode`]'s solidity version requirement into a [`VersionOrRequirement`] if
-    /// the requirement is present on the object. Otherwise, the passed default version is used.
-    pub fn compiler_version_to_use(&self, default: Version) -> VersionOrRequirement {
-        match self.solc_version {
-            Some(ref requirement) => requirement.clone().into(),
-            None => default.into(),
+    /// Return a set of [`Mode`]s that correspond to the given [`ParsedMode`]s.
+    /// This avoids any duplicate entries.
+    pub fn many_to_modes<'a>(
+        parsed: impl Iterator<Item = &'a ParsedMode>,
+    ) -> impl Iterator<Item = Mode> {
+        let modes: HashSet<_> = parsed.flat_map(|p| p.to_modes()).collect();
+        modes.into_iter()
+    }
+}
+
+/// An iterator that could be either of two iterators.
+#[derive(Clone, Debug)]
+enum EitherIter<A, B> {
+    A(A),
+    B(B),
+}
+
+impl<A, B> Iterator for EitherIter<A, B>
+where
+    A: Iterator,
+    B: Iterator<Item = A::Item>,
+{
+    type Item = A::Item;
+    fn next(&mut self) -> Option<Self::Item> {
+        match self {
+            EitherIter::A(iter) => iter.next(),
+            EitherIter::B(iter) => iter.next(),
         }
     }
 }
 
-impl<'de> Deserialize<'de> for Mode {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let mode_string = String::deserialize(deserializer)?;
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-        if let Some(solc_mode) = SolcMode::parse_from_mode_string(&mode_string) {
-            return Ok(Self::Solidity(solc_mode));
+    #[test]
+    fn test_parsed_mode_from_str() {
+        let strings = vec![
+            ("Mz", "Mz"),
+            ("Y", "Y"),
+            ("Y+", "Y+"),
+            ("Y-", "Y-"),
+            ("E", "E"),
+            ("E+", "E+"),
+            ("E-", "E-"),
+            ("Y M0", "Y M0"),
+            ("Y M1", "Y M1"),
+            ("Y M2", "Y M2"),
+            ("Y M3", "Y M3"),
+            ("Y Ms", "Y Ms"),
+            ("Y Mz", "Y Mz"),
+            ("E M0", "E M0"),
+            ("E M1", "E M1"),
+            ("E M2", "E M2"),
+            ("E M3", "E M3"),
+            ("E Ms", "E Ms"),
+            ("E Mz", "E Mz"),
+            // When stringifying semver again, 0.8.0 becomes ^0.8.0 (same meaning)
+            ("Y 0.8.0", "Y ^0.8.0"),
+            ("E+ 0.8.0", "E+ ^0.8.0"),
+            ("Y M3 >=0.8.0", "Y M3 >=0.8.0"),
+            ("E Mz <0.7.0", "E Mz <0.7.0"),
+            // We can parse +- _and_ M1/M2 but the latter takes priority.
+            ("Y+ M1 0.8.0", "Y+ M1 ^0.8.0"),
+            ("E- M2 0.7.0", "E- M2 ^0.7.0"),
+            // We don't see this in the wild but it is parsed.
+            ("<=0.8", "<=0.8"),
+        ];
+
+        for (actual, expected) in strings {
+            let parsed = ParsedMode::from_str(actual)
+                .expect(format!("Failed to parse mode string '{actual}'").as_str());
+            assert_eq!(
+                expected,
+                parsed.to_string(),
+                "Mode string '{actual}' did not parse to '{expected}': got '{parsed}'"
+            );
         }
-
-        Ok(Self::Unknown(mode_string))
     }
-}
 
-impl Serialize for Mode {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        let string = match self {
-            Mode::Solidity(solc_mode) => &solc_mode.mode_string,
-            Mode::Unknown(string) => string,
-        };
-        string.serialize(serializer)
+    #[test]
+    fn test_parsed_mode_to_test_modes() {
+        let strings = vec![
+            ("Mz", vec!["Y Mz", "E Mz"]),
+            ("Y", vec!["Y M0", "Y M3"]),
+            ("E", vec!["E M0", "E M3"]),
+            ("Y+", vec!["Y M3"]),
+            ("Y-", vec!["Y M0"]),
+            ("Y <=0.8", vec!["Y M0 <=0.8", "Y M3 <=0.8"]),
+            (
+                "<=0.8",
+                vec!["Y M0 <=0.8", "Y M3 <=0.8", "E M0 <=0.8", "E M3 <=0.8"],
+            ),
+        ];
+
+        for (actual, expected) in strings {
+            let parsed = ParsedMode::from_str(actual)
+                .expect(format!("Failed to parse mode string '{actual}'").as_str());
+            let expected_set: HashSet<_> = expected.into_iter().map(|s| s.to_owned()).collect();
+            let actual_set: HashSet<_> = parsed.to_modes().map(|m| m.to_string()).collect();
+
+            assert_eq!(
+                expected_set, actual_set,
+                "Mode string '{actual}' did not expand to '{expected_set:?}': got '{actual_set:?}'"
+            );
+        }
     }
 }

@@ -4093,6 +4093,7 @@ dependencies = [
  "moka",
  "once_cell",
  "semver 1.0.26",
+ "serde",
  "tokio",
 ]
 
@@ -4159,6 +4160,7 @@ dependencies = [
  "alloy-primitives",
  "alloy-sol-types",
  "anyhow",
+ "regex",
  "revive-common",
  "revive-dt-common",
  "semver 1.0.26",
@@ -4201,6 +4203,7 @@ name = "revive-dt-report"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "revive-dt-common",
  "revive-dt-compiler",
  "revive-dt-config",
  "revive-dt-format",

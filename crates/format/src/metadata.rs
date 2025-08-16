@@ -13,12 +13,10 @@ use serde::{Deserialize, Serialize};
 use revive_common::EVMVersion;
 use revive_dt_common::{
     cached_fs::read_to_string, iterators::FilesWithExtensionIterator, macros::define_wrapper_type,
+    types::Mode,
 };
 
-use crate::{
-    case::Case,
-    mode::{Mode, SolcMode},
-};
+use crate::{case::Case, mode::ParsedMode};
 
 pub const METADATA_FILE_EXTENSION: &str = "json";
 pub const SOLIDITY_CASE_FILE_EXTENSION: &str = "sol";
@@ -68,7 +66,7 @@ pub struct Metadata {
     pub libraries: Option<BTreeMap<PathBuf, BTreeMap<ContractIdent, ContractInstance>>>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub modes: Option<Vec<Mode>>,
+    pub modes: Option<Vec<ParsedMode>>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub file_path: Option<PathBuf>,
@@ -86,21 +84,12 @@ pub struct Metadata {
 }
 
 impl Metadata {
-    /// Returns the solc modes of this metadata, inserting a default mode if not present.
-    pub fn solc_modes(&self) -> Vec<SolcMode> {
-        self.modes
-            .to_owned()
-            .unwrap_or_else(|| vec![Mode::Solidity(Default::default())])
-            .iter()
-            .filter_map(|mode| match mode {
-                Mode::Solidity(solc_mode) => Some(solc_mode),
-                Mode::Unknown(mode) => {
-                    tracing::debug!("compiler: ignoring unknown mode '{mode}'");
-                    None
-                }
-            })
-            .cloned()
-            .collect()
+    /// Returns the modes that we should test from this metadata.
+    pub fn solc_modes(&self) -> Vec<Mode> {
+        match &self.modes {
+            Some(modes) => ParsedMode::many_to_modes(modes.iter()).collect(),
+            None => Mode::all().collect(),
+        }
     }
 
     /// Returns the base directory of this metadata.

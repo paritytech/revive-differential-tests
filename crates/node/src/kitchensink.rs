@@ -367,9 +367,9 @@ impl KitchensinkNode {
                 .disable_recommended_fillers()
                 .network::<KitchenSinkNetwork>()
                 .filler(FallbackGasFiller::new(
-                    30_000_000,
-                    200_000_000_000,
-                    3_000_000_000,
+                    25_000_000,
+                    1_000_000_000,
+                    1_000_000_000,
                 ))
                 .filler(ChainIdFiller::default())
                 .filler(NonceFiller::new(nonce_manager))

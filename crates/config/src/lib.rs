@@ -58,10 +58,6 @@ pub struct Arguments {
     #[arg(long = "geth-start-timeout", default_value = "5000")]
     pub geth_start_timeout: u64,
 
-    /// The test network chain ID.
-    #[arg(short, long = "network-id", default_value = "420420420")]
-    pub network_id: u64,
-
     /// Configure nodes according to this genesis.json file.
     #[arg(long = "genesis", default_value = "genesis.json")]
     pub genesis_file: PathBuf,

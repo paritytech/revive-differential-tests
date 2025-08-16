@@ -13,7 +13,8 @@ use alloy::{
 };
 use anyhow::Context;
 use clap::Parser;
-use futures::StreamExt;
+use futures::stream::futures_unordered::FuturesUnordered;
+use futures::{Stream, StreamExt};
 use revive_dt_common::iterators::FilesWithExtensionIterator;
 use revive_dt_node_interaction::EthereumNode;
 use semver::Version;
@@ -22,6 +23,7 @@ use tokio::sync::{Mutex, RwLock, mpsc};
 use tracing::{Instrument, Level};
 use tracing_subscriber::{EnvFilter, FmtSubscriber};
 
+use revive_dt_common::types::Mode;
 use revive_dt_compiler::SolidityCompiler;
 use revive_dt_compiler::{Compiler, CompilerOutput};
 use revive_dt_config::*;
@@ -34,7 +36,6 @@ use revive_dt_format::{
     corpus::Corpus,
     input::{Input, Step},
     metadata::{ContractInstance, ContractPathAndIdent, Metadata, MetadataFile},
-    mode::SolcMode,
 };
 use revive_dt_node::pool::NodePool;
 use revive_dt_report::reporter::{Report, Span};
@@ -44,7 +45,7 @@ static TEMP_DIR: LazyLock<TempDir> = LazyLock::new(|| TempDir::new().unwrap());
 type CompilationCache = Arc<
     RwLock<
         HashMap<
-            (PathBuf, SolcMode, TestingPlatform),
+            (PathBuf, Mode, TestingPlatform),
             Arc<Mutex<Option<Arc<(Version, CompilerOutput)>>>>,
         >,
     >,
@@ -55,8 +56,8 @@ type CompilationCache = Arc<
 struct Test {
     metadata: Metadata,
     path: PathBuf,
-    mode: SolcMode,
-    case_idx: usize,
+    mode: Mode,
+    case_idx: CaseIdx,
     case: Case,
 }
 
@@ -144,7 +145,7 @@ where
 {
     let (report_tx, report_rx) = mpsc::unbounded_channel::<(Test, CaseResult)>();
 
-    let tests = prepare_tests::<L, F>(metadata_files);
+    let tests = prepare_tests::<L, F>(args, metadata_files);
     let driver_task = start_driver_task::<L, F>(args, tests, span, report_tx)?;
     let status_reporter_task = start_reporter_task(report_rx);
 
@@ -153,7 +154,10 @@ where
     Ok(())
 }
 
-fn prepare_tests<L, F>(metadata_files: &[MetadataFile]) -> impl Iterator<Item = Test>
+fn prepare_tests<L, F>(
+    args: &Arguments,
+    metadata_files: &[MetadataFile],
+) -> impl Stream<Item = Test>
 where
     L: Platform,
     F: Platform,
@@ -231,15 +235,53 @@ where
                 metadata: metadata.clone(),
                 path: metadata_file_path.to_path_buf(),
                 mode: solc_mode,
-                case_idx,
+                case_idx: case_idx.into(),
                 case: case.clone(),
+            }
+        })
+        .map(async |test| test)
+        .collect::<FuturesUnordered<_>>()
+        .filter_map(async move |test| {
+            // Check that both compilers support this test, else we skip it
+            let is_supported = does_compiler_support_mode::<L>(args, &test.mode).await.ok().unwrap_or(false) &&
+                does_compiler_support_mode::<F>(args, &test.mode).await.ok().unwrap_or(false);
+
+            tracing::warn!(
+                metadata_file_path = %test.path.display(),
+                case_idx = %test.case_idx,
+                case_name = ?test.case.name,
+                mode = %test.mode,
+                "Skipping test as one or both of the compilers don't support it"
+            );
+
+            // We filter_map to avoid needing to clone `test`, but return it as-is.
+            if is_supported {
+                Some(test)
+            } else {
+                None
             }
         })
 }
 
+async fn does_compiler_support_mode<P: Platform>(
+    args: &Arguments,
+    mode: &Mode,
+) -> anyhow::Result<bool> {
+    let compiler_version_or_requirement = mode.compiler_version_to_use(args.solc.clone());
+    let compiler_path =
+        P::Compiler::get_compiler_executable(args, compiler_version_or_requirement).await?;
+    let compiler_version = P::Compiler::new(compiler_path.clone()).version()?;
+
+    Ok(P::Compiler::supports_mode(
+        &compiler_version,
+        mode.optimize_setting,
+        mode.pipeline,
+    ))
+}
+
 fn start_driver_task<L, F>(
     args: &Arguments,
-    tests: impl Iterator<Item = Test>,
+    tests: impl Stream<Item = Test>,
     span: Span,
     report_tx: mpsc::UnboundedSender<(Test, CaseResult)>,
 ) -> anyhow::Result<impl Future<Output = ()>>
@@ -254,7 +296,7 @@ where
     let compilation_cache = Arc::new(RwLock::new(HashMap::new()));
     let number_concurrent_tasks = args.number_of_concurrent_tasks();
 
-    Ok(futures::stream::iter(tests).for_each_concurrent(
+    Ok(tests.for_each_concurrent(
         // We want to limit the concurrent tasks here because:
         //
         // 1. We don't want to overwhelm the nodes with too many requests, leading to responses timing out.
@@ -284,7 +326,7 @@ where
                 let result = handle_case_driver::<L, F>(
                     &test.path,
                     &test.metadata,
-                    test.case_idx.into(),
+                    test.case_idx,
                     &test.case,
                     test.mode.clone(),
                     args,
@@ -328,13 +370,13 @@ async fn start_reporter_task(mut report_rx: mpsc::UnboundedReceiver<(Test, CaseR
             Ok(_inputs) => {
                 number_of_successes += 1;
                 eprintln!(
-                    "{GREEN}Case Succeeded:{COLOUR_RESET} {test_path} -> {case_name}:{case_idx} (mode: {test_mode:?})"
+                    "{GREEN}Case Succeeded:{COLOUR_RESET} {test_path} -> {case_name}:{case_idx} (mode: {test_mode})"
                 );
             }
             Err(err) => {
                 number_of_failures += 1;
                 eprintln!(
-                    "{RED}Case Failed:{COLOUR_RESET} {test_path} -> {case_name}:{case_idx} (mode: {test_mode:?})"
+                    "{RED}Case Failed:{COLOUR_RESET} {test_path} -> {case_name}:{case_idx} (mode: {test_mode})"
                 );
                 failures.push((test, err));
             }
@@ -357,7 +399,7 @@ async fn start_reporter_task(mut report_rx: mpsc::UnboundedReceiver<(Test, CaseR
             let test_mode = test.mode.clone();
 
             eprintln!(
-                "---- {RED}Case Failed:{COLOUR_RESET} {test_path} -> {case_name}:{case_idx} (mode: {test_mode:?}) ----\n\n{err}\n"
+                "---- {RED}Case Failed:{COLOUR_RESET} {test_path} -> {case_name}:{case_idx} (mode: {test_mode}) ----\n\n{err}\n"
             );
         }
     }
@@ -376,7 +418,7 @@ async fn handle_case_driver<L, F>(
     metadata: &Metadata,
     case_idx: CaseIdx,
     case: &Case,
-    mode: SolcMode,
+    mode: Mode,
     config: &Arguments,
     compilation_cache: CompilationCache,
     leader_node: &L::Blockchain,
@@ -617,7 +659,7 @@ where
 async fn get_or_build_contracts<P: Platform>(
     metadata: &Metadata,
     metadata_file_path: &Path,
-    mode: SolcMode,
+    mode: Mode,
     config: &Arguments,
     compilation_cache: CompilationCache,
     deployed_libraries: &HashMap<ContractInstance, (Address, JsonAbi)>,
@@ -636,16 +678,16 @@ async fn get_or_build_contracts<P: Platform>(
             }
             None => {
                 tracing::debug!(?key, "Compiled contracts cache miss");
-                let compiled_contracts = Arc::new(
-                    compile_contracts::<P>(
-                        metadata,
-                        metadata_file_path,
-                        &mode,
-                        config,
-                        deployed_libraries,
-                    )
-                    .await?,
-                );
+                let compiled_contracts = compile_contracts::<P>(
+                    metadata,
+                    metadata_file_path,
+                    &mode,
+                    config,
+                    deployed_libraries,
+                )
+                .await?;
+                let compiled_contracts = Arc::new(compiled_contracts);
+
                 *compilation_artifact = Some(compiled_contracts.clone());
                 return Ok(compiled_contracts.clone());
             }
@@ -660,16 +702,17 @@ async fn get_or_build_contracts<P: Platform>(
         mutex
     };
     let mut compilation_artifact = mutex.lock().await;
-    let compiled_contracts = Arc::new(
-        compile_contracts::<P>(
-            metadata,
-            metadata_file_path,
-            &mode,
-            config,
-            deployed_libraries,
-        )
-        .await?,
-    );
+
+    let compiled_contracts = compile_contracts::<P>(
+        metadata,
+        metadata_file_path,
+        &mode,
+        config,
+        deployed_libraries,
+    )
+    .await?;
+    let compiled_contracts = Arc::new(compiled_contracts);
+
     *compilation_artifact = Some(compiled_contracts.clone());
     Ok(compiled_contracts.clone())
 }
@@ -677,7 +720,7 @@ async fn get_or_build_contracts<P: Platform>(
 async fn compile_contracts<P: Platform>(
     metadata: &Metadata,
     metadata_file_path: &Path,
-    mode: &SolcMode,
+    mode: &Mode,
     config: &Arguments,
     deployed_libraries: &HashMap<ContractInstance, (Address, JsonAbi)>,
 ) -> anyhow::Result<(Version, CompilerOutput)> {
@@ -695,7 +738,8 @@ async fn compile_contracts<P: Platform>(
 
     let compiler = Compiler::<P::Compiler>::new()
         .with_allow_path(metadata.directory()?)
-        .with_optimization(mode.solc_optimize());
+        .with_optimization(mode.optimize_setting)
+        .with_pipeline(mode.pipeline);
     let mut compiler = metadata
         .files_to_compile()?
         .try_fold(compiler, |compiler, path| compiler.with_source(&path))?;
