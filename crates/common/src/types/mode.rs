@@ -10,7 +10,7 @@ use std::str::FromStr;
 /// in its requirements, and then expanding it out into a list of [`Mode`]s.
 ///
 /// Use [`ParsedMode::to_test_modes()`] to do this.
-#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Mode {
     pub pipeline: ModePipeline,
     pub optimize_setting: ModeOptimizerSetting,

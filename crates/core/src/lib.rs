@@ -9,7 +9,6 @@ use revive_dt_format::traits::ResolverApi;
 use revive_dt_node::{Node, geth, kitchensink::KitchensinkNode};
 use revive_dt_node_interaction::EthereumNode;
 
-mod cached_compiler;
 pub mod driver;
 
 /// One platform can be tested differentially against another.

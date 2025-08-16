@@ -120,6 +120,10 @@ pub struct Arguments {
     /// By default it uses `eth-rpc` binary found in `$PATH`.
     #[arg(short = 'p', long = "eth_proxy", default_value = "eth-rpc")]
     pub eth_proxy: PathBuf,
+
+    /// Controls if the compilation cache should be invalidated or not.
+    #[arg(short, long)]
+    pub invalidate_compilation_cache: bool,
 }
 
 impl Arguments {

@@ -31,7 +31,7 @@ use revive_dt_format::input::{
     BalanceAssertion, Calldata, EtherValue, Expected, ExpectedOutput, Input, Method,
     StorageEmptyAssertion,
 };
-use revive_dt_format::metadata::{ContractInstance, ContractPathAndIdent};
+use revive_dt_format::metadata::{ContractIdent, ContractInstance, ContractPathAndIdent};
 use revive_dt_format::{input::Step, metadata::Metadata};
 use revive_dt_node::Node;
 use revive_dt_node_interaction::EthereumNode;
@@ -44,7 +44,7 @@ pub struct CaseState<T: Platform> {
     compiled_contracts: HashMap<PathBuf, HashMap<String, (String, JsonAbi)>>,
 
     /// This map stores the contracts deployments for this case.
-    deployed_contracts: HashMap<ContractInstance, (Address, JsonAbi)>,
+    deployed_contracts: HashMap<ContractInstance, (ContractIdent, Address, JsonAbi)>,
 
     /// This map stores the variables used for each one of the cases contained in the metadata
     /// file.
@@ -63,7 +63,7 @@ where
     pub fn new(
         compiler_version: Version,
         compiled_contracts: HashMap<PathBuf, HashMap<String, (String, JsonAbi)>>,
-        deployed_contracts: HashMap<ContractInstance, (Address, JsonAbi)>,
+        deployed_contracts: HashMap<ContractInstance, (ContractIdent, Address, JsonAbi)>,
     ) -> Self {
         Self {
             compiled_contracts,
@@ -662,7 +662,7 @@ where
         value: Option<EtherValue>,
         node: &T::Blockchain,
     ) -> anyhow::Result<(Address, JsonAbi, Option<TransactionReceipt>)> {
-        if let Some((address, abi)) = self.deployed_contracts.get(contract_instance) {
+        if let Some((_, address, abi)) = self.deployed_contracts.get(contract_instance) {
             return Ok((*address, abi.clone(), None));
         }
 
@@ -746,8 +746,10 @@ where
             "Deployed contract"
         );
 
-        self.deployed_contracts
-            .insert(contract_instance.clone(), (address, abi.clone()));
+        self.deployed_contracts.insert(
+            contract_instance.clone(),
+            (contract_ident, address, abi.clone()),
+        );
 
         Ok((address, abi, Some(receipt)))
     }
