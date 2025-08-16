@@ -31,7 +31,7 @@ use revive_dt_format::input::{
     BalanceAssertion, Calldata, EtherValue, Expected, ExpectedOutput, Input, Method,
     StorageEmptyAssertion,
 };
-use revive_dt_format::metadata::{ContractInstance, ContractPathAndIdent};
+use revive_dt_format::metadata::{ContractIdent, ContractInstance, ContractPathAndIdent};
 use revive_dt_format::{input::Step, metadata::Metadata};
 use revive_dt_node::Node;
 use revive_dt_node_interaction::EthereumNode;
@@ -44,7 +44,7 @@ pub struct CaseState<T: Platform> {
     compiled_contracts: HashMap<PathBuf, HashMap<String, (String, JsonAbi)>>,
 
     /// This map stores the contracts deployments for this case.
-    deployed_contracts: HashMap<ContractInstance, (Address, JsonAbi)>,
+    deployed_contracts: HashMap<ContractInstance, (ContractIdent, Address, JsonAbi)>,
 
     /// This map stores the variables used for each one of the cases contained in the metadata
     /// file.
@@ -63,7 +63,7 @@ where
     pub fn new(
         compiler_version: Version,
         compiled_contracts: HashMap<PathBuf, HashMap<String, (String, JsonAbi)>>,
-        deployed_contracts: HashMap<ContractInstance, (Address, JsonAbi)>,
+        deployed_contracts: HashMap<ContractInstance, (ContractIdent, Address, JsonAbi)>,
     ) -> Self {
         Self {
             compiled_contracts,
@@ -155,17 +155,10 @@ where
     async fn handle_input_contract_deployment(
         &mut self,
         metadata: &Metadata,
-        case_idx: CaseIdx,
+        _: CaseIdx,
         input: &Input,
         node: &T::Blockchain,
     ) -> anyhow::Result<HashMap<ContractInstance, TransactionReceipt>> {
-        let span = tracing::debug_span!(
-            "Handling contract deployment",
-            ?case_idx,
-            instance = ?input.instance
-        );
-        let _guard = span.enter();
-
         let mut instances_we_must_deploy = IndexMap::<ContractInstance, bool>::new();
         for instance in input.find_all_contract_instances().into_iter() {
             if !self.deployed_contracts.contains_key(&instance) {
@@ -316,9 +309,6 @@ where
         resolver: &impl ResolverApi,
         tracing_result: &CallFrame,
     ) -> anyhow::Result<()> {
-        let span = tracing::info_span!("Handling input expectations");
-        let _guard = span.enter();
-
         // Resolving the `input.expected` into a series of expectations that we can then assert on.
         let mut expectations = match input {
             Input {
@@ -508,9 +498,6 @@ where
         execution_receipt: TransactionReceipt,
         node: &T::Blockchain,
     ) -> anyhow::Result<(TransactionReceipt, GethTrace, DiffMode)> {
-        let span = tracing::info_span!("Handling input diff");
-        let _guard = span.enter();
-
         let trace_options = GethDebugTracingOptions::prestate_tracer(PreStateConfig {
             diff_mode: Some(true),
             disable_code: None,
@@ -662,7 +649,7 @@ where
         value: Option<EtherValue>,
         node: &T::Blockchain,
     ) -> anyhow::Result<(Address, JsonAbi, Option<TransactionReceipt>)> {
-        if let Some((address, abi)) = self.deployed_contracts.get(contract_instance) {
+        if let Some((_, address, abi)) = self.deployed_contracts.get(contract_instance) {
             return Ok((*address, abi.clone(), None));
         }
 
@@ -746,8 +733,10 @@ where
             "Deployed contract"
         );
 
-        self.deployed_contracts
-            .insert(contract_instance.clone(), (address, abi.clone()));
+        self.deployed_contracts.insert(
+            contract_instance.clone(),
+            (contract_ident, address, abi.clone()),
+        );
 
         Ok((address, abi, Some(receipt)))
     }

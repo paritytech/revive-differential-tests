@@ -169,6 +169,14 @@ where
         self
     }
 
+    pub fn then(self, callback: impl FnOnce(Self) -> Self) -> Self {
+        callback(self)
+    }
+
+    pub fn try_then<E>(self, callback: impl FnOnce(Self) -> Result<Self, E>) -> Result<Self, E> {
+        callback(self)
+    }
+
     pub async fn try_build(
         self,
         compiler_path: impl AsRef<Path>,

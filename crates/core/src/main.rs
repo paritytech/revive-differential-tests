@@ -1,3 +1,5 @@
+mod cached_compiler;
+
 use std::{
     collections::HashMap,
     path::{Path, PathBuf},
@@ -6,26 +8,21 @@ use std::{
 };
 
 use alloy::{
-    json_abi::JsonAbi,
     network::{Ethereum, TransactionBuilder},
-    primitives::Address,
     rpc::types::TransactionRequest,
 };
 use anyhow::Context;
 use clap::Parser;
 use futures::stream::futures_unordered::FuturesUnordered;
 use futures::{Stream, StreamExt};
-use revive_dt_common::iterators::FilesWithExtensionIterator;
 use revive_dt_node_interaction::EthereumNode;
-use semver::Version;
 use temp_dir::TempDir;
-use tokio::sync::{Mutex, RwLock, mpsc};
+use tokio::sync::mpsc;
 use tracing::{Instrument, Level};
 use tracing_subscriber::{EnvFilter, FmtSubscriber};
 
 use revive_dt_common::types::Mode;
 use revive_dt_compiler::SolidityCompiler;
-use revive_dt_compiler::{Compiler, CompilerOutput};
 use revive_dt_config::*;
 use revive_dt_core::{
     Geth, Kitchensink, Platform,
@@ -35,21 +32,14 @@ use revive_dt_format::{
     case::{Case, CaseIdx},
     corpus::Corpus,
     input::{Input, Step},
-    metadata::{ContractInstance, ContractPathAndIdent, Metadata, MetadataFile},
+    metadata::{ContractPathAndIdent, Metadata, MetadataFile},
 };
 use revive_dt_node::pool::NodePool;
 use revive_dt_report::reporter::{Report, Span};
 
-static TEMP_DIR: LazyLock<TempDir> = LazyLock::new(|| TempDir::new().unwrap());
+use crate::cached_compiler::CachedCompiler;
 
-type CompilationCache = Arc<
-    RwLock<
-        HashMap<
-            (PathBuf, Mode, TestingPlatform),
-            Arc<Mutex<Option<Arc<(Version, CompilerOutput)>>>>,
-        >,
-    >,
->;
+static TEMP_DIR: LazyLock<TempDir> = LazyLock::new(|| TempDir::new().unwrap());
 
 /// this represents a single "test"; a mode, path and collection of cases.
 #[derive(Clone)]
@@ -146,7 +136,7 @@ where
     let (report_tx, report_rx) = mpsc::unbounded_channel::<(Test, CaseResult)>();
 
     let tests = prepare_tests::<L, F>(args, metadata_files);
-    let driver_task = start_driver_task::<L, F>(args, tests, span, report_tx)?;
+    let driver_task = start_driver_task::<L, F>(args, tests, span, report_tx).await?;
     let status_reporter_task = start_reporter_task(report_rx);
 
     tokio::join!(status_reporter_task, driver_task);
@@ -246,18 +236,17 @@ where
             let is_supported = does_compiler_support_mode::<L>(args, &test.mode).await.ok().unwrap_or(false) &&
                 does_compiler_support_mode::<F>(args, &test.mode).await.ok().unwrap_or(false);
 
-            tracing::warn!(
-                metadata_file_path = %test.path.display(),
-                case_idx = %test.case_idx,
-                case_name = ?test.case.name,
-                mode = %test.mode,
-                "Skipping test as one or both of the compilers don't support it"
-            );
-
             // We filter_map to avoid needing to clone `test`, but return it as-is.
             if is_supported {
                 Some(test)
             } else {
+                tracing::warn!(
+                    metadata_file_path = %test.path.display(),
+                    case_idx = %test.case_idx,
+                    case_name = ?test.case.name,
+                    mode = %test.mode,
+                    "Skipping test as one or both of the compilers don't support it"
+                );
                 None
             }
         })
@@ -279,7 +268,7 @@ async fn does_compiler_support_mode<P: Platform>(
     ))
 }
 
-fn start_driver_task<L, F>(
+async fn start_driver_task<L, F>(
     args: &Arguments,
     tests: impl Stream<Item = Test>,
     span: Span,
@@ -293,8 +282,14 @@ where
 {
     let leader_nodes = Arc::new(NodePool::<L::Blockchain>::new(args)?);
     let follower_nodes = Arc::new(NodePool::<F::Blockchain>::new(args)?);
-    let compilation_cache = Arc::new(RwLock::new(HashMap::new()));
     let number_concurrent_tasks = args.number_of_concurrent_tasks();
+    let cached_compiler = Arc::new(
+        CachedCompiler::new(
+            args.directory().join("compilation_cache"),
+            args.invalidate_compilation_cache,
+        )
+        .await?,
+    );
 
     Ok(tests.for_each_concurrent(
         // We want to limit the concurrent tasks here because:
@@ -308,8 +303,8 @@ where
         move |test| {
             let leader_nodes = leader_nodes.clone();
             let follower_nodes = follower_nodes.clone();
-            let compilation_cache = compilation_cache.clone();
             let report_tx = report_tx.clone();
+            let cached_compiler = cached_compiler.clone();
 
             async move {
                 let leader_node = leader_nodes.round_robbin();
@@ -330,7 +325,7 @@ where
                     &test.case,
                     test.mode.clone(),
                     args,
-                    compilation_cache.clone(),
+                    cached_compiler,
                     leader_node,
                     follower_node,
                     span,
@@ -420,7 +415,7 @@ async fn handle_case_driver<L, F>(
     case: &Case,
     mode: Mode,
     config: &Arguments,
-    compilation_cache: CompilationCache,
+    cached_compiler: Arc<CachedCompiler>,
     leader_node: &L::Blockchain,
     follower_node: &F::Blockchain,
     _: Span,
@@ -431,27 +426,19 @@ where
     L::Blockchain: revive_dt_node::Node + Send + Sync + 'static,
     F::Blockchain: revive_dt_node::Node + Send + Sync + 'static,
 {
-    let leader_pre_link_contracts = get_or_build_contracts::<L>(
-        metadata,
-        metadata_file_path,
-        mode.clone(),
-        config,
-        compilation_cache.clone(),
-        &HashMap::new(),
-    )
-    .await?;
-    let follower_pre_link_contracts = get_or_build_contracts::<F>(
-        metadata,
-        metadata_file_path,
-        mode.clone(),
-        config,
-        compilation_cache.clone(),
-        &HashMap::new(),
-    )
-    .await?;
+    let leader_pre_link_contracts = cached_compiler
+        .compile_contracts::<L>(metadata, metadata_file_path, &mode, config, None)
+        .await?
+        .0
+        .contracts;
+    let follower_pre_link_contracts = cached_compiler
+        .compile_contracts::<F>(metadata, metadata_file_path, &mode, config, None)
+        .await?
+        .0
+        .contracts;
 
-    let mut leader_deployed_libraries = HashMap::new();
-    let mut follower_deployed_libraries = HashMap::new();
+    let mut leader_deployed_libraries = None::<HashMap<_, _>>;
+    let mut follower_deployed_libraries = None::<HashMap<_, _>>;
     let mut contract_sources = metadata.contract_sources()?;
     for library_instance in metadata
         .libraries
@@ -467,14 +454,10 @@ where
             .context("Failed to find the contract source")?;
 
         let (leader_code, leader_abi) = leader_pre_link_contracts
-            .1
-            .contracts
             .get(&library_source_path)
             .and_then(|contracts| contracts.get(library_ident.as_str()))
             .context("Declared library was not compiled")?;
         let (follower_code, follower_abi) = follower_pre_link_contracts
-            .1
-            .contracts
             .get(&library_source_path)
             .and_then(|contracts| contracts.get(library_ident.as_str()))
             .context("Declared library was not compiled")?;
@@ -567,81 +550,52 @@ where
             anyhow::bail!("Contract deployment didn't return an address");
         };
 
-        leader_deployed_libraries.insert(
+        leader_deployed_libraries.get_or_insert_default().insert(
             library_instance.clone(),
-            (leader_library_address, leader_abi.clone()),
+            (
+                library_ident.clone(),
+                leader_library_address,
+                leader_abi.clone(),
+            ),
         );
-        follower_deployed_libraries.insert(
+        follower_deployed_libraries.get_or_insert_default().insert(
             library_instance.clone(),
-            (follower_library_address, follower_abi.clone()),
+            (
+                library_ident,
+                follower_library_address,
+                follower_abi.clone(),
+            ),
         );
     }
 
-    let metadata_file_contains_libraries = metadata
-        .libraries
-        .iter()
-        .flat_map(|map| map.iter())
-        .flat_map(|(_, value)| value.iter())
-        .next()
-        .is_some();
-    let compiled_contracts_require_linking = leader_pre_link_contracts
-        .1
-        .contracts
-        .values()
-        .chain(follower_pre_link_contracts.1.contracts.values())
-        .flat_map(|value| value.values())
-        .any(|(code, _)| !code.chars().all(|char| char.is_ascii_hexdigit()));
-    let (leader_compiled_contracts, follower_compiled_contracts) =
-        if metadata_file_contains_libraries && compiled_contracts_require_linking {
-            let leader_key = (
-                metadata_file_path.to_path_buf(),
-                mode.clone(),
-                L::config_id(),
-            );
-            let follower_key = (
-                metadata_file_path.to_path_buf(),
-                mode.clone(),
-                F::config_id(),
-            );
-            {
-                let mut cache = compilation_cache.write().await;
-                cache.remove(&leader_key);
-                cache.remove(&follower_key);
-            }
-
-            let leader_post_link_contracts = get_or_build_contracts::<L>(
-                metadata,
-                metadata_file_path,
-                mode.clone(),
-                config,
-                compilation_cache.clone(),
-                &leader_deployed_libraries,
-            )
-            .await?;
-            let follower_post_link_contracts = get_or_build_contracts::<F>(
-                metadata,
-                metadata_file_path,
-                mode.clone(),
-                config,
-                compilation_cache,
-                &follower_deployed_libraries,
-            )
-            .await?;
-
-            (leader_post_link_contracts, follower_post_link_contracts)
-        } else {
-            (leader_pre_link_contracts, follower_pre_link_contracts)
-        };
+    let (leader_post_link_contracts, leader_compiler_version) = cached_compiler
+        .compile_contracts::<L>(
+            metadata,
+            metadata_file_path,
+            &mode,
+            config,
+            leader_deployed_libraries.as_ref(),
+        )
+        .await?;
+    let (follower_post_link_contracts, follower_compiler_version) = cached_compiler
+        .compile_contracts::<F>(
+            metadata,
+            metadata_file_path,
+            &mode,
+            config,
+            follower_deployed_libraries.as_ref(),
+        )
+        .await?;
 
     let leader_state = CaseState::<L>::new(
-        leader_compiled_contracts.0.clone(),
-        leader_compiled_contracts.1.contracts.clone(),
-        leader_deployed_libraries,
+        leader_compiler_version,
+        leader_post_link_contracts.contracts,
+        leader_deployed_libraries.unwrap_or_default(),
     );
     let follower_state = CaseState::<F>::new(
-        follower_compiled_contracts.0.clone(),
-        follower_compiled_contracts.1.contracts.clone(),
-        follower_deployed_libraries,
+        follower_compiler_version,
+        follower_post_link_contracts.contracts,
+        follower_deployed_libraries.unwrap_or_default(),
     );
 
     let mut driver = CaseDriver::<L, F>::new(
@@ -654,119 +608,6 @@ where
         follower_state,
     );
     driver.execute().await
-}
-
-async fn get_or_build_contracts<P: Platform>(
-    metadata: &Metadata,
-    metadata_file_path: &Path,
-    mode: Mode,
-    config: &Arguments,
-    compilation_cache: CompilationCache,
-    deployed_libraries: &HashMap<ContractInstance, (Address, JsonAbi)>,
-) -> anyhow::Result<Arc<(Version, CompilerOutput)>> {
-    let key = (
-        metadata_file_path.to_path_buf(),
-        mode.clone(),
-        P::config_id(),
-    );
-    if let Some(compilation_artifact) = compilation_cache.read().await.get(&key).cloned() {
-        let mut compilation_artifact = compilation_artifact.lock().await;
-        match *compilation_artifact {
-            Some(ref compiled_contracts) => {
-                tracing::debug!(?key, "Compiled contracts cache hit");
-                return Ok(compiled_contracts.clone());
-            }
-            None => {
-                tracing::debug!(?key, "Compiled contracts cache miss");
-                let compiled_contracts = compile_contracts::<P>(
-                    metadata,
-                    metadata_file_path,
-                    &mode,
-                    config,
-                    deployed_libraries,
-                )
-                .await?;
-                let compiled_contracts = Arc::new(compiled_contracts);
-
-                *compilation_artifact = Some(compiled_contracts.clone());
-                return Ok(compiled_contracts.clone());
-            }
-        }
-    };
-
-    tracing::debug!(?key, "Compiled contracts cache miss");
-    let mutex = {
-        let mut compilation_cache = compilation_cache.write().await;
-        let mutex = Arc::new(Mutex::new(None));
-        compilation_cache.insert(key, mutex.clone());
-        mutex
-    };
-    let mut compilation_artifact = mutex.lock().await;
-
-    let compiled_contracts = compile_contracts::<P>(
-        metadata,
-        metadata_file_path,
-        &mode,
-        config,
-        deployed_libraries,
-    )
-    .await?;
-    let compiled_contracts = Arc::new(compiled_contracts);
-
-    *compilation_artifact = Some(compiled_contracts.clone());
-    Ok(compiled_contracts.clone())
-}
-
-async fn compile_contracts<P: Platform>(
-    metadata: &Metadata,
-    metadata_file_path: &Path,
-    mode: &Mode,
-    config: &Arguments,
-    deployed_libraries: &HashMap<ContractInstance, (Address, JsonAbi)>,
-) -> anyhow::Result<(Version, CompilerOutput)> {
-    let compiler_version_or_requirement = mode.compiler_version_to_use(config.solc.clone());
-    let compiler_path =
-        P::Compiler::get_compiler_executable(config, compiler_version_or_requirement).await?;
-    let compiler_version = P::Compiler::new(compiler_path.clone()).version()?;
-
-    tracing::info!(
-        %compiler_version,
-        metadata_file_path = %metadata_file_path.display(),
-        mode = ?mode,
-        "Compiling contracts"
-    );
-
-    let compiler = Compiler::<P::Compiler>::new()
-        .with_allow_path(metadata.directory()?)
-        .with_optimization(mode.optimize_setting)
-        .with_pipeline(mode.pipeline);
-    let mut compiler = metadata
-        .files_to_compile()?
-        .try_fold(compiler, |compiler, path| compiler.with_source(&path))?;
-    for (library_instance, (library_address, _)) in deployed_libraries.iter() {
-        let library_ident = &metadata
-            .contracts
-            .as_ref()
-            .and_then(|contracts| contracts.get(library_instance))
-            .expect("Impossible for library to not be found in contracts")
-            .contract_ident;
-
-        // Note the following: we need to tell solc which files require the libraries to be linked
-        // into them. We do not have access to this information and therefore we choose an easier,
-        // yet more compute intensive route, of telling solc that all of the files need to link the
-        // library and it will only perform the linking for the files that do actually need the
-        // library.
-        compiler = FilesWithExtensionIterator::new(metadata.directory()?)
-            .with_allowed_extension("sol")
-            .with_use_cached_fs(true)
-            .fold(compiler, |compiler, path| {
-                compiler.with_library(&path, library_ident.as_str(), *library_address)
-            });
-    }
-
-    let compiler_output = compiler.try_build(compiler_path).await?;
-
-    Ok((compiler_version, compiler_output))
 }
 
 async fn execute_corpus(
@@ -800,28 +641,40 @@ async fn compile_corpus(
             .map(move |solc_mode| (metadata, solc_mode))
     });
 
+    let file = tempfile::NamedTempFile::new().expect("Failed to create temp file");
+    let cached_compiler = CachedCompiler::new(file.path(), false)
+        .await
+        .map(Arc::new)
+        .expect("Failed to create the cached compiler");
+
     futures::stream::iter(tests)
-        .for_each_concurrent(None, |(metadata, mode)| async move {
-            match platform {
-                TestingPlatform::Geth => {
-                    let _ = compile_contracts::<Geth>(
-                        &metadata.content,
-                        &metadata.path,
-                        &mode,
-                        config,
-                        &Default::default(),
-                    )
-                    .await;
-                }
-                TestingPlatform::Kitchensink => {
-                    let _ = compile_contracts::<Geth>(
-                        &metadata.content,
-                        &metadata.path,
-                        &mode,
-                        config,
-                        &Default::default(),
-                    )
-                    .await;
+        .for_each_concurrent(None, |(metadata, mode)| {
+            let cached_compiler = cached_compiler.clone();
+
+            async move {
+                match platform {
+                    TestingPlatform::Geth => {
+                        let _ = cached_compiler
+                            .compile_contracts::<Geth>(
+                                metadata,
+                                metadata.path.as_path(),
+                                &mode,
+                                config,
+                                None,
+                            )
+                            .await;
+                    }
+                    TestingPlatform::Kitchensink => {
+                        let _ = cached_compiler
+                            .compile_contracts::<Kitchensink>(
+                                metadata,
+                                metadata.path.as_path(),
+                                &mode,
+                                config,
+                                None,
+                            )
+                            .await;
+                    }
                 }
             }
         })

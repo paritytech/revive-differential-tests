@@ -6,7 +6,7 @@ use alloy::primitives::{Address, BlockHash, BlockNumber, BlockTimestamp, ChainId
 use alloy_primitives::TxHash;
 use anyhow::Result;
 
-use crate::metadata::ContractInstance;
+use crate::metadata::{ContractIdent, ContractInstance};
 
 /// A trait of the interface are required to implement to be used by the resolution logic that this
 /// crate implements to go from string calldata and into the bytes calldata.
@@ -48,7 +48,7 @@ pub trait ResolverApi {
 /// Contextual information required by the code that's performing the resolution.
 pub struct ResolutionContext<'a> {
     /// When provided the contracts provided here will be used for resolutions.
-    deployed_contracts: Option<&'a HashMap<ContractInstance, (Address, JsonAbi)>>,
+    deployed_contracts: Option<&'a HashMap<ContractInstance, (ContractIdent, Address, JsonAbi)>>,
 
     /// When provided the variables in here will be used for performing resolutions.
     variables: Option<&'a HashMap<String, U256>>,
@@ -66,7 +66,9 @@ impl<'a> ResolutionContext<'a> {
     }
 
     pub fn new_from_parts(
-        deployed_contracts: impl Into<Option<&'a HashMap<ContractInstance, (Address, JsonAbi)>>>,
+        deployed_contracts: impl Into<
+            Option<&'a HashMap<ContractInstance, (ContractIdent, Address, JsonAbi)>>,
+        >,
         variables: impl Into<Option<&'a HashMap<String, U256>>>,
         block_number: impl Into<Option<&'a BlockNumber>>,
         transaction_hash: impl Into<Option<&'a TxHash>>,
@@ -81,7 +83,9 @@ impl<'a> ResolutionContext<'a> {
 
     pub fn with_deployed_contracts(
         mut self,
-        deployed_contracts: impl Into<Option<&'a HashMap<ContractInstance, (Address, JsonAbi)>>>,
+        deployed_contracts: impl Into<
+            Option<&'a HashMap<ContractInstance, (ContractIdent, Address, JsonAbi)>>,
+        >,
     ) -> Self {
         self.deployed_contracts = deployed_contracts.into();
         self
@@ -122,17 +126,20 @@ impl<'a> ResolutionContext<'a> {
         }
     }
 
-    pub fn deployed_contract(&self, instance: &ContractInstance) -> Option<&(Address, JsonAbi)> {
+    pub fn deployed_contract(
+        &self,
+        instance: &ContractInstance,
+    ) -> Option<&(ContractIdent, Address, JsonAbi)> {
         self.deployed_contracts
             .and_then(|deployed_contracts| deployed_contracts.get(instance))
     }
 
     pub fn deployed_contract_address(&self, instance: &ContractInstance) -> Option<&Address> {
-        self.deployed_contract(instance).map(|(a, _)| a)
+        self.deployed_contract(instance).map(|(_, a, _)| a)
     }
 
     pub fn deployed_contract_abi(&self, instance: &ContractInstance) -> Option<&JsonAbi> {
-        self.deployed_contract(instance).map(|(_, a)| a)
+        self.deployed_contract(instance).map(|(_, _, a)| a)
     }
 
     pub fn variable(&self, name: impl AsRef<str>) -> Option<&U256> {
