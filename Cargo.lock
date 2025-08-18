@@ -4561,7 +4561,6 @@ version = "0.1.0"
 dependencies = [
  "alloy",
  "anyhow",
- "dashmap",
  "revive-common",
  "revive-dt-common",
  "revive-dt-config",
@@ -4595,7 +4594,6 @@ dependencies = [
  "revive-dt-format",
  "serde",
  "serde_json",
- "tracing",
 ]
 
 [[package]]

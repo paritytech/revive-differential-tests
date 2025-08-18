@@ -102,14 +102,11 @@ impl SolidityCompiler for Resolc {
         };
 
         let mut command = AsyncCommand::new(&self.resolc_path);
-        unsafe {
-            command
-                .stdin(Stdio::piped())
-                .stdout(Stdio::piped())
-                .stderr(Stdio::piped())
-                .arg("--standard-json")
-                .pre_exec(|| Ok(()))
-        };
+        command
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .arg("--standard-json");
 
         if let Some(ref base_path) = base_path {
             command.arg("--base-path").arg(base_path);
