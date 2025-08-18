@@ -266,7 +266,7 @@ define_wrapper_type!(
         Clone, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,
     )]
     #[serde(transparent)]
-    pub struct ContractInstance(String);
+    pub struct ContractInstance(String) impl Display;
 );
 
 define_wrapper_type!(
@@ -277,7 +277,7 @@ define_wrapper_type!(
         Clone, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,
     )]
     #[serde(transparent)]
-    pub struct ContractIdent(String);
+    pub struct ContractIdent(String) impl Display;
 );
 
 /// Represents an identifier used for contracts.

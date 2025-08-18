@@ -188,7 +188,7 @@ define_wrapper_type! {
     /// This represents an item in the [`Calldata::Compound`] variant.
     #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
     #[serde(transparent)]
-    pub struct CalldataItem(String);
+    pub struct CalldataItem(String) impl Display;
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
@@ -233,7 +233,7 @@ pub enum Method {
 
 define_wrapper_type!(
     #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
-    pub struct EtherValue(U256);
+    pub struct EtherValue(U256) impl Display;
 );
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, Eq, PartialEq)]
