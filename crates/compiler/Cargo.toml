@@ -18,6 +18,7 @@ revive-common = { workspace = true }
 alloy = { workspace = true }
 alloy-primitives = { workspace = true }
 anyhow = { workspace = true }
+dashmap = { workspace = true }
 foundry-compilers-artifacts = { workspace = true }
 semver = { workspace = true }
 serde = { workspace = true }

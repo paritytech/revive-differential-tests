@@ -18,6 +18,9 @@ pub trait Node: EthereumNode {
     /// Create a new uninitialized instance.
     fn new(config: &Arguments) -> Self;
 
+    /// Returns the identifier of the node.
+    fn id(&self) -> usize;
+
     /// Spawns a node configured according to the genesis json.
     ///
     /// Blocking until it's ready to accept transactions.

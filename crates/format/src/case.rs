@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use revive_dt_common::macros::define_wrapper_type;
+use revive_dt_common::{macros::define_wrapper_type, types::Mode};
 
 use crate::{
     input::{Expected, Step},
@@ -59,6 +59,13 @@ impl Case {
                     step
                 }
             })
+    }
+
+    pub fn solc_modes(&self) -> Vec<Mode> {
+        match &self.modes {
+            Some(modes) => ParsedMode::many_to_modes(modes.iter()).collect(),
+            None => Mode::all().collect(),
+        }
     }
 }
 

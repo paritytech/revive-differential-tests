@@ -223,7 +223,7 @@ mod tests {
 
         for (actual, expected) in strings {
             let parsed = ParsedMode::from_str(actual)
-                .expect(format!("Failed to parse mode string '{actual}'").as_str());
+                .unwrap_or_else(|_| panic!("Failed to parse mode string '{actual}'"));
             assert_eq!(
                 expected,
                 parsed.to_string(),
@@ -249,7 +249,7 @@ mod tests {
 
         for (actual, expected) in strings {
             let parsed = ParsedMode::from_str(actual)
-                .expect(format!("Failed to parse mode string '{actual}'").as_str());
+                .unwrap_or_else(|_| panic!("Failed to parse mode string '{actual}'"));
             let expected_set: HashSet<_> = expected.into_iter().map(|s| s.to_owned()).collect();
             let actual_set: HashSet<_> = parsed.to_modes().map(|m| m.to_string()).collect();
 

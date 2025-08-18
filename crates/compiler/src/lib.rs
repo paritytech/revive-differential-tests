@@ -47,7 +47,7 @@ pub trait SolidityCompiler {
         version: impl Into<VersionOrRequirement>,
     ) -> impl Future<Output = anyhow::Result<PathBuf>>;
 
-    fn version(&self) -> anyhow::Result<Version>;
+    fn version(&self) -> impl Future<Output = anyhow::Result<Version>>;
 
     /// Does the compiler support the provided mode and version settings?
     fn supports_mode(

@@ -259,7 +259,10 @@ where
                 tracer_config: GethDebugTracerConfig(serde_json::json! {{
                     "onlyTopCall": true,
                     "withLog": false,
-                    "withReturnData": false
+                    "withStorage": false,
+                    "withMemory": false,
+                    "withStack": false,
+                    "withReturnData": true
                 }}),
                 ..Default::default()
             },

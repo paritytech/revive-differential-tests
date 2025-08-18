@@ -2,11 +2,12 @@
 //! compiling contracts to PolkaVM (PVM) bytecode.
 
 use std::{
-    os::unix::process::CommandExt,
     path::PathBuf,
     process::{Command, Stdio},
+    sync::LazyLock,
 };
 
+use dashmap::DashMap;
 use revive_dt_common::types::VersionOrRequirement;
 use revive_dt_config::Arguments;
 use revive_solc_json_interface::{
@@ -223,29 +224,39 @@ impl SolidityCompiler for Resolc {
         Ok(PathBuf::from("resolc"))
     }
 
-    fn version(&self) -> anyhow::Result<semver::Version> {
-        // Logic for parsing the resolc version from the following string:
-        // Solidity frontend for the revive compiler version 0.3.0+commit.b238913.llvm-18.1.8
+    async fn version(&self) -> anyhow::Result<semver::Version> {
+        /// This is a cache of the path of the compiler to the version number of the compiler. We
+        /// choose to cache the version in this way rather than through a field on the struct since
+        /// compiler objects are being created all the time from the path and the compiler object is
+        /// not reused over time.
+        static VERSION_CACHE: LazyLock<DashMap<PathBuf, Version>> = LazyLock::new(Default::default);
 
-        let output = unsafe {
-            Command::new(self.resolc_path.as_path())
-                .arg("--version")
-                .stdout(Stdio::piped())
-                .pre_exec(|| Ok(()))
-                .spawn()?
-                .wait_with_output()?
-                .stdout
-        };
-        let output = String::from_utf8_lossy(&output);
-        let version_string = output
-            .split("version ")
-            .nth(1)
-            .context("Version parsing failed")?
-            .split("+")
-            .next()
-            .context("Version parsing failed")?;
+        match VERSION_CACHE.entry(self.resolc_path.clone()) {
+            dashmap::Entry::Occupied(occupied_entry) => Ok(occupied_entry.get().clone()),
+            dashmap::Entry::Vacant(vacant_entry) => {
+                let output = Command::new(self.resolc_path.as_path())
+                    .arg("--version")
+                    .stdout(Stdio::piped())
+                    .spawn()?
+                    .wait_with_output()?
+                    .stdout;
 
-        Version::parse(version_string).map_err(Into::into)
+                let output = String::from_utf8_lossy(&output);
+                let version_string = output
+                    .split("version ")
+                    .nth(1)
+                    .context("Version parsing failed")?
+                    .split("+")
+                    .next()
+                    .context("Version parsing failed")?;
+
+                let version = Version::parse(version_string)?;
+
+                vacant_entry.insert(version.clone());
+
+                Ok(version)
+            }
+        }
     }
 
     fn supports_mode(
@@ -275,7 +286,7 @@ mod test {
         let compiler = Resolc::new(path);
 
         // Act
-        let version = compiler.version();
+        let version = compiler.version().await;
 
         // Assert
         let _ = version.expect("Failed to get version");

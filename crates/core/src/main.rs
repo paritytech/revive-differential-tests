@@ -1,8 +1,9 @@
 mod cached_compiler;
 
 use std::{
-    collections::HashMap,
-    path::{Path, PathBuf},
+    collections::{BTreeMap, HashMap},
+    io::{BufWriter, Write, stderr},
+    path::Path,
     sync::{Arc, LazyLock},
     time::Instant,
 };
@@ -13,8 +14,9 @@ use alloy::{
 };
 use anyhow::Context;
 use clap::Parser;
-use futures::stream::futures_unordered::FuturesUnordered;
+use futures::stream;
 use futures::{Stream, StreamExt};
+use indexmap::IndexMap;
 use revive_dt_node_interaction::EthereumNode;
 use temp_dir::TempDir;
 use tokio::sync::mpsc;
@@ -33,6 +35,7 @@ use revive_dt_format::{
     corpus::Corpus,
     input::{Input, Step},
     metadata::{ContractPathAndIdent, Metadata, MetadataFile},
+    mode::ParsedMode,
 };
 use revive_dt_node::pool::NodePool;
 use revive_dt_report::reporter::{Report, Span};
@@ -42,13 +45,12 @@ use crate::cached_compiler::CachedCompiler;
 static TEMP_DIR: LazyLock<TempDir> = LazyLock::new(|| TempDir::new().unwrap());
 
 /// this represents a single "test"; a mode, path and collection of cases.
-#[derive(Clone)]
-struct Test {
-    metadata: Metadata,
-    path: PathBuf,
+struct Test<'a> {
+    metadata: &'a Metadata,
+    metadata_file_path: &'a Path,
     mode: Mode,
     case_idx: CaseIdx,
-    case: Case,
+    case: &'a Case,
 }
 
 /// This represents the results that we gather from running test cases.
@@ -133,7 +135,7 @@ where
     L::Blockchain: revive_dt_node::Node + Send + Sync + 'static,
     F::Blockchain: revive_dt_node::Node + Send + Sync + 'static,
 {
-    let (report_tx, report_rx) = mpsc::unbounded_channel::<(Test, CaseResult)>();
+    let (report_tx, report_rx) = mpsc::unbounded_channel::<(Test<'_>, CaseResult)>();
 
     let tests = prepare_tests::<L, F>(args, metadata_files);
     let driver_task = start_driver_task::<L, F>(args, tests, span, report_tx).await?;
@@ -144,71 +146,94 @@ where
     Ok(())
 }
 
-fn prepare_tests<L, F>(
+fn prepare_tests<'a, L, F>(
     args: &Arguments,
-    metadata_files: &[MetadataFile],
-) -> impl Stream<Item = Test>
+    metadata_files: &'a [MetadataFile],
+) -> impl Stream<Item = Test<'a>>
 where
     L: Platform,
     F: Platform,
     L::Blockchain: revive_dt_node::Node + Send + Sync + 'static,
     F::Blockchain: revive_dt_node::Node + Send + Sync + 'static,
 {
-    metadata_files
+    let flattened_tests = metadata_files
         .iter()
-        .flat_map(
-            |MetadataFile {
-                 path,
-                 content: metadata,
-             }| {
-                metadata
-                    .cases
-                    .iter()
-                    .enumerate()
-                    .flat_map(move |(case_idx, case)| {
-                        metadata
-                            .solc_modes()
-                            .into_iter()
-                            .map(move |solc_mode| (path, metadata, case_idx, case, solc_mode))
-                    })
-            },
-        )
-        .filter(
-            |(metadata_file_path, metadata, _, _, _)| match metadata.ignore {
-                Some(true) => {
-                    tracing::warn!(
-                        metadata_file_path = %metadata_file_path.display(),
-                        "Ignoring metadata file"
-                    );
-                    false
+        .flat_map(|metadata_file| {
+            metadata_file
+                .cases
+                .iter()
+                .enumerate()
+                .map(move |(case_idx, case)| (metadata_file, case_idx, case))
+        })
+        .flat_map(|(metadata_file, case_idx, case)| {
+            let modes = match (metadata_file.modes.as_ref(), case.modes.as_ref()) {
+                (Some(_), Some(modes)) | (None, Some(modes)) | (Some(modes), None) => {
+                    ParsedMode::many_to_modes(modes.iter()).collect::<Vec<_>>()
                 }
-                Some(false) | None => true,
+                (None, None) => Mode::all().collect(),
+            };
+            modes
+                .into_iter()
+                .map(move |mode| (metadata_file, case_idx, case, mode))
+        })
+        .fold(
+            IndexMap::<_, BTreeMap<_, Vec<_>>>::new(),
+            |mut map, (metadata_file, case_idx, case, mode)| {
+                let test = Test {
+                    metadata: &metadata_file.content,
+                    metadata_file_path: metadata_file.path.as_path(),
+                    mode: mode.clone(),
+                    case_idx: CaseIdx::new(case_idx),
+                    case,
+                };
+                map.entry(mode)
+                    .or_default()
+                    .entry(test.case_idx)
+                    .or_default()
+                    .push(test);
+                map
             },
-        )
-        .filter(
-            |(metadata_file_path, _, case_idx, case, _)| match case.ignore {
-                Some(true) => {
-                    tracing::warn!(
-                        metadata_file_path = %metadata_file_path.display(),
-                        case_idx,
-                        case_name = ?case.name,
-                        "Ignoring case"
-                    );
-                    false
-                }
-                Some(false) | None => true,
-            },
-        )
-        .filter(|(metadata_file_path, metadata, ..)| match metadata.required_evm_version {
-            Some(evm_version_requirement) => {
+        );
+
+    let filtered_tests = flattened_tests
+        .into_values()
+        .flatten()
+        .flat_map(|(_, value)| value.into_iter())
+        // Filter the test out if the metadata file is ignored.
+        .filter(|test| {
+            if test.metadata.ignore.is_some_and(|ignore| ignore) {
+                tracing::warn!(
+                    metadata_file_path = %test.metadata_file_path.display(),
+                    "Ignoring test case since the metadata file is ignored"
+                );
+                false
+            } else {
+                true
+            }
+        })
+        // Filter the test case if the case is ignored.
+        .filter(|test| {
+            if test.case.ignore.is_some_and(|ignore| ignore) {
+                tracing::warn!(
+                    metadata_file_path = %test.metadata_file_path.display(),
+                    "Ignoring test case since the case file is ignored"
+                );
+                false
+            } else {
+                true
+            }
+        })
+        // Filtering based on the EVM version compatibility
+        .filter(|test| {
+            if let Some(evm_version_requirement) = test.metadata.required_evm_version {
                 let is_allowed = evm_version_requirement
-                    .matches(&<L::Blockchain as revive_dt_node::Node>::evm_version())
-                    && evm_version_requirement
-                        .matches(&<F::Blockchain as revive_dt_node::Node>::evm_version());
+                .matches(&<L::Blockchain as revive_dt_node::Node>::evm_version())
+                && evm_version_requirement
+                    .matches(&<F::Blockchain as revive_dt_node::Node>::evm_version());
 
                 if !is_allowed {
                     tracing::warn!(
-                        metadata_file_path = %metadata_file_path.display(),
+                        metadata_file_path = %test.metadata_file_path.display(),
                         leader_evm_version = %<L::Blockchain as revive_dt_node::Node>::evm_version(),
                         follower_evm_version = %<F::Blockchain as revive_dt_node::Node>::evm_version(),
                         version_requirement = %evm_version_requirement,
@@ -217,37 +242,37 @@ where
                 }
 
                 is_allowed
-            }
-            None => true,
-        })
-        .map(|(metadata_file_path, metadata, case_idx, case, solc_mode)| {
-            Test {
-                metadata: metadata.clone(),
-                path: metadata_file_path.to_path_buf(),
-                mode: solc_mode,
-                case_idx: case_idx.into(),
-                case: case.clone(),
-            }
-        })
-        .map(async |test| test)
-        .collect::<FuturesUnordered<_>>()
-        .filter_map(async move |test| {
-            // Check that both compilers support this test, else we skip it
-            let is_supported = does_compiler_support_mode::<L>(args, &test.mode).await.ok().unwrap_or(false) &&
-                does_compiler_support_mode::<F>(args, &test.mode).await.ok().unwrap_or(false);
-
-            // We filter_map to avoid needing to clone `test`, but return it as-is.
-            if is_supported {
-                Some(test)
             } else {
-                tracing::warn!(
-                    metadata_file_path = %test.path.display(),
-                    case_idx = %test.case_idx,
-                    case_name = ?test.case.name,
-                    mode = %test.mode,
-                    "Skipping test as one or both of the compilers don't support it"
-                );
-                None
+                true
+            }
+        });
+
+    stream::iter(filtered_tests)
+        // Filter based on the compiler compatibility
+        .filter_map(|test| {
+            let args = args.clone();
+
+            async move {
+                let is_supported = does_compiler_support_mode::<L>(&args, &test.mode)
+                    .await
+                    .ok()
+                    .unwrap_or(false)
+                    && does_compiler_support_mode::<F>(&args, &test.mode)
+                        .await
+                        .ok()
+                        .unwrap_or(false);
+
+                if !is_supported {
+                    tracing::warn!(
+                        metadata_file_path = %test.metadata_file_path.display(),
+                        case_idx = %test.case_idx,
+                        case_name = ?test.case.name,
+                        mode = %test.mode,
+                        "Skipping test as one or both of the compilers don't support it"
+                    );
+                }
+
+                is_supported.then_some(test)
             }
         })
 }
@@ -259,7 +284,7 @@ async fn does_compiler_support_mode<P: Platform>(
     let compiler_version_or_requirement = mode.compiler_version_to_use(args.solc.clone());
     let compiler_path =
         P::Compiler::get_compiler_executable(args, compiler_version_or_requirement).await?;
-    let compiler_version = P::Compiler::new(compiler_path.clone()).version()?;
+    let compiler_version = P::Compiler::new(compiler_path.clone()).version().await?;
 
     Ok(P::Compiler::supports_mode(
         &compiler_version,
@@ -268,11 +293,11 @@ async fn does_compiler_support_mode<P: Platform>(
     ))
 }
 
-async fn start_driver_task<L, F>(
+async fn start_driver_task<'a, L, F>(
     args: &Arguments,
-    tests: impl Stream<Item = Test>,
+    tests: impl Stream<Item = Test<'a>>,
     span: Span,
-    report_tx: mpsc::UnboundedSender<(Test, CaseResult)>,
+    report_tx: mpsc::UnboundedSender<(Test<'a>, CaseResult)>,
 ) -> anyhow::Result<impl Future<Output = ()>>
 where
     L: Platform,
@@ -313,16 +338,16 @@ where
                 let tracing_span = tracing::span!(
                     Level::INFO,
                     "Running driver",
-                    metadata_file_path = %test.path.display(),
+                    metadata_file_path = %test.metadata_file_path.display(),
                     case_idx = ?test.case_idx,
                     solc_mode = ?test.mode,
                 );
 
                 let result = handle_case_driver::<L, F>(
-                    &test.path,
-                    &test.metadata,
+                    test.metadata_file_path,
+                    test.metadata,
                     test.case_idx,
-                    &test.case,
+                    test.case,
                     test.mode.clone(),
                     args,
                     cached_compiler,
@@ -341,7 +366,7 @@ where
     ))
 }
 
-async fn start_reporter_task(mut report_rx: mpsc::UnboundedReceiver<(Test, CaseResult)>) {
+async fn start_reporter_task(mut report_rx: mpsc::UnboundedReceiver<(Test<'_>, CaseResult)>) {
     let start = Instant::now();
 
     const GREEN: &str = "\x1B[32m";
@@ -355,22 +380,25 @@ async fn start_reporter_task(mut report_rx: mpsc::UnboundedReceiver<(Test, CaseR
     let mut failures = vec![];
 
     // Wait for reports to come from our test runner. When the channel closes, this ends.
+    let mut buf = BufWriter::new(stderr());
     while let Some((test, case_result)) = report_rx.recv().await {
         let case_name = test.case.name.as_deref().unwrap_or("unnamed_case");
         let case_idx = test.case_idx;
-        let test_path = test.path.display();
+        let test_path = test.metadata_file_path.display();
         let test_mode = test.mode.clone();
 
         match case_result {
             Ok(_inputs) => {
                 number_of_successes += 1;
-                eprintln!(
+                let _ = writeln!(
+                    buf,
                     "{GREEN}Case Succeeded:{COLOUR_RESET} {test_path} -> {case_name}:{case_idx} (mode: {test_mode})"
                 );
             }
             Err(err) => {
                 number_of_failures += 1;
-                eprintln!(
+                let _ = writeln!(
+                    buf,
                     "{RED}Case Failed:{COLOUR_RESET} {test_path} -> {case_name}:{case_idx} (mode: {test_mode})"
                 );
                 failures.push((test, err));
@@ -378,29 +406,31 @@ async fn start_reporter_task(mut report_rx: mpsc::UnboundedReceiver<(Test, CaseR
         }
     }
 
-    eprintln!();
+    let _ = writeln!(buf,);
     let elapsed = start.elapsed();
 
     // Now, log the failures with more complete errors at the bottom, like `cargo test` does, so
     // that we don't have to scroll through the entire output to find them.
     if !failures.is_empty() {
-        eprintln!("{BOLD}Failures:{BOLD_RESET}\n");
+        let _ = writeln!(buf, "{BOLD}Failures:{BOLD_RESET}\n");
 
         for failure in failures {
             let (test, err) = failure;
             let case_name = test.case.name.as_deref().unwrap_or("unnamed_case");
             let case_idx = test.case_idx;
-            let test_path = test.path.display();
+            let test_path = test.metadata_file_path.display();
             let test_mode = test.mode.clone();
 
-            eprintln!(
+            let _ = writeln!(
+                buf,
                 "---- {RED}Case Failed:{COLOUR_RESET} {test_path} -> {case_name}:{case_idx} (mode: {test_mode}) ----\n\n{err}\n"
             );
         }
     }
 
     // Summary at the end.
-    eprintln!(
+    let _ = writeln!(
+        buf,
         "{} cases: {GREEN}{number_of_successes}{COLOUR_RESET} cases succeeded, {RED}{number_of_failures}{COLOUR_RESET} cases failed in {} seconds",
         number_of_successes + number_of_failures,
         elapsed.as_secs()

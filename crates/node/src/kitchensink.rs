@@ -582,6 +582,10 @@ impl Node for KitchensinkNode {
         }
     }
 
+    fn id(&self) -> usize {
+        self.id as _
+    }
+
     #[tracing::instrument(skip_all, fields(kitchensink_node_id = self.id))]
     fn connection_string(&self) -> String {
         self.rpc_url.clone()

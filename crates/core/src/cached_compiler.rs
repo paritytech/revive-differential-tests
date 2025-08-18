@@ -62,8 +62,9 @@ impl CachedCompiler {
             compiler_version_or_requirement,
         )
         .await?;
-        let compiler_version =
-            <P::Compiler as SolidityCompiler>::new(compiler_path.clone()).version()?;
+        let compiler_version = <P::Compiler as SolidityCompiler>::new(compiler_path.clone())
+            .version()
+            .await?;
 
         let cache_key = CacheKey {
             platform_key: P::config_id().to_string(),

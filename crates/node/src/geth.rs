@@ -21,9 +21,12 @@ use alloy::{
         Address, BlockHash, BlockNumber, BlockTimestamp, FixedBytes, StorageKey, TxHash, U256,
     },
     providers::{
-        Provider, ProviderBuilder,
+        Identity, Provider, ProviderBuilder, RootProvider,
         ext::DebugApi,
-        fillers::{CachedNonceManager, ChainIdFiller, FillProvider, NonceFiller, TxFiller},
+        fillers::{
+            CachedNonceManager, ChainIdFiller, FillProvider, JoinFill, NonceFiller, TxFiller,
+            WalletFiller,
+        },
     },
     rpc::types::{
         EIP1186AccountProofResponse, TransactionReceipt, TransactionRequest,
@@ -33,6 +36,7 @@ use alloy::{
 };
 use anyhow::Context;
 use revive_common::EVMVersion;
+use tokio::sync::RwLock;
 use tracing::{Instrument, Level};
 
 use revive_dt_common::{fs::clear_directory, futures::poll};
@@ -52,6 +56,7 @@ static NODE_COUNT: AtomicU32 = AtomicU32::new(0);
 ///
 /// Prunes the child process and the base directory on drop.
 #[derive(Debug)]
+#[allow(clippy::type_complexity)]
 pub struct GethNode {
     connection_string: String,
     base_directory: PathBuf,
@@ -62,7 +67,24 @@ pub struct GethNode {
     handle: Option<Child>,
     start_timeout: u64,
     wallet: EthereumWallet,
-    nonce_manager: CachedNonceManager,
+    provider: Arc<
+        RwLock<
+            Option<
+                Arc<
+                    FillProvider<
+                        JoinFill<
+                            JoinFill<
+                                JoinFill<JoinFill<Identity, FallbackGasFiller>, ChainIdFiller>,
+                                NonceFiller,
+                            >,
+                            WalletFiller<EthereumWallet>,
+                        >,
+                        RootProvider,
+                    >,
+                >,
+            >,
+        >,
+    >,
     /// This vector stores [`File`] objects that we use for logging which we want to flush when the
     /// node object is dropped. We do not store them in a structured fashion at the moment (in
     /// separate fields) as the logic that we need to apply to them is all the same regardless of
@@ -241,37 +263,36 @@ impl GethNode {
         self.logs_directory.join(Self::GETH_STDERR_LOG_FILE_NAME)
     }
 
-    fn provider(
+    async fn provider(
         &self,
-    ) -> impl Future<
-        Output = anyhow::Result<
-            FillProvider<impl TxFiller<Ethereum>, impl Provider<Ethereum>, Ethereum>,
-        >,
-    > + 'static {
-        let connection_string = self.connection_string();
-        let wallet = self.wallet.clone();
+    ) -> anyhow::Result<Arc<FillProvider<impl TxFiller<Ethereum>, impl Provider<Ethereum>, Ethereum>>>
+    {
+        let read_guard = self.provider.read().await;
 
-        // Note: We would like all providers to make use of the same nonce manager so that we have
-        // monotonically increasing nonces that are cached. The cached nonce manager uses Arc's in
-        // its implementation and therefore it means that when we clone it then it still references
-        // the same state.
-        let nonce_manager = self.nonce_manager.clone();
+        match read_guard.as_ref() {
+            Some(provider) => Ok(provider.clone()),
+            None => {
+                drop(read_guard);
+                let mut write_guard = self.provider.write().await;
 
-        Box::pin(async move {
-            ProviderBuilder::new()
-                .disable_recommended_fillers()
-                .filler(FallbackGasFiller::new(
-                    25_000_000,
-                    1_000_000_000,
-                    1_000_000_000,
-                ))
-                .filler(ChainIdFiller::default())
-                .filler(NonceFiller::new(nonce_manager))
-                .wallet(wallet)
-                .connect(&connection_string)
-                .await
-                .map_err(Into::into)
-        })
+                let provider = ProviderBuilder::new()
+                    .disable_recommended_fillers()
+                    .filler(FallbackGasFiller::new(
+                        25_000_000,
+                        1_000_000_000,
+                        1_000_000_000,
+                    ))
+                    .filler(ChainIdFiller::default())
+                    .filler(NonceFiller::new(CachedNonceManager::default()))
+                    .wallet(self.wallet.clone())
+                    .connect(&self.connection_string)
+                    .await
+                    .map(Arc::new)?;
+
+                *write_guard = Some(provider.clone());
+                Ok(provider)
+            }
+        }
     }
 }
 
@@ -281,8 +302,23 @@ impl EthereumNode for GethNode {
         &self,
         transaction: TransactionRequest,
     ) -> anyhow::Result<alloy::rpc::types::TransactionReceipt> {
-        let provider = Arc::new(self.provider().await?);
-        let transaction_hash = *provider.send_transaction(transaction).await?.tx_hash();
+        let provider = self.provider().await?;
+
+        let transaction = provider.fill(transaction).await?;
+        let transaction = transaction
+            .as_envelope()
+            .context("Filled transaction is not an envelope")?;
+        let transaction_hash = *transaction.tx_hash();
+
+        let rtn = provider.send_tx_envelope(transaction.clone()).await;
+        match rtn {
+            Ok(_) => {}
+            Err(error) => {
+                if !error.to_string().contains("already known") {
+                    return Err(error.into());
+                }
+            }
+        }
 
         // The following is a fix for the "transaction indexing is in progress" error that we
         // used to get. You can find more information on this in the following GH issue in geth
@@ -523,11 +559,15 @@ impl Node for GethNode {
             handle: None,
             start_timeout: config.geth_start_timeout,
             wallet,
+            provider: Default::default(),
             // We know that we only need to be storing 2 files so we can specify that when creating
             // the vector. It's the stdout and stderr of the geth node.
             logs_file_to_flush: Vec::with_capacity(2),
-            nonce_manager: Default::default(),
         }
+    }
+
+    fn id(&self) -> usize {
+        self.id as _
     }
 
     #[tracing::instrument(level = "info", skip_all, fields(geth_node_id = self.id))]

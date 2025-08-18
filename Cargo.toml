@@ -28,6 +28,7 @@ anyhow = "1.0"
 bson = { version = "2.15.0" }
 cacache = { version = "13.1.0" }
 clap = { version = "4", features = ["derive"] }
+dashmap = { version = "6.1.0" }
 foundry-compilers-artifacts = { version = "0.18.0" }
 futures = { version = "0.3.31" }
 hex = "0.4.3"

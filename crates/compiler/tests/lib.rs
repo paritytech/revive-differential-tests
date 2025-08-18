@@ -11,7 +11,6 @@ async fn contracts_can_be_compiled_with_solc() {
     let compiler_path = Solc::get_compiler_executable(&args, Version::new(0, 8, 30))
         .await
         .unwrap();
-    println!("About to assert");
 
     // Act
     let output = Compiler::<Solc>::new()
