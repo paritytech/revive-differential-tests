@@ -18,8 +18,7 @@ use alloy::{
     genesis::{Genesis, GenesisAccount},
     network::{Ethereum, EthereumWallet, NetworkWallet},
     primitives::{
-        Address, BlockHash, BlockNumber, BlockTimestamp, FixedBytes, StorageKey, TxHash,
-        U256,
+        Address, BlockHash, BlockNumber, BlockTimestamp, FixedBytes, StorageKey, TxHash, U256,
     },
     providers::{
         Provider, ProviderBuilder,
