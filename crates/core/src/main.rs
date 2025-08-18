@@ -19,13 +19,13 @@ use futures::{Stream, StreamExt};
 use indexmap::IndexMap;
 use revive_dt_node_interaction::EthereumNode;
 use temp_dir::TempDir;
-use tokio::sync::mpsc;
+use tokio::{sync::mpsc, try_join};
 use tracing::{debug, info, info_span, instrument};
 use tracing_appender::non_blocking::WorkerGuard;
 use tracing_subscriber::{EnvFilter, FmtSubscriber};
 
 use revive_dt_common::types::Mode;
-use revive_dt_compiler::SolidityCompiler;
+use revive_dt_compiler::{CompilerOutput, SolidityCompiler};
 use revive_dt_config::*;
 use revive_dt_core::{
     Geth, Kitchensink, Platform,
@@ -500,16 +500,23 @@ where
     L::Blockchain: revive_dt_node::Node + Send + Sync + 'static,
     F::Blockchain: revive_dt_node::Node + Send + Sync + 'static,
 {
-    let leader_pre_link_contracts = cached_compiler
-        .compile_contracts::<L>(metadata, metadata_file_path, &mode, config, None)
-        .await?
-        .0
-        .contracts;
-    let follower_pre_link_contracts = cached_compiler
-        .compile_contracts::<F>(metadata, metadata_file_path, &mode, config, None)
-        .await?
-        .0
-        .contracts;
+    let (
+        (
+            CompilerOutput {
+                contracts: leader_pre_link_contracts,
+            },
+            _,
+        ),
+        (
+            CompilerOutput {
+                contracts: follower_pre_link_contracts,
+            },
+            _,
+        ),
+    ) = try_join!(
+        cached_compiler.compile_contracts::<L>(metadata, metadata_file_path, &mode, config, None),
+        cached_compiler.compile_contracts::<F>(metadata, metadata_file_path, &mode, config, None)
+    )?;
 
     let mut leader_deployed_libraries = None::<HashMap<_, _>>;
     let mut follower_deployed_libraries = None::<HashMap<_, _>>;
@@ -573,18 +580,10 @@ where
             follower_code,
         );
 
-        let leader_receipt = match leader_node.execute_transaction(leader_tx).await {
-            Ok(receipt) => receipt,
-            Err(error) => {
-                return Err(error);
-            }
-        };
-        let follower_receipt = match follower_node.execute_transaction(follower_tx).await {
-            Ok(receipt) => receipt,
-            Err(error) => {
-                return Err(error);
-            }
-        };
+        let (leader_receipt, follower_receipt) = try_join!(
+            leader_node.execute_transaction(leader_tx),
+            follower_node.execute_transaction(follower_tx)
+        )?;
 
         debug!(
             ?library_instance,
@@ -622,33 +621,44 @@ where
         );
     }
 
-    let (leader_post_link_contracts, leader_compiler_version) = cached_compiler
-        .compile_contracts::<L>(
+    let (
+        (
+            CompilerOutput {
+                contracts: leader_post_link_contracts,
+            },
+            leader_compiler_version,
+        ),
+        (
+            CompilerOutput {
+                contracts: follower_post_link_contracts,
+            },
+            follower_compiler_version,
+        ),
+    ) = try_join!(
+        cached_compiler.compile_contracts::<L>(
             metadata,
             metadata_file_path,
             &mode,
             config,
-            leader_deployed_libraries.as_ref(),
-        )
-        .await?;
-    let (follower_post_link_contracts, follower_compiler_version) = cached_compiler
-        .compile_contracts::<F>(
+            leader_deployed_libraries.as_ref()
+        ),
+        cached_compiler.compile_contracts::<F>(
             metadata,
             metadata_file_path,
             &mode,
             config,
-            follower_deployed_libraries.as_ref(),
+            follower_deployed_libraries.as_ref()
         )
-        .await?;
+    )?;
 
     let leader_state = CaseState::<L>::new(
         leader_compiler_version,
-        leader_post_link_contracts.contracts,
+        leader_post_link_contracts,
         leader_deployed_libraries.unwrap_or_default(),
     );
     let follower_state = CaseState::<F>::new(
         follower_compiler_version,
-        follower_post_link_contracts.contracts,
+        follower_post_link_contracts,
         follower_deployed_libraries.unwrap_or_default(),
     );
 

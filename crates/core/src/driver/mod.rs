@@ -19,6 +19,7 @@ use alloy::{
     rpc::types::{TransactionRequest, trace::geth::DiffMode},
 };
 use anyhow::Context;
+use futures::TryStreamExt;
 use indexmap::IndexMap;
 use revive_dt_format::traits::{ResolutionContext, ResolverApi};
 use semver::Version;
@@ -31,6 +32,7 @@ use revive_dt_format::input::{
 use revive_dt_format::metadata::{ContractIdent, ContractInstance, ContractPathAndIdent};
 use revive_dt_format::{input::Step, metadata::Metadata};
 use revive_dt_node_interaction::EthereumNode;
+use tokio::try_join;
 use tracing::{Instrument, info, info_span, instrument};
 
 use crate::Platform;
@@ -113,9 +115,11 @@ where
             .handle_input_call_frame_tracing(&execution_receipt, node)
             .await?;
         self.handle_input_variable_assignment(input, &tracing_result)?;
-        self.handle_input_expectations(input, &execution_receipt, node, &tracing_result)
-            .await?;
-        self.handle_input_diff(execution_receipt, node).await
+        let (_, (geth_trace, diff_mode)) = try_join!(
+            self.handle_input_expectations(input, &execution_receipt, node, &tracing_result),
+            self.handle_input_diff(&execution_receipt, node)
+        )?;
+        Ok((execution_receipt, geth_trace, diff_mode))
     }
 
     #[instrument(level = "info", name = "Handling Balance Assertion", skip_all)]
@@ -287,7 +291,7 @@ where
 
     #[instrument(level = "info", skip_all)]
     async fn handle_input_expectations(
-        &mut self,
+        &self,
         input: &Input,
         execution_receipt: &TransactionReceipt,
         resolver: &impl ResolverApi,
@@ -321,25 +325,25 @@ where
             }
         }
 
-        for expectation in expectations.iter() {
-            self.handle_input_expectation_item(
-                execution_receipt,
-                resolver,
-                expectation,
-                tracing_result,
-            )
-            .await?;
-        }
-
-        Ok(())
+        futures::stream::iter(expectations.into_iter().map(Ok))
+            .try_for_each_concurrent(None, |expectation| async move {
+                self.handle_input_expectation_item(
+                    execution_receipt,
+                    resolver,
+                    expectation,
+                    tracing_result,
+                )
+                .await
+            })
+            .await
     }
 
     #[instrument(level = "info", skip_all)]
     async fn handle_input_expectation_item(
-        &mut self,
+        &self,
         execution_receipt: &TransactionReceipt,
         resolver: &impl ResolverApi,
-        expectation: &ExpectedOutput,
+        expectation: ExpectedOutput,
         tracing_result: &CallFrame,
     ) -> anyhow::Result<()> {
         if let Some(ref version_requirement) = expectation.compiler_version {
@@ -479,10 +483,10 @@ where
 
     #[instrument(level = "info", skip_all)]
     async fn handle_input_diff(
-        &mut self,
-        execution_receipt: TransactionReceipt,
+        &self,
+        execution_receipt: &TransactionReceipt,
         node: &T::Blockchain,
-    ) -> anyhow::Result<(TransactionReceipt, GethTrace, DiffMode)> {
+    ) -> anyhow::Result<(GethTrace, DiffMode)> {
         let trace_options = GethDebugTracingOptions::prestate_tracer(PreStateConfig {
             diff_mode: Some(true),
             disable_code: None,
@@ -490,11 +494,11 @@ where
         });
 
         let trace = node
-            .trace_transaction(&execution_receipt, trace_options)
+            .trace_transaction(execution_receipt, trace_options)
             .await?;
-        let diff = node.state_diff(&execution_receipt).await?;
+        let diff = node.state_diff(execution_receipt).await?;
 
-        Ok((execution_receipt, trace, diff))
+        Ok((trace, diff))
     }
 
     #[instrument(level = "info", skip_all)]
@@ -772,24 +776,23 @@ where
             .enumerate()
             .map(|(idx, v)| (StepIdx::new(idx), v))
         {
-            let leader_step_output = self
-                .leader_state
-                .handle_step(self.metadata, &step, self.leader_node)
-                .instrument(info_span!(
-                    "Handling Step",
-                    %step_idx,
-                    target = "Leader",
-                ))
-                .await?;
-            let follower_step_output = self
-                .follower_state
-                .handle_step(self.metadata, &step, self.follower_node)
-                .instrument(info_span!(
-                    "Handling Step",
-                    %step_idx,
-                    target = "Follower",
-                ))
-                .await?;
+            let (leader_step_output, follower_step_output) = try_join!(
+                self.leader_state
+                    .handle_step(self.metadata, &step, self.leader_node)
+                    .instrument(info_span!(
+                        "Handling Step",
+                        %step_idx,
+                        target = "Leader",
+                    )),
+                self.follower_state
+                    .handle_step(self.metadata, &step, self.follower_node)
+                    .instrument(info_span!(
+                        "Handling Step",
+                        %step_idx,
+                        target = "Follower",
+                    ))
+            )?;
+
             match (leader_step_output, follower_step_output) {
                 (StepOutput::FunctionCall(..), StepOutput::FunctionCall(..)) => {
                     // TODO: We need to actually work out how/if we will compare the diff between

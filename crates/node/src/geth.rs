@@ -35,7 +35,10 @@ use anyhow::Context;
 use revive_common::EVMVersion;
 use tracing::{Instrument, instrument};
 
-use revive_dt_common::{fs::clear_directory, futures::poll};
+use revive_dt_common::{
+    fs::clear_directory,
+    futures::{PollingWaitBehavior, poll},
+};
 use revive_dt_config::Arguments;
 use revive_dt_format::traits::ResolverApi;
 use revive_dt_node_interaction::EthereumNode;
@@ -301,7 +304,7 @@ impl EthereumNode for GethNode {
         let provider = Arc::new(provider);
         poll(
             Self::RECEIPT_POLLING_DURATION,
-            Default::default(),
+            PollingWaitBehavior::Constant(Duration::from_millis(200)),
             move || {
                 let provider = provider.clone();
                 async move {
@@ -335,7 +338,7 @@ impl EthereumNode for GethNode {
         let provider = Arc::new(self.provider().await?);
         poll(
             Self::TRACE_POLLING_DURATION,
-            Default::default(),
+            PollingWaitBehavior::Constant(Duration::from_millis(200)),
             move || {
                 let provider = provider.clone();
                 let trace_options = trace_options.clone();

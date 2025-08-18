@@ -4545,6 +4545,7 @@ dependencies = [
  "alloy-primitives",
  "alloy-sol-types",
  "anyhow",
+ "futures",
  "regex",
  "revive-common",
  "revive-dt-common",
