@@ -107,7 +107,6 @@ impl SolcDownloader {
     /// Errors out if the download fails or the digest of the downloaded file
     /// mismatches the expected digest from the release [List].
     pub async fn download(&self) -> anyhow::Result<Vec<u8>> {
-        tracing::info!("downloading solc: {self:?}");
         let builds = List::download(self.list).await?.builds;
         let build = builds
             .iter()

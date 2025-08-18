@@ -39,10 +39,7 @@ pub(crate) async fn get_or_download(
 }
 
 async fn download_to_file(path: &Path, downloader: &SolcDownloader) -> anyhow::Result<()> {
-    tracing::info!("caching file: {}", path.display());
-
     let Ok(file) = File::create_new(path) else {
-        tracing::debug!("cache file already exists: {}", path.display());
         return Ok(());
     };
 

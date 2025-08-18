@@ -11,6 +11,7 @@ rust-version.workspace = true
 [dependencies]
 anyhow = { workspace = true }
 alloy = { workspace = true }
+dashmap = { workspace = true }
 tracing = { workspace = true }
 tokio = { workspace = true }
 
@@ -29,3 +30,6 @@ sp-runtime = { workspace = true }
 [dev-dependencies]
 temp-dir = { workspace = true }
 tokio = { workspace = true }
+
+[lints]
+workspace = true

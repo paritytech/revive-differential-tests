@@ -2,7 +2,6 @@ use std::collections::HashMap;
 
 use alloy::{
     eips::BlockNumberOrTag,
-    hex::ToHexExt,
     json_abi::Function,
     network::TransactionBuilder,
     primitives::{Address, Bytes, U256},
@@ -14,6 +13,7 @@ use semver::VersionReq;
 use serde::{Deserialize, Serialize};
 
 use revive_dt_common::macros::define_wrapper_type;
+use tracing::{Instrument, info_span, instrument};
 
 use crate::traits::ResolverApi;
 use crate::{metadata::ContractInstance, traits::ResolutionContext};
@@ -32,6 +32,11 @@ pub enum Step {
     /// A step for asserting that the storage of some contract or account is empty.
     StorageEmptyAssertion(Box<StorageEmptyAssertion>),
 }
+
+define_wrapper_type!(
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+    pub struct StepIdx(usize) impl Display;
+);
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, Eq, PartialEq)]
 pub struct Input {
@@ -268,14 +273,8 @@ impl Input {
             }
             Method::FunctionName(ref function_name) => {
                 let Some(abi) = context.deployed_contract_abi(&self.instance) else {
-                    tracing::error!(
-                        contract_name = self.instance.as_ref(),
-                        "Attempted to lookup ABI of contract but it wasn't found"
-                    );
                     anyhow::bail!("ABI for instance '{}' not found", self.instance.as_ref());
                 };
-
-                tracing::trace!("ABI found for instance: {}", &self.instance.as_ref());
 
                 // We follow the same logic that's implemented in the matter-labs-tester where they resolve
                 // the function name into a function selector and they assume that he function doesn't have
@@ -301,13 +300,6 @@ impl Input {
                         })?
                         .selector()
                 };
-
-                tracing::trace!("Functions found for instance: {}", self.instance.as_ref());
-
-                tracing::trace!(
-                    "Starting encoding ABI's parameters for instance: {}",
-                    self.instance.as_ref()
-                );
 
                 // Allocating a vector that we will be using for the calldata. The vector size will be:
                 // 4 bytes for the function selector.
@@ -436,15 +428,12 @@ impl Calldata {
             }
             Calldata::Compound(items) => {
                 for (arg_idx, arg) in items.iter().enumerate() {
-                    match arg.resolve(resolver, context).await {
-                        Ok(resolved) => {
-                            buffer.extend(resolved.to_be_bytes::<32>());
-                        }
-                        Err(error) => {
-                            tracing::error!(?arg, arg_idx, ?error, "Failed to resolve argument");
-                            return Err(error);
-                        }
-                    };
+                    buffer.extend(
+                        arg.resolve(resolver, context)
+                            .instrument(info_span!("Resolving argument", %arg, arg_idx))
+                            .await?
+                            .to_be_bytes::<32>(),
+                    );
                 }
             }
         };
@@ -498,6 +487,7 @@ impl Calldata {
 }
 
 impl CalldataItem {
+    #[instrument(level = "info", skip_all, err)]
     async fn resolve(
         &self,
         resolver: &impl ResolverApi,
@@ -548,14 +538,7 @@ impl CalldataItem {
         match stack.as_slice() {
             // Empty stack means that we got an empty compound calldata which we resolve to zero.
             [] => Ok(U256::ZERO),
-            [CalldataToken::Item(item)] => {
-                tracing::debug!(
-                    original = self.0,
-                    resolved = item.to_be_bytes::<32>().encode_hex(),
-                    "Resolved a Calldata item"
-                );
-                Ok(*item)
-            }
+            [CalldataToken::Item(item)] => Ok(*item),
             _ => Err(anyhow::anyhow!(
                 "Invalid calldata arithmetic operation - Invalid stack"
             )),

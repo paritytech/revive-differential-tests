@@ -3,7 +3,10 @@ use std::{
     io::{BufRead, Write},
     path::{Path, PathBuf},
     process::{Child, Command, Stdio},
-    sync::atomic::{AtomicU32, Ordering},
+    sync::{
+        Arc,
+        atomic::{AtomicU32, Ordering},
+    },
     time::Duration,
 };
 
@@ -39,7 +42,6 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value as JsonValue, json};
 use sp_core::crypto::Ss58Codec;
 use sp_runtime::AccountId32;
-use tracing::Level;
 
 use revive_dt_config::Arguments;
 use revive_dt_node_interaction::EthereumNode;
@@ -54,12 +56,13 @@ pub struct KitchensinkNode {
     substrate_binary: PathBuf,
     eth_proxy_binary: PathBuf,
     rpc_url: String,
-    wallet: EthereumWallet,
     base_directory: PathBuf,
     logs_directory: PathBuf,
     process_substrate: Option<Child>,
     process_proxy: Option<Child>,
+    wallet: Arc<EthereumWallet>,
     nonce_manager: CachedNonceManager,
+    chain_id_filler: ChainIdFiller,
     /// This vector stores [`File`] objects that we use for logging which we want to flush when the
     /// node object is dropped. We do not store them in a structured fashion at the moment (in
     /// separate fields) as the logic that we need to apply to them is all the same regardless of
@@ -87,7 +90,6 @@ impl KitchensinkNode {
     const PROXY_STDOUT_LOG_FILE_NAME: &str = "proxy_stdout.log";
     const PROXY_STDERR_LOG_FILE_NAME: &str = "proxy_stderr.log";
 
-    #[tracing::instrument(skip_all, fields(kitchensink_node_id = self.id))]
     fn init(&mut self, genesis: &str) -> anyhow::Result<&mut Self> {
         let _ = clear_directory(&self.base_directory);
         let _ = clear_directory(&self.logs_directory);
@@ -160,7 +162,6 @@ impl KitchensinkNode {
         Ok(self)
     }
 
-    #[tracing::instrument(skip_all, fields(kitchensink_node_id = self.id), err)]
     fn spawn_process(&mut self) -> anyhow::Result<()> {
         let substrate_rpc_port = Self::BASE_SUBSTRATE_RPC_PORT + self.id as u16;
         let proxy_rpc_port = Self::BASE_PROXY_RPC_PORT + self.id as u16;
@@ -214,10 +215,6 @@ impl KitchensinkNode {
             Self::SUBSTRATE_READY_MARKER,
             Duration::from_secs(60),
         ) {
-            tracing::error!(
-                ?error,
-                "Failed to start substrate, shutting down gracefully"
-            );
             self.shutdown()?;
             return Err(error);
         };
@@ -243,7 +240,6 @@ impl KitchensinkNode {
             Self::ETH_PROXY_READY_MARKER,
             Duration::from_secs(60),
         ) {
-            tracing::error!(?error, "Failed to start proxy, shutting down gracefully");
             self.shutdown()?;
             return Err(error);
         };
@@ -258,7 +254,6 @@ impl KitchensinkNode {
         Ok(())
     }
 
-    #[tracing::instrument(skip_all, fields(kitchensink_node_id = self.id), err)]
     fn extract_balance_from_genesis_file(
         &self,
         genesis: &Genesis,
@@ -307,7 +302,6 @@ impl KitchensinkNode {
         }
     }
 
-    #[tracing::instrument(skip_all, fields(kitchensink_node_id = self.id), err)]
     pub fn eth_rpc_version(&self) -> anyhow::Result<String> {
         let output = Command::new(&self.eth_proxy_binary)
             .arg("--version")
@@ -320,74 +314,55 @@ impl KitchensinkNode {
         Ok(String::from_utf8_lossy(&output).trim().to_string())
     }
 
-    #[tracing::instrument(skip_all, fields(kitchensink_node_id = self.id), level = Level::TRACE)]
     fn kitchensink_stdout_log_file_path(&self) -> PathBuf {
         self.logs_directory
             .join(Self::KITCHENSINK_STDOUT_LOG_FILE_NAME)
     }
 
-    #[tracing::instrument(skip_all, fields(kitchensink_node_id = self.id), level = Level::TRACE)]
     fn kitchensink_stderr_log_file_path(&self) -> PathBuf {
         self.logs_directory
             .join(Self::KITCHENSINK_STDERR_LOG_FILE_NAME)
     }
 
-    #[tracing::instrument(skip_all, fields(kitchensink_node_id = self.id), level = Level::TRACE)]
     fn proxy_stdout_log_file_path(&self) -> PathBuf {
         self.logs_directory.join(Self::PROXY_STDOUT_LOG_FILE_NAME)
     }
 
-    #[tracing::instrument(skip_all, fields(kitchensink_node_id = self.id), level = Level::TRACE)]
     fn proxy_stderr_log_file_path(&self) -> PathBuf {
         self.logs_directory.join(Self::PROXY_STDERR_LOG_FILE_NAME)
     }
 
-    fn provider(
+    async fn provider(
         &self,
-    ) -> impl Future<
-        Output = anyhow::Result<
-            FillProvider<
-                impl TxFiller<KitchenSinkNetwork>,
-                impl Provider<KitchenSinkNetwork>,
-                KitchenSinkNetwork,
-            >,
+    ) -> anyhow::Result<
+        FillProvider<
+            impl TxFiller<KitchenSinkNetwork>,
+            impl Provider<KitchenSinkNetwork>,
+            KitchenSinkNetwork,
         >,
-    > + 'static {
-        let connection_string = self.connection_string();
-        let wallet = self.wallet.clone();
-
-        // Note: We would like all providers to make use of the same nonce manager so that we have
-        // monotonically increasing nonces that are cached. The cached nonce manager uses Arc's in
-        // its implementation and therefore it means that when we clone it then it still references
-        // the same state.
-        let nonce_manager = self.nonce_manager.clone();
-
-        Box::pin(async move {
-            ProviderBuilder::new()
-                .disable_recommended_fillers()
-                .network::<KitchenSinkNetwork>()
-                .filler(FallbackGasFiller::new(
-                    25_000_000,
-                    1_000_000_000,
-                    1_000_000_000,
-                ))
-                .filler(ChainIdFiller::default())
-                .filler(NonceFiller::new(nonce_manager))
-                .wallet(wallet)
-                .connect(&connection_string)
-                .await
-                .map_err(Into::into)
-        })
+    > {
+        ProviderBuilder::new()
+            .disable_recommended_fillers()
+            .network::<KitchenSinkNetwork>()
+            .filler(FallbackGasFiller::new(
+                25_000_000,
+                1_000_000_000,
+                1_000_000_000,
+            ))
+            .filler(self.chain_id_filler.clone())
+            .filler(NonceFiller::new(self.nonce_manager.clone()))
+            .wallet(self.wallet.clone())
+            .connect(&self.rpc_url)
+            .await
+            .map_err(Into::into)
     }
 }
 
 impl EthereumNode for KitchensinkNode {
-    #[tracing::instrument(skip_all, fields(kitchensink_node_id = self.id), err)]
     async fn execute_transaction(
         &self,
         transaction: alloy::rpc::types::TransactionRequest,
     ) -> anyhow::Result<TransactionReceipt> {
-        tracing::debug!(?transaction, "Submitting transaction");
         let receipt = self
             .provider()
             .await?
@@ -395,11 +370,9 @@ impl EthereumNode for KitchensinkNode {
             .await?
             .get_receipt()
             .await?;
-        tracing::info!(?receipt, "Submitted tx to kitchensink");
         Ok(receipt)
     }
 
-    #[tracing::instrument(skip_all, fields(kitchensink_node_id = self.id), err)]
     async fn trace_transaction(
         &self,
         transaction: &TransactionReceipt,
@@ -413,7 +386,6 @@ impl EthereumNode for KitchensinkNode {
             .await?)
     }
 
-    #[tracing::instrument(skip_all, fields(kitchensink_node_id = self.id), err)]
     async fn state_diff(&self, transaction: &TransactionReceipt) -> anyhow::Result<DiffMode> {
         let trace_options = GethDebugTracingOptions::prestate_tracer(PreStateConfig {
             diff_mode: Some(true),
@@ -430,7 +402,6 @@ impl EthereumNode for KitchensinkNode {
         }
     }
 
-    #[tracing::instrument(skip_all, fields(kitchensink_node_id = self.id), err)]
     async fn balance_of(&self, address: Address) -> anyhow::Result<U256> {
         self.provider()
             .await?
@@ -439,7 +410,6 @@ impl EthereumNode for KitchensinkNode {
             .map_err(Into::into)
     }
 
-    #[tracing::instrument(skip_all, fields(kitchensink_node_id = self.id), err)]
     async fn latest_state_proof(
         &self,
         address: Address,
@@ -455,7 +425,6 @@ impl EthereumNode for KitchensinkNode {
 }
 
 impl ResolverApi for KitchensinkNode {
-    #[tracing::instrument(skip_all, fields(kitchensink_node_id = self.id), err)]
     async fn chain_id(&self) -> anyhow::Result<alloy::primitives::ChainId> {
         self.provider()
             .await?
@@ -464,7 +433,6 @@ impl ResolverApi for KitchensinkNode {
             .map_err(Into::into)
     }
 
-    #[tracing::instrument(skip_all, fields(kitchensink_node_id = self.id), err)]
     async fn transaction_gas_price(&self, tx_hash: &TxHash) -> anyhow::Result<u128> {
         self.provider()
             .await?
@@ -474,7 +442,6 @@ impl ResolverApi for KitchensinkNode {
             .map(|receipt| receipt.effective_gas_price)
     }
 
-    #[tracing::instrument(skip_all, fields(kitchensink_node_id = self.id), err)]
     async fn block_gas_limit(&self, number: BlockNumberOrTag) -> anyhow::Result<u128> {
         self.provider()
             .await?
@@ -484,7 +451,6 @@ impl ResolverApi for KitchensinkNode {
             .map(|block| block.header.gas_limit as _)
     }
 
-    #[tracing::instrument(skip_all, fields(kitchensink_node_id = self.id), err)]
     async fn block_coinbase(&self, number: BlockNumberOrTag) -> anyhow::Result<Address> {
         self.provider()
             .await?
@@ -494,7 +460,6 @@ impl ResolverApi for KitchensinkNode {
             .map(|block| block.header.beneficiary)
     }
 
-    #[tracing::instrument(skip_all, fields(kitchensink_node_id = self.id), err)]
     async fn block_difficulty(&self, number: BlockNumberOrTag) -> anyhow::Result<U256> {
         self.provider()
             .await?
@@ -504,7 +469,6 @@ impl ResolverApi for KitchensinkNode {
             .map(|block| U256::from_be_bytes(block.header.mix_hash.0))
     }
 
-    #[tracing::instrument(skip_all, fields(kitchensink_node_id = self.id), err)]
     async fn block_base_fee(&self, number: BlockNumberOrTag) -> anyhow::Result<u64> {
         self.provider()
             .await?
@@ -519,7 +483,6 @@ impl ResolverApi for KitchensinkNode {
             })
     }
 
-    #[tracing::instrument(skip_all, fields(kitchensink_node_id = self.id), err)]
     async fn block_hash(&self, number: BlockNumberOrTag) -> anyhow::Result<BlockHash> {
         self.provider()
             .await?
@@ -529,7 +492,6 @@ impl ResolverApi for KitchensinkNode {
             .map(|block| block.header.hash)
     }
 
-    #[tracing::instrument(skip_all, fields(kitchensink_node_id = self.id), err)]
     async fn block_timestamp(&self, number: BlockNumberOrTag) -> anyhow::Result<BlockTimestamp> {
         self.provider()
             .await?
@@ -539,7 +501,6 @@ impl ResolverApi for KitchensinkNode {
             .map(|block| block.header.timestamp)
     }
 
-    #[tracing::instrument(skip_all, fields(kitchensink_node_id = self.id), err)]
     async fn last_block_number(&self) -> anyhow::Result<BlockNumber> {
         self.provider()
             .await?
@@ -570,11 +531,12 @@ impl Node for KitchensinkNode {
             substrate_binary: config.kitchensink.clone(),
             eth_proxy_binary: config.eth_proxy.clone(),
             rpc_url: String::new(),
-            wallet,
             base_directory,
             logs_directory,
             process_substrate: None,
             process_proxy: None,
+            wallet: Arc::new(wallet),
+            chain_id_filler: Default::default(),
             nonce_manager: Default::default(),
             // We know that we only need to be storing 4 files so we can specify that when creating
             // the vector. It's the stdout and stderr of the substrate-node and the eth-rpc.
@@ -586,12 +548,10 @@ impl Node for KitchensinkNode {
         self.id as _
     }
 
-    #[tracing::instrument(skip_all, fields(kitchensink_node_id = self.id))]
     fn connection_string(&self) -> String {
         self.rpc_url.clone()
     }
 
-    #[tracing::instrument(skip_all, fields(kitchensink_node_id = self.id), err)]
     fn shutdown(&mut self) -> anyhow::Result<()> {
         // Terminate the processes in a graceful manner to allow for the output to be flushed.
         if let Some(mut child) = self.process_proxy.take() {
@@ -618,12 +578,10 @@ impl Node for KitchensinkNode {
         Ok(())
     }
 
-    #[tracing::instrument(skip_all, fields(kitchensink_node_id = self.id), err)]
     fn spawn(&mut self, genesis: String) -> anyhow::Result<()> {
         self.init(&genesis)?.spawn_process()
     }
 
-    #[tracing::instrument(skip_all, fields(kitchensink_node_id = self.id), err)]
     fn version(&self) -> anyhow::Result<String> {
         let output = Command::new(&self.substrate_binary)
             .arg("--version")
@@ -636,8 +594,7 @@ impl Node for KitchensinkNode {
         Ok(String::from_utf8_lossy(&output).into())
     }
 
-    #[tracing::instrument(skip_all, fields(kitchensink_node_id = self.id))]
-    fn matches_target(&self, targets: Option<&[String]>) -> bool {
+    fn matches_target(targets: Option<&[String]>) -> bool {
         match targets {
             None => true,
             Some(targets) => targets.iter().any(|str| str.as_str() == "pvm"),
@@ -650,7 +607,6 @@ impl Node for KitchensinkNode {
 }
 
 impl Drop for KitchensinkNode {
-    #[tracing::instrument(skip_all, fields(kitchensink_node_id = self.id))]
     fn drop(&mut self) {
         self.shutdown().expect("Failed to shutdown")
     }

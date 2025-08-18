@@ -39,7 +39,7 @@ pub trait Node: EthereumNode {
 
     /// Given a list of targets from the metadata file, this function determines if the metadata
     /// file can be ran on this node or not.
-    fn matches_target(&self, targets: Option<&[String]>) -> bool;
+    fn matches_target(targets: Option<&[String]>) -> bool;
 
     /// Returns the EVM version of the node.
     fn evm_version() -> EVMVersion;

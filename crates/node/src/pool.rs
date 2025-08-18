@@ -63,7 +63,6 @@ where
 
 fn spawn_node<T: Node + Send>(args: &Arguments, genesis: String) -> anyhow::Result<T> {
     let mut node = T::new(args);
-    tracing::info!("starting node: {}", node.connection_string());
     node.spawn(genesis)?;
     Ok(node)
 }

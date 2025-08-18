@@ -20,7 +20,8 @@ use indexmap::IndexMap;
 use revive_dt_node_interaction::EthereumNode;
 use temp_dir::TempDir;
 use tokio::sync::mpsc;
-use tracing::{Instrument, Level};
+use tracing::{debug, info, info_span, instrument};
+use tracing_appender::non_blocking::WorkerGuard;
 use tracing_subscriber::{EnvFilter, FmtSubscriber};
 
 use revive_dt_common::types::Mode;
@@ -34,10 +35,10 @@ use revive_dt_format::{
     case::{Case, CaseIdx},
     corpus::Corpus,
     input::{Input, Step},
-    metadata::{ContractPathAndIdent, Metadata, MetadataFile},
+    metadata::{ContractPathAndIdent, MetadataFile},
     mode::ParsedMode,
 };
-use revive_dt_node::pool::NodePool;
+use revive_dt_node::{Node, pool::NodePool};
 use revive_dt_report::reporter::{Report, Span};
 
 use crate::cached_compiler::CachedCompiler;
@@ -45,8 +46,9 @@ use crate::cached_compiler::CachedCompiler;
 static TEMP_DIR: LazyLock<TempDir> = LazyLock::new(|| TempDir::new().unwrap());
 
 /// this represents a single "test"; a mode, path and collection of cases.
+#[derive(Clone, Debug)]
 struct Test<'a> {
-    metadata: &'a Metadata,
+    metadata: &'a MetadataFile,
     metadata_file_path: &'a Path,
     mode: Mode,
     case_idx: CaseIdx,
@@ -57,7 +59,15 @@ struct Test<'a> {
 type CaseResult = Result<usize, anyhow::Error>;
 
 fn main() -> anyhow::Result<()> {
-    let args = init_cli()?;
+    let (args, _guard) = init_cli()?;
+    info!(
+        leader = args.leader.to_string(),
+        follower = args.follower.to_string(),
+        working_directory = %args.directory().display(),
+        number_of_nodes = args.number_of_nodes,
+        invalidate_compilation_cache = args.invalidate_compilation_cache,
+        "Differential testing tool has been initialized"
+    );
 
     let body = async {
         for (corpus, tests) in collect_corpora(&args)? {
@@ -79,15 +89,25 @@ fn main() -> anyhow::Result<()> {
         .block_on(body)
 }
 
-fn init_cli() -> anyhow::Result<Arguments> {
+fn init_cli() -> anyhow::Result<(Arguments, WorkerGuard)> {
+    let (writer, guard) = tracing_appender::non_blocking::NonBlockingBuilder::default()
+        .lossy(false)
+        // Assuming that each line contains 255 characters and that each character is one byte, then
+        // this means that our buffer is about 4GBs large.
+        .buffered_lines_limit(0x1000000)
+        .thread_name("buffered writer")
+        .finish(std::io::stdout());
+
     let subscriber = FmtSubscriber::builder()
-        .with_thread_ids(true)
-        .with_thread_names(true)
+        .with_writer(writer)
+        .with_thread_ids(false)
+        .with_thread_names(false)
         .with_env_filter(EnvFilter::from_default_env())
         .with_ansi(false)
         .pretty()
         .finish();
     tracing::subscriber::set_global_default(subscriber)?;
+    info!("Differential testing tool is starting");
 
     let mut args = Arguments::parse();
 
@@ -105,19 +125,25 @@ fn init_cli() -> anyhow::Result<Arguments> {
             args.temp_dir = Some(&TEMP_DIR);
         }
     }
-    tracing::info!("workdir: {}", args.directory().display());
 
-    Ok(args)
+    Ok((args, guard))
 }
 
+#[instrument(level = "debug", name = "Collecting Corpora", skip_all)]
 fn collect_corpora(args: &Arguments) -> anyhow::Result<HashMap<Corpus, Vec<MetadataFile>>> {
     let mut corpora = HashMap::new();
 
     for path in &args.corpus {
+        let span = info_span!("Processing corpus file", path = %path.display());
+        let _guard = span.enter();
+
         let corpus = Corpus::try_from_path(path)?;
-        tracing::info!("found corpus: {}", path.display());
+        info!(
+            name = corpus.name(),
+            number_of_contained_paths = corpus.path_count(),
+            "Deserialized corpus file"
+        );
         let tests = corpus.enumerate_tests();
-        tracing::info!("corpus '{}' contains {} tests", &corpus.name(), tests.len());
         corpora.insert(corpus, tests);
     }
 
@@ -156,7 +182,7 @@ where
     L::Blockchain: revive_dt_node::Node + Send + Sync + 'static,
     F::Blockchain: revive_dt_node::Node + Send + Sync + 'static,
 {
-    let flattened_tests = metadata_files
+    let filtered_tests = metadata_files
         .iter()
         .flat_map(|metadata_file| {
             metadata_file
@@ -165,14 +191,13 @@ where
                 .enumerate()
                 .map(move |(case_idx, case)| (metadata_file, case_idx, case))
         })
+        // Flatten over the modes, prefer the case modes over the metadata file modes.
         .flat_map(|(metadata_file, case_idx, case)| {
-            let modes = match (metadata_file.modes.as_ref(), case.modes.as_ref()) {
-                (Some(_), Some(modes)) | (None, Some(modes)) | (Some(modes), None) => {
-                    ParsedMode::many_to_modes(modes.iter()).collect::<Vec<_>>()
-                }
-                (None, None) => Mode::all().collect(),
-            };
-            modes
+            case.modes
+                .as_ref()
+                .or(metadata_file.modes.as_ref())
+                .map(|modes| ParsedMode::many_to_modes(modes.iter()).collect::<Vec<_>>())
+                .unwrap_or(Mode::all().collect())
                 .into_iter()
                 .map(move |mode| (metadata_file, case_idx, case, mode))
         })
@@ -180,8 +205,8 @@ where
             IndexMap::<_, BTreeMap<_, Vec<_>>>::new(),
             |mut map, (metadata_file, case_idx, case, mode)| {
                 let test = Test {
-                    metadata: &metadata_file.content,
-                    metadata_file_path: metadata_file.path.as_path(),
+                    metadata: metadata_file,
+                    metadata_file_path: metadata_file.metadata_file_path.as_path(),
                     mode: mode.clone(),
                     case_idx: CaseIdx::new(case_idx),
                     case,
@@ -193,18 +218,35 @@ where
                     .push(test);
                 map
             },
-        );
-
-    let filtered_tests = flattened_tests
+        )
         .into_values()
         .flatten()
         .flat_map(|(_, value)| value.into_iter())
+        // Filter the test out if the leader and follower do not support the target.
+        .filter(|test| {
+            let leader_support =
+                <L::Blockchain as Node>::matches_target(test.metadata.targets.as_deref());
+            let follower_support =
+                <F::Blockchain as Node>::matches_target(test.metadata.targets.as_deref());
+            let is_allowed = leader_support && follower_support;
+
+            if !is_allowed {
+                debug!(
+                    file_path = %test.metadata.relative_path().display(),
+                    leader_support,
+                    follower_support,
+                    "Target is not supported, throwing metadata file out"
+                )
+            }
+
+            is_allowed
+        })
         // Filter the test out if the metadata file is ignored.
         .filter(|test| {
             if test.metadata.ignore.is_some_and(|ignore| ignore) {
-                tracing::warn!(
-                    metadata_file_path = %test.metadata_file_path.display(),
-                    "Ignoring test case since the metadata file is ignored"
+                debug!(
+                    file_path = %test.metadata.relative_path().display(),
+                    "Metadata file is ignored, throwing case out"
                 );
                 false
             } else {
@@ -214,9 +256,10 @@ where
         // Filter the test case if the case is ignored.
         .filter(|test| {
             if test.case.ignore.is_some_and(|ignore| ignore) {
-                tracing::warn!(
-                    metadata_file_path = %test.metadata_file_path.display(),
-                    "Ignoring test case since the case file is ignored"
+                debug!(
+                    file_path = %test.metadata.relative_path().display(),
+                    case_idx = %test.case_idx,
+                    "Case is ignored, throwing case out"
                 );
                 false
             } else {
@@ -226,18 +269,19 @@ where
         // Filtering based on the EVM version compatibility
         .filter(|test| {
             if let Some(evm_version_requirement) = test.metadata.required_evm_version {
-                let is_allowed = evm_version_requirement
-                .matches(&<L::Blockchain as revive_dt_node::Node>::evm_version())
-                && evm_version_requirement
+                let leader_compatibility = evm_version_requirement
+                    .matches(&<L::Blockchain as revive_dt_node::Node>::evm_version());
+                let follower_compatibility = evm_version_requirement
                     .matches(&<F::Blockchain as revive_dt_node::Node>::evm_version());
+                let is_allowed = leader_compatibility && follower_compatibility;
 
                 if !is_allowed {
-                    tracing::warn!(
-                        metadata_file_path = %test.metadata_file_path.display(),
-                        leader_evm_version = %<L::Blockchain as revive_dt_node::Node>::evm_version(),
-                        follower_evm_version = %<F::Blockchain as revive_dt_node::Node>::evm_version(),
-                        version_requirement = %evm_version_requirement,
-                        "Skipped test since the EVM version requirement was not fulfilled."
+                    debug!(
+                        file_path = %test.metadata.relative_path().display(),
+                        case_idx = %test.case_idx,
+                        leader_compatibility,
+                        follower_compatibility,
+                        "EVM Version is incompatible, throwing case out"
                     );
                 }
 
@@ -249,31 +293,27 @@ where
 
     stream::iter(filtered_tests)
         // Filter based on the compiler compatibility
-        .filter_map(|test| {
-            let args = args.clone();
+        .filter_map(move |test| async move {
+            let leader_support = does_compiler_support_mode::<L>(args, &test.mode)
+                .await
+                .ok()
+                .unwrap_or(false);
+            let follower_support = does_compiler_support_mode::<F>(args, &test.mode)
+                .await
+                .ok()
+                .unwrap_or(false);
+            let is_allowed = leader_support && follower_support;
 
-            async move {
-                let is_supported = does_compiler_support_mode::<L>(&args, &test.mode)
-                    .await
-                    .ok()
-                    .unwrap_or(false)
-                    && does_compiler_support_mode::<F>(&args, &test.mode)
-                        .await
-                        .ok()
-                        .unwrap_or(false);
-
-                if !is_supported {
-                    tracing::warn!(
-                        metadata_file_path = %test.metadata_file_path.display(),
-                        case_idx = %test.case_idx,
-                        case_name = ?test.case.name,
-                        mode = %test.mode,
-                        "Skipping test as one or both of the compilers don't support it"
-                    );
-                }
-
-                is_supported.then_some(test)
+            if !is_allowed {
+                debug!(
+                    file_path = %test.metadata.relative_path().display(),
+                    leader_support,
+                    follower_support,
+                    "Compilers do not support this, throwing case out"
+                );
             }
+
+            is_allowed.then_some(test)
         })
 }
 
@@ -335,14 +375,6 @@ where
                 let leader_node = leader_nodes.round_robbin();
                 let follower_node = follower_nodes.round_robbin();
 
-                let tracing_span = tracing::span!(
-                    Level::INFO,
-                    "Running driver",
-                    metadata_file_path = %test.metadata_file_path.display(),
-                    case_idx = ?test.case_idx,
-                    solc_mode = ?test.mode,
-                );
-
                 let result = handle_case_driver::<L, F>(
                     test.metadata_file_path,
                     test.metadata,
@@ -355,7 +387,6 @@ where
                     follower_node,
                     span,
                 )
-                .instrument(tracing_span)
                 .await;
 
                 report_tx
@@ -438,9 +469,22 @@ async fn start_reporter_task(mut report_rx: mpsc::UnboundedReceiver<(Test<'_>, C
 }
 
 #[allow(clippy::too_many_arguments)]
+#[instrument(
+    level = "info",
+    name = "Handling Case"
+    skip_all,
+    fields(
+        metadata_file_path = %metadata.relative_path().display(),
+        mode = %mode,
+        %case_idx,
+        case_name = case.name.as_deref().unwrap_or("Unnamed Case"),
+        leader_node = leader_node.id(),
+        follower_node = follower_node.id(),
+    )
+)]
 async fn handle_case_driver<L, F>(
     metadata_file_path: &Path,
-    metadata: &Metadata,
+    metadata: &MetadataFile,
     case_idx: CaseIdx,
     case: &Case,
     mode: Mode,
@@ -476,6 +520,8 @@ where
         .flatten()
         .flat_map(|(_, map)| map.values())
     {
+        debug!(%library_instance, "Deploying Library Instance");
+
         let ContractPathAndIdent {
             contract_source_path: library_source_path,
             contract_ident: library_ident,
@@ -495,24 +541,12 @@ where
         let leader_code = match alloy::hex::decode(leader_code) {
             Ok(code) => code,
             Err(error) => {
-                tracing::error!(
-                    ?error,
-                    contract_source_path = library_source_path.display().to_string(),
-                    contract_ident = library_ident.as_ref(),
-                    "Failed to hex-decode byte code - This could possibly mean that the bytecode requires linking"
-                );
                 anyhow::bail!("Failed to hex-decode the byte code {}", error)
             }
         };
         let follower_code = match alloy::hex::decode(follower_code) {
             Ok(code) => code,
             Err(error) => {
-                tracing::error!(
-                    ?error,
-                    contract_source_path = library_source_path.display().to_string(),
-                    contract_ident = library_ident.as_ref(),
-                    "Failed to hex-decode byte code - This could possibly mean that the bytecode requires linking"
-                );
                 anyhow::bail!("Failed to hex-decode the byte code {}", error)
             }
         };
@@ -542,43 +576,33 @@ where
         let leader_receipt = match leader_node.execute_transaction(leader_tx).await {
             Ok(receipt) => receipt,
             Err(error) => {
-                tracing::error!(
-                    node = std::any::type_name::<L>(),
-                    ?error,
-                    "Contract deployment transaction failed."
-                );
                 return Err(error);
             }
         };
         let follower_receipt = match follower_node.execute_transaction(follower_tx).await {
             Ok(receipt) => receipt,
             Err(error) => {
-                tracing::error!(
-                    node = std::any::type_name::<F>(),
-                    ?error,
-                    "Contract deployment transaction failed."
-                );
                 return Err(error);
             }
         };
 
-        tracing::info!(
+        debug!(
             ?library_instance,
             library_address = ?leader_receipt.contract_address,
             "Deployed library to leader"
         );
-        tracing::info!(
+        debug!(
             ?library_instance,
             library_address = ?follower_receipt.contract_address,
             "Deployed library to follower"
         );
 
-        let Some(leader_library_address) = leader_receipt.contract_address else {
-            anyhow::bail!("Contract deployment didn't return an address");
-        };
-        let Some(follower_library_address) = follower_receipt.contract_address else {
-            anyhow::bail!("Contract deployment didn't return an address");
-        };
+        let leader_library_address = leader_receipt
+            .contract_address
+            .context("Contract deployment didn't return an address")?;
+        let follower_library_address = follower_receipt
+            .contract_address
+            .context("Contract deployment didn't return an address")?;
 
         leader_deployed_libraries.get_or_insert_default().insert(
             library_instance.clone(),
@@ -631,13 +655,15 @@ where
     let mut driver = CaseDriver::<L, F>::new(
         metadata,
         case,
-        case_idx,
         leader_node,
         follower_node,
         leader_state,
         follower_state,
     );
-    driver.execute().await
+    driver
+        .execute()
+        .await
+        .inspect(|steps_executed| info!(steps_executed, "Case succeeded"))
 }
 
 async fn execute_corpus(
@@ -687,7 +713,7 @@ async fn compile_corpus(
                         let _ = cached_compiler
                             .compile_contracts::<Geth>(
                                 metadata,
-                                metadata.path.as_path(),
+                                metadata.metadata_file_path.as_path(),
                                 &mode,
                                 config,
                                 None,
@@ -698,7 +724,7 @@ async fn compile_corpus(
                         let _ = cached_compiler
                             .compile_contracts::<Kitchensink>(
                                 metadata,
-                                metadata.path.as_path(),
+                                metadata.metadata_file_path.as_path(),
                                 &mode,
                                 config,
                                 None,
