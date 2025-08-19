@@ -19,3 +19,6 @@ reqwest = { workspace = true }
 semver = { workspace = true }
 serde = { workspace = true }
 sha2 = { workspace = true }
+
+[lints]
+workspace = true

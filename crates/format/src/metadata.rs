@@ -15,6 +15,7 @@ use revive_dt_common::{
     cached_fs::read_to_string, iterators::FilesWithExtensionIterator, macros::define_wrapper_type,
     types::Mode,
 };
+use tracing::error;
 
 use crate::{case::Case, mode::ParsedMode};
 
@@ -24,16 +25,26 @@ pub const SOLIDITY_CASE_COMMENT_MARKER: &str = "//!";
 
 #[derive(Debug, Default, Deserialize, Clone, Eq, PartialEq)]
 pub struct MetadataFile {
-    pub path: PathBuf,
+    /// The path of the metadata file. This will either be a JSON or solidity file.
+    pub metadata_file_path: PathBuf,
+
+    /// This is the path contained within the corpus file. This could either be the path of some dir
+    /// or could be the actual metadata file path.
+    pub corpus_file_path: PathBuf,
+
+    /// The metadata contained within the file.
     pub content: Metadata,
 }
 
 impl MetadataFile {
-    pub fn try_from_file(path: &Path) -> Option<Self> {
-        Metadata::try_from_file(path).map(|metadata| Self {
-            path: path.to_owned(),
-            content: metadata,
-        })
+    pub fn relative_path(&self) -> &Path {
+        if self.corpus_file_path.is_file() {
+            &self.corpus_file_path
+        } else {
+            self.metadata_file_path
+                .strip_prefix(&self.corpus_file_path)
+                .unwrap()
+        }
     }
 }
 
@@ -145,10 +156,7 @@ impl Metadata {
     pub fn try_from_file(path: &Path) -> Option<Self> {
         assert!(path.is_file(), "not a file: {}", path.display());
 
-        let Some(file_extension) = path.extension() else {
-            tracing::debug!("skipping corpus file: {}", path.display());
-            return None;
-        };
+        let file_extension = path.extension()?;
 
         if file_extension == METADATA_FILE_EXTENSION {
             return Self::try_from_json(path);
@@ -158,18 +166,12 @@ impl Metadata {
             return Self::try_from_solidity(path);
         }
 
-        tracing::debug!("ignoring invalid corpus file: {}", path.display());
         None
     }
 
     fn try_from_json(path: &Path) -> Option<Self> {
         let file = File::open(path)
-            .inspect_err(|error| {
-                tracing::error!(
-                    "opening JSON test metadata file '{}' error: {error}",
-                    path.display()
-                );
-            })
+            .inspect_err(|err| error!(path = %path.display(), %err, "Failed to open file"))
             .ok()?;
 
         match serde_json::from_reader::<_, Metadata>(file) {
@@ -177,11 +179,8 @@ impl Metadata {
                 metadata.file_path = Some(path.to_path_buf());
                 Some(metadata)
             }
-            Err(error) => {
-                tracing::error!(
-                    "parsing JSON test metadata file '{}' error: {error}",
-                    path.display()
-                );
+            Err(err) => {
+                error!(path = %path.display(), %err, "Deserialization of metadata failed");
                 None
             }
         }
@@ -189,12 +188,7 @@ impl Metadata {
 
     fn try_from_solidity(path: &Path) -> Option<Self> {
         let spec = read_to_string(path)
-            .inspect_err(|error| {
-                tracing::error!(
-                    "opening JSON test metadata file '{}' error: {error}",
-                    path.display()
-                );
-            })
+            .inspect_err(|err| error!(path = %path.display(), %err, "Failed to read file content"))
             .ok()?
             .lines()
             .filter_map(|line| line.strip_prefix(SOLIDITY_CASE_COMMENT_MARKER))
@@ -222,11 +216,8 @@ impl Metadata {
                 );
                 Some(metadata)
             }
-            Err(error) => {
-                tracing::error!(
-                    "parsing Solidity test metadata file '{}' error: '{error}' from data: {spec}",
-                    path.display()
-                );
+            Err(err) => {
+                error!(path = %path.display(), %err, "Failed to deserialize metadata");
                 None
             }
         }
@@ -266,7 +257,7 @@ define_wrapper_type!(
         Clone, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,
     )]
     #[serde(transparent)]
-    pub struct ContractInstance(String);
+    pub struct ContractInstance(String) impl Display;
 );
 
 define_wrapper_type!(
@@ -277,7 +268,7 @@ define_wrapper_type!(
         Clone, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,
     )]
     #[serde(transparent)]
-    pub struct ContractIdent(String);
+    pub struct ContractIdent(String) impl Display;
 );
 
 /// Represents an identifier used for contracts.

@@ -3,10 +3,11 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use revive_dt_common::cached_fs::read_dir;
+use revive_dt_common::iterators::FilesWithExtensionIterator;
 use serde::{Deserialize, Serialize};
+use tracing::{debug, info};
 
-use crate::metadata::MetadataFile;
+use crate::metadata::{Metadata, MetadataFile};
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(untagged)]
@@ -18,7 +19,7 @@ pub enum Corpus {
 impl Corpus {
     pub fn try_from_path(file_path: impl AsRef<Path>) -> anyhow::Result<Self> {
         let mut corpus = File::open(file_path.as_ref())
-            .map_err(Into::<anyhow::Error>::into)
+            .map_err(anyhow::Error::from)
             .and_then(|file| serde_json::from_reader::<_, Corpus>(file).map_err(Into::into))?;
 
         for path in corpus.paths_iter_mut() {
@@ -42,10 +43,52 @@ impl Corpus {
     }
 
     pub fn enumerate_tests(&self) -> Vec<MetadataFile> {
-        let mut tests = Vec::new();
-        for path in self.paths_iter() {
-            collect_metadata(path, &mut tests);
-        }
+        let mut tests = self
+            .paths_iter()
+            .flat_map(|root_path| {
+                if !root_path.is_dir() {
+                    Box::new(std::iter::once(root_path.to_path_buf()))
+                        as Box<dyn Iterator<Item = _>>
+                } else {
+                    Box::new(
+                        FilesWithExtensionIterator::new(root_path)
+                            .with_use_cached_fs(true)
+                            .with_allowed_extension("sol")
+                            .with_allowed_extension("json"),
+                    )
+                }
+                .map(move |metadata_file_path| (root_path, metadata_file_path))
+            })
+            .filter_map(|(root_path, metadata_file_path)| {
+                Metadata::try_from_file(&metadata_file_path)
+                    .or_else(|| {
+                        debug!(
+                            discovered_from = %root_path.display(),
+                            metadata_file_path = %metadata_file_path.display(),
+                            "Skipping file since it doesn't contain valid metadata"
+                        );
+                        None
+                    })
+                    .map(|metadata| MetadataFile {
+                        metadata_file_path,
+                        corpus_file_path: root_path.to_path_buf(),
+                        content: metadata,
+                    })
+                    .inspect(|metadata_file| {
+                        debug!(
+                            metadata_file_path = %metadata_file.relative_path().display(),
+                            "Loaded metadata file"
+                        )
+                    })
+            })
+            .collect::<Vec<_>>();
+        tests.sort_by(|a, b| a.metadata_file_path.cmp(&b.metadata_file_path));
+        tests.dedup_by(|a, b| a.metadata_file_path == b.metadata_file_path);
+        info!(
+            len = tests.len(),
+            corpus_name = self.name(),
+            "Found tests in Corpus"
+        );
         tests
     }
 
@@ -76,55 +119,11 @@ impl Corpus {
             }
         }
     }
-}
 
-/// Recursively walks `path` and parses any JSON or Solidity file into a test
-/// definition [Metadata].
-///
-/// Found tests are inserted into `tests`.
-///
-/// `path` is expected to be a directory.
-pub fn collect_metadata(path: &Path, tests: &mut Vec<MetadataFile>) {
-    if path.is_dir() {
-        let dir_entry = match read_dir(path) {
-            Ok(dir_entry) => dir_entry,
-            Err(error) => {
-                tracing::error!("failed to read dir '{}': {error}", path.display());
-                return;
-            }
-        };
-
-        for path in dir_entry {
-            let path = match path {
-                Ok(entry) => entry,
-                Err(error) => {
-                    tracing::error!("error reading dir entry: {error}");
-                    continue;
-                }
-            };
-
-            if path.is_dir() {
-                collect_metadata(&path, tests);
-                continue;
-            }
-
-            if path.is_file() {
-                if let Some(metadata) = MetadataFile::try_from_file(&path) {
-                    tests.push(metadata)
-                }
-            }
-        }
-    } else {
-        let Some(extension) = path.extension() else {
-            tracing::error!("Failed to get file extension");
-            return;
-        };
-        if extension.eq_ignore_ascii_case("sol") || extension.eq_ignore_ascii_case("json") {
-            if let Some(metadata) = MetadataFile::try_from_file(path) {
-                tests.push(metadata)
-            }
-        } else {
-            tracing::error!(?extension, "Unsupported file extension");
+    pub fn path_count(&self) -> usize {
+        match self {
+            Corpus::SinglePath { .. } => 1,
+            Corpus::MultiplePaths { paths, .. } => paths.len(),
         }
     }
 }

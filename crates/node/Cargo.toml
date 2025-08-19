@@ -29,3 +29,6 @@ sp-runtime = { workspace = true }
 [dev-dependencies]
 temp-dir = { workspace = true }
 tokio = { workspace = true }
+
+[lints]
+workspace = true

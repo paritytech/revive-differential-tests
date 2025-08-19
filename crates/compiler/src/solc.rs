@@ -4,8 +4,10 @@
 use std::{
     path::PathBuf,
     process::{Command, Stdio},
+    sync::LazyLock,
 };
 
+use dashmap::DashMap;
 use revive_dt_common::types::VersionOrRequirement;
 use revive_dt_config::Arguments;
 use revive_dt_solc_binaries::download_solc;
@@ -47,7 +49,7 @@ impl SolidityCompiler for Solc {
         }: CompilerInput,
         _: Self::Options,
     ) -> anyhow::Result<CompilerOutput> {
-        let compiler_supports_via_ir = self.version()? >= SOLC_VERSION_SUPPORTING_VIA_YUL_IR;
+        let compiler_supports_via_ir = self.version().await? >= SOLC_VERSION_SUPPORTING_VIA_YUL_IR;
 
         // Be careful to entirely omit the viaIR field if the compiler does not support it,
         // as it will error if you provide fields it does not know about. Because
@@ -209,30 +211,44 @@ impl SolidityCompiler for Solc {
         Ok(path)
     }
 
-    fn version(&self) -> anyhow::Result<semver::Version> {
-        // The following is the parsing code for the version from the solc version strings which
-        // look like the following:
-        // ```
-        // solc, the solidity compiler commandline interface
-        // Version: 0.8.30+commit.73712a01.Darwin.appleclang
-        // ```
+    async fn version(&self) -> anyhow::Result<semver::Version> {
+        /// This is a cache of the path of the compiler to the version number of the compiler. We
+        /// choose to cache the version in this way rather than through a field on the struct since
+        /// compiler objects are being created all the time from the path and the compiler object is
+        /// not reused over time.
+        static VERSION_CACHE: LazyLock<DashMap<PathBuf, Version>> = LazyLock::new(Default::default);
 
-        let child = Command::new(self.solc_path.as_path())
-            .arg("--version")
-            .stdout(Stdio::piped())
-            .spawn()?;
-        let output = child.wait_with_output()?;
-        let output = String::from_utf8_lossy(&output.stdout);
-        let version_line = output
-            .split("Version: ")
-            .nth(1)
-            .context("Version parsing failed")?;
-        let version_string = version_line
-            .split("+")
-            .next()
-            .context("Version parsing failed")?;
+        match VERSION_CACHE.entry(self.solc_path.clone()) {
+            dashmap::Entry::Occupied(occupied_entry) => Ok(occupied_entry.get().clone()),
+            dashmap::Entry::Vacant(vacant_entry) => {
+                // The following is the parsing code for the version from the solc version strings
+                // which look like the following:
+                // ```
+                // solc, the solidity compiler commandline interface
+                // Version: 0.8.30+commit.73712a01.Darwin.appleclang
+                // ```
+                let child = Command::new(self.solc_path.as_path())
+                    .arg("--version")
+                    .stdout(Stdio::piped())
+                    .spawn()?;
+                let output = child.wait_with_output()?;
+                let output = String::from_utf8_lossy(&output.stdout);
+                let version_line = output
+                    .split("Version: ")
+                    .nth(1)
+                    .context("Version parsing failed")?;
+                let version_string = version_line
+                    .split("+")
+                    .next()
+                    .context("Version parsing failed")?;
 
-        Version::parse(version_string).map_err(Into::into)
+                let version = Version::parse(version_string)?;
+
+                vacant_entry.insert(version.clone());
+
+                Ok(version)
+            }
+        }
     }
 
     fn supports_mode(
@@ -256,15 +272,13 @@ mod test {
     async fn compiler_version_can_be_obtained() {
         // Arrange
         let args = Arguments::default();
-        println!("Getting compiler path");
         let path = Solc::get_compiler_executable(&args, Version::new(0, 7, 6))
             .await
             .unwrap();
-        println!("Got compiler path");
         let compiler = Solc::new(path);
 
         // Act
-        let version = compiler.version();
+        let version = compiler.version().await;
 
         // Assert
         assert_eq!(
@@ -277,15 +291,13 @@ mod test {
     async fn compiler_version_can_be_obtained1() {
         // Arrange
         let args = Arguments::default();
-        println!("Getting compiler path");
         let path = Solc::get_compiler_executable(&args, Version::new(0, 4, 21))
             .await
             .unwrap();
-        println!("Got compiler path");
         let compiler = Solc::new(path);
 
         // Act
-        let version = compiler.version();
+        let version = compiler.version().await;
 
         // Assert
         assert_eq!(

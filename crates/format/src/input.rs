@@ -2,7 +2,6 @@ use std::collections::HashMap;
 
 use alloy::{
     eips::BlockNumberOrTag,
-    hex::ToHexExt,
     json_abi::Function,
     network::TransactionBuilder,
     primitives::{Address, Bytes, U256},
@@ -10,10 +9,12 @@ use alloy::{
 };
 use alloy_primitives::{FixedBytes, utils::parse_units};
 use anyhow::Context;
+use futures::{FutureExt, StreamExt, TryFutureExt, TryStreamExt, stream};
 use semver::VersionReq;
 use serde::{Deserialize, Serialize};
 
 use revive_dt_common::macros::define_wrapper_type;
+use tracing::{Instrument, info_span, instrument};
 
 use crate::traits::ResolverApi;
 use crate::{metadata::ContractInstance, traits::ResolutionContext};
@@ -32,6 +33,11 @@ pub enum Step {
     /// A step for asserting that the storage of some contract or account is empty.
     StorageEmptyAssertion(Box<StorageEmptyAssertion>),
 }
+
+define_wrapper_type!(
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+    pub struct StepIdx(usize) impl Display;
+);
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, Eq, PartialEq)]
 pub struct Input {
@@ -188,7 +194,7 @@ define_wrapper_type! {
     /// This represents an item in the [`Calldata::Compound`] variant.
     #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
     #[serde(transparent)]
-    pub struct CalldataItem(String);
+    pub struct CalldataItem(String) impl Display;
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
@@ -233,7 +239,7 @@ pub enum Method {
 
 define_wrapper_type!(
     #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
-    pub struct EtherValue(U256);
+    pub struct EtherValue(U256) impl Display;
 );
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, Eq, PartialEq)]
@@ -268,14 +274,8 @@ impl Input {
             }
             Method::FunctionName(ref function_name) => {
                 let Some(abi) = context.deployed_contract_abi(&self.instance) else {
-                    tracing::error!(
-                        contract_name = self.instance.as_ref(),
-                        "Attempted to lookup ABI of contract but it wasn't found"
-                    );
                     anyhow::bail!("ABI for instance '{}' not found", self.instance.as_ref());
                 };
-
-                tracing::trace!("ABI found for instance: {}", &self.instance.as_ref());
 
                 // We follow the same logic that's implemented in the matter-labs-tester where they resolve
                 // the function name into a function selector and they assume that he function doesn't have
@@ -301,13 +301,6 @@ impl Input {
                         })?
                         .selector()
                 };
-
-                tracing::trace!("Functions found for instance: {}", self.instance.as_ref());
-
-                tracing::trace!(
-                    "Starting encoding ABI's parameters for instance: {}",
-                    self.instance.as_ref()
-                );
 
                 // Allocating a vector that we will be using for the calldata. The vector size will be:
                 // 4 bytes for the function selector.
@@ -435,17 +428,18 @@ impl Calldata {
                 buffer.extend_from_slice(bytes);
             }
             Calldata::Compound(items) => {
-                for (arg_idx, arg) in items.iter().enumerate() {
-                    match arg.resolve(resolver, context).await {
-                        Ok(resolved) => {
-                            buffer.extend(resolved.to_be_bytes::<32>());
-                        }
-                        Err(error) => {
-                            tracing::error!(?arg, arg_idx, ?error, "Failed to resolve argument");
-                            return Err(error);
-                        }
-                    };
-                }
+                let resolved = stream::iter(items.iter().enumerate())
+                    .map(|(arg_idx, arg)| async move {
+                        arg.resolve(resolver, context)
+                            .instrument(info_span!("Resolving argument", %arg, arg_idx))
+                            .map_ok(|value| value.to_be_bytes::<32>())
+                            .await
+                    })
+                    .buffered(0xFF)
+                    .try_collect::<Vec<_>>()
+                    .await?;
+
+                buffer.extend(resolved.into_iter().flatten());
             }
         };
         Ok(())
@@ -468,36 +462,37 @@ impl Calldata {
         match self {
             Calldata::Single(calldata) => Ok(calldata == other),
             Calldata::Compound(items) => {
-                // Chunking the "other" calldata into 32 byte chunks since each
-                // one of the items in the compound calldata represents 32 bytes
-                for (this, other) in items.iter().zip(other.chunks(32)) {
-                    // The matterlabs format supports wildcards and therefore we
-                    // also need to support them.
-                    if this.as_ref() == "*" {
-                        continue;
-                    }
+                stream::iter(items.iter().zip(other.chunks(32)))
+                    .map(|(this, other)| async move {
+                        // The matterlabs format supports wildcards and therefore we
+                        // also need to support them.
+                        if this.as_ref() == "*" {
+                            return Ok::<_, anyhow::Error>(true);
+                        }
 
-                    let other = if other.len() < 32 {
-                        let mut vec = other.to_vec();
-                        vec.resize(32, 0);
-                        std::borrow::Cow::Owned(vec)
-                    } else {
-                        std::borrow::Cow::Borrowed(other)
-                    };
+                        let other = if other.len() < 32 {
+                            let mut vec = other.to_vec();
+                            vec.resize(32, 0);
+                            std::borrow::Cow::Owned(vec)
+                        } else {
+                            std::borrow::Cow::Borrowed(other)
+                        };
 
-                    let this = this.resolve(resolver, context).await?;
-                    let other = U256::from_be_slice(&other);
-                    if this != other {
-                        return Ok(false);
-                    }
-                }
-                Ok(true)
+                        let this = this.resolve(resolver, context).await?;
+                        let other = U256::from_be_slice(&other);
+                        Ok(this == other)
+                    })
+                    .buffered(0xFF)
+                    .all(|v| async move { v.is_ok_and(|v| v) })
+                    .map(Ok)
+                    .await
             }
         }
     }
 }
 
 impl CalldataItem {
+    #[instrument(level = "info", skip_all, err)]
     async fn resolve(
         &self,
         resolver: &impl ResolverApi,
@@ -548,14 +543,7 @@ impl CalldataItem {
         match stack.as_slice() {
             // Empty stack means that we got an empty compound calldata which we resolve to zero.
             [] => Ok(U256::ZERO),
-            [CalldataToken::Item(item)] => {
-                tracing::debug!(
-                    original = self.0,
-                    resolved = item.to_be_bytes::<32>().encode_hex(),
-                    "Resolved a Calldata item"
-                );
-                Ok(*item)
-            }
+            [CalldataToken::Item(item)] => Ok(*item),
             _ => Err(anyhow::anyhow!(
                 "Invalid calldata arithmetic operation - Invalid stack"
             )),

@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use revive_dt_common::macros::define_wrapper_type;
+use revive_dt_common::{macros::define_wrapper_type, types::Mode};
 
 use crate::{
     input::{Expected, Step},
@@ -60,16 +60,17 @@ impl Case {
                 }
             })
     }
+
+    pub fn solc_modes(&self) -> Vec<Mode> {
+        match &self.modes {
+            Some(modes) => ParsedMode::many_to_modes(modes.iter()).collect(),
+            None => Mode::all().collect(),
+        }
+    }
 }
 
 define_wrapper_type!(
     /// A wrapper type for the index of test cases found in metadata file.
     #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-    pub struct CaseIdx(usize);
+    pub struct CaseIdx(usize) impl Display;
 );
-
-impl std::fmt::Display for CaseIdx {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
