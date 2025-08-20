@@ -11,7 +11,6 @@ rust-version.workspace = true
 [dependencies]
 anyhow = { workspace = true }
 alloy = { workspace = true }
-alloy-transport = { workspace = true }
 tracing = { workspace = true }
 tokio = { workspace = true }
 
