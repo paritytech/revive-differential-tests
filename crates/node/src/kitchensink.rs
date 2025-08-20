@@ -27,13 +27,17 @@ use alloy::{
         ext::DebugApi,
         fillers::{CachedNonceManager, ChainIdFiller, FillProvider, NonceFiller, TxFiller},
     },
-    rpc::types::{
-        EIP1186AccountProofResponse, TransactionReceipt,
-        eth::{Block, Header, Transaction},
-        trace::geth::{DiffMode, GethDebugTracingOptions, PreStateConfig, PreStateFrame},
+    rpc::{
+        client::ClientBuilder,
+        types::{
+            EIP1186AccountProofResponse, TransactionReceipt,
+            eth::{Block, Header, Transaction},
+            trace::geth::{DiffMode, GethDebugTracingOptions, PreStateConfig, PreStateFrame},
+        },
     },
     signers::local::PrivateKeySigner,
 };
+use alloy_transport::layers::ThrottleLayer;
 use anyhow::Context;
 use revive_common::EVMVersion;
 use revive_dt_common::fs::clear_directory;
@@ -63,6 +67,7 @@ pub struct KitchensinkNode {
     wallet: Arc<EthereumWallet>,
     nonce_manager: CachedNonceManager,
     chain_id_filler: ChainIdFiller,
+    throttle: ThrottleLayer,
     /// This vector stores [`File`] objects that we use for logging which we want to flush when the
     /// node object is dropped. We do not store them in a structured fashion at the moment (in
     /// separate fields) as the logic that we need to apply to them is all the same regardless of
@@ -341,7 +346,14 @@ impl KitchensinkNode {
             KitchenSinkNetwork,
         >,
     > {
-        ProviderBuilder::new()
+        let client = ClientBuilder::default()
+            .layer(ThrottleLayer {
+                throttle: self.throttle.throttle.clone(),
+            })
+            .connect(&self.rpc_url)
+            .await?;
+
+        Ok(ProviderBuilder::new()
             .disable_recommended_fillers()
             .network::<KitchenSinkNetwork>()
             .filler(FallbackGasFiller::new(
@@ -352,9 +364,7 @@ impl KitchensinkNode {
             .filler(self.chain_id_filler.clone())
             .filler(NonceFiller::new(self.nonce_manager.clone()))
             .wallet(self.wallet.clone())
-            .connect(&self.rpc_url)
-            .await
-            .map_err(Into::into)
+            .connect_client(client))
     }
 }
 
@@ -538,6 +548,7 @@ impl Node for KitchensinkNode {
             wallet: Arc::new(wallet),
             chain_id_filler: Default::default(),
             nonce_manager: Default::default(),
+            throttle: ThrottleLayer::new(250),
             // We know that we only need to be storing 4 files so we can specify that when creating
             // the vector. It's the stdout and stderr of the substrate-node and the eth-rpc.
             logs_file_to_flush: Vec::with_capacity(4),
