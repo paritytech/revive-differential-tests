@@ -23,6 +23,8 @@ use tokio::{io::AsyncWriteExt, process::Command as AsyncCommand};
 
 #[derive(Debug)]
 pub struct Solc {
+    // Enable wasm compilation.
+    wasm: bool,
     // Where to cache artifacts.
     cache_directory: PathBuf,
     // We'll use this version when no explicit version requirement
@@ -37,7 +39,6 @@ impl SolidityCompiler for Solc {
     async fn build(
         &self,
         CompilerInput {
-            wasm,
             pipeline,
             optimization,
             solc_version,
@@ -53,7 +54,7 @@ impl SolidityCompiler for Solc {
         let solc_version = solc_version
             .unwrap_or_else(|| VersionOrRequirement::version_to_requirement(&self.solc_version));
         let solc_path =
-            revive_dt_solc_binaries::download_solc(&self.cache_directory, solc_version, wasm)
+            revive_dt_solc_binaries::download_solc(&self.cache_directory, solc_version, self.wasm)
                 .await?;
         let compiler_supports_via_ir =
             utils::solc_version(&solc_path).await? >= SOLC_VERSION_SUPPORTING_VIA_YUL_IR;
@@ -208,6 +209,7 @@ impl SolidityCompiler for Solc {
 
     fn new(config: &Arguments) -> Self {
         Self {
+            wasm: config.wasm,
             cache_directory: config.directory().to_path_buf(),
             solc_version: config.solc.clone(),
         }

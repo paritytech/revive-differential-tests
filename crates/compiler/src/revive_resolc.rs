@@ -23,6 +23,8 @@ use tokio::{io::AsyncWriteExt, process::Command as AsyncCommand};
 /// A wrapper around the `resolc` binary, emitting PVM-compatible bytecode.
 #[derive(Debug)]
 pub struct Resolc {
+    // Enable wasm compilation.
+    wasm: bool,
     // Where to cache artifacts.
     cache_directory: PathBuf,
     // We'll use this version when no explicit version
@@ -39,7 +41,6 @@ impl SolidityCompiler for Resolc {
     async fn build(
         &self,
         CompilerInput {
-            wasm,
             pipeline,
             optimization,
             solc_version,
@@ -62,9 +63,12 @@ impl SolidityCompiler for Resolc {
 
         let solc_version_req = solc_version
             .unwrap_or_else(|| VersionOrRequirement::version_to_requirement(&self.solc_version));
-        let solc_path =
-            revive_dt_solc_binaries::download_solc(&self.cache_directory, solc_version_req, wasm)
-                .await?;
+        let solc_path = revive_dt_solc_binaries::download_solc(
+            &self.cache_directory,
+            solc_version_req,
+            self.wasm,
+        )
+        .await?;
         let solc_version = utils::solc_version(&solc_path).await?;
 
         if solc_version < SOLC_VERSION_SUPPORTING_VIA_YUL_IR {
@@ -222,6 +226,7 @@ impl SolidityCompiler for Resolc {
 
     fn new(config: &Arguments) -> Self {
         Resolc {
+            wasm: config.wasm,
             cache_directory: config.directory().to_path_buf(),
             solc_version: config.solc.clone(),
             resolc_path: config.resolc.clone(),

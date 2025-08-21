@@ -50,7 +50,6 @@ pub trait SolidityCompiler {
 /// The generic compilation input configuration.
 #[derive(Debug, Clone, Serialize)]
 pub struct CompilerInput {
-    pub wasm: bool,
     pub pipeline: Option<ModePipeline>,
     pub optimization: Option<ModeOptimizerSetting>,
     pub solc_version: Option<VersionReq>,
@@ -76,6 +75,12 @@ pub struct Compiler<T: SolidityCompiler> {
     additional_options: T::Options,
 }
 
+impl Default for Compiler<solc::Solc> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<T> Compiler<T>
 where
     T: SolidityCompiler,
@@ -83,7 +88,6 @@ where
     pub fn new() -> Self {
         Self {
             input: CompilerInput {
-                wasm: Default::default(),
                 pipeline: Default::default(),
                 optimization: Default::default(),
                 solc_version: Default::default(),
@@ -96,11 +100,6 @@ where
             },
             additional_options: T::Options::default(),
         }
-    }
-
-    pub fn with_wasm(mut self, value: bool) -> Self {
-        self.input.wasm = value;
-        self
     }
 
     pub fn with_solc_version_req(mut self, value: impl Into<Option<VersionReq>>) -> Self {
@@ -183,15 +182,6 @@ where
 
     pub fn input(&self) -> CompilerInput {
         self.input.clone()
-    }
-}
-
-impl<T> Default for Compiler<T>
-where
-    T: SolidityCompiler,
-{
-    fn default() -> Self {
-        Self::new()
     }
 }
 
