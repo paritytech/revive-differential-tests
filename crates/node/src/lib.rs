@@ -15,6 +15,9 @@ pub const GENESIS_JSON: &str = include_str!("../../../genesis.json");
 
 /// An abstract interface for testing nodes.
 pub trait Node: EthereumNode {
+    /// The name of the node implementation.
+    fn name() -> &'static str;
+
     /// Create a new uninitialized instance.
     fn new(config: &Arguments) -> Self;
 

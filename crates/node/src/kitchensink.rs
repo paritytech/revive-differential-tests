@@ -105,7 +105,11 @@ impl KitchensinkNode {
             .arg("export-chain-spec")
             .arg("--chain")
             .arg("dev")
-            .output()?;
+            .output()
+            .context(format!(
+                "Failed to export chain spec with {}",
+                self.substrate_binary.display()
+            ))?;
 
         if !output.status.success() {
             anyhow::bail!(
@@ -515,6 +519,10 @@ impl ResolverApi for KitchensinkNode {
 }
 
 impl Node for KitchensinkNode {
+    fn name() -> &'static str {
+        "kitchensink"
+    }
+
     fn new(config: &Arguments) -> Self {
         let kitchensink_directory = config.directory().join(Self::BASE_DIRECTORY);
         let id = NODE_COUNT.fetch_add(1, Ordering::SeqCst);

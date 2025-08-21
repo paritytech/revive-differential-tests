@@ -14,9 +14,8 @@ NC='\033[0m' # No Color
 # Configuration
 TEST_REPO_URL="https://github.com/paritytech/resolc-compiler-tests"
 TEST_REPO_DIR="resolc-compiler-tests"
-CORPUS_FILE="corpus.json"
+CORPUS_FILE="./corpus.json"
 WORKDIR="workdir"
-NUMBER_OF_NODES=5
 
 echo -e "${GREEN}=== Revive Differential Tests Quick Start ===${NC}"
 echo ""
@@ -34,7 +33,8 @@ fi
 
 # Create corpus file with absolute path resolved at runtime
 echo -e "${GREEN}Creating corpus file...${NC}"
-ABSOLUTE_PATH=$(realpath "$TEST_REPO_DIR/fixtures/solidity")
+ABSOLUTE_PATH=$(realpath "$TEST_REPO_DIR/fixtures/solidity/simple/yul_instructions/codesize.sol")
+
 cat > "$CORPUS_FILE" << EOF
 {
   "name": "MatterLabs Solidity Simple, Complex, and Semantic Tests",
@@ -48,17 +48,14 @@ echo -e "${GREEN}Corpus file created: $CORPUS_FILE${NC}"
 mkdir -p "$WORKDIR"
 
 echo -e "${GREEN}Starting differential tests...${NC}"
-echo "This may take a while. Logs will be saved to logs.log and output.log"
+echo "This may take a while..."
 echo ""
 
 # Run the tool
-RUST_LOG="info" cargo run --release -- \
+RUST_LOG="error" cargo run --release -- \
+    --kitchensink "$(realpath ~/polkadot-sdk/target/debug/substrate-node)" \
+    --eth_proxy "$(realpath ~/polkadot-sdk/target/debug/eth-rpc)" \
     --corpus "$CORPUS_FILE" \
     --workdir "$WORKDIR" \
-    --number-of-nodes "$NUMBER_OF_NODES" \
-    > logs.log \
-    2> output.log
 
 echo -e "${GREEN}=== Test run completed! ===${NC}"
-echo -e "Check ${GREEN}output.log${NC} for test results"
-echo -e "Check ${GREEN}logs.log${NC} for detailed execution logs"

@@ -499,6 +499,10 @@ impl ResolverApi for GethNode {
 }
 
 impl Node for GethNode {
+    fn name() -> &'static str {
+        "geth"
+    }
+
     fn new(config: &Arguments) -> Self {
         let geth_directory = config.directory().join(Self::BASE_DIRECTORY);
         let id = NODE_COUNT.fetch_add(1, Ordering::SeqCst);
