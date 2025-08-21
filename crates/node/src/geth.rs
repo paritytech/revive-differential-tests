@@ -605,7 +605,7 @@ impl Drop for GethNode {
 mod tests {
     use revive_dt_config::Arguments;
 
-    use temp_dir::TempDir;
+    use tempfile::TempDir;
 
     use crate::{GENESIS_JSON, Node};
 

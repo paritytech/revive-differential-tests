@@ -4492,6 +4492,7 @@ dependencies = [
  "semver 1.0.26",
  "serde",
  "serde_json",
+ "tempfile",
  "tokio",
  "tracing",
 ]
@@ -4504,7 +4505,7 @@ dependencies = [
  "clap",
  "semver 1.0.26",
  "serde",
- "temp-dir",
+ "tempfile",
 ]
 
 [[package]]
@@ -4530,7 +4531,6 @@ dependencies = [
  "semver 1.0.26",
  "serde",
  "serde_json",
- "temp-dir",
  "tempfile",
  "tokio",
  "tracing",
@@ -4572,7 +4572,7 @@ dependencies = [
  "serde_json",
  "sp-core",
  "sp-runtime",
- "temp-dir",
+ "tempfile",
  "tokio",
  "tracing",
 ]
@@ -5785,12 +5785,6 @@ name = "tap"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "55937e1799185b12863d447f42597ed69d9928686b8d88a1df17376a097d8369"
-
-[[package]]
-name = "temp-dir"
-version = "0.1.16"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "83176759e9416cf81ee66cb6508dbfe9c96f20b8b56265a39917551c23c70964"
 
 [[package]]
 name = "tempfile"

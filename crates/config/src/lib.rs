@@ -10,7 +10,7 @@ use alloy::{network::EthereumWallet, signers::local::PrivateKeySigner};
 use clap::{Parser, ValueEnum};
 use semver::Version;
 use serde::{Deserialize, Serialize};
-use temp_dir::TempDir;
+use tempfile::TempDir;
 
 #[derive(Debug, Parser, Clone, Serialize, Deserialize)]
 #[command(name = "retester")]

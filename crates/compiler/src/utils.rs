@@ -48,3 +48,28 @@ pub async fn solc_version(solc_path: &Path) -> anyhow::Result<semver::Version> {
         }
     }
 }
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use revive_dt_common::types::VersionOrRequirement;
+
+    #[tokio::test]
+    async fn compiler_version_can_be_obtained() {
+        // Arrange
+        let temp_dir = tempfile::tempdir().expect("can create tempdir");
+        let solc_path = revive_dt_solc_binaries::download_solc(
+            temp_dir.path(),
+            VersionOrRequirement::default(),
+            false,
+        )
+        .await
+        .expect("can download solc");
+
+        // Act
+        let version = solc_version(&solc_path).await;
+
+        // Assert
+        let _ = version.expect("Failed to get version");
+    }
+}

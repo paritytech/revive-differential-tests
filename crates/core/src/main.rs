@@ -18,7 +18,7 @@ use futures::StreamExt;
 use futures::stream;
 use indexmap::IndexMap;
 use revive_dt_node_interaction::EthereumNode;
-use temp_dir::TempDir;
+use tempfile::TempDir;
 use tokio::{sync::mpsc, try_join};
 use tracing::{debug, info, info_span, instrument};
 use tracing_appender::non_blocking::WorkerGuard;
