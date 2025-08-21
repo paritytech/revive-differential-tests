@@ -14,8 +14,8 @@ use alloy::{
 };
 use anyhow::Context;
 use clap::Parser;
+use futures::StreamExt;
 use futures::stream;
-use futures::{Stream, StreamExt};
 use indexmap::IndexMap;
 use revive_dt_node_interaction::EthereumNode;
 use temp_dir::TempDir;
@@ -163,7 +163,7 @@ where
 {
     let (report_tx, report_rx) = mpsc::unbounded_channel::<(Test<'_>, CaseResult)>();
 
-    let tests = prepare_tests::<L, F>(args, metadata_files);
+    let tests = prepare_tests::<L, F>(metadata_files);
     let driver_task = start_driver_task::<L, F>(args, tests, span, report_tx).await?;
     let status_reporter_task = start_reporter_task(report_rx);
 
@@ -172,17 +172,14 @@ where
     Ok(())
 }
 
-fn prepare_tests<'a, L, F>(
-    args: &Arguments,
-    metadata_files: &'a [MetadataFile],
-) -> impl Stream<Item = Test<'a>>
+fn prepare_tests<'a, L, F>(metadata_files: &'a [MetadataFile]) -> impl Iterator<Item = Test<'a>>
 where
     L: Platform,
     F: Platform,
     L::Blockchain: revive_dt_node::Node + Send + Sync + 'static,
     F::Blockchain: revive_dt_node::Node + Send + Sync + 'static,
 {
-    let filtered_tests = metadata_files
+    metadata_files
         .iter()
         .flat_map(|metadata_file| {
             metadata_file
@@ -289,19 +286,12 @@ where
             } else {
                 true
             }
-        });
-
-    stream::iter(filtered_tests)
-        // Filter based on the compiler compatibility
-        .filter_map(move |test| async move {
-            let leader_support = does_compiler_support_mode::<L>(args, &test.mode)
-                .await
-                .ok()
-                .unwrap_or(false);
-            let follower_support = does_compiler_support_mode::<F>(args, &test.mode)
-                .await
-                .ok()
-                .unwrap_or(false);
+        })
+        .filter_map(move |test| {
+            let leader_support =
+                L::Compiler::supports_mode(test.mode.optimize_setting, test.mode.pipeline);
+            let follower_support =
+                F::Compiler::supports_mode(test.mode.optimize_setting, test.mode.pipeline);
             let is_allowed = leader_support && follower_support;
 
             if !is_allowed {
@@ -317,25 +307,9 @@ where
         })
 }
 
-async fn does_compiler_support_mode<P: Platform>(
-    args: &Arguments,
-    mode: &Mode,
-) -> anyhow::Result<bool> {
-    let compiler_version_or_requirement = mode.compiler_version_to_use(args.solc.clone());
-    let compiler_path =
-        P::Compiler::get_compiler_executable(args, compiler_version_or_requirement).await?;
-    let compiler_version = P::Compiler::new(compiler_path.clone()).version().await?;
-
-    Ok(P::Compiler::supports_mode(
-        &compiler_version,
-        mode.optimize_setting,
-        mode.pipeline,
-    ))
-}
-
 async fn start_driver_task<'a, L, F>(
     args: &Arguments,
-    tests: impl Stream<Item = Test<'a>>,
+    tests: impl Iterator<Item = Test<'a>>,
     span: Span,
     report_tx: mpsc::UnboundedSender<(Test<'a>, CaseResult)>,
 ) -> anyhow::Result<impl Future<Output = ()>>
@@ -356,7 +330,7 @@ where
         .await?,
     );
 
-    Ok(tests.for_each_concurrent(
+    Ok(stream::iter(tests).for_each_concurrent(
         // We want to limit the concurrent tasks here because:
         //
         // 1. We don't want to overwhelm the nodes with too many requests, leading to responses timing out.

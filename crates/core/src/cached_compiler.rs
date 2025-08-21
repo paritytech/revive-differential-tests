@@ -9,9 +9,10 @@ use std::{
 
 use futures::FutureExt;
 use revive_dt_common::iterators::FilesWithExtensionIterator;
-use revive_dt_compiler::{Compiler, CompilerOutput, Mode, SolidityCompiler};
+use revive_dt_compiler::{Compiler, CompilerOutput, Mode};
 use revive_dt_config::Arguments;
 use revive_dt_format::metadata::{ContractIdent, ContractInstance, Metadata};
+use revive_dt_solc_binaries::solc_version;
 
 use alloy::{hex::ToHexExt, json_abi::JsonAbi, primitives::Address};
 use anyhow::{Error, Result};
@@ -57,14 +58,7 @@ impl CachedCompiler {
             Lazy::new(Default::default);
 
         let compiler_version_or_requirement = mode.compiler_version_to_use(config.solc.clone());
-        let compiler_path = <P::Compiler as SolidityCompiler>::get_compiler_executable(
-            config,
-            compiler_version_or_requirement,
-        )
-        .await?;
-        let compiler_version = <P::Compiler as SolidityCompiler>::new(compiler_path.clone())
-            .version()
-            .await?;
+        let compiler_version = solc_version(compiler_version_or_requirement, config.wasm).await?;
 
         let cache_key = CacheKey {
             platform_key: P::config_id().to_string(),
@@ -77,8 +71,8 @@ impl CachedCompiler {
             async move {
                 compile_contracts::<P>(
                     metadata.directory()?,
-                    compiler_path,
                     metadata.files_to_compile()?,
+                    config,
                     mode,
                     deployed_libraries,
                 )
@@ -138,8 +132,8 @@ impl CachedCompiler {
 
 async fn compile_contracts<P: Platform>(
     metadata_directory: impl AsRef<Path>,
-    compiler_path: impl AsRef<Path>,
     mut files_to_compile: impl Iterator<Item = PathBuf>,
+    config: &Arguments,
     mode: &Mode,
     deployed_libraries: Option<&HashMap<ContractInstance, (ContractIdent, Address, JsonAbi)>>,
 ) -> Result<CompilerOutput> {
@@ -149,6 +143,7 @@ async fn compile_contracts<P: Platform>(
         .collect::<Vec<_>>();
 
     Compiler::<P::Compiler>::new()
+        .with_solc_version_req(mode.version.clone())
         .with_allow_path(metadata_directory)
         // Handling the modes
         .with_optimization(mode.optimize_setting)
@@ -172,7 +167,7 @@ async fn compile_contracts<P: Platform>(
                     compiler.with_library(path, ident.as_str(), *address)
                 })
         })
-        .try_build(compiler_path)
+        .try_build(config)
         .await
 }
 

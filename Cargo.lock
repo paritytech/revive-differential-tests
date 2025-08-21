@@ -4526,6 +4526,7 @@ dependencies = [
  "revive-dt-node",
  "revive-dt-node-interaction",
  "revive-dt-report",
+ "revive-dt-solc-binaries",
  "semver 1.0.26",
  "serde",
  "serde_json",

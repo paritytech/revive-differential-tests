@@ -4,6 +4,7 @@
 //! - Polkadot revive Wasm compiler
 
 mod constants;
+mod utils;
 
 use std::{
     collections::HashMap,
@@ -13,12 +14,11 @@ use std::{
 
 use alloy::json_abi::JsonAbi;
 use alloy_primitives::Address;
-use semver::Version;
+use semver::VersionReq;
 use serde::{Deserialize, Serialize};
 
 use revive_common::EVMVersion;
 use revive_dt_common::cached_fs::read_to_string;
-use revive_dt_common::types::VersionOrRequirement;
 use revive_dt_config::Arguments;
 
 // Re-export this as it's a part of the compiler interface.
@@ -40,28 +40,20 @@ pub trait SolidityCompiler {
         additional_options: Self::Options,
     ) -> impl Future<Output = anyhow::Result<CompilerOutput>>;
 
-    fn new(solc_executable: PathBuf) -> Self;
-
-    fn get_compiler_executable(
-        config: &Arguments,
-        version: impl Into<VersionOrRequirement>,
-    ) -> impl Future<Output = anyhow::Result<PathBuf>>;
-
-    fn version(&self) -> impl Future<Output = anyhow::Result<Version>>;
+    /// Instantiate a new compiler.
+    fn new(config: &Arguments) -> Self;
 
     /// Does the compiler support the provided mode and version settings?
-    fn supports_mode(
-        compiler_version: &Version,
-        optimize_setting: ModeOptimizerSetting,
-        pipeline: ModePipeline,
-    ) -> bool;
+    fn supports_mode(optimize_setting: ModeOptimizerSetting, pipeline: ModePipeline) -> bool;
 }
 
 /// The generic compilation input configuration.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct CompilerInput {
+    pub wasm: bool,
     pub pipeline: Option<ModePipeline>,
     pub optimization: Option<ModeOptimizerSetting>,
+    pub solc_version: Option<VersionReq>,
     pub evm_version: Option<EVMVersion>,
     pub allow_paths: Vec<PathBuf>,
     pub base_path: Option<PathBuf>,
@@ -84,12 +76,6 @@ pub struct Compiler<T: SolidityCompiler> {
     additional_options: T::Options,
 }
 
-impl Default for Compiler<solc::Solc> {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl<T> Compiler<T>
 where
     T: SolidityCompiler,
@@ -97,8 +83,10 @@ where
     pub fn new() -> Self {
         Self {
             input: CompilerInput {
+                wasm: Default::default(),
                 pipeline: Default::default(),
                 optimization: Default::default(),
+                solc_version: Default::default(),
                 evm_version: Default::default(),
                 allow_paths: Default::default(),
                 base_path: Default::default(),
@@ -108,6 +96,16 @@ where
             },
             additional_options: T::Options::default(),
         }
+    }
+
+    pub fn with_wasm(mut self, value: bool) -> Self {
+        self.input.wasm = value;
+        self
+    }
+
+    pub fn with_solc_version_req(mut self, value: impl Into<Option<VersionReq>>) -> Self {
+        self.input.solc_version = value.into();
+        self
     }
 
     pub fn with_optimization(mut self, value: impl Into<Option<ModeOptimizerSetting>>) -> Self {
@@ -177,17 +175,23 @@ where
         callback(self)
     }
 
-    pub async fn try_build(
-        self,
-        compiler_path: impl AsRef<Path>,
-    ) -> anyhow::Result<CompilerOutput> {
-        T::new(compiler_path.as_ref().to_path_buf())
+    pub async fn try_build(self, config: &Arguments) -> anyhow::Result<CompilerOutput> {
+        T::new(config)
             .build(self.input, self.additional_options)
             .await
     }
 
     pub fn input(&self) -> CompilerInput {
         self.input.clone()
+    }
+}
+
+impl<T> Default for Compiler<T>
+where
+    T: SolidityCompiler,
+{
+    fn default() -> Self {
+        Self::new()
     }
 }
 

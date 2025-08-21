@@ -1,13 +1,8 @@
 //! Implements the [SolidityCompiler] trait with `resolc` for
 //! compiling contracts to PolkaVM (PVM) bytecode.
 
-use std::{
-    path::PathBuf,
-    process::{Command, Stdio},
-    sync::LazyLock,
-};
+use std::{path::PathBuf, process::Stdio};
 
-use dashmap::DashMap;
 use revive_dt_common::types::VersionOrRequirement;
 use revive_dt_config::Arguments;
 use revive_solc_json_interface::{
@@ -17,6 +12,7 @@ use revive_solc_json_interface::{
 };
 
 use super::constants::SOLC_VERSION_SUPPORTING_VIA_YUL_IR;
+use super::utils;
 use crate::{CompilerInput, CompilerOutput, ModeOptimizerSetting, ModePipeline, SolidityCompiler};
 
 use alloy::json_abi::JsonAbi;
@@ -31,6 +27,11 @@ use tokio::{io::AsyncWriteExt, process::Command as AsyncCommand};
 /// A wrapper around the `resolc` binary, emitting PVM-compatible bytecode.
 #[derive(Debug)]
 pub struct Resolc {
+    // Where to cache artifacts.
+    cache_directory: PathBuf,
+    // We'll use this version when no explicit version
+    // requirement is given in the test mode.
+    solc_version: Version,
     /// Path to the `resolc` executable
     resolc_path: PathBuf,
 }
@@ -42,8 +43,10 @@ impl SolidityCompiler for Resolc {
     async fn build(
         &self,
         CompilerInput {
+            wasm,
             pipeline,
             optimization,
+            solc_version,
             evm_version,
             allow_paths,
             base_path,
@@ -58,6 +61,19 @@ impl SolidityCompiler for Resolc {
         if !matches!(pipeline, None | Some(ModePipeline::ViaYulIR)) {
             anyhow::bail!(
                 "Resolc only supports the Y (via Yul IR) pipeline, but the provided pipeline is {pipeline:?}"
+            );
+        }
+
+        let solc_version_req = solc_version
+            .unwrap_or_else(|| VersionOrRequirement::version_to_requirement(&self.solc_version));
+        let solc_path =
+            revive_dt_solc_binaries::download_solc(&self.cache_directory, solc_version_req, wasm)
+                .await?;
+        let solc_version = utils::solc_version(&solc_path).await?;
+
+        if solc_version < SOLC_VERSION_SUPPORTING_VIA_YUL_IR {
+            anyhow::bail!(
+                "We are trying to run the test with solc version {solc_version}, but require {SOLC_VERSION_SUPPORTING_VIA_YUL_IR} or greater"
             );
         }
 
@@ -106,6 +122,8 @@ impl SolidityCompiler for Resolc {
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
+            .arg("--solc")
+            .arg(&solc_path)
             .arg("--standard-json");
 
         if let Some(ref base_path) = base_path {
@@ -206,86 +224,17 @@ impl SolidityCompiler for Resolc {
         Ok(compiler_output)
     }
 
-    fn new(resolc_path: PathBuf) -> Self {
-        Resolc { resolc_path }
-    }
-
-    async fn get_compiler_executable(
-        config: &Arguments,
-        _version: impl Into<VersionOrRequirement>,
-    ) -> anyhow::Result<PathBuf> {
-        if !config.resolc.as_os_str().is_empty() {
-            return Ok(config.resolc.clone());
-        }
-
-        Ok(PathBuf::from("resolc"))
-    }
-
-    async fn version(&self) -> anyhow::Result<semver::Version> {
-        /// This is a cache of the path of the compiler to the version number of the compiler. We
-        /// choose to cache the version in this way rather than through a field on the struct since
-        /// compiler objects are being created all the time from the path and the compiler object is
-        /// not reused over time.
-        static VERSION_CACHE: LazyLock<DashMap<PathBuf, Version>> = LazyLock::new(Default::default);
-
-        match VERSION_CACHE.entry(self.resolc_path.clone()) {
-            dashmap::Entry::Occupied(occupied_entry) => Ok(occupied_entry.get().clone()),
-            dashmap::Entry::Vacant(vacant_entry) => {
-                let output = Command::new(self.resolc_path.as_path())
-                    .arg("--version")
-                    .stdout(Stdio::piped())
-                    .spawn()?
-                    .wait_with_output()?
-                    .stdout;
-
-                let output = String::from_utf8_lossy(&output);
-                let version_string = output
-                    .split("version ")
-                    .nth(1)
-                    .context("Version parsing failed")?
-                    .split("+")
-                    .next()
-                    .context("Version parsing failed")?;
-
-                let version = Version::parse(version_string)?;
-
-                vacant_entry.insert(version.clone());
-
-                Ok(version)
-            }
+    fn new(config: &Arguments) -> Self {
+        Resolc {
+            cache_directory: config.directory().to_path_buf(),
+            solc_version: config.solc.clone(),
+            resolc_path: config.resolc.clone(),
         }
     }
 
-    fn supports_mode(
-        compiler_version: &Version,
-        _optimize_setting: ModeOptimizerSetting,
-        pipeline: ModePipeline,
-    ) -> bool {
-        // We only support the Y (IE compile via Yul IR) mode here, which also means that we can
-        // only use solc version 0.8.13 and above. We must always compile via Yul IR as resolc
-        // needs this to translate to LLVM IR and then RISCV.
+    fn supports_mode(_optimize_setting: ModeOptimizerSetting, pipeline: ModePipeline) -> bool {
+        // We only support the Y (IE compile via Yul IR) mode here. We must always compile
+        // via Yul IR as resolc needs this to translate to LLVM IR and then RISCV.
         pipeline == ModePipeline::ViaYulIR
-            && compiler_version >= &SOLC_VERSION_SUPPORTING_VIA_YUL_IR
-    }
-}
-
-#[cfg(test)]
-mod test {
-    use super::*;
-
-    #[tokio::test]
-    async fn compiler_version_can_be_obtained() {
-        // Arrange
-        let args = Arguments::default();
-        let path = Resolc::get_compiler_executable(&args, Version::new(0, 7, 6))
-            .await
-            .unwrap();
-        let compiler = Resolc::new(path);
-
-        // Act
-        let version = compiler.version().await;
-
-        // Assert
-        let _ = version.expect("Failed to get version");
     }
 }

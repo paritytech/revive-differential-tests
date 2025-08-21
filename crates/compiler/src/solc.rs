@@ -1,18 +1,13 @@
 //! Implements the [SolidityCompiler] trait with solc for
 //! compiling contracts to EVM bytecode.
 
-use std::{
-    path::PathBuf,
-    process::{Command, Stdio},
-    sync::LazyLock,
-};
+use std::{path::PathBuf, process::Stdio};
 
-use dashmap::DashMap;
 use revive_dt_common::types::VersionOrRequirement;
 use revive_dt_config::Arguments;
-use revive_dt_solc_binaries::download_solc;
 
 use super::constants::SOLC_VERSION_SUPPORTING_VIA_YUL_IR;
+use super::utils;
 use crate::{CompilerInput, CompilerOutput, ModeOptimizerSetting, ModePipeline, SolidityCompiler};
 
 use anyhow::Context;
@@ -28,7 +23,11 @@ use tokio::{io::AsyncWriteExt, process::Command as AsyncCommand};
 
 #[derive(Debug)]
 pub struct Solc {
-    solc_path: PathBuf,
+    // Where to cache artifacts.
+    cache_directory: PathBuf,
+    // We'll use this version when no explicit version requirement
+    // is given in the test mode.
+    solc_version: Version,
 }
 
 impl SolidityCompiler for Solc {
@@ -38,8 +37,10 @@ impl SolidityCompiler for Solc {
     async fn build(
         &self,
         CompilerInput {
+            wasm,
             pipeline,
             optimization,
+            solc_version,
             evm_version,
             allow_paths,
             base_path,
@@ -49,7 +50,13 @@ impl SolidityCompiler for Solc {
         }: CompilerInput,
         _: Self::Options,
     ) -> anyhow::Result<CompilerOutput> {
-        let compiler_supports_via_ir = self.version().await? >= SOLC_VERSION_SUPPORTING_VIA_YUL_IR;
+        let solc_version = solc_version
+            .unwrap_or_else(|| VersionOrRequirement::version_to_requirement(&self.solc_version));
+        let solc_path =
+            revive_dt_solc_binaries::download_solc(&self.cache_directory, solc_version, wasm)
+                .await?;
+        let compiler_supports_via_ir =
+            utils::solc_version(&solc_path).await? >= SOLC_VERSION_SUPPORTING_VIA_YUL_IR;
 
         // Be careful to entirely omit the viaIR field if the compiler does not support it,
         // as it will error if you provide fields it does not know about. Because
@@ -115,7 +122,7 @@ impl SolidityCompiler for Solc {
             },
         };
 
-        let mut command = AsyncCommand::new(&self.solc_path);
+        let mut command = AsyncCommand::new(&solc_path);
         command
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -199,110 +206,16 @@ impl SolidityCompiler for Solc {
         Ok(compiler_output)
     }
 
-    fn new(solc_path: PathBuf) -> Self {
-        Self { solc_path }
-    }
-
-    async fn get_compiler_executable(
-        config: &Arguments,
-        version: impl Into<VersionOrRequirement>,
-    ) -> anyhow::Result<PathBuf> {
-        let path = download_solc(config.directory(), version, config.wasm).await?;
-        Ok(path)
-    }
-
-    async fn version(&self) -> anyhow::Result<semver::Version> {
-        /// This is a cache of the path of the compiler to the version number of the compiler. We
-        /// choose to cache the version in this way rather than through a field on the struct since
-        /// compiler objects are being created all the time from the path and the compiler object is
-        /// not reused over time.
-        static VERSION_CACHE: LazyLock<DashMap<PathBuf, Version>> = LazyLock::new(Default::default);
-
-        match VERSION_CACHE.entry(self.solc_path.clone()) {
-            dashmap::Entry::Occupied(occupied_entry) => Ok(occupied_entry.get().clone()),
-            dashmap::Entry::Vacant(vacant_entry) => {
-                // The following is the parsing code for the version from the solc version strings
-                // which look like the following:
-                // ```
-                // solc, the solidity compiler commandline interface
-                // Version: 0.8.30+commit.73712a01.Darwin.appleclang
-                // ```
-                let child = Command::new(self.solc_path.as_path())
-                    .arg("--version")
-                    .stdout(Stdio::piped())
-                    .spawn()?;
-                let output = child.wait_with_output()?;
-                let output = String::from_utf8_lossy(&output.stdout);
-                let version_line = output
-                    .split("Version: ")
-                    .nth(1)
-                    .context("Version parsing failed")?;
-                let version_string = version_line
-                    .split("+")
-                    .next()
-                    .context("Version parsing failed")?;
-
-                let version = Version::parse(version_string)?;
-
-                vacant_entry.insert(version.clone());
-
-                Ok(version)
-            }
+    fn new(config: &Arguments) -> Self {
+        Self {
+            cache_directory: config.directory().to_path_buf(),
+            solc_version: config.solc.clone(),
         }
     }
 
-    fn supports_mode(
-        compiler_version: &Version,
-        _optimize_setting: ModeOptimizerSetting,
-        pipeline: ModePipeline,
-    ) -> bool {
+    fn supports_mode(_optimize_setting: ModeOptimizerSetting, pipeline: ModePipeline) -> bool {
         // solc 0.8.13 and above supports --via-ir, and less than that does not. Thus, we support mode E
         // (ie no Yul IR) in either case, but only support Y (via Yul IR) if the compiler is new enough.
-        pipeline == ModePipeline::ViaEVMAssembly
-            || (pipeline == ModePipeline::ViaYulIR
-                && compiler_version >= &SOLC_VERSION_SUPPORTING_VIA_YUL_IR)
-    }
-}
-
-#[cfg(test)]
-mod test {
-    use super::*;
-
-    #[tokio::test]
-    async fn compiler_version_can_be_obtained() {
-        // Arrange
-        let args = Arguments::default();
-        let path = Solc::get_compiler_executable(&args, Version::new(0, 7, 6))
-            .await
-            .unwrap();
-        let compiler = Solc::new(path);
-
-        // Act
-        let version = compiler.version().await;
-
-        // Assert
-        assert_eq!(
-            version.expect("Failed to get version"),
-            Version::new(0, 7, 6)
-        )
-    }
-
-    #[tokio::test]
-    async fn compiler_version_can_be_obtained1() {
-        // Arrange
-        let args = Arguments::default();
-        let path = Solc::get_compiler_executable(&args, Version::new(0, 4, 21))
-            .await
-            .unwrap();
-        let compiler = Solc::new(path);
-
-        // Act
-        let version = compiler.version().await;
-
-        // Assert
-        assert_eq!(
-            version.expect("Failed to get version"),
-            Version::new(0, 4, 21)
-        )
+        pipeline == ModePipeline::ViaEVMAssembly || pipeline == ModePipeline::ViaYulIR
     }
 }
