@@ -27,7 +27,7 @@ sp-core = { workspace = true }
 sp-runtime = { workspace = true }
 
 [dev-dependencies]
-temp-dir = { workspace = true }
+tempfile = { workspace = true }
 tokio = { workspace = true }
 
 [lints]
