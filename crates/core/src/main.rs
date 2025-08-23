@@ -39,7 +39,6 @@ use revive_dt_format::{
     mode::ParsedMode,
 };
 use revive_dt_node::{Node, pool::NodePool};
-use revive_dt_report::reporter::{Report, Span};
 
 use crate::cached_compiler::CachedCompiler;
 
@@ -70,13 +69,11 @@ fn main() -> anyhow::Result<()> {
     );
 
     let body = async {
-        for (corpus, tests) in collect_corpora(&args)? {
-            let span = Span::new(corpus, args.clone())?;
+        for (_, tests) in collect_corpora(&args)? {
             match &args.compile_only {
-                Some(platform) => compile_corpus(&args, &tests, platform, span).await,
-                None => execute_corpus(&args, &tests, span).await?,
+                Some(platform) => compile_corpus(&args, &tests, platform).await,
+                None => execute_corpus(&args, &tests).await?,
             }
-            Report::save()?;
         }
         Ok(())
     };
@@ -150,11 +147,7 @@ fn collect_corpora(args: &Arguments) -> anyhow::Result<HashMap<Corpus, Vec<Metad
     Ok(corpora)
 }
 
-async fn run_driver<L, F>(
-    args: &Arguments,
-    metadata_files: &[MetadataFile],
-    span: Span,
-) -> anyhow::Result<()>
+async fn run_driver<L, F>(args: &Arguments, metadata_files: &[MetadataFile]) -> anyhow::Result<()>
 where
     L: Platform,
     F: Platform,
@@ -164,7 +157,7 @@ where
     let (report_tx, report_rx) = mpsc::unbounded_channel::<(Test<'_>, CaseResult)>();
 
     let tests = prepare_tests::<L, F>(args, metadata_files);
-    let driver_task = start_driver_task::<L, F>(args, tests, span, report_tx).await?;
+    let driver_task = start_driver_task::<L, F>(args, tests, report_tx).await?;
     let status_reporter_task = start_reporter_task(report_rx);
 
     tokio::join!(status_reporter_task, driver_task);
@@ -336,7 +329,6 @@ async fn does_compiler_support_mode<P: Platform>(
 async fn start_driver_task<'a, L, F>(
     args: &Arguments,
     tests: impl Stream<Item = Test<'a>>,
-    span: Span,
     report_tx: mpsc::UnboundedSender<(Test<'a>, CaseResult)>,
 ) -> anyhow::Result<impl Future<Output = ()>>
 where
@@ -385,7 +377,6 @@ where
                     cached_compiler,
                     leader_node,
                     follower_node,
-                    span,
                 )
                 .await;
 
@@ -492,7 +483,6 @@ async fn handle_case_driver<L, F>(
     cached_compiler: Arc<CachedCompiler>,
     leader_node: &L::Blockchain,
     follower_node: &F::Blockchain,
-    _: Span,
 ) -> anyhow::Result<usize>
 where
     L: Platform,
@@ -676,17 +666,13 @@ where
         .inspect(|steps_executed| info!(steps_executed, "Case succeeded"))
 }
 
-async fn execute_corpus(
-    args: &Arguments,
-    tests: &[MetadataFile],
-    span: Span,
-) -> anyhow::Result<()> {
+async fn execute_corpus(args: &Arguments, tests: &[MetadataFile]) -> anyhow::Result<()> {
     match (&args.leader, &args.follower) {
         (TestingPlatform::Geth, TestingPlatform::Kitchensink) => {
-            run_driver::<Geth, Kitchensink>(args, tests, span).await?
+            run_driver::<Geth, Kitchensink>(args, tests).await?
         }
         (TestingPlatform::Geth, TestingPlatform::Geth) => {
-            run_driver::<Geth, Geth>(args, tests, span).await?
+            run_driver::<Geth, Geth>(args, tests).await?
         }
         _ => unimplemented!(),
     }
@@ -694,12 +680,7 @@ async fn execute_corpus(
     Ok(())
 }
 
-async fn compile_corpus(
-    config: &Arguments,
-    tests: &[MetadataFile],
-    platform: &TestingPlatform,
-    _: Span,
-) {
+async fn compile_corpus(config: &Arguments, tests: &[MetadataFile], platform: &TestingPlatform) {
     let tests = tests.iter().flat_map(|metadata| {
         metadata
             .solc_modes()
