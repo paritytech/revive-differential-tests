@@ -329,7 +329,7 @@ async fn does_compiler_support_mode<P: Platform>(
 async fn start_driver_task<'a, L, F>(
     args: &Arguments,
     tests: impl Stream<Item = Test<'a>>,
-    report_tx: mpsc::UnboundedSender<(Test<'a>, CaseResult)>,
+    _: mpsc::UnboundedSender<(Test<'a>, CaseResult)>,
 ) -> anyhow::Result<impl Future<Output = ()>>
 where
     L: Platform,
@@ -360,7 +360,6 @@ where
         move |test| {
             let leader_nodes = leader_nodes.clone();
             let follower_nodes = follower_nodes.clone();
-            let report_tx = report_tx.clone();
             let cached_compiler = cached_compiler.clone();
 
             async move {
@@ -368,11 +367,7 @@ where
                 let follower_node = follower_nodes.round_robbin();
 
                 let result = handle_case_driver::<L, F>(
-                    test.metadata_file_path,
-                    test.metadata,
-                    test.case_idx,
-                    test.case,
-                    test.mode.clone(),
+                    test,
                     args,
                     cached_compiler,
                     leader_node,
@@ -380,9 +375,8 @@ where
                 )
                 .await;
 
-                report_tx
-                    .send((test, result))
-                    .expect("Failed to send report");
+                // TODO: We need to report the case success and failure in here.
+                let _ = result;
             }
         },
     ))
@@ -465,20 +459,16 @@ async fn start_reporter_task(mut report_rx: mpsc::UnboundedReceiver<(Test<'_>, C
     name = "Handling Case"
     skip_all,
     fields(
-        metadata_file_path = %metadata.relative_path().display(),
-        mode = %mode,
-        %case_idx,
-        case_name = case.name.as_deref().unwrap_or("Unnamed Case"),
+        metadata_file_path = %test.metadata.relative_path().display(),
+        mode = %test.mode,
+        case_idx = %test.case_idx,
+        case_name = test.case.name.as_deref().unwrap_or("Unnamed Case"),
         leader_node = leader_node.id(),
         follower_node = follower_node.id(),
     )
 )]
 async fn handle_case_driver<L, F>(
-    metadata_file_path: &Path,
-    metadata: &MetadataFile,
-    case_idx: CaseIdx,
-    case: &Case,
-    mode: Mode,
+    test: Test<'_>,
     config: &Arguments,
     cached_compiler: Arc<CachedCompiler>,
     leader_node: &L::Blockchain,
@@ -504,14 +494,27 @@ where
             _,
         ),
     ) = try_join!(
-        cached_compiler.compile_contracts::<L>(metadata, metadata_file_path, &mode, config, None),
-        cached_compiler.compile_contracts::<F>(metadata, metadata_file_path, &mode, config, None)
+        cached_compiler.compile_contracts::<L>(
+            test.metadata,
+            test.metadata_file_path,
+            &test.mode,
+            config,
+            None
+        ),
+        cached_compiler.compile_contracts::<F>(
+            test.metadata,
+            test.metadata_file_path,
+            &test.mode,
+            config,
+            None
+        )
     )?;
 
     let mut leader_deployed_libraries = None::<HashMap<_, _>>;
     let mut follower_deployed_libraries = None::<HashMap<_, _>>;
-    let mut contract_sources = metadata.contract_sources()?;
-    for library_instance in metadata
+    let mut contract_sources = test.metadata.contract_sources()?;
+    for library_instance in test
+        .metadata
         .libraries
         .iter()
         .flatten()
@@ -551,7 +554,8 @@ where
         // Getting the deployer address from the cases themselves. This is to ensure that we're
         // doing the deployments from different accounts and therefore we're not slowed down by
         // the nonce.
-        let deployer_address = case
+        let deployer_address = test
+            .case
             .steps
             .iter()
             .filter_map(|step| match step {
@@ -626,16 +630,16 @@ where
         ),
     ) = try_join!(
         cached_compiler.compile_contracts::<L>(
-            metadata,
-            metadata_file_path,
-            &mode,
+            test.metadata,
+            test.metadata_file_path,
+            &test.mode,
             config,
             leader_deployed_libraries.as_ref()
         ),
         cached_compiler.compile_contracts::<F>(
-            metadata,
-            metadata_file_path,
-            &mode,
+            test.metadata,
+            test.metadata_file_path,
+            &test.mode,
             config,
             follower_deployed_libraries.as_ref()
         )
@@ -653,8 +657,8 @@ where
     );
 
     let mut driver = CaseDriver::<L, F>::new(
-        metadata,
-        case,
+        test.metadata,
+        test.case,
         leader_node,
         follower_node,
         leader_state,
