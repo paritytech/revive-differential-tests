@@ -126,7 +126,7 @@ impl ReportAggregator {
     }
 
     fn handle_test_succeeded_event(&mut self, event: TestSucceededEvent) {
-        // Remove this from the set of cases we're tracking
+        // Remove this from the set of cases we're tracking since it has completed.
         self.remaining_cases
             .entry(event.test_specifier.metadata_file_path.clone().into())
             .or_default()
@@ -139,10 +139,11 @@ impl ReportAggregator {
         test_case_report.status = Some(TestCaseStatus::Succeeded {
             steps_executed: event.steps_executed,
         });
+        self.handle_post_test_case_status_update(&event.test_specifier);
     }
 
     fn handle_test_failed_event(&mut self, event: TestFailedEvent) {
-        // Remove this from the set of cases we're tracking
+        // Remove this from the set of cases we're tracking since it has completed.
         self.remaining_cases
             .entry(event.test_specifier.metadata_file_path.clone().into())
             .or_default()
@@ -155,10 +156,11 @@ impl ReportAggregator {
         test_case_report.status = Some(TestCaseStatus::Failed {
             reason: event.reason,
         });
+        self.handle_post_test_case_status_update(&event.test_specifier);
     }
 
     fn handle_test_ignored_event(&mut self, event: TestIgnoredEvent) {
-        // Remove this from the set of cases we're tracking
+        // Remove this from the set of cases we're tracking since it has completed.
         self.remaining_cases
             .entry(event.test_specifier.metadata_file_path.clone().into())
             .or_default()
@@ -172,6 +174,45 @@ impl ReportAggregator {
             reason: event.reason,
             additional_fields: event.additional_fields,
         });
+        self.handle_post_test_case_status_update(&event.test_specifier);
+    }
+
+    fn handle_post_test_case_status_update(&mut self, specifier: &TestSpecifier) {
+        let remaining_cases = self
+            .remaining_cases
+            .entry(specifier.metadata_file_path.clone().into())
+            .or_default()
+            .entry(specifier.solc_mode.clone())
+            .or_default();
+        if !remaining_cases.is_empty() {
+            return;
+        }
+
+        let case_status = self
+            .report
+            .test_case_information
+            .entry(specifier.metadata_file_path.clone().into())
+            .or_default()
+            .entry(specifier.solc_mode.clone())
+            .or_default()
+            .iter()
+            .map(|(case_idx, case_report)| {
+                (
+                    *case_idx,
+                    case_report.status.clone().expect("Can't be uninitialized"),
+                )
+            })
+            .collect::<BTreeMap<_, _>>();
+        let event = ReporterEvent::MetadataFileSolcModeCombinationExecutionCompleted {
+            metadata_file_path: specifier.metadata_file_path.clone().into(),
+            mode: specifier.solc_mode.clone(),
+            case_status,
+        };
+
+        // According to the documentation on send, the sending fails if there are no more receiver
+        // handles. Therefore, this isn't an error that we want to bubble up or anything. If we fail
+        // to send then we ignore the error.
+        let _ = self.listener_tx.send(event);
     }
 
     fn handle_leader_node_assigned_event(&mut self, event: LeaderNodeAssignedEvent) {

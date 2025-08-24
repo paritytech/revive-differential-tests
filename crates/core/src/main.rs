@@ -18,9 +18,11 @@ use futures::stream;
 use futures::{Stream, StreamExt};
 use indexmap::IndexMap;
 use revive_dt_node_interaction::EthereumNode;
-use revive_dt_report::{ReportAggregator, Reporter, TestSpecificReporter, TestSpecifier};
+use revive_dt_report::{
+    ReportAggregator, Reporter, ReporterEvent, TestCaseStatus, TestSpecificReporter, TestSpecifier,
+};
 use temp_dir::TempDir;
-use tokio::{join, sync::mpsc, try_join};
+use tokio::{join, sync::broadcast::Receiver, try_join};
 use tracing::{debug, info, info_span, instrument};
 use tracing_appender::non_blocking::WorkerGuard;
 use tracing_subscriber::{EnvFilter, FmtSubscriber};
@@ -55,9 +57,6 @@ struct Test<'a> {
     case: &'a Case,
     reporter: TestSpecificReporter,
 }
-
-/// This represents the results that we gather from running test cases.
-type CaseResult = Result<usize, anyhow::Error>;
 
 fn main() -> anyhow::Result<()> {
     let (args, _guard) = init_cli()?;
@@ -182,13 +181,13 @@ where
     L::Blockchain: revive_dt_node::Node + Send + Sync + 'static,
     F::Blockchain: revive_dt_node::Node + Send + Sync + 'static,
 {
-    let (report_tx, report_rx) = mpsc::unbounded_channel::<(Test<'_>, CaseResult)>();
+    let reporter_events_rx = reporter.subscribe().await?;
 
     let tests = prepare_tests::<L, F>(args, metadata_files, reporter);
-    let driver_task = start_driver_task::<L, F>(args, tests, report_tx).await?;
-    let status_reporter_task = start_reporter_task(report_rx);
+    let driver_task = start_driver_task::<L, F>(args, tests).await?;
+    let cli_reporting_task = start_cli_reporting_task(reporter_events_rx);
 
-    let (_, _, rtn) = tokio::join!(status_reporter_task, driver_task, report_aggregator_task,);
+    let (_, _, rtn) = tokio::join!(cli_reporting_task, driver_task, report_aggregator_task,);
     rtn?;
 
     Ok(())
@@ -435,7 +434,6 @@ async fn does_compiler_support_mode<P: Platform>(
 async fn start_driver_task<'a, L, F>(
     args: &Arguments,
     tests: impl Stream<Item = Test<'a>>,
-    _: mpsc::UnboundedSender<(Test<'a>, CaseResult)>,
 ) -> anyhow::Result<impl Future<Output = ()>>
 where
     L: Platform,
@@ -510,74 +508,74 @@ where
     ))
 }
 
-async fn start_reporter_task(mut report_rx: mpsc::UnboundedReceiver<(Test<'_>, CaseResult)>) {
+#[allow(clippy::uninlined_format_args)]
+#[allow(irrefutable_let_patterns)]
+async fn start_cli_reporting_task(mut aggregator_events_rx: Receiver<ReporterEvent>) {
     let start = Instant::now();
 
     const GREEN: &str = "\x1B[32m";
     const RED: &str = "\x1B[31m";
+    const GREY: &str = "\x1B[90m";
     const COLOR_RESET: &str = "\x1B[0m";
     const BOLD: &str = "\x1B[1m";
     const BOLD_RESET: &str = "\x1B[22m";
 
     let mut number_of_successes = 0;
     let mut number_of_failures = 0;
-    let mut failures = vec![];
 
-    // Wait for reports to come from our test runner. When the channel closes, this ends.
     let mut buf = BufWriter::new(stderr());
-    while let Some((test, case_result)) = report_rx.recv().await {
-        let case_name = test.case.name.as_deref().unwrap_or("unnamed_case");
-        let case_idx = test.case_idx;
-        let test_path = test.metadata_file_path.display();
-        let test_mode = test.mode.clone();
+    while let Ok(event) = aggregator_events_rx.recv().await {
+        let ReporterEvent::MetadataFileSolcModeCombinationExecutionCompleted {
+            metadata_file_path,
+            mode,
+            case_status,
+        } = event
+        else {
+            continue;
+        };
 
-        match case_result {
-            Ok(_inputs) => {
-                number_of_successes += 1;
-                let _ = writeln!(
+        let _ = writeln!(buf, "{} - {}", mode, metadata_file_path.display());
+        for (case_idx, case_status) in case_status.into_iter() {
+            let _ = write!(buf, "\tCase Index {case_idx:>3}: ");
+            let _ = match case_status {
+                TestCaseStatus::Succeeded { steps_executed } => {
+                    number_of_successes += 1;
+                    writeln!(
+                        buf,
+                        "{}{}Case Succeeded{}{} - Steps Executed: {}",
+                        GREEN, BOLD, BOLD_RESET, COLOR_RESET, steps_executed
+                    )
+                }
+                TestCaseStatus::Failed { reason } => {
+                    number_of_failures += 1;
+                    writeln!(
+                        buf,
+                        "{}{}Case Failed{}{} - Reason: {}",
+                        RED, BOLD, BOLD_RESET, COLOR_RESET, reason
+                    )
+                }
+                TestCaseStatus::Ignored { reason, .. } => writeln!(
                     buf,
-                    "{GREEN}Case Succeeded:{COLOR_RESET} {test_path} -> {case_name}:{case_idx} (mode: {test_mode})"
-                );
-            }
-            Err(err) => {
-                number_of_failures += 1;
-                let _ = writeln!(
-                    buf,
-                    "{RED}Case Failed:{COLOR_RESET} {test_path} -> {case_name}:{case_idx} (mode: {test_mode})"
-                );
-                failures.push((test, err));
-            }
+                    "{}{}Case Ignored{}{} - Reason: {}",
+                    GREY, BOLD, BOLD_RESET, COLOR_RESET, reason
+                ),
+            };
         }
-    }
-
-    let _ = writeln!(buf,);
-    let elapsed = start.elapsed();
-
-    // Now, log the failures with more complete errors at the bottom, like `cargo test` does, so
-    // that we don't have to scroll through the entire output to find them.
-    if !failures.is_empty() {
-        let _ = writeln!(buf, "{BOLD}Failures:{BOLD_RESET}\n");
-
-        for failure in failures {
-            let (test, err) = failure;
-            let case_name = test.case.name.as_deref().unwrap_or("unnamed_case");
-            let case_idx = test.case_idx;
-            let test_path = test.metadata_file_path.display();
-            let test_mode = test.mode.clone();
-
-            let _ = writeln!(
-                buf,
-                "---- {RED}Case Failed:{COLOR_RESET} {test_path} -> {case_name}:{case_idx} (mode: {test_mode}) ----\n\n{err}\n"
-            );
-        }
+        let _ = writeln!(buf);
     }
 
     // Summary at the end.
     let _ = writeln!(
         buf,
-        "{} cases: {GREEN}{number_of_successes}{COLOR_RESET} cases succeeded, {RED}{number_of_failures}{COLOR_RESET} cases failed in {} seconds",
+        "{} cases: {}{}{} cases succeeded, {}{}{} cases failed in {} seconds",
         number_of_successes + number_of_failures,
-        elapsed.as_secs()
+        GREEN,
+        number_of_successes,
+        COLOR_RESET,
+        RED,
+        number_of_failures,
+        COLOR_RESET,
+        start.elapsed().as_secs()
     );
 }
 
