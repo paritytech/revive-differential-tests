@@ -472,6 +472,22 @@ where
                 let leader_node = leader_nodes.round_robbin();
                 let follower_node = follower_nodes.round_robbin();
 
+                test.reporter
+                    .report_leader_node_assigned_event(
+                        leader_node.id(),
+                        L::config_id(),
+                        leader_node.connection_string(),
+                    )
+                    .expect("Can't fail");
+                test.reporter
+                    .report_follower_node_assigned_event(
+                        follower_node.id(),
+                        F::config_id(),
+                        follower_node.connection_string(),
+                    )
+                    .expect("Can't fail");
+
+                let reporter = test.reporter.clone();
                 let result = handle_case_driver::<L, F>(
                     test,
                     args,
@@ -481,8 +497,14 @@ where
                 )
                 .await;
 
-                // TODO: We need to report the case success and failure in here.
-                let _ = result;
+                match result {
+                    Ok(steps_executed) => reporter
+                        .report_test_succeeded_event(steps_executed)
+                        .expect("Can't fail"),
+                    Err(error) => reporter
+                        .report_test_failed_event(error.to_string())
+                        .expect("Can't fail"),
+                }
             }
         },
     ))

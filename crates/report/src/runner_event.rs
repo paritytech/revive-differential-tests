@@ -4,6 +4,7 @@
 use std::sync::Arc;
 
 use indexmap::IndexMap;
+use revive_dt_config::TestingPlatform;
 use revive_dt_format::corpus::Corpus;
 use revive_dt_format::metadata::Metadata;
 use tokio::sync::{broadcast, oneshot};
@@ -267,6 +268,42 @@ define_event! {
             /// Additional fields that describe more information on why the test was ignored.
             additional_fields: IndexMap<String, serde_json::Value>
         },
+        /// An event emitted by the runners when a test case has succeeded.
+        TestSucceeded {
+            /// A specifier for the test that succeeded.
+            test_specifier: Arc<TestSpecifier>,
+            /// The number of steps of the case that were executed by the driver.
+            steps_executed: usize,
+        },
+        /// An event emitted by the runners when a test case has failed.
+        TestFailed {
+            /// A specifier for the test that succeeded.
+            test_specifier: Arc<TestSpecifier>,
+            /// A reason for the failure of the test.
+            reason: String,
+        },
+        /// An event emitted when the test case is assigned a leader node.
+        LeaderNodeAssigned {
+            /// A specifier for the test that the assignment is for.
+            test_specifier: Arc<TestSpecifier>,
+            /// The ID of the node that this case is being executed on.
+            id: usize,
+            /// The platform of the node.
+            platform: TestingPlatform,
+            /// The connection string of the node.
+            connection_string: String,
+        },
+        /// An event emitted when the test case is assigned a follower node.
+        FollowerNodeAssigned {
+            /// A specifier for the test that the assignment is for.
+            test_specifier: Arc<TestSpecifier>,
+            /// The ID of the node that this case is being executed on.
+            id: usize,
+            /// The platform of the node.
+            platform: TestingPlatform,
+            /// The connection string of the node.
+            connection_string: String,
+        }
     }
 }
 

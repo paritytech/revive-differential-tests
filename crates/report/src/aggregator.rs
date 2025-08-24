@@ -10,7 +10,7 @@ use std::{
 use anyhow::Result;
 use indexmap::IndexMap;
 use revive_dt_compiler::Mode;
-use revive_dt_config::Arguments;
+use revive_dt_config::{Arguments, TestingPlatform};
 use revive_dt_format::{case::CaseIdx, corpus::Corpus};
 use serde::Serialize;
 use serde_with::{DisplayFromStr, serde_as};
@@ -19,12 +19,7 @@ use tokio::sync::{
     mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel},
 };
 
-use crate::{
-    SubscribeToEventsEvent, TestCaseDiscoveryEvent, TestIgnoredEvent, TestSpecifier,
-    common::MetadataFilePath,
-    reporter_event::ReporterEvent,
-    runner_event::{CorpusFileDiscoveryEvent, MetadataFileDiscoveryEvent, Reporter, RunnerEvent},
-};
+use crate::*;
 
 pub struct ReportAggregator {
     /* Internal Report State */
@@ -73,8 +68,20 @@ impl ReportAggregator {
                 RunnerEvent::TestCaseDiscovery(event) => {
                     self.handle_test_case_discovery(*event);
                 }
+                RunnerEvent::TestSucceeded(event) => {
+                    self.handle_test_succeeded_event(*event);
+                }
+                RunnerEvent::TestFailed(event) => {
+                    self.handle_test_failed_event(*event);
+                }
                 RunnerEvent::TestIgnored(event) => {
                     self.handle_test_ignored_event(*event);
+                }
+                RunnerEvent::LeaderNodeAssigned(event) => {
+                    self.handle_leader_node_assigned_event(*event);
+                }
+                RunnerEvent::FollowerNodeAssigned(event) => {
+                    self.handle_follower_node_assigned_event(*event);
                 }
             }
         }
@@ -118,6 +125,38 @@ impl ReportAggregator {
             .insert(event.test_specifier.case_idx);
     }
 
+    fn handle_test_succeeded_event(&mut self, event: TestSucceededEvent) {
+        // Remove this from the set of cases we're tracking
+        self.remaining_cases
+            .entry(event.test_specifier.metadata_file_path.clone().into())
+            .or_default()
+            .entry(event.test_specifier.solc_mode.clone())
+            .or_default()
+            .remove(&event.test_specifier.case_idx);
+
+        // Add information on the fact that the case was ignored to the report.
+        let test_case_report = self.test_case_report(&event.test_specifier);
+        test_case_report.status = Some(TestCaseStatus::Succeeded {
+            steps_executed: event.steps_executed,
+        });
+    }
+
+    fn handle_test_failed_event(&mut self, event: TestFailedEvent) {
+        // Remove this from the set of cases we're tracking
+        self.remaining_cases
+            .entry(event.test_specifier.metadata_file_path.clone().into())
+            .or_default()
+            .entry(event.test_specifier.solc_mode.clone())
+            .or_default()
+            .remove(&event.test_specifier.case_idx);
+
+        // Add information on the fact that the case was ignored to the report.
+        let test_case_report = self.test_case_report(&event.test_specifier);
+        test_case_report.status = Some(TestCaseStatus::Failed {
+            reason: event.reason,
+        });
+    }
+
     fn handle_test_ignored_event(&mut self, event: TestIgnoredEvent) {
         // Remove this from the set of cases we're tracking
         self.remaining_cases
@@ -129,11 +168,27 @@ impl ReportAggregator {
 
         // Add information on the fact that the case was ignored to the report.
         let test_case_report = self.test_case_report(&event.test_specifier);
-        test_case_report.ignore = Some(TestCaseIgnoreInformation {
-            is_ignored: true,
+        test_case_report.status = Some(TestCaseStatus::Ignored {
             reason: event.reason,
             additional_fields: event.additional_fields,
         });
+    }
+
+    fn handle_leader_node_assigned_event(&mut self, event: LeaderNodeAssignedEvent) {
+        self.test_case_report(&event.test_specifier).leader_node = Some(TestCaseNodeInformation {
+            id: event.id,
+            platform: event.platform,
+            connection_string: event.connection_string,
+        });
+    }
+
+    fn handle_follower_node_assigned_event(&mut self, event: FollowerNodeAssignedEvent) {
+        self.test_case_report(&event.test_specifier).follower_node =
+            Some(TestCaseNodeInformation {
+                id: event.id,
+                platform: event.platform,
+                connection_string: event.connection_string,
+            });
     }
 
     fn test_case_report(&mut self, specifier: &TestSpecifier) -> &mut TestCaseReport {
@@ -153,6 +208,10 @@ impl ReportAggregator {
 pub struct Report {
     /// The configuration that the tool was started up with.
     pub config: Arguments,
+    /// The platform of the leader chain.
+    pub leader_platform: TestingPlatform,
+    /// The platform of the follower chain.
+    pub follower_platform: TestingPlatform,
     /// The list of corpus files that the tool found.
     pub corpora: Vec<Corpus>,
     /// The list of metadata files that were found by the tool.
@@ -166,6 +225,8 @@ pub struct Report {
 impl Report {
     pub fn new(config: Arguments) -> Self {
         Self {
+            leader_platform: config.leader,
+            follower_platform: config.follower,
             config,
             corpora: Default::default(),
             metadata_files: Default::default(),
@@ -176,18 +237,49 @@ impl Report {
 
 #[derive(Clone, Debug, Serialize, Default)]
 pub struct TestCaseReport {
-    /// Information related to the test case being ignored and why it's ignored.
-    ignore: Option<TestCaseIgnoreInformation>,
+    /// Information on the status of the test case and whether it succeeded, failed, or was ignored.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub status: Option<TestCaseStatus>,
+    /// Information related to the leader node assigned to this test case.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub leader_node: Option<TestCaseNodeInformation>,
+    /// Information related to the follower node assigned to this test case.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub follower_node: Option<TestCaseNodeInformation>,
 }
 
-/// Information related to the test case being ignored and why it's ignored.
+/// Information related to the status of the test. Could be that the test succeeded, failed, or that
+/// it was ignored.
 #[derive(Clone, Debug, Serialize)]
-pub struct TestCaseIgnoreInformation {
-    /// A boolean that defines if the test case is ignored or not.
-    pub is_ignored: bool,
-    /// The reason behind the test case being ignored.
-    pub reason: String,
-    /// Additional fields that describe more information on why the test case is ignored.
-    #[serde(flatten)]
-    pub additional_fields: IndexMap<String, serde_json::Value>,
+#[serde(tag = "status")]
+pub enum TestCaseStatus {
+    /// The test case succeeded.
+    Succeeded {
+        /// The number of steps of the case that were executed.
+        steps_executed: usize,
+    },
+    /// The test case failed.
+    Failed {
+        /// The reason for the failure of the test case.
+        reason: String,
+    },
+    /// The test case was ignored. This variant carries information related to why it was ignored.
+    Ignored {
+        /// The reason behind the test case being ignored.
+        reason: String,
+        /// Additional fields that describe more information on why the test case is ignored.
+        #[serde(flatten)]
+        additional_fields: IndexMap<String, serde_json::Value>,
+    },
+}
+
+/// Information related to the leader or follower node that's being used to execute the step.
+#[derive(Clone, Debug, Serialize)]
+pub struct TestCaseNodeInformation {
+    /// The ID of the node that this case is being executed on.
+    pub id: usize,
+    /// The platform of the node.
+    pub platform: TestingPlatform,
+    /// The connection string of the node.
+    pub connection_string: String,
 }
