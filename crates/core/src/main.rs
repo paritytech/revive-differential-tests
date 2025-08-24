@@ -14,12 +14,13 @@ use alloy::{
 };
 use anyhow::Context;
 use clap::Parser;
-use futures::stream;
+use futures::{FutureExt, stream};
 use futures::{Stream, StreamExt};
 use indexmap::IndexMap;
 use revive_dt_node_interaction::EthereumNode;
+use revive_dt_report::{ReportAggregator, Reporter};
 use temp_dir::TempDir;
-use tokio::{sync::mpsc, try_join};
+use tokio::{join, sync::mpsc, try_join};
 use tracing::{debug, info, info_span, instrument};
 use tracing_appender::non_blocking::WorkerGuard;
 use tracing_subscriber::{EnvFilter, FmtSubscriber};
@@ -68,12 +69,32 @@ fn main() -> anyhow::Result<()> {
         "Differential testing tool has been initialized"
     );
 
+    let (reporter, report_aggregator_task) = ReportAggregator::new(args.clone()).into_task();
+
     let body = async {
-        for (_, tests) in collect_corpora(&args)? {
-            match &args.compile_only {
-                Some(platform) => compile_corpus(&args, &tests, platform).await,
-                None => execute_corpus(&args, &tests).await?,
+        let tests = collect_corpora(&args)?
+            .into_iter()
+            .inspect(|(corpus, _)| {
+                reporter
+                    .report_corpus_file_discovery_event(corpus.clone())
+                    .expect("Can't fail")
+            })
+            .flat_map(|(_, files)| files.into_iter())
+            .inspect(|metadata_file| {
+                reporter
+                    .report_metadata_file_discovery_event(
+                        metadata_file.metadata_file_path.as_path(),
+                        metadata_file.content.clone(),
+                    )
+                    .expect("Can't fail")
+            })
+            .collect::<Vec<_>>();
+
+        match &args.compile_only {
+            Some(platform) => {
+                compile_corpus(&args, &tests, platform, reporter, report_aggregator_task).await
             }
+            None => execute_corpus(&args, &tests, reporter, report_aggregator_task).await?,
         }
         Ok(())
     };
@@ -147,7 +168,12 @@ fn collect_corpora(args: &Arguments) -> anyhow::Result<HashMap<Corpus, Vec<Metad
     Ok(corpora)
 }
 
-async fn run_driver<L, F>(args: &Arguments, metadata_files: &[MetadataFile]) -> anyhow::Result<()>
+async fn run_driver<L, F>(
+    args: &Arguments,
+    metadata_files: &[MetadataFile],
+    reporter: Reporter,
+    report_aggregator_task: impl Future<Output = anyhow::Result<()>>,
+) -> anyhow::Result<()>
 where
     L: Platform,
     F: Platform,
@@ -157,10 +183,17 @@ where
     let (report_tx, report_rx) = mpsc::unbounded_channel::<(Test<'_>, CaseResult)>();
 
     let tests = prepare_tests::<L, F>(args, metadata_files);
-    let driver_task = start_driver_task::<L, F>(args, tests, report_tx).await?;
+    let driver_task = start_driver_task::<L, F>(args, tests, report_tx)
+        .await?
+        .inspect(|_| {
+            reporter
+                .report_execution_completed_event()
+                .expect("Failed to inform the report aggregator of the task finishing")
+        });
     let status_reporter_task = start_reporter_task(report_rx);
 
-    tokio::join!(status_reporter_task, driver_task);
+    let (_, _, rtn) = tokio::join!(status_reporter_task, driver_task, report_aggregator_task);
+    rtn?;
 
     Ok(())
 }
@@ -387,7 +420,7 @@ async fn start_reporter_task(mut report_rx: mpsc::UnboundedReceiver<(Test<'_>, C
 
     const GREEN: &str = "\x1B[32m";
     const RED: &str = "\x1B[31m";
-    const COLOUR_RESET: &str = "\x1B[0m";
+    const COLOR_RESET: &str = "\x1B[0m";
     const BOLD: &str = "\x1B[1m";
     const BOLD_RESET: &str = "\x1B[22m";
 
@@ -408,14 +441,14 @@ async fn start_reporter_task(mut report_rx: mpsc::UnboundedReceiver<(Test<'_>, C
                 number_of_successes += 1;
                 let _ = writeln!(
                     buf,
-                    "{GREEN}Case Succeeded:{COLOUR_RESET} {test_path} -> {case_name}:{case_idx} (mode: {test_mode})"
+                    "{GREEN}Case Succeeded:{COLOR_RESET} {test_path} -> {case_name}:{case_idx} (mode: {test_mode})"
                 );
             }
             Err(err) => {
                 number_of_failures += 1;
                 let _ = writeln!(
                     buf,
-                    "{RED}Case Failed:{COLOUR_RESET} {test_path} -> {case_name}:{case_idx} (mode: {test_mode})"
+                    "{RED}Case Failed:{COLOR_RESET} {test_path} -> {case_name}:{case_idx} (mode: {test_mode})"
                 );
                 failures.push((test, err));
             }
@@ -439,7 +472,7 @@ async fn start_reporter_task(mut report_rx: mpsc::UnboundedReceiver<(Test<'_>, C
 
             let _ = writeln!(
                 buf,
-                "---- {RED}Case Failed:{COLOUR_RESET} {test_path} -> {case_name}:{case_idx} (mode: {test_mode}) ----\n\n{err}\n"
+                "---- {RED}Case Failed:{COLOR_RESET} {test_path} -> {case_name}:{case_idx} (mode: {test_mode}) ----\n\n{err}\n"
             );
         }
     }
@@ -447,7 +480,7 @@ async fn start_reporter_task(mut report_rx: mpsc::UnboundedReceiver<(Test<'_>, C
     // Summary at the end.
     let _ = writeln!(
         buf,
-        "{} cases: {GREEN}{number_of_successes}{COLOUR_RESET} cases succeeded, {RED}{number_of_failures}{COLOUR_RESET} cases failed in {} seconds",
+        "{} cases: {GREEN}{number_of_successes}{COLOR_RESET} cases succeeded, {RED}{number_of_failures}{COLOR_RESET} cases failed in {} seconds",
         number_of_successes + number_of_failures,
         elapsed.as_secs()
     );
@@ -670,13 +703,18 @@ where
         .inspect(|steps_executed| info!(steps_executed, "Case succeeded"))
 }
 
-async fn execute_corpus(args: &Arguments, tests: &[MetadataFile]) -> anyhow::Result<()> {
+async fn execute_corpus(
+    args: &Arguments,
+    tests: &[MetadataFile],
+    reporter: Reporter,
+    report_aggregator_task: impl Future<Output = anyhow::Result<()>>,
+) -> anyhow::Result<()> {
     match (&args.leader, &args.follower) {
         (TestingPlatform::Geth, TestingPlatform::Kitchensink) => {
-            run_driver::<Geth, Kitchensink>(args, tests).await?
+            run_driver::<Geth, Kitchensink>(args, tests, reporter, report_aggregator_task).await?
         }
         (TestingPlatform::Geth, TestingPlatform::Geth) => {
-            run_driver::<Geth, Geth>(args, tests).await?
+            run_driver::<Geth, Geth>(args, tests, reporter, report_aggregator_task).await?
         }
         _ => unimplemented!(),
     }
@@ -684,7 +722,13 @@ async fn execute_corpus(args: &Arguments, tests: &[MetadataFile]) -> anyhow::Res
     Ok(())
 }
 
-async fn compile_corpus(config: &Arguments, tests: &[MetadataFile], platform: &TestingPlatform) {
+async fn compile_corpus(
+    config: &Arguments,
+    tests: &[MetadataFile],
+    platform: &TestingPlatform,
+    _: Reporter,
+    report_aggregator_task: impl Future<Output = anyhow::Result<()>>,
+) {
     let tests = tests.iter().flat_map(|metadata| {
         metadata
             .solc_modes()
@@ -698,8 +742,8 @@ async fn compile_corpus(config: &Arguments, tests: &[MetadataFile], platform: &T
         .map(Arc::new)
         .expect("Failed to create the cached compiler");
 
-    futures::stream::iter(tests)
-        .for_each_concurrent(None, |(metadata, mode)| {
+    let compilation_task =
+        futures::stream::iter(tests).for_each_concurrent(None, |(metadata, mode)| {
             let cached_compiler = cached_compiler.clone();
 
             async move {
@@ -728,6 +772,6 @@ async fn compile_corpus(config: &Arguments, tests: &[MetadataFile], platform: &T
                     }
                 }
             }
-        })
-        .await;
+        });
+    let _ = join!(compilation_task, report_aggregator_task);
 }
