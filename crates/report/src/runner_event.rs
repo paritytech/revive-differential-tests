@@ -1,8 +1,9 @@
 //! The types associated with the events sent by the runner to the reporter.
 #![allow(dead_code)]
 
-use std::{collections::HashMap, sync::Arc};
+use std::sync::Arc;
 
+use indexmap::IndexMap;
 use revive_dt_format::corpus::Corpus;
 use revive_dt_format::metadata::Metadata;
 use tokio::sync::{broadcast, oneshot};
@@ -264,7 +265,7 @@ define_event! {
             /// A reason for the test to be ignored.
             reason: String,
             /// Additional fields that describe more information on why the test was ignored.
-            additional_fields: HashMap<String, serde_json::Value>
+            additional_fields: IndexMap<String, serde_json::Value>
         },
     }
 }

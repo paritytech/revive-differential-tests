@@ -4589,6 +4589,7 @@ name = "revive-dt-report"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "indexmap 2.10.0",
  "paste",
  "revive-dt-common",
  "revive-dt-compiler",

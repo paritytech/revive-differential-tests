@@ -16,6 +16,7 @@ use anyhow::Context;
 use clap::Parser;
 use futures::stream;
 use futures::{Stream, StreamExt};
+use indexmap::IndexMap;
 use revive_dt_node_interaction::EthereumNode;
 use revive_dt_report::{ReportAggregator, Reporter, TestSpecificReporter, TestSpecifier};
 use temp_dir::TempDir;
@@ -261,7 +262,7 @@ where
                     .reporter
                     .report_test_ignored_event(
                         "Either the leader or the follower do not support the target desired by the test",
-                        HashMap::from_iter([
+                        IndexMap::from_iter([
                             (
                                 "test_desired_targets".to_string(),
                                 serde_json::to_value(test.metadata.targets.as_ref())
@@ -295,7 +296,7 @@ where
                     .reporter
                     .report_test_ignored_event(
                         "Metadata file is ignored, therefore all cases are ignored",
-                        HashMap::new(),
+                        IndexMap::new(),
                     )
                     .expect("Can't fail");
                 false
@@ -315,7 +316,7 @@ where
                     .reporter
                     .report_test_ignored_event(
                         "Case is ignored",
-                        HashMap::new(),
+                        IndexMap::new(),
                     )
                     .expect("Can't fail");
                 false
@@ -344,7 +345,7 @@ where
                         .reporter
                         .report_test_ignored_event(
                             "EVM version is incompatible with either the leader or the follower",
-                            HashMap::from_iter([
+                            IndexMap::from_iter([
                                 (
                                     "test_desired_evm_version".to_string(),
                                     serde_json::to_value(test.metadata.required_evm_version)
@@ -395,7 +396,7 @@ where
                     .reporter
                     .report_test_ignored_event(
                         "Compilers do not support this mode either for the leader or for the follower.",
-                        HashMap::from_iter([
+                        IndexMap::from_iter([
                             (
                                 "leader_support".to_string(),
                                 serde_json::to_value(leader_support)

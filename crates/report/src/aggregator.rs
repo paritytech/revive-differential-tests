@@ -2,12 +2,13 @@
 //! reporters and combines them into a single unified report.
 
 use std::{
-    collections::{BTreeSet, HashMap, HashSet},
+    collections::{BTreeMap, BTreeSet, HashMap, HashSet},
     fs::OpenOptions,
     time::{SystemTime, UNIX_EPOCH},
 };
 
 use anyhow::Result;
+use indexmap::IndexMap;
 use revive_dt_compiler::Mode;
 use revive_dt_config::Arguments;
 use revive_dt_format::{case::CaseIdx, corpus::Corpus};
@@ -157,9 +158,9 @@ pub struct Report {
     /// The list of metadata files that were found by the tool.
     pub metadata_files: BTreeSet<MetadataFilePath>,
     /// Information relating to each test case.
-    #[serde_as(as = "HashMap<_, HashMap<DisplayFromStr, HashMap<DisplayFromStr, _>>>")]
+    #[serde_as(as = "BTreeMap<_, HashMap<DisplayFromStr, BTreeMap<DisplayFromStr, _>>>")]
     pub test_case_information:
-        HashMap<MetadataFilePath, HashMap<Mode, HashMap<CaseIdx, TestCaseReport>>>,
+        BTreeMap<MetadataFilePath, HashMap<Mode, BTreeMap<CaseIdx, TestCaseReport>>>,
 }
 
 impl Report {
@@ -188,5 +189,5 @@ pub struct TestCaseIgnoreInformation {
     pub reason: String,
     /// Additional fields that describe more information on why the test case is ignored.
     #[serde(flatten)]
-    pub additional_fields: HashMap<String, serde_json::Value>,
+    pub additional_fields: IndexMap<String, serde_json::Value>,
 }
