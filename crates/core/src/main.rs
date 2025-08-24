@@ -71,7 +71,8 @@ fn main() -> anyhow::Result<()> {
 
     let (reporter, report_aggregator_task) = ReportAggregator::new(args.clone()).into_task();
 
-    let body = async {
+    let number_of_threads = args.number_of_threads;
+    let body = async move {
         let tests = collect_corpora(&args)?
             .into_iter()
             .inspect(|(corpus, _)| {
@@ -83,7 +84,7 @@ fn main() -> anyhow::Result<()> {
             .inspect(|metadata_file| {
                 reporter
                     .report_metadata_file_discovery_event(
-                        metadata_file.metadata_file_path.as_path(),
+                        metadata_file.metadata_file_path.clone(),
                         metadata_file.content.clone(),
                     )
                     .expect("Can't fail")
@@ -100,7 +101,7 @@ fn main() -> anyhow::Result<()> {
     };
 
     tokio::runtime::Builder::new_multi_thread()
-        .worker_threads(args.number_of_threads)
+        .worker_threads(number_of_threads)
         .enable_all()
         .build()
         .expect("Failed building the Runtime")
@@ -183,16 +184,15 @@ where
     let (report_tx, report_rx) = mpsc::unbounded_channel::<(Test<'_>, CaseResult)>();
 
     let tests = prepare_tests::<L, F>(args, metadata_files);
-    let driver_task = start_driver_task::<L, F>(args, tests, report_tx)
-        .await?
-        .inspect(|_| {
-            reporter
-                .report_execution_completed_event()
-                .expect("Failed to inform the report aggregator of the task finishing")
-        });
+    let driver_task = start_driver_task::<L, F>(args, tests, report_tx).await?;
     let status_reporter_task = start_reporter_task(report_rx);
 
-    let (_, _, rtn) = tokio::join!(status_reporter_task, driver_task, report_aggregator_task);
+    drop(reporter);
+    let (_, _, rtn) = tokio::join!(
+        status_reporter_task.inspect(|_| info!("Status reporter completed")),
+        driver_task.inspect(|_| info!("Driver completed")),
+        report_aggregator_task.inspect(|_| info!("Report aggregator completed"))
+    );
     rtn?;
 
     Ok(())

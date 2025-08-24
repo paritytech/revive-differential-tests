@@ -10,6 +10,7 @@ use serde_with::{DisplayFromStr, serde_as};
 
 define_wrapper_type!(
     #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+    #[serde(transparent)]
     pub struct MetadataFilePath(PathBuf);
 );
 

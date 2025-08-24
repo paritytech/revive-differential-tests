@@ -2,23 +2,25 @@
 //! reporters and combines them into a single unified report.
 
 use std::{
-    collections::BTreeSet,
+    collections::{BTreeSet, HashMap, HashSet},
     fs::OpenOptions,
-    path::PathBuf,
     time::{SystemTime, UNIX_EPOCH},
 };
 
 use anyhow::Result;
+use revive_dt_compiler::Mode;
 use revive_dt_config::Arguments;
-use revive_dt_format::corpus::Corpus;
+use revive_dt_format::{case::CaseIdx, corpus::Corpus};
 use serde::Serialize;
+use serde_with::{DisplayFromStr, serde_as};
 use tokio::sync::{
     broadcast::{Sender, channel},
     mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel},
 };
 
 use crate::{
-    SubscribeToEventsEvent,
+    SubscribeToEventsEvent, TestIgnoredEvent,
+    common::MetadataFilePath,
     reporter_event::ReporterEvent,
     runner_event::{CorpusFileDiscoveryEvent, MetadataFileDiscoveryEvent, Reporter, RunnerEvent},
 };
@@ -26,6 +28,7 @@ use crate::{
 pub struct ReportAggregator {
     /* Internal Report State */
     report: Report,
+    remaining_cases: HashMap<MetadataFilePath, HashSet<CaseIdx>>,
     /* Channels */
     runner_tx: Option<UnboundedSender<RunnerEvent>>,
     runner_rx: UnboundedReceiver<RunnerEvent>,
@@ -38,6 +41,7 @@ impl ReportAggregator {
         let (listener_tx, _) = channel::<ReporterEvent>(1024);
         Self {
             report: Report::new(config),
+            remaining_cases: Default::default(),
             runner_tx: Some(runner_tx),
             runner_rx,
             listener_tx,
@@ -65,6 +69,9 @@ impl ReportAggregator {
                 }
                 RunnerEvent::MetadataFileDiscovery(event) => {
                     self.handle_metadata_file_discovery_event(*event);
+                }
+                RunnerEvent::TestIgnored(event) => {
+                    self.handle_test_ignored_event(*event);
                 }
             }
         }
@@ -96,10 +103,26 @@ impl ReportAggregator {
     }
 
     fn handle_metadata_file_discovery_event(&mut self, event: MetadataFileDiscoveryEvent) {
-        self.report.metadata_files.insert(event.path);
+        self.report.metadata_files.insert(event.path.clone());
+        self.remaining_cases.insert(
+            event.path,
+            event
+                .metadata
+                .cases
+                .iter()
+                .enumerate()
+                .map(|(id, _)| id)
+                .map(CaseIdx::new)
+                .collect(),
+        );
+    }
+
+    fn handle_test_ignored_event(&mut self, _: TestIgnoredEvent) {
+        todo!()
     }
 }
 
+#[serde_as]
 #[derive(Clone, Debug, Serialize)]
 pub struct Report {
     /// The configuration that the tool was started up with.
@@ -107,7 +130,11 @@ pub struct Report {
     /// The list of corpus files that the tool found.
     pub corpora: Vec<Corpus>,
     /// The list of metadata files that were found by the tool.
-    pub metadata_files: BTreeSet<PathBuf>,
+    pub metadata_files: BTreeSet<MetadataFilePath>,
+    /// Information relating to each test case.
+    #[serde_as(as = "HashMap<_, HashMap<DisplayFromStr, HashMap<DisplayFromStr, _>>>")]
+    pub test_case_information:
+        HashMap<MetadataFilePath, HashMap<Mode, HashMap<CaseIdx, TestCaseReport>>>,
 }
 
 impl Report {
@@ -116,6 +143,10 @@ impl Report {
             config,
             corpora: Default::default(),
             metadata_files: Default::default(),
+            test_case_information: Default::default(),
         }
     }
 }
+
+#[derive(Clone, Debug, Serialize)]
+pub struct TestCaseReport {}

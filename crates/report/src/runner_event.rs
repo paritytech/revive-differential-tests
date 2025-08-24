@@ -1,12 +1,11 @@
 //! The types associated with the events sent by the runner to the reporter.
-
-use std::path::PathBuf;
+#![allow(dead_code)]
 
 use revive_dt_format::corpus::Corpus;
 use revive_dt_format::metadata::Metadata;
 use tokio::sync::{broadcast, oneshot};
 
-use crate::ReporterEvent;
+use crate::{ReporterEvent, common::MetadataFilePath};
 
 macro_rules! keep_if_doc {
     (#[doc = $doc:expr]) => {
@@ -91,6 +90,16 @@ macro_rules! define_event {
             }
 
             impl [< $ident Reporter >] {
+                pub fn test_specific_reporter(
+                    &self,
+                    test_specifier: impl Into<std::sync::Arc<crate::common::TestSpecifier>>
+                ) -> [< $ident TestSpecificReporter >] {
+                    [< $ident TestSpecificReporter >] {
+                        reporter: self.clone(),
+                        test_specifier: test_specifier.into(),
+                    }
+                }
+
                 fn report(&self, event: impl Into<$ident>) -> anyhow::Result<()> {
                     self.0.send(event.into()).map_err(Into::into)
                 }
@@ -103,6 +112,18 @@ macro_rules! define_event {
                         })
                     }
                 )*
+            }
+
+            /// A reporter that's tied to a specific test case.
+            pub struct [< $ident TestSpecificReporter >] {
+                $vis reporter: [< $ident Reporter >],
+                $vis test_specifier: std::sync::Arc<crate::common::TestSpecifier>,
+            }
+
+            impl [< $ident TestSpecificReporter >] {
+                fn report(&self, event: impl Into<$ident>) -> anyhow::Result<()> {
+                    self.reporter.report(event)
+                }
             }
         }
     };
@@ -125,9 +146,13 @@ define_event! {
         /// An event emitted by runners when they've discovered a metadata file.
         MetadataFileDiscovery {
             /// The path of the metadata file discovered.
-            path: PathBuf,
+            path: MetadataFilePath,
             /// The content of the metadata file.
             metadata: Metadata
+        },
+        /// An event emitted by the runners when a test case is ignored.
+        TestIgnored {
+
         },
         /// An event emitted by the runners when the execution is completed and the aggregator can
         /// stop.

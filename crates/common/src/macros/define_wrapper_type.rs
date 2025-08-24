@@ -7,6 +7,15 @@ macro_rules! impl_for_wrapper {
             }
         }
     };
+    (FromStr, $ident: ident) => {
+        impl std::str::FromStr for $ident {
+            type Err = anyhow::Error;
+
+            fn from_str(s: &str) -> anyhow::Result<Self> {
+                s.parse().map(Self).map_err(Into::into)
+            }
+        }
+    };
 }
 
 /// Defines wrappers around types.
