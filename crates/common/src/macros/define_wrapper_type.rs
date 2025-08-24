@@ -1,6 +1,7 @@
 #[macro_export]
 macro_rules! impl_for_wrapper {
     (Display, $ident: ident) => {
+        #[automatically_derived]
         impl std::fmt::Display for $ident {
             fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
                 std::fmt::Display::fmt(&self.0, f)
@@ -8,6 +9,7 @@ macro_rules! impl_for_wrapper {
         }
     };
     (FromStr, $ident: ident) => {
+        #[automatically_derived]
         impl std::str::FromStr for $ident {
             type Err = anyhow::Error;
 

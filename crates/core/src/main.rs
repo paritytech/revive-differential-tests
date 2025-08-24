@@ -1,7 +1,7 @@
 mod cached_compiler;
 
 use std::{
-    collections::{BTreeMap, HashMap},
+    collections::HashMap,
     io::{BufWriter, Write, stderr},
     path::Path,
     sync::{Arc, LazyLock},
@@ -14,11 +14,10 @@ use alloy::{
 };
 use anyhow::Context;
 use clap::Parser;
-use futures::{FutureExt, stream};
+use futures::stream;
 use futures::{Stream, StreamExt};
-use indexmap::IndexMap;
 use revive_dt_node_interaction::EthereumNode;
-use revive_dt_report::{ReportAggregator, Reporter};
+use revive_dt_report::{ReportAggregator, Reporter, TestSpecificReporter, TestSpecifier};
 use temp_dir::TempDir;
 use tokio::{join, sync::mpsc, try_join};
 use tracing::{debug, info, info_span, instrument};
@@ -53,6 +52,7 @@ struct Test<'a> {
     mode: Mode,
     case_idx: CaseIdx,
     case: &'a Case,
+    reporter: TestSpecificReporter,
 }
 
 /// This represents the results that we gather from running test cases.
@@ -183,16 +183,11 @@ where
 {
     let (report_tx, report_rx) = mpsc::unbounded_channel::<(Test<'_>, CaseResult)>();
 
-    let tests = prepare_tests::<L, F>(args, metadata_files);
+    let tests = prepare_tests::<L, F>(args, metadata_files, reporter);
     let driver_task = start_driver_task::<L, F>(args, tests, report_tx).await?;
     let status_reporter_task = start_reporter_task(report_rx);
 
-    drop(reporter);
-    let (_, _, rtn) = tokio::join!(
-        status_reporter_task.inspect(|_| info!("Status reporter completed")),
-        driver_task.inspect(|_| info!("Driver completed")),
-        report_aggregator_task.inspect(|_| info!("Report aggregator completed"))
-    );
+    let (_, _, rtn) = tokio::join!(status_reporter_task, driver_task, report_aggregator_task,);
     rtn?;
 
     Ok(())
@@ -201,6 +196,7 @@ where
 fn prepare_tests<'a, L, F>(
     args: &Arguments,
     metadata_files: &'a [MetadataFile],
+    reporter: Reporter,
 ) -> impl Stream<Item = Test<'a>>
 where
     L: Platform,
@@ -227,27 +223,25 @@ where
                 .into_iter()
                 .map(move |mode| (metadata_file, case_idx, case, mode))
         })
-        .fold(
-            IndexMap::<_, BTreeMap<_, Vec<_>>>::new(),
-            |mut map, (metadata_file, case_idx, case, mode)| {
-                let test = Test {
-                    metadata: metadata_file,
-                    metadata_file_path: metadata_file.metadata_file_path.as_path(),
-                    mode: mode.clone(),
-                    case_idx: CaseIdx::new(case_idx),
-                    case,
-                };
-                map.entry(mode)
-                    .or_default()
-                    .entry(test.case_idx)
-                    .or_default()
-                    .push(test);
-                map
-            },
-        )
-        .into_values()
-        .flatten()
-        .flat_map(|(_, value)| value.into_iter())
+        .map(move |(metadata_file, case_idx, case, mode)| Test {
+            metadata: metadata_file,
+            metadata_file_path: metadata_file.metadata_file_path.as_path(),
+            mode: mode.clone(),
+            case_idx: CaseIdx::new(case_idx),
+            case,
+            reporter: reporter.test_specific_reporter(Arc::new(TestSpecifier {
+                solc_mode: mode.clone(),
+                metadata_file_path: metadata_file.metadata_file_path.clone(),
+                case_idx: CaseIdx::new(case_idx),
+            })),
+        })
+        .inspect(|test| {
+            test.reporter
+                .report_test_case_discovery_event()
+                .expect("Can't fail")
+        })
+        .collect::<Vec<_>>()
+        .into_iter()
         // Filter the test out if the leader and follower do not support the target.
         .filter(|test| {
             let leader_support =
@@ -262,7 +256,30 @@ where
                     leader_support,
                     follower_support,
                     "Target is not supported, throwing metadata file out"
-                )
+                );
+                test
+                    .reporter
+                    .report_test_ignored_event(
+                        "Either the leader or the follower do not support the target desired by the test",
+                        HashMap::from_iter([
+                            (
+                                "test_desired_targets".to_string(),
+                                serde_json::to_value(test.metadata.targets.as_ref())
+                                    .expect("Can't fail")
+                            ),
+                            (
+                                "leader_support".to_string(),
+                                serde_json::to_value(leader_support)
+                                    .expect("Can't fail")
+                            ),
+                            (
+                                "follower_support".to_string(),
+                                serde_json::to_value(follower_support)
+                                    .expect("Can't fail")
+                            )
+                        ])
+                    )
+                    .expect("Can't fail");
             }
 
             is_allowed
@@ -274,6 +291,13 @@ where
                     file_path = %test.metadata.relative_path().display(),
                     "Metadata file is ignored, throwing case out"
                 );
+                test
+                    .reporter
+                    .report_test_ignored_event(
+                        "Metadata file is ignored, therefore all cases are ignored",
+                        HashMap::new(),
+                    )
+                    .expect("Can't fail");
                 false
             } else {
                 true
@@ -287,6 +311,13 @@ where
                     case_idx = %test.case_idx,
                     "Case is ignored, throwing case out"
                 );
+                test
+                    .reporter
+                    .report_test_ignored_event(
+                        "Case is ignored",
+                        HashMap::new(),
+                    )
+                    .expect("Can't fail");
                 false
             } else {
                 true
@@ -309,6 +340,29 @@ where
                         follower_compatibility,
                         "EVM Version is incompatible, throwing case out"
                     );
+                    test
+                        .reporter
+                        .report_test_ignored_event(
+                            "EVM version is incompatible with either the leader or the follower",
+                            HashMap::from_iter([
+                                (
+                                    "test_desired_evm_version".to_string(),
+                                    serde_json::to_value(test.metadata.required_evm_version)
+                                        .expect("Can't fail")
+                                ),
+                                (
+                                    "leader_compatibility".to_string(),
+                                    serde_json::to_value(leader_compatibility)
+                                        .expect("Can't fail")
+                                ),
+                                (
+                                    "follower_compatibility".to_string(),
+                                    serde_json::to_value(follower_compatibility)
+                                        .expect("Can't fail")
+                                )
+                            ])
+                        )
+                        .expect("Can't fail");
                 }
 
                 is_allowed
@@ -337,6 +391,24 @@ where
                     follower_support,
                     "Compilers do not support this, throwing case out"
                 );
+                test
+                    .reporter
+                    .report_test_ignored_event(
+                        "Compilers do not support this mode either for the leader or for the follower.",
+                        HashMap::from_iter([
+                            (
+                                "leader_support".to_string(),
+                                serde_json::to_value(leader_support)
+                                    .expect("Can't fail")
+                            ),
+                            (
+                                "follower_support".to_string(),
+                                serde_json::to_value(follower_support)
+                                    .expect("Can't fail")
+                            )
+                        ])
+                    )
+                    .expect("Can't fail");
             }
 
             is_allowed.then_some(test)

@@ -1,11 +1,108 @@
 //! The types associated with the events sent by the runner to the reporter.
 #![allow(dead_code)]
 
+use std::{collections::HashMap, sync::Arc};
+
 use revive_dt_format::corpus::Corpus;
 use revive_dt_format::metadata::Metadata;
 use tokio::sync::{broadcast, oneshot};
 
-use crate::{ReporterEvent, common::MetadataFilePath};
+use crate::{ReporterEvent, TestSpecifier, common::MetadataFilePath};
+
+macro_rules! __report_gen__emit_test_specific {
+    (
+        $ident:ident,
+        $variant_ident:ident,
+        $skip_field:ident;
+        $( $bname:ident : $bty:ty, )*
+        ;
+        $( $aname:ident : $aty:ty, )*
+    ) => {
+        paste::paste! {
+            pub fn [< report_ $variant_ident:snake _event >](
+                &self
+                $(, $bname: impl Into<$bty> )*
+                $(, $aname: impl Into<$aty> )*
+            ) -> anyhow::Result<()> {
+                self.report([< $variant_ident Event >] {
+                    $skip_field: self.test_specifier.clone()
+                    $(, $bname: $bname.into() )*
+                    $(, $aname: $aname.into() )*
+                })
+            }
+        }
+    };
+}
+
+macro_rules! __report_gen__emit_test_specific_by_parse {
+    (
+        $ident:ident,
+        $variant_ident:ident,
+        $skip_field:ident;
+        $( $bname:ident : $bty:ty, )* ; $( $aname:ident : $aty:ty, )*
+    ) => {
+        __report_gen__emit_test_specific!(
+            $ident, $variant_ident, $skip_field;
+            $( $bname : $bty, )* ; $( $aname : $aty, )*
+        );
+    };
+}
+
+macro_rules! __report_gen__scan_before {
+    (
+        $ident:ident, $variant_ident:ident;
+        $( $before:ident : $bty:ty, )*
+        ;
+        test_specifier : $skip_ty:ty,
+        $( $after:ident : $aty:ty, )*
+        ;
+    ) => {
+        __report_gen__emit_test_specific_by_parse!(
+            $ident, $variant_ident, test_specifier;
+            $( $before : $bty, )* ; $( $after : $aty, )*
+        );
+    };
+    (
+        $ident:ident, $variant_ident:ident;
+        $( $before:ident : $bty:ty, )*
+        ;
+        $name:ident : $ty:ty, $( $after:ident : $aty:ty, )*
+        ;
+    ) => {
+        __report_gen__scan_before!(
+            $ident, $variant_ident;
+            $( $before : $bty, )* $name : $ty,
+            ;
+            $( $after : $aty, )*
+            ;
+        );
+    };
+    (
+        $ident:ident, $variant_ident:ident;
+        $( $before:ident : $bty:ty, )*
+        ;
+        ;
+    ) => {};
+}
+
+macro_rules! __report_gen_for_variant {
+    (
+        $ident:ident,
+        $variant_ident:ident;
+    ) => {};
+    (
+        $ident:ident,
+        $variant_ident:ident;
+        $( $field_ident:ident : $field_ty:ty ),+ $(,)?
+    ) => {
+        __report_gen__scan_before!(
+            $ident, $variant_ident;
+            ;
+            $( $field_ident : $field_ty, )*
+            ;
+        );
+    };
+}
 
 macro_rules! keep_if_doc {
     (#[doc = $doc:expr]) => {
@@ -115,6 +212,7 @@ macro_rules! define_event {
             }
 
             /// A reporter that's tied to a specific test case.
+            #[derive(Clone, Debug)]
             pub struct [< $ident TestSpecificReporter >] {
                 $vis reporter: [< $ident Reporter >],
                 $vis test_specifier: std::sync::Arc<crate::common::TestSpecifier>,
@@ -124,6 +222,10 @@ macro_rules! define_event {
                 fn report(&self, event: impl Into<$ident>) -> anyhow::Result<()> {
                     self.reporter.report(event)
                 }
+
+                $(
+                    __report_gen_for_variant! { $ident, $variant_ident; $( $field_ident : $field_ty ),* }
+                )*
             }
         }
     };
@@ -150,13 +252,20 @@ define_event! {
             /// The content of the metadata file.
             metadata: Metadata
         },
+        /// An event emitted by the runners when they discover a test case.
+        TestCaseDiscovery {
+            /// A specifier for the test that was discovered.
+            test_specifier: Arc<TestSpecifier>,
+        },
         /// An event emitted by the runners when a test case is ignored.
         TestIgnored {
-
+            /// A specifier for the test that's been ignored.
+            test_specifier: Arc<TestSpecifier>,
+            /// A reason for the test to be ignored.
+            reason: String,
+            /// Additional fields that describe more information on why the test was ignored.
+            additional_fields: HashMap<String, serde_json::Value>
         },
-        /// An event emitted by the runners when the execution is completed and the aggregator can
-        /// stop.
-        ExecutionCompleted {}
     }
 }
 
@@ -170,3 +279,4 @@ impl RunnerEventReporter {
 }
 
 pub type Reporter = RunnerEventReporter;
+pub type TestSpecificReporter = RunnerEventTestSpecificReporter;
