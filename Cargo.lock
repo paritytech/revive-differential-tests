@@ -4588,6 +4588,7 @@ dependencies = [
 name = "revive-dt-report"
 version = "0.1.0"
 dependencies = [
+ "alloy-primitives",
  "anyhow",
  "indexmap 2.10.0",
  "paste",
@@ -4600,6 +4601,7 @@ dependencies = [
  "serde_json",
  "serde_with",
  "tokio",
+ "tracing",
 ]
 
 [[package]]

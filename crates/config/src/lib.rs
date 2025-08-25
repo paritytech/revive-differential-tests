@@ -124,6 +124,14 @@ pub struct Arguments {
     /// Controls if the compilation cache should be invalidated or not.
     #[arg(short, long)]
     pub invalidate_compilation_cache: bool,
+
+    /// Controls if the compiler input is included in the final report.
+    #[clap(long = "report.include-compiler-input")]
+    pub report_include_compiler_input: bool,
+
+    /// Controls if the compiler output is included in the final report.
+    #[clap(long = "report.include-compiler-output")]
+    pub report_include_compiler_output: bool,
 }
 
 impl Arguments {

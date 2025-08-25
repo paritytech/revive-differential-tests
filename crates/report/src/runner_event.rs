@@ -1,17 +1,20 @@
 //! The types associated with the events sent by the runner to the reporter.
 #![allow(dead_code)]
 
-use std::sync::Arc;
+use std::{collections::BTreeMap, path::PathBuf, sync::Arc};
 
+use alloy_primitives::Address;
 use indexmap::IndexMap;
+use revive_dt_compiler::{CompilerInput, CompilerOutput};
 use revive_dt_config::TestingPlatform;
-use revive_dt_format::corpus::Corpus;
 use revive_dt_format::metadata::Metadata;
+use revive_dt_format::{corpus::Corpus, metadata::ContractInstance};
+use semver::Version;
 use tokio::sync::{broadcast, oneshot};
 
-use crate::{ReporterEvent, TestSpecifier, common::MetadataFilePath};
+use crate::{ExecutionSpecifier, ReporterEvent, TestSpecifier, common::MetadataFilePath};
 
-macro_rules! __report_gen__emit_test_specific {
+macro_rules! __report_gen_emit_test_specific {
     (
         $ident:ident,
         $variant_ident:ident,
@@ -36,21 +39,21 @@ macro_rules! __report_gen__emit_test_specific {
     };
 }
 
-macro_rules! __report_gen__emit_test_specific_by_parse {
+macro_rules! __report_gen_emit_test_specific_by_parse {
     (
         $ident:ident,
         $variant_ident:ident,
         $skip_field:ident;
         $( $bname:ident : $bty:ty, )* ; $( $aname:ident : $aty:ty, )*
     ) => {
-        __report_gen__emit_test_specific!(
+        __report_gen_emit_test_specific!(
             $ident, $variant_ident, $skip_field;
             $( $bname : $bty, )* ; $( $aname : $aty, )*
         );
     };
 }
 
-macro_rules! __report_gen__scan_before {
+macro_rules! __report_gen_scan_before {
     (
         $ident:ident, $variant_ident:ident;
         $( $before:ident : $bty:ty, )*
@@ -59,7 +62,7 @@ macro_rules! __report_gen__scan_before {
         $( $after:ident : $aty:ty, )*
         ;
     ) => {
-        __report_gen__emit_test_specific_by_parse!(
+        __report_gen_emit_test_specific_by_parse!(
             $ident, $variant_ident, test_specifier;
             $( $before : $bty, )* ; $( $after : $aty, )*
         );
@@ -71,7 +74,7 @@ macro_rules! __report_gen__scan_before {
         $name:ident : $ty:ty, $( $after:ident : $aty:ty, )*
         ;
     ) => {
-        __report_gen__scan_before!(
+        __report_gen_scan_before!(
             $ident, $variant_ident;
             $( $before : $bty, )* $name : $ty,
             ;
@@ -97,7 +100,7 @@ macro_rules! __report_gen_for_variant {
         $variant_ident:ident;
         $( $field_ident:ident : $field_ty:ty ),+ $(,)?
     ) => {
-        __report_gen__scan_before!(
+        __report_gen_scan_before!(
             $ident, $variant_ident;
             ;
             $( $field_ident : $field_ty, )*
@@ -106,11 +109,99 @@ macro_rules! __report_gen_for_variant {
     };
 }
 
-macro_rules! keep_if_doc {
-    (#[doc = $doc:expr]) => {
-        #[doc = $doc]
+macro_rules! __report_gen_emit_execution_specific {
+    (
+        $ident:ident,
+        $variant_ident:ident,
+        $skip_field:ident;
+        $( $bname:ident : $bty:ty, )*
+        ;
+        $( $aname:ident : $aty:ty, )*
+    ) => {
+        paste::paste! {
+            pub fn [< report_ $variant_ident:snake _event >](
+                &self
+                $(, $bname: impl Into<$bty> )*
+                $(, $aname: impl Into<$aty> )*
+            ) -> anyhow::Result<()> {
+                self.report([< $variant_ident Event >] {
+                    $skip_field: self.execution_specifier.clone()
+                    $(, $bname: $bname.into() )*
+                    $(, $aname: $aname.into() )*
+                })
+            }
+        }
     };
-    ( $($_:tt)* ) => {};
+}
+
+macro_rules! __report_gen_emit_execution_specific_by_parse {
+    (
+        $ident:ident,
+        $variant_ident:ident,
+        $skip_field:ident;
+        $( $bname:ident : $bty:ty, )* ; $( $aname:ident : $aty:ty, )*
+    ) => {
+        __report_gen_emit_execution_specific!(
+            $ident, $variant_ident, $skip_field;
+            $( $bname : $bty, )* ; $( $aname : $aty, )*
+        );
+    };
+}
+
+macro_rules! __report_gen_scan_before_exec {
+    (
+        $ident:ident, $variant_ident:ident;
+        $( $before:ident : $bty:ty, )*
+        ;
+        execution_specifier : $skip_ty:ty,
+        $( $after:ident : $aty:ty, )*
+        ;
+    ) => {
+        __report_gen_emit_execution_specific_by_parse!(
+            $ident, $variant_ident, execution_specifier;
+            $( $before : $bty, )* ; $( $after : $aty, )*
+        );
+    };
+    (
+        $ident:ident, $variant_ident:ident;
+        $( $before:ident : $bty:ty, )*
+        ;
+        $name:ident : $ty:ty, $( $after:ident : $aty:ty, )*
+        ;
+    ) => {
+        __report_gen_scan_before_exec!(
+            $ident, $variant_ident;
+            $( $before : $bty, )* $name : $ty,
+            ;
+            $( $after : $aty, )*
+            ;
+        );
+    };
+    (
+        $ident:ident, $variant_ident:ident;
+        $( $before:ident : $bty:ty, )*
+        ;
+        ;
+    ) => {};
+}
+
+macro_rules! __report_gen_for_variant_exec {
+    (
+        $ident:ident,
+        $variant_ident:ident;
+    ) => {};
+    (
+        $ident:ident,
+        $variant_ident:ident;
+        $( $field_ident:ident : $field_ty:ty ),+ $(,)?
+    ) => {
+        __report_gen_scan_before_exec!(
+            $ident, $variant_ident;
+            ;
+            $( $field_ident : $field_ty, )*
+            ;
+        );
+    };
 }
 
 /// Defines the runner-event which is sent from the test runners to the report aggregator.
@@ -149,6 +240,7 @@ macro_rules! define_event {
     ) => {
         paste::paste! {
             $(#[$enum_meta])*
+            #[derive(Debug)]
             $vis enum $ident {
                 $(
                     $(#[$variant_meta])*
@@ -157,6 +249,7 @@ macro_rules! define_event {
             }
 
             $(
+                #[derive(Debug)]
                 $(#[$variant_meta])*
                 $vis struct [<$variant_ident Event>] {
                     $(
@@ -204,7 +297,6 @@ macro_rules! define_event {
                 }
 
                 $(
-                    keep_if_doc!($(#[$variant_meta])*);
                     pub fn [< report_ $variant_ident:snake _event >](&self, $($field_ident: impl Into<$field_ty>),*) -> anyhow::Result<()> {
                         self.report([< $variant_ident Event >] {
                             $($field_ident: $field_ident.into()),*
@@ -221,12 +313,44 @@ macro_rules! define_event {
             }
 
             impl [< $ident TestSpecificReporter >] {
+                pub fn execution_specific_reporter(
+                    &self,
+                    node_id: impl Into<usize>,
+                    node_designation: impl Into<$crate::common::NodeDesignation>
+                ) -> [< $ident ExecutionSpecificReporter >] {
+                    [< $ident ExecutionSpecificReporter >] {
+                        reporter: self.reporter.clone(),
+                        execution_specifier: Arc::new($crate::common::ExecutionSpecifier {
+                            test_specifier: self.test_specifier.clone(),
+                            node_id: node_id.into(),
+                            node_designation: node_designation.into(),
+                        })
+                    }
+                }
+
                 fn report(&self, event: impl Into<$ident>) -> anyhow::Result<()> {
                     self.reporter.report(event)
                 }
 
                 $(
                     __report_gen_for_variant! { $ident, $variant_ident; $( $field_ident : $field_ty ),* }
+                )*
+            }
+
+            /// A reporter that's tied to a specific execution of the test case such as execution on
+            /// a specific node like the leader or follower.
+            #[derive(Clone, Debug)]
+            pub struct [< $ident ExecutionSpecificReporter >] {
+                $vis reporter: [< $ident Reporter >],
+                $vis execution_specifier: std::sync::Arc<$crate::common::ExecutionSpecifier>,
+            }
+
+            impl [< $ident ExecutionSpecificReporter >] {
+                fn report(&self, event: impl Into<$ident>) -> anyhow::Result<()> {
+                    self.reporter.report(event)
+                }
+                $(
+                    __report_gen_for_variant_exec! { $ident, $variant_ident; $( $field_ident : $field_ty ),* }
                 )*
             }
         }
@@ -303,7 +427,79 @@ define_event! {
             platform: TestingPlatform,
             /// The connection string of the node.
             connection_string: String,
-        }
+        },
+        /// An event emitted by the runners when the compilation of the contracts has succeeded
+        /// on the pre-link contracts.
+        PreLinkContractsCompilationSucceeded {
+            /// A specifier for the execution that's taking place.
+            execution_specifier: Arc<ExecutionSpecifier>,
+            /// The version of the compiler used to compile the contracts.
+            compiler_version: Version,
+            /// The path of the compiler used to compile the contracts.
+            compiler_path: PathBuf,
+            /// A flag of whether the contract bytecode and ABI were cached or if they were compiled
+            /// anew.
+            is_cached: bool,
+            /// The input provided to the compiler - this is optional and not provided if the
+            /// contracts were obtained from the cache.
+            compiler_input: Option<CompilerInput>,
+            /// The output of the compiler.
+            compiler_output: CompilerOutput
+        },
+        /// An event emitted by the runners when the compilation of the contracts has succeeded
+        /// on the post-link contracts.
+        PostLinkContractsCompilationSucceeded {
+            /// A specifier for the execution that's taking place.
+            execution_specifier: Arc<ExecutionSpecifier>,
+            /// The version of the compiler used to compile the contracts.
+            compiler_version: Version,
+            /// The path of the compiler used to compile the contracts.
+            compiler_path: PathBuf,
+            /// A flag of whether the contract bytecode and ABI were cached or if they were compiled
+            /// anew.
+            is_cached: bool,
+            /// The input provided to the compiler - this is optional and not provided if the
+            /// contracts were obtained from the cache.
+            compiler_input: Option<CompilerInput>,
+            /// The output of the compiler.
+            compiler_output: CompilerOutput
+        },
+        /// An event emitted by the runners when the compilation of the pre-link contract has
+        /// failed.
+        PreLinkContractsCompilationFailed {
+            /// A specifier for the execution that's taking place.
+            execution_specifier: Arc<ExecutionSpecifier>,
+            /// The version of the compiler used to compile the contracts.
+            compiler_version: Option<Version>,
+            /// The path of the compiler used to compile the contracts.
+            compiler_path: Option<PathBuf>,
+            /// The input provided to the compiler - this is optional and not provided if the
+            /// contracts were obtained from the cache.
+            compiler_input: Option<CompilerInput>,
+            /// The failure reason.
+            reason: String,
+        },
+        /// An event emitted by the runners when the compilation of the post-link contract has
+        /// failed.
+        PostLinkContractsCompilationFailed {
+            /// A specifier for the execution that's taking place.
+            execution_specifier: Arc<ExecutionSpecifier>,
+            /// The version of the compiler used to compile the contracts.
+            compiler_version: Option<Version>,
+            /// The path of the compiler used to compile the contracts.
+            compiler_path: Option<PathBuf>,
+            /// The input provided to the compiler - this is optional and not provided if the
+            /// contracts were obtained from the cache.
+            compiler_input: Option<CompilerInput>,
+            /// The failure reason.
+            reason: String,
+        },
+        LibrariesDeployed {
+            /// A specifier for the execution that's taking place.
+            execution_specifier: Arc<ExecutionSpecifier>,
+            /// The addresses of the libraries that were deployed.
+            libraries: BTreeMap<ContractInstance, Address>
+        },
     }
 }
 
@@ -318,3 +514,4 @@ impl RunnerEventReporter {
 
 pub type Reporter = RunnerEventReporter;
 pub type TestSpecificReporter = RunnerEventTestSpecificReporter;
+pub type ExecutionSpecificReporter = RunnerEventExecutionSpecificReporter;

@@ -4,20 +4,24 @@
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap, HashSet},
     fs::OpenOptions,
+    path::PathBuf,
     time::{SystemTime, UNIX_EPOCH},
 };
 
+use alloy_primitives::Address;
 use anyhow::Result;
 use indexmap::IndexMap;
-use revive_dt_compiler::Mode;
+use revive_dt_compiler::{CompilerInput, CompilerOutput, Mode};
 use revive_dt_config::{Arguments, TestingPlatform};
-use revive_dt_format::{case::CaseIdx, corpus::Corpus};
+use revive_dt_format::{case::CaseIdx, corpus::Corpus, metadata::ContractInstance};
+use semver::Version;
 use serde::Serialize;
 use serde_with::{DisplayFromStr, serde_as};
 use tokio::sync::{
     broadcast::{Sender, channel},
     mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel},
 };
+use tracing::debug;
 
 use crate::*;
 
@@ -54,7 +58,10 @@ impl ReportAggregator {
     }
 
     async fn aggregate(mut self) -> Result<()> {
+        debug!("Starting to aggregate report");
+
         while let Some(event) = self.runner_rx.recv().await {
+            debug!(?event, "Received Event");
             match event {
                 RunnerEvent::SubscribeToEvents(event) => {
                     self.handle_subscribe_to_events_event(*event);
@@ -83,8 +90,24 @@ impl ReportAggregator {
                 RunnerEvent::FollowerNodeAssigned(event) => {
                     self.handle_follower_node_assigned_event(*event);
                 }
+                RunnerEvent::PreLinkContractsCompilationSucceeded(event) => {
+                    self.handle_pre_link_contracts_compilation_succeeded_event(*event)
+                }
+                RunnerEvent::PostLinkContractsCompilationSucceeded(event) => {
+                    self.handle_post_link_contracts_compilation_succeeded_event(*event)
+                }
+                RunnerEvent::PreLinkContractsCompilationFailed(event) => {
+                    self.handle_pre_link_contracts_compilation_failed_event(*event)
+                }
+                RunnerEvent::PostLinkContractsCompilationFailed(event) => {
+                    self.handle_post_link_contracts_compilation_failed_event(*event)
+                }
+                RunnerEvent::LibrariesDeployed(event) => {
+                    self.handle_libraries_deployed_event(*event);
+                }
             }
         }
+        debug!("Report aggregation completed");
 
         let file_name = {
             let current_timestamp = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
@@ -232,6 +255,113 @@ impl ReportAggregator {
             });
     }
 
+    fn handle_pre_link_contracts_compilation_succeeded_event(
+        &mut self,
+        event: PreLinkContractsCompilationSucceededEvent,
+    ) {
+        let include_input = self.report.config.report_include_compiler_input;
+        let include_output = self.report.config.report_include_compiler_output;
+
+        let execution_information = self.execution_information(&event.execution_specifier);
+
+        let compiler_input = if include_input {
+            event.compiler_input
+        } else {
+            None
+        };
+        let compiler_output = if include_output {
+            Some(event.compiler_output)
+        } else {
+            None
+        };
+
+        execution_information.pre_link_compilation_status = Some(CompilationStatus::Success {
+            is_cached: event.is_cached,
+            compiler_version: event.compiler_version,
+            compiler_path: event.compiler_path,
+            compiler_input,
+            compiler_output,
+        });
+    }
+
+    fn handle_post_link_contracts_compilation_succeeded_event(
+        &mut self,
+        event: PostLinkContractsCompilationSucceededEvent,
+    ) {
+        let include_input = self.report.config.report_include_compiler_input;
+        let include_output = self.report.config.report_include_compiler_output;
+
+        let execution_information = self.execution_information(&event.execution_specifier);
+
+        let compiler_input = if include_input {
+            event.compiler_input
+        } else {
+            None
+        };
+        let compiler_output = if include_output {
+            Some(event.compiler_output)
+        } else {
+            None
+        };
+
+        execution_information.post_link_compilation_status = Some(CompilationStatus::Success {
+            is_cached: event.is_cached,
+            compiler_version: event.compiler_version,
+            compiler_path: event.compiler_path,
+            compiler_input,
+            compiler_output,
+        });
+    }
+
+    fn handle_pre_link_contracts_compilation_failed_event(
+        &mut self,
+        event: PreLinkContractsCompilationFailedEvent,
+    ) {
+        let include_input = self.report.config.report_include_compiler_input;
+
+        let execution_information = self.execution_information(&event.execution_specifier);
+
+        let compiler_input = if include_input {
+            event.compiler_input
+        } else {
+            None
+        };
+
+        execution_information.pre_link_compilation_status = Some(CompilationStatus::Failure {
+            reason: event.reason,
+            compiler_version: event.compiler_version,
+            compiler_path: event.compiler_path,
+            compiler_input,
+        });
+    }
+
+    fn handle_post_link_contracts_compilation_failed_event(
+        &mut self,
+        event: PostLinkContractsCompilationFailedEvent,
+    ) {
+        let include_input = self.report.config.report_include_compiler_input;
+
+        let execution_information = self.execution_information(&event.execution_specifier);
+
+        let compiler_input = if include_input {
+            event.compiler_input
+        } else {
+            None
+        };
+
+        execution_information.post_link_compilation_status = Some(CompilationStatus::Failure {
+            reason: event.reason,
+            compiler_version: event.compiler_version,
+            compiler_path: event.compiler_path,
+            compiler_input,
+        });
+    }
+
+    fn handle_libraries_deployed_event(&mut self, event: LibrariesDeployedEvent) {
+        self.execution_information(&event.execution_specifier)
+            .deployed_libraries = Some(event.libraries);
+    }
+
     fn test_case_report(&mut self, specifier: &TestSpecifier) -> &mut TestCaseReport {
         self.report
             .test_case_information
@@ -241,6 +371,21 @@ impl ReportAggregator {
             .or_default()
             .entry(specifier.case_idx)
             .or_default()
+    }
+
+    fn execution_information(
+        &mut self,
+        specifier: &ExecutionSpecifier,
+    ) -> &mut ExecutionInformation {
+        let test_case_report = self.test_case_report(&specifier.test_specifier);
+        match specifier.node_designation {
+            NodeDesignation::Leader => test_case_report
+                .leader_execution_information
+                .get_or_insert_default(),
+            NodeDesignation::Follower => test_case_report
+                .follower_execution_information
+                .get_or_insert_default(),
+        }
     }
 }
 
@@ -287,6 +432,12 @@ pub struct TestCaseReport {
     /// Information related to the follower node assigned to this test case.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub follower_node: Option<TestCaseNodeInformation>,
+    /// Information related to the execution on the leader.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub leader_execution_information: Option<ExecutionInformation>,
+    /// Information related to the execution on the follower.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub follower_execution_information: Option<ExecutionInformation>,
 }
 
 /// Information related to the status of the test. Could be that the test succeeded, failed, or that
@@ -323,4 +474,58 @@ pub struct TestCaseNodeInformation {
     pub platform: TestingPlatform,
     /// The connection string of the node.
     pub connection_string: String,
+}
+
+/// Execution information tied to the leader or the follower.
+#[derive(Clone, Debug, Default, Serialize)]
+pub struct ExecutionInformation {
+    /// Information on the pre-link compiled contracts.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pre_link_compilation_status: Option<CompilationStatus>,
+    /// Information on the post-link compiled contracts.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub post_link_compilation_status: Option<CompilationStatus>,
+    /// Information on the deployed libraries.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub deployed_libraries: Option<BTreeMap<ContractInstance, Address>>,
+}
+
+/// Information related to compilation
+#[derive(Clone, Debug, Serialize)]
+#[serde(tag = "status")]
+pub enum CompilationStatus {
+    /// The compilation was successful.
+    Success {
+        /// A flag with information on whether the compilation artifacts were cached or not.
+        is_cached: bool,
+        /// The version of the compiler used to compile the contracts.
+        compiler_version: Version,
+        /// The path of the compiler used to compile the contracts.
+        compiler_path: PathBuf,
+        /// The input provided to the compiler to compile the contracts. This is only included if
+        /// the appropriate flag is set in the CLI configuration and if the contracts were not
+        /// cached and the compiler was invoked.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        compiler_input: Option<CompilerInput>,
+        /// The output of the compiler. This is only included if the appropriate flag is set in the
+        /// CLI configurations.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        compiler_output: Option<CompilerOutput>,
+    },
+    /// The compilation failed.
+    Failure {
+        /// The failure reason.
+        reason: String,
+        /// The version of the compiler used to compile the contracts.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        compiler_version: Option<Version>,
+        /// The path of the compiler used to compile the contracts.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        compiler_path: Option<PathBuf>,
+        /// The input provided to the compiler to compile the contracts. This is only included if
+        /// the appropriate flag is set in the CLI configuration and if the contracts were not
+        /// cached and the compiler was invoked.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        compiler_input: Option<CompilerInput>,
+    },
 }

@@ -1,12 +1,11 @@
 //! Common types and functions used throughout the crate.
 
-use std::path::PathBuf;
+use std::{path::PathBuf, sync::Arc};
 
 use revive_dt_common::define_wrapper_type;
 use revive_dt_compiler::Mode;
 use revive_dt_format::case::CaseIdx;
 use serde::{Deserialize, Serialize};
-use serde_with::{DisplayFromStr, serde_as};
 
 define_wrapper_type!(
     #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
@@ -15,11 +14,24 @@ define_wrapper_type!(
 );
 
 /// An absolute specifier for a test.
-#[serde_as]
-#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct TestSpecifier {
-    #[serde_as(as = "DisplayFromStr")]
     pub solc_mode: Mode,
     pub metadata_file_path: PathBuf,
     pub case_idx: CaseIdx,
+}
+
+/// An absolute path for a test that also includes information about the node that it's assigned to
+/// and whether it's the leader or follower.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct ExecutionSpecifier {
+    pub test_specifier: Arc<TestSpecifier>,
+    pub node_id: usize,
+    pub node_designation: NodeDesignation,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum NodeDesignation {
+    Leader,
+    Follower,
 }

@@ -1,7 +1,7 @@
 mod cached_compiler;
 
 use std::{
-    collections::HashMap,
+    collections::{BTreeMap, HashMap},
     io::{BufWriter, Write, stderr},
     path::Path,
     sync::{Arc, LazyLock},
@@ -19,10 +19,11 @@ use futures::{Stream, StreamExt};
 use indexmap::IndexMap;
 use revive_dt_node_interaction::EthereumNode;
 use revive_dt_report::{
-    ReportAggregator, Reporter, ReporterEvent, TestCaseStatus, TestSpecificReporter, TestSpecifier,
+    NodeDesignation, ReportAggregator, Reporter, ReporterEvent, TestCaseStatus,
+    TestSpecificReporter, TestSpecifier,
 };
 use temp_dir::TempDir;
-use tokio::{join, sync::broadcast::Receiver, try_join};
+use tokio::{join, try_join};
 use tracing::{debug, info, info_span, instrument};
 use tracing_appender::non_blocking::WorkerGuard;
 use tracing_subscriber::{EnvFilter, FmtSubscriber};
@@ -181,13 +182,11 @@ where
     L::Blockchain: revive_dt_node::Node + Send + Sync + 'static,
     F::Blockchain: revive_dt_node::Node + Send + Sync + 'static,
 {
-    let reporter_events_rx = reporter.subscribe().await?;
-
-    let tests = prepare_tests::<L, F>(args, metadata_files, reporter);
+    let tests = prepare_tests::<L, F>(args, metadata_files, reporter.clone());
     let driver_task = start_driver_task::<L, F>(args, tests).await?;
-    let cli_reporting_task = start_cli_reporting_task(reporter_events_rx);
+    let cli_reporting_task = start_cli_reporting_task(reporter);
 
-    let (_, _, rtn) = tokio::join!(cli_reporting_task, driver_task, report_aggregator_task,);
+    let (_, _, rtn) = tokio::join!(cli_reporting_task, driver_task, report_aggregator_task);
     rtn?;
 
     Ok(())
@@ -441,6 +440,8 @@ where
     L::Blockchain: revive_dt_node::Node + Send + Sync + 'static,
     F::Blockchain: revive_dt_node::Node + Send + Sync + 'static,
 {
+    info!("Starting driver task");
+
     let leader_nodes = Arc::new(NodePool::<L::Blockchain>::new(args)?);
     let follower_nodes = Arc::new(NodePool::<F::Blockchain>::new(args)?);
     let number_concurrent_tasks = args.number_of_concurrent_tasks();
@@ -510,7 +511,10 @@ where
 
 #[allow(clippy::uninlined_format_args)]
 #[allow(irrefutable_let_patterns)]
-async fn start_cli_reporting_task(mut aggregator_events_rx: Receiver<ReporterEvent>) {
+async fn start_cli_reporting_task(reporter: Reporter) {
+    let mut aggregator_events_rx = reporter.subscribe().await.expect("Can't fail");
+    drop(reporter);
+
     let start = Instant::now();
 
     const GREEN: &str = "\x1B[32m";
@@ -606,6 +610,13 @@ where
     L::Blockchain: revive_dt_node::Node + Send + Sync + 'static,
     F::Blockchain: revive_dt_node::Node + Send + Sync + 'static,
 {
+    let leader_reporter = test
+        .reporter
+        .execution_specific_reporter(leader_node.id(), NodeDesignation::Leader);
+    let follower_reporter = test
+        .reporter
+        .execution_specific_reporter(follower_node.id(), NodeDesignation::Follower);
+
     let (
         (
             CompilerOutput {
@@ -625,14 +636,56 @@ where
             test.metadata_file_path,
             &test.mode,
             config,
-            None
+            None,
+            |compiler_version, compiler_path, is_cached, compiler_input, compiler_output| {
+                leader_reporter
+                    .report_pre_link_contracts_compilation_succeeded_event(
+                        compiler_version,
+                        compiler_path,
+                        is_cached,
+                        compiler_input,
+                        compiler_output,
+                    )
+                    .expect("Can't fail")
+            },
+            |compiler_version, compiler_path, compiler_input, failure_reason| {
+                leader_reporter
+                    .report_pre_link_contracts_compilation_failed_event(
+                        compiler_version,
+                        compiler_path,
+                        compiler_input,
+                        failure_reason,
+                    )
+                    .expect("Can't fail")
+            }
         ),
         cached_compiler.compile_contracts::<F>(
             test.metadata,
             test.metadata_file_path,
             &test.mode,
             config,
-            None
+            None,
+            |compiler_version, compiler_path, is_cached, compiler_input, compiler_output| {
+                follower_reporter
+                    .report_pre_link_contracts_compilation_succeeded_event(
+                        compiler_version,
+                        compiler_path,
+                        is_cached,
+                        compiler_input,
+                        compiler_output,
+                    )
+                    .expect("Can't fail")
+            },
+            |compiler_version, compiler_path, compiler_input, failure_reason| {
+                follower_reporter
+                    .report_pre_link_contracts_compilation_failed_event(
+                        compiler_version,
+                        compiler_path,
+                        compiler_input,
+                        failure_reason,
+                    )
+                    .expect("Can't fail")
+            }
         )
     )?;
 
@@ -740,6 +793,24 @@ where
             ),
         );
     }
+    if let Some(ref leader_deployed_libraries) = leader_deployed_libraries {
+        leader_reporter.report_libraries_deployed_event(
+            leader_deployed_libraries
+                .clone()
+                .into_iter()
+                .map(|(key, (_, address, _))| (key, address))
+                .collect::<BTreeMap<_, _>>(),
+        )?;
+    }
+    if let Some(ref follower_deployed_libraries) = follower_deployed_libraries {
+        follower_reporter.report_libraries_deployed_event(
+            follower_deployed_libraries
+                .clone()
+                .into_iter()
+                .map(|(key, (_, address, _))| (key, address))
+                .collect::<BTreeMap<_, _>>(),
+        )?;
+    }
 
     let (
         (
@@ -760,14 +831,56 @@ where
             test.metadata_file_path,
             &test.mode,
             config,
-            leader_deployed_libraries.as_ref()
+            leader_deployed_libraries.as_ref(),
+            |compiler_version, compiler_path, is_cached, compiler_input, compiler_output| {
+                leader_reporter
+                    .report_post_link_contracts_compilation_succeeded_event(
+                        compiler_version,
+                        compiler_path,
+                        is_cached,
+                        compiler_input,
+                        compiler_output,
+                    )
+                    .expect("Can't fail")
+            },
+            |compiler_version, compiler_path, compiler_input, failure_reason| {
+                leader_reporter
+                    .report_post_link_contracts_compilation_failed_event(
+                        compiler_version,
+                        compiler_path,
+                        compiler_input,
+                        failure_reason,
+                    )
+                    .expect("Can't fail")
+            }
         ),
         cached_compiler.compile_contracts::<F>(
             test.metadata,
             test.metadata_file_path,
             &test.mode,
             config,
-            follower_deployed_libraries.as_ref()
+            follower_deployed_libraries.as_ref(),
+            |compiler_version, compiler_path, is_cached, compiler_input, compiler_output| {
+                follower_reporter
+                    .report_post_link_contracts_compilation_succeeded_event(
+                        compiler_version,
+                        compiler_path,
+                        is_cached,
+                        compiler_input,
+                        compiler_output,
+                    )
+                    .expect("Can't fail")
+            },
+            |compiler_version, compiler_path, compiler_input, failure_reason| {
+                follower_reporter
+                    .report_post_link_contracts_compilation_failed_event(
+                        compiler_version,
+                        compiler_path,
+                        compiler_input,
+                        failure_reason,
+                    )
+                    .expect("Can't fail")
+            }
         )
     )?;
 
@@ -849,6 +962,8 @@ async fn compile_corpus(
                                 &mode,
                                 config,
                                 None,
+                                |_, _, _, _, _| {},
+                                |_, _, _, _| {},
                             )
                             .await;
                     }
@@ -860,6 +975,8 @@ async fn compile_corpus(
                                 &mode,
                                 config,
                                 None,
+                                |_, _, _, _, _| {},
+                                |_, _, _, _| {},
                             )
                             .await;
                     }
