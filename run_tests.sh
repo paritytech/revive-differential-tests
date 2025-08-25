@@ -53,9 +53,8 @@ echo ""
 
 # Run the tool
 RUST_LOG="error" cargo run --release -- \
-    --kitchensink "$(realpath ~/polkadot-sdk/target/debug/substrate-node)" \
-    --eth_proxy "$(realpath ~/polkadot-sdk/target/debug/eth-rpc)" \
     --corpus "$CORPUS_FILE" \
     --workdir "$WORKDIR" \
+    --number-of-nodes 5
 
 echo -e "${GREEN}=== Test run completed! ===${NC}"
