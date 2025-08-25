@@ -33,7 +33,7 @@ fi
 
 # Create corpus file with absolute path resolved at runtime
 echo -e "${GREEN}Creating corpus file...${NC}"
-ABSOLUTE_PATH=$(realpath "$TEST_REPO_DIR/fixtures/solidity/simple/yul_instructions/codesize.sol")
+ABSOLUTE_PATH=$(realpath "$TEST_REPO_DIR/fixtures/solidity/")
 
 cat > "$CORPUS_FILE" << EOF
 {
