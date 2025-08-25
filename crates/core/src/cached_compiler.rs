@@ -14,7 +14,7 @@ use revive_dt_config::Arguments;
 use revive_dt_format::metadata::{ContractIdent, ContractInstance, Metadata};
 
 use alloy::{hex::ToHexExt, json_abi::JsonAbi, primitives::Address};
-use anyhow::{Error, Result};
+use anyhow::{Context as _, Error, Result};
 use once_cell::sync::Lazy;
 use semver::Version;
 use serde::{Deserialize, Serialize};
@@ -29,7 +29,10 @@ impl CachedCompiler {
     pub async fn new(path: impl AsRef<Path>, invalidate_cache: bool) -> Result<Self> {
         let mut cache = ArtifactsCache::new(path);
         if invalidate_cache {
-            cache = cache.with_invalidated_cache().await?;
+            cache = cache
+                .with_invalidated_cache()
+                .await
+                .context("Failed to invalidate compilation cache directory")?;
         }
         Ok(Self(cache))
     }
@@ -76,9 +79,8 @@ impl CachedCompiler {
             compiler_version_or_requirement,
         )
         .await
-        .inspect_err(|err| {
-            compilation_failure_report_callback(None, None, None, err.to_string())
-        })?;
+        .inspect_err(|err| compilation_failure_report_callback(None, None, None, err.to_string()))
+        .context("Failed to obtain compiler executable path")?;
         let compiler_version = <P::Compiler as SolidityCompiler>::new(compiler_path.clone())
             .version()
             .await
@@ -89,7 +91,8 @@ impl CachedCompiler {
                     None,
                     err.to_string(),
                 )
-            })?;
+            })
+            .context("Failed to query compiler version")?;
 
         let cache_key = CacheKey {
             platform_key: P::config_id().to_string(),
@@ -104,10 +107,14 @@ impl CachedCompiler {
             let compilation_success_report_callback = compilation_success_report_callback.clone();
             async move {
                 compile_contracts::<P>(
-                    metadata.directory()?,
+                    metadata
+                        .directory()
+                        .context("Failed to get metadata directory while preparing compilation")?,
                     compiler_path,
                     compiler_version,
-                    metadata.files_to_compile()?,
+                    metadata
+                        .files_to_compile()
+                        .context("Failed to enumerate files to compile from metadata")?,
                     mode,
                     deployed_libraries,
                     compilation_success_report_callback,
@@ -131,7 +138,10 @@ impl CachedCompiler {
             Some(_) => {
                 debug!("Deployed libraries defined, recompilation must take place");
                 debug!("Cache miss");
-                compilation_callback().await?.compiler_output
+                compilation_callback()
+                    .await
+                    .context("Compilation callback for deployed libraries failed")?
+                    .compiler_output
             }
             // If no deployed libraries are specified then we can follow the cached flow and attempt
             // to lookup the compilation artifacts in the cache.
@@ -167,7 +177,12 @@ impl CachedCompiler {
                         );
                         cache_value.compiler_output
                     }
-                    None => compilation_callback().await?.compiler_output,
+                    None => {
+                        compilation_callback()
+                            .await
+                            .context("Compilation callback failed (cache miss path)")?
+                            .compiler_output
+                    }
                 }
             }
         };
@@ -247,7 +262,8 @@ async fn compile_contracts<P: Platform>(
                 Some(compiler_input.clone()),
                 err.to_string(),
             )
-        })?;
+        })
+        .context("Failed to configure compiler with sources and options")?;
     compilation_success_report_callback(
         compiler_version,
         compiler_path.as_ref().to_path_buf(),
@@ -273,15 +289,20 @@ impl ArtifactsCache {
     pub async fn with_invalidated_cache(self) -> Result<Self> {
         cacache::clear(self.path.as_path())
             .await
-            .map_err(Into::<Error>::into)?;
+            .map_err(Into::<Error>::into)
+            .with_context(|| format!("Failed to clear cache at {}", self.path.display()))?;
         Ok(self)
     }
 
     #[instrument(level = "debug", skip_all, err)]
     pub async fn insert(&self, key: &CacheKey, value: &CacheValue) -> Result<()> {
-        let key = bson::to_vec(key)?;
-        let value = bson::to_vec(value)?;
-        cacache::write(self.path.as_path(), key.encode_hex(), value).await?;
+        let key = bson::to_vec(key).context("Failed to serialize cache key (bson)")?;
+        let value = bson::to_vec(value).context("Failed to serialize cache value (bson)")?;
+        cacache::write(self.path.as_path(), key.encode_hex(), value)
+            .await
+            .with_context(|| {
+                format!("Failed to write cache entry under {}", self.path.display())
+            })?;
         Ok(())
     }
 

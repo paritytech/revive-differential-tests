@@ -49,7 +49,11 @@ impl SolidityCompiler for Solc {
         }: CompilerInput,
         _: Self::Options,
     ) -> anyhow::Result<CompilerOutput> {
-        let compiler_supports_via_ir = self.version().await? >= SOLC_VERSION_SUPPORTING_VIA_YUL_IR;
+        let compiler_supports_via_ir = self
+            .version()
+            .await
+            .context("Failed to query solc version to determine via-ir support")?
+            >= SOLC_VERSION_SUPPORTING_VIA_YUL_IR;
 
         // Be careful to entirely omit the viaIR field if the compiler does not support it,
         // as it will error if you provide fields it does not know about. Because
@@ -134,15 +138,25 @@ impl SolidityCompiler for Solc {
                     .join(","),
             );
         }
-        let mut child = command.spawn()?;
+        let mut child = command
+            .spawn()
+            .with_context(|| format!("Failed to spawn solc at {}", self.solc_path.display()))?;
 
         let stdin = child.stdin.as_mut().expect("should be piped");
-        let serialized_input = serde_json::to_vec(&input)?;
-        stdin.write_all(&serialized_input).await?;
-        let output = child.wait_with_output().await?;
+        let serialized_input = serde_json::to_vec(&input)
+            .context("Failed to serialize Standard JSON input for solc")?;
+        stdin
+            .write_all(&serialized_input)
+            .await
+            .context("Failed to write Standard JSON to solc stdin")?;
+        let output = child
+            .wait_with_output()
+            .await
+            .context("Failed while waiting for solc process to finish")?;
 
         if !output.status.success() {
-            let json_in = serde_json::to_string_pretty(&input)?;
+            let json_in = serde_json::to_string_pretty(&input)
+                .context("Failed to pretty-print Standard JSON input for logging")?;
             let message = String::from_utf8_lossy(&output.stderr);
             tracing::error!(
                 status = %output.status,
@@ -153,12 +167,14 @@ impl SolidityCompiler for Solc {
             anyhow::bail!("Compilation failed with an error: {message}");
         }
 
-        let parsed = serde_json::from_slice::<SolcOutput>(&output.stdout).map_err(|e| {
-            anyhow::anyhow!(
-                "failed to parse resolc JSON output: {e}\nstderr: {}",
-                String::from_utf8_lossy(&output.stdout)
-            )
-        })?;
+        let parsed = serde_json::from_slice::<SolcOutput>(&output.stdout)
+            .map_err(|e| {
+                anyhow::anyhow!(
+                    "failed to parse resolc JSON output: {e}\nstderr: {}",
+                    String::from_utf8_lossy(&output.stdout)
+                )
+            })
+            .context("Failed to parse solc standard JSON output")?;
 
         // Detecting if the compiler output contained errors and reporting them through logs and
         // errors instead of returning the compiler output that might contain errors.
@@ -178,7 +194,12 @@ impl SolidityCompiler for Solc {
         for (contract_path, contracts) in parsed.contracts {
             let map = compiler_output
                 .contracts
-                .entry(contract_path.canonicalize()?)
+                .entry(contract_path.canonicalize().with_context(|| {
+                    format!(
+                        "Failed to canonicalize contract path {}",
+                        contract_path.display()
+                    )
+                })?)
                 .or_default();
             for (contract_name, contract_info) in contracts.into_iter() {
                 let source_code = contract_info
@@ -207,7 +228,9 @@ impl SolidityCompiler for Solc {
         config: &Arguments,
         version: impl Into<VersionOrRequirement>,
     ) -> anyhow::Result<PathBuf> {
-        let path = download_solc(config.directory(), version, config.wasm).await?;
+        let path = download_solc(config.directory(), version, config.wasm)
+            .await
+            .context("Failed to download/get path to solc binary")?;
         Ok(path)
     }
 
@@ -230,8 +253,19 @@ impl SolidityCompiler for Solc {
                 let child = Command::new(self.solc_path.as_path())
                     .arg("--version")
                     .stdout(Stdio::piped())
-                    .spawn()?;
-                let output = child.wait_with_output()?;
+                    .spawn()
+                    .with_context(|| {
+                        format!(
+                            "Failed to spawn solc at {} to get version",
+                            self.solc_path.display()
+                        )
+                    })?;
+                let output = child.wait_with_output().with_context(|| {
+                    format!(
+                        "Failed waiting for solc at {} to finish --version",
+                        self.solc_path.display()
+                    )
+                })?;
                 let output = String::from_utf8_lossy(&output.stdout);
                 let version_line = output
                     .split("Version: ")
@@ -242,7 +276,9 @@ impl SolidityCompiler for Solc {
                     .next()
                     .context("Version parsing failed")?;
 
-                let version = Version::parse(version_string)?;
+                let version = Version::parse(version_string).with_context(|| {
+                    format!("Failed to parse solc semver from '{version_string}'")
+                })?;
 
                 vacant_entry.insert(version.clone());
 

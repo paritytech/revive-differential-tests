@@ -5,6 +5,7 @@
 
 use std::path::{Path, PathBuf};
 
+use anyhow::Context;
 use cache::get_or_download;
 use download::SolcDownloader;
 
@@ -34,7 +35,8 @@ pub async fn download_solc(
         SolcDownloader::windows(version).await
     } else {
         unimplemented!()
-    }?;
+    }
+    .context("Failed to initialize the Solc Downloader")?;
 
     get_or_download(cache_directory, &downloader).await
 }

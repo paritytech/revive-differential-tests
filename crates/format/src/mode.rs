@@ -1,3 +1,4 @@
+use anyhow::Context;
 use regex::Regex;
 use revive_dt_common::types::{Mode, ModeOptimizerSetting, ModePipeline};
 use serde::{Deserialize, Serialize};
@@ -44,21 +45,34 @@ impl FromStr for ParsedMode {
         };
 
         let pipeline = match caps.name("pipeline") {
-            Some(m) => Some(ModePipeline::from_str(m.as_str())?),
+            Some(m) => Some(
+                ModePipeline::from_str(m.as_str())
+                    .context("Failed to parse mode pipeline from string")?,
+            ),
             None => None,
         };
 
         let optimize_flag = caps.name("optimize_flag").map(|m| m.as_str() == "+");
 
         let optimize_setting = match caps.name("optimize_setting") {
-            Some(m) => Some(ModeOptimizerSetting::from_str(m.as_str())?),
+            Some(m) => Some(
+                ModeOptimizerSetting::from_str(m.as_str())
+                    .context("Failed to parse optimizer setting from string")?,
+            ),
             None => None,
         };
 
         let version = match caps.name("version") {
-            Some(m) => Some(semver::VersionReq::parse(m.as_str()).map_err(|e| {
-                anyhow::anyhow!("Cannot parse the version requirement '{}': {e}", m.as_str())
-            })?),
+            Some(m) => Some(
+                semver::VersionReq::parse(m.as_str())
+                    .map_err(|e| {
+                        anyhow::anyhow!(
+                            "Cannot parse the version requirement '{}': {e}",
+                            m.as_str()
+                        )
+                    })
+                    .context("Failed to parse semver requirement from mode string")?,
+            ),
             None => None,
         };
 

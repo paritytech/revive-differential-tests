@@ -9,7 +9,7 @@ use std::{
 };
 
 use alloy_primitives::Address;
-use anyhow::Result;
+use anyhow::{Context as _, Result};
 use indexmap::IndexMap;
 use revive_dt_compiler::{CompilerInput, CompilerOutput, Mode};
 use revive_dt_config::{Arguments, TestingPlatform};
@@ -113,7 +113,10 @@ impl ReportAggregator {
         debug!("Report aggregation completed");
 
         let file_name = {
-            let current_timestamp = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
+            let current_timestamp = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .context("System clock is before UNIX_EPOCH; cannot compute report timestamp")?
+                .as_secs();
             let mut file_name = current_timestamp.to_string();
             file_name.push_str(".json");
             file_name
@@ -124,8 +127,16 @@ impl ReportAggregator {
             .write(true)
             .truncate(true)
             .read(false)
-            .open(file_path)?;
-        serde_json::to_writer_pretty(file, &self.report)?;
+            .open(&file_path)
+            .with_context(|| {
+                format!(
+                    "Failed to open report file for writing: {}",
+                    file_path.display()
+                )
+            })?;
+        serde_json::to_writer_pretty(&file, &self.report).with_context(|| {
+            format!("Failed to serialize report JSON to {}", file_path.display())
+        })?;
 
         Ok(())
     }

@@ -9,3 +9,5 @@ node_modules
 *.log
 
 profile.json.gz
+resolc-compiler-tests
+workdir

@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 use tracing::{debug, info};
 
 use crate::metadata::{Metadata, MetadataFile};
+use anyhow::Context as _;
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(untagged)]
@@ -20,23 +21,24 @@ impl Corpus {
     pub fn try_from_path(file_path: impl AsRef<Path>) -> anyhow::Result<Self> {
         let mut corpus = File::open(file_path.as_ref())
             .map_err(anyhow::Error::from)
-            .and_then(|file| serde_json::from_reader::<_, Corpus>(file).map_err(Into::into))?;
+            .and_then(|file| serde_json::from_reader::<_, Corpus>(file).map_err(Into::into))
+            .with_context(|| {
+                format!(
+                    "Failed to open and deserialize corpus file at {}",
+                    file_path.as_ref().display()
+                )
+            })?;
+
+        let corpus_directory = file_path
+            .as_ref()
+            .canonicalize()
+            .context("Failed to canonicalize the path to the corpus file")?
+            .parent()
+            .context("Corpus file has no parent")?
+            .to_path_buf();
 
         for path in corpus.paths_iter_mut() {
-            *path = file_path
-                .as_ref()
-                .parent()
-                .ok_or_else(|| {
-                    anyhow::anyhow!("Corpus path '{}' does not point to a file", path.display())
-                })?
-                .canonicalize()
-                .map_err(|error| {
-                    anyhow::anyhow!(
-                        "Failed to canonicalize path to corpus '{}': {error}",
-                        path.display()
-                    )
-                })?
-                .join(path.as_path())
+            *path = corpus_directory.join(path.as_path())
         }
 
         Ok(corpus)

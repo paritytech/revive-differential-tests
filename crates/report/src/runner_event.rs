@@ -4,6 +4,7 @@
 use std::{collections::BTreeMap, path::PathBuf, sync::Arc};
 
 use alloy_primitives::Address;
+use anyhow::Context as _;
 use indexmap::IndexMap;
 use revive_dt_compiler::{CompilerInput, CompilerOutput};
 use revive_dt_config::TestingPlatform;
@@ -630,7 +631,8 @@ define_event! {
 impl RunnerEventReporter {
     pub async fn subscribe(&self) -> anyhow::Result<broadcast::Receiver<ReporterEvent>> {
         let (tx, rx) = oneshot::channel::<broadcast::Receiver<ReporterEvent>>();
-        self.report_subscribe_to_events_event(tx)?;
+        self.report_subscribe_to_events_event(tx)
+            .context("Failed to send subscribe request to reporter task")?;
         rx.await.map_err(Into::into)
     }
 }

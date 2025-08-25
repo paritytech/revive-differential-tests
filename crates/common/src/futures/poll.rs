@@ -1,7 +1,7 @@
 use std::ops::ControlFlow;
 use std::time::Duration;
 
-use anyhow::{Result, anyhow};
+use anyhow::{Context as _, Result, anyhow};
 
 const EXPONENTIAL_BACKOFF_MAX_WAIT_DURATION: Duration = Duration::from_secs(60);
 
@@ -38,7 +38,10 @@ where
             ));
         }
 
-        match future().await? {
+        match future()
+            .await
+            .context("Polled future returned an error during polling loop")?
+        {
             ControlFlow::Continue(()) => {
                 let next_wait_duration = match polling_wait_behavior {
                     PollingWaitBehavior::Constant(duration) => duration,

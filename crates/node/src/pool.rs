@@ -44,8 +44,10 @@ where
             nodes.push(
                 handle
                     .join()
-                    .map_err(|error| anyhow::anyhow!("failed to spawn node: {:?}", error))?
-                    .map_err(|error| anyhow::anyhow!("node failed to spawn: {error}"))?,
+                    .map_err(|error| anyhow::anyhow!("failed to spawn node: {:?}", error))
+                    .context("Failed to join node spawn thread")?
+                    .map_err(|error| anyhow::anyhow!("node failed to spawn: {error}"))
+                    .context("Node failed to spawn")?,
             );
         }
 
@@ -69,7 +71,8 @@ fn spawn_node<T: Node + Send>(args: &Arguments, genesis: String) -> anyhow::Resu
         connection_string = node.connection_string(),
         "Spawning node"
     );
-    node.spawn(genesis)?;
+    node.spawn(genesis)
+        .context("Failed to spawn node process")?;
     info!(
         id = node.id(),
         connection_string = node.connection_string(),

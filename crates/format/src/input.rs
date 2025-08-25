@@ -268,7 +268,11 @@ impl Input {
     ) -> anyhow::Result<Bytes> {
         match self.method {
             Method::Deployer | Method::Fallback => {
-                let calldata = self.calldata.calldata(resolver, context).await?;
+                let calldata = self
+                    .calldata
+                    .calldata(resolver, context)
+                    .await
+                    .context("Failed to produce calldata for deployer/fallback method")?;
 
                 Ok(calldata.into())
             }
@@ -283,14 +287,15 @@ impl Input {
                 // Overloads are handled by providing the full function signature in the "function
                 // name".
                 // https://github.com/matter-labs/era-compiler-tester/blob/1dfa7d07cba0734ca97e24704f12dd57f6990c2c/compiler_tester/src/test/case/input/mod.rs#L158-L190
-                let selector = if function_name.contains('(') && function_name.contains(')') {
-                    Function::parse(function_name)
+                let selector =
+                    if function_name.contains('(') && function_name.contains(')') {
+                        Function::parse(function_name)
                         .context(
                             "Failed to parse the provided function name into a function signature",
                         )?
                         .selector()
-                } else {
-                    abi.functions()
+                    } else {
+                        abi.functions()
                         .find(|function| function.signature().starts_with(function_name))
                         .ok_or_else(|| {
                             anyhow::anyhow!(
@@ -298,9 +303,13 @@ impl Input {
                                 function_name,
                                 &self.instance
                             )
-                        })?
+                        })
+                        .with_context(|| format!(
+                            "Failed to resolve function selector for {:?} on instance {:?}",
+                            function_name, &self.instance
+                        ))?
                         .selector()
-                };
+                    };
 
                 // Allocating a vector that we will be using for the calldata. The vector size will be:
                 // 4 bytes for the function selector.
@@ -312,7 +321,8 @@ impl Input {
                 calldata.extend(selector.0);
                 self.calldata
                     .calldata_into_slice(&mut calldata, resolver, context)
-                    .await?;
+                    .await
+                    .context("Failed to append encoded argument to calldata buffer")?;
 
                 Ok(calldata.into())
             }
@@ -325,7 +335,10 @@ impl Input {
         resolver: &impl ResolverApi,
         context: ResolutionContext<'_>,
     ) -> anyhow::Result<TransactionRequest> {
-        let input_data = self.encoded_input(resolver, context).await?;
+        let input_data = self
+            .encoded_input(resolver, context)
+            .await
+            .context("Failed to encode input bytes for transaction request")?;
         let transaction_request = TransactionRequest::default().from(self.caller).value(
             self.value
                 .map(|value| value.into_inner())
@@ -437,7 +450,8 @@ impl Calldata {
                     })
                     .buffered(0xFF)
                     .try_collect::<Vec<_>>()
-                    .await?;
+                    .await
+                    .context("Failed to resolve one or more calldata arguments")?;
 
                 buffer.extend(resolved.into_iter().flatten());
             }
@@ -478,7 +492,10 @@ impl Calldata {
                             std::borrow::Cow::Borrowed(other)
                         };
 
-                        let this = this.resolve(resolver, context).await?;
+                        let this = this
+                            .resolve(resolver, context)
+                            .await
+                            .context("Failed to resolve calldata item during equivalence check")?;
                         let other = U256::from_be_slice(&other);
                         Ok(this == other)
                     })
@@ -664,17 +681,24 @@ impl<T: AsRef<str>> CalldataToken<T> {
 
                     let current_block_number = match context.tip_block_number() {
                         Some(block_number) => *block_number,
-                        None => resolver.last_block_number().await?,
+                        None => resolver.last_block_number().await.context(
+                            "Failed to query last block number while resolving $BLOCK_HASH",
+                        )?,
                     };
                     let desired_block_number = current_block_number.saturating_sub(offset);
 
-                    let block_hash = resolver.block_hash(desired_block_number.into()).await?;
+                    let block_hash = resolver
+                        .block_hash(desired_block_number.into())
+                        .await
+                        .context("Failed to resolve block hash for desired block number")?;
 
                     Ok(U256::from_be_bytes(block_hash.0))
                 } else if item == Self::BLOCK_NUMBER_VARIABLE {
                     let current_block_number = match context.tip_block_number() {
                         Some(block_number) => *block_number,
-                        None => resolver.last_block_number().await?,
+                        None => resolver.last_block_number().await.context(
+                            "Failed to query last block number while resolving $BLOCK_NUMBER",
+                        )?,
                     };
                     Ok(U256::from(current_block_number))
                 } else if item == Self::BLOCK_TIMESTAMP_VARIABLE {
