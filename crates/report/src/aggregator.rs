@@ -239,7 +239,12 @@ impl ReportAggregator {
     }
 
     fn handle_leader_node_assigned_event(&mut self, event: LeaderNodeAssignedEvent) {
-        self.test_case_report(&event.test_specifier).leader_node = Some(TestCaseNodeInformation {
+        let execution_information = self.execution_information(&ExecutionSpecifier {
+            test_specifier: event.test_specifier,
+            node_id: event.id,
+            node_designation: NodeDesignation::Leader,
+        });
+        execution_information.node = Some(TestCaseNodeInformation {
             id: event.id,
             platform: event.platform,
             connection_string: event.connection_string,
@@ -247,12 +252,16 @@ impl ReportAggregator {
     }
 
     fn handle_follower_node_assigned_event(&mut self, event: FollowerNodeAssignedEvent) {
-        self.test_case_report(&event.test_specifier).follower_node =
-            Some(TestCaseNodeInformation {
-                id: event.id,
-                platform: event.platform,
-                connection_string: event.connection_string,
-            });
+        let execution_information = self.execution_information(&ExecutionSpecifier {
+            test_specifier: event.test_specifier,
+            node_id: event.id,
+            node_designation: NodeDesignation::Follower,
+        });
+        execution_information.node = Some(TestCaseNodeInformation {
+            id: event.id,
+            platform: event.platform,
+            connection_string: event.connection_string,
+        });
     }
 
     fn handle_pre_link_contracts_compilation_succeeded_event(
@@ -426,12 +435,6 @@ pub struct TestCaseReport {
     /// Information on the status of the test case and whether it succeeded, failed, or was ignored.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub status: Option<TestCaseStatus>,
-    /// Information related to the leader node assigned to this test case.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub leader_node: Option<TestCaseNodeInformation>,
-    /// Information related to the follower node assigned to this test case.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub follower_node: Option<TestCaseNodeInformation>,
     /// Information related to the execution on the leader.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub leader_execution_information: Option<ExecutionInformation>,
@@ -479,6 +482,9 @@ pub struct TestCaseNodeInformation {
 /// Execution information tied to the leader or the follower.
 #[derive(Clone, Debug, Default, Serialize)]
 pub struct ExecutionInformation {
+    /// Information related to the node assigned to this test case.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub node: Option<TestCaseNodeInformation>,
     /// Information on the pre-link compiled contracts.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pre_link_compilation_status: Option<CompilationStatus>,
