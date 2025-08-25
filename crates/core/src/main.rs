@@ -546,22 +546,30 @@ async fn start_cli_reporting_task(reporter: Reporter) {
                     number_of_successes += 1;
                     writeln!(
                         buf,
-                        "{}{}Case Succeeded{}{} - Steps Executed: {}",
-                        GREEN, BOLD, BOLD_RESET, COLOR_RESET, steps_executed
+                        "{}{}Case Succeeded{} - Steps Executed: {}{}",
+                        GREEN, BOLD, BOLD_RESET, steps_executed, COLOR_RESET
                     )
                 }
                 TestCaseStatus::Failed { reason } => {
                     number_of_failures += 1;
                     writeln!(
                         buf,
-                        "{}{}Case Failed{}{} - Reason: {}",
-                        RED, BOLD, BOLD_RESET, COLOR_RESET, reason
+                        "{}{}Case Failed{} - Reason: {}{}",
+                        RED,
+                        BOLD,
+                        BOLD_RESET,
+                        reason.trim(),
+                        COLOR_RESET,
                     )
                 }
                 TestCaseStatus::Ignored { reason, .. } => writeln!(
                     buf,
-                    "{}{}Case Ignored{}{} - Reason: {}",
-                    GREY, BOLD, BOLD_RESET, COLOR_RESET, reason
+                    "{}{}Case Ignored{} - Reason: {}{}",
+                    GREY,
+                    BOLD,
+                    BOLD_RESET,
+                    reason.trim(),
+                    COLOR_RESET,
                 ),
             };
         }
