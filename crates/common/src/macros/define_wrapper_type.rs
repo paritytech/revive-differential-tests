@@ -1,9 +1,20 @@
 #[macro_export]
 macro_rules! impl_for_wrapper {
     (Display, $ident: ident) => {
+        #[automatically_derived]
         impl std::fmt::Display for $ident {
             fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
                 std::fmt::Display::fmt(&self.0, f)
+            }
+        }
+    };
+    (FromStr, $ident: ident) => {
+        #[automatically_derived]
+        impl std::str::FromStr for $ident {
+            type Err = anyhow::Error;
+
+            fn from_str(s: &str) -> anyhow::Result<Self> {
+                s.parse().map(Self).map_err(Into::into)
             }
         }
     };

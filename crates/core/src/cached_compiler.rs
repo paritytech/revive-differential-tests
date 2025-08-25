@@ -9,7 +9,7 @@ use std::{
 
 use futures::FutureExt;
 use revive_dt_common::iterators::FilesWithExtensionIterator;
-use revive_dt_compiler::{Compiler, CompilerOutput, Mode, SolidityCompiler};
+use revive_dt_compiler::{Compiler, CompilerInput, CompilerOutput, Mode, SolidityCompiler};
 use revive_dt_config::Arguments;
 use revive_dt_format::metadata::{ContractIdent, ContractInstance, Metadata};
 
@@ -35,6 +35,7 @@ impl CachedCompiler {
     }
 
     /// Compiles or gets the compilation artifacts from the cache.
+    #[allow(clippy::too_many_arguments)]
     #[instrument(
         level = "debug",
         skip_all,
@@ -52,6 +53,19 @@ impl CachedCompiler {
         mode: &Mode,
         config: &Arguments,
         deployed_libraries: Option<&HashMap<ContractInstance, (ContractIdent, Address, JsonAbi)>>,
+        compilation_success_report_callback: impl Fn(
+            Version,
+            PathBuf,
+            bool,
+            Option<CompilerInput>,
+            CompilerOutput,
+        ) + Clone,
+        compilation_failure_report_callback: impl Fn(
+            Option<Version>,
+            Option<PathBuf>,
+            Option<CompilerInput>,
+            String,
+        ),
     ) -> Result<(CompilerOutput, Version)> {
         static CACHE_KEY_LOCK: Lazy<RwLock<HashMap<CacheKey, Arc<Mutex<()>>>>> =
             Lazy::new(Default::default);
@@ -61,10 +75,21 @@ impl CachedCompiler {
             config,
             compiler_version_or_requirement,
         )
-        .await?;
+        .await
+        .inspect_err(|err| {
+            compilation_failure_report_callback(None, None, None, err.to_string())
+        })?;
         let compiler_version = <P::Compiler as SolidityCompiler>::new(compiler_path.clone())
             .version()
-            .await?;
+            .await
+            .inspect_err(|err| {
+                compilation_failure_report_callback(
+                    None,
+                    Some(compiler_path.clone()),
+                    None,
+                    err.to_string(),
+                )
+            })?;
 
         let cache_key = CacheKey {
             platform_key: P::config_id().to_string(),
@@ -74,13 +99,19 @@ impl CachedCompiler {
         };
 
         let compilation_callback = || {
+            let compiler_path = compiler_path.clone();
+            let compiler_version = compiler_version.clone();
+            let compilation_success_report_callback = compilation_success_report_callback.clone();
             async move {
                 compile_contracts::<P>(
                     metadata.directory()?,
                     compiler_path,
+                    compiler_version,
                     metadata.files_to_compile()?,
                     mode,
                     deployed_libraries,
+                    compilation_success_report_callback,
+                    compilation_failure_report_callback,
                 )
                 .map(|compilation_result| compilation_result.map(CacheValue::new))
                 .await
@@ -125,10 +156,19 @@ impl CachedCompiler {
                 };
                 let _guard = mutex.lock().await;
 
-                self.0
-                    .get_or_insert_with(&cache_key, compilation_callback)
-                    .await
-                    .map(|value| value.compiler_output)?
+                match self.0.get(&cache_key).await {
+                    Some(cache_value) => {
+                        compilation_success_report_callback(
+                            compiler_version.clone(),
+                            compiler_path,
+                            true,
+                            None,
+                            cache_value.compiler_output.clone(),
+                        );
+                        cache_value.compiler_output
+                    }
+                    None => compilation_callback().await?.compiler_output,
+                }
             }
         };
 
@@ -136,19 +176,34 @@ impl CachedCompiler {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn compile_contracts<P: Platform>(
     metadata_directory: impl AsRef<Path>,
     compiler_path: impl AsRef<Path>,
+    compiler_version: Version,
     mut files_to_compile: impl Iterator<Item = PathBuf>,
     mode: &Mode,
     deployed_libraries: Option<&HashMap<ContractInstance, (ContractIdent, Address, JsonAbi)>>,
+    compilation_success_report_callback: impl Fn(
+        Version,
+        PathBuf,
+        bool,
+        Option<CompilerInput>,
+        CompilerOutput,
+    ),
+    compilation_failure_report_callback: impl Fn(
+        Option<Version>,
+        Option<PathBuf>,
+        Option<CompilerInput>,
+        String,
+    ),
 ) -> Result<CompilerOutput> {
     let all_sources_in_dir = FilesWithExtensionIterator::new(metadata_directory.as_ref())
         .with_allowed_extension("sol")
         .with_use_cached_fs(true)
         .collect::<Vec<_>>();
 
-    Compiler::<P::Compiler>::new()
+    let compiler = Compiler::<P::Compiler>::new()
         .with_allow_path(metadata_directory)
         // Handling the modes
         .with_optimization(mode.optimize_setting)
@@ -156,6 +211,14 @@ async fn compile_contracts<P: Platform>(
         // Adding the contract sources to the compiler.
         .try_then(|compiler| {
             files_to_compile.try_fold(compiler, |compiler, path| compiler.with_source(path))
+        })
+        .inspect_err(|err| {
+            compilation_failure_report_callback(
+                Some(compiler_version.clone()),
+                Some(compiler_path.as_ref().to_path_buf()),
+                None,
+                err.to_string(),
+            )
         })?
         // Adding the deployed libraries to the compiler.
         .then(|compiler| {
@@ -171,9 +234,28 @@ async fn compile_contracts<P: Platform>(
                 .fold(compiler, |compiler, (ident, address, path)| {
                     compiler.with_library(path, ident.as_str(), *address)
                 })
-        })
-        .try_build(compiler_path)
+        });
+
+    let compiler_input = compiler.input();
+    let compiler_output = compiler
+        .try_build(compiler_path.as_ref())
         .await
+        .inspect_err(|err| {
+            compilation_failure_report_callback(
+                Some(compiler_version.clone()),
+                Some(compiler_path.as_ref().to_path_buf()),
+                Some(compiler_input.clone()),
+                err.to_string(),
+            )
+        })?;
+    compilation_success_report_callback(
+        compiler_version,
+        compiler_path.as_ref().to_path_buf(),
+        false,
+        Some(compiler_input),
+        compiler_output.clone(),
+    );
+    Ok(compiler_output)
 }
 
 struct ArtifactsCache {

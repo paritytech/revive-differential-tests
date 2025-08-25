@@ -13,9 +13,16 @@ revive-dt-config = { workspace = true }
 revive-dt-format = { workspace = true }
 revive-dt-compiler = { workspace = true }
 
+alloy-primitives = { workspace = true }
 anyhow = { workspace = true }
+paste = { workspace = true }
+indexmap = { workspace = true, features = ["serde"] }
+semver = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+serde_with = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
 
 [lints]
 workspace = true
