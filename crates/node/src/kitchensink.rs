@@ -54,6 +54,7 @@ static NODE_COUNT: AtomicU32 = AtomicU32::new(0);
 pub struct KitchensinkNode {
     id: u32,
     substrate_binary: PathBuf,
+    dev_node_binary: PathBuf,
     eth_proxy_binary: PathBuf,
     rpc_url: String,
     base_directory: PathBuf,
@@ -63,6 +64,7 @@ pub struct KitchensinkNode {
     wallet: Arc<EthereumWallet>,
     nonce_manager: CachedNonceManager,
     chain_id_filler: ChainIdFiller,
+    use_kitchensink_not_dev_node: bool,
     /// This vector stores [`File`] objects that we use for logging which we want to flush when the
     /// node object is dropped. We do not store them in a structured fashion at the moment (in
     /// separate fields) as the logic that we need to apply to them is all the same regardless of
@@ -101,11 +103,21 @@ impl KitchensinkNode {
 
         // Note: we do not pipe the logs of this process to a separate file since this is just a
         // once-off export of the default chain spec and not part of the long-running node process.
-        let output = Command::new(&self.substrate_binary)
-            .arg("export-chain-spec")
-            .arg("--chain")
-            .arg("dev")
-            .output()?;
+        let output = if self.use_kitchensink_not_dev_node {
+            Command::new(&self.substrate_binary)
+                .arg("export-chain-spec")
+                .arg("--chain")
+                .arg("dev")
+                .output()
+                .context("Failed to export the chain-spec")?
+        } else {
+            Command::new(&self.dev_node_binary)
+                .arg("build-spec")
+                .arg("--chain")
+                .arg("dev")
+                .output()
+                .context("Failed to export the chain-spec")?
+        };
 
         if !output.status.success() {
             anyhow::bail!(
@@ -188,7 +200,12 @@ impl KitchensinkNode {
         let kitchensink_stderr_logs_file = open_options
             .clone()
             .open(self.kitchensink_stderr_log_file_path())?;
-        self.process_substrate = Command::new(&self.substrate_binary)
+        let node_binary_path = if self.use_kitchensink_not_dev_node {
+            self.substrate_binary.as_path()
+        } else {
+            self.dev_node_binary.as_path()
+        };
+        self.process_substrate = Command::new(node_binary_path)
             .arg("--dev")
             .arg("--chain")
             .arg(chainspec_path)
@@ -533,6 +550,7 @@ impl Node for KitchensinkNode {
         Self {
             id,
             substrate_binary: config.kitchensink.clone(),
+            dev_node_binary: config.revive_dev_node.clone(),
             eth_proxy_binary: config.eth_proxy.clone(),
             rpc_url: String::new(),
             base_directory,
@@ -542,6 +560,7 @@ impl Node for KitchensinkNode {
             wallet: Arc::new(wallet),
             chain_id_filler: Default::default(),
             nonce_manager: Default::default(),
+            use_kitchensink_not_dev_node: config.use_kitchensink_not_dev_node,
             // We know that we only need to be storing 4 files so we can specify that when creating
             // the vector. It's the stdout and stderr of the substrate-node and the eth-rpc.
             logs_file_to_flush: Vec::with_capacity(4),
@@ -1059,6 +1078,7 @@ mod tests {
         Arguments {
             kitchensink: PathBuf::from("substrate-node"),
             eth_proxy: PathBuf::from("eth-rpc"),
+            use_kitchensink_not_dev_node: true,
             ..Default::default()
         }
     }
