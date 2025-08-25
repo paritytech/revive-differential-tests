@@ -105,6 +105,9 @@ impl ReportAggregator {
                 RunnerEvent::LibrariesDeployed(event) => {
                     self.handle_libraries_deployed_event(*event);
                 }
+                RunnerEvent::ContractDeployed(event) => {
+                    self.handle_contract_deployed_event(*event);
+                }
             }
         }
         debug!("Report aggregation completed");
@@ -371,6 +374,13 @@ impl ReportAggregator {
             .deployed_libraries = Some(event.libraries);
     }
 
+    fn handle_contract_deployed_event(&mut self, event: ContractDeployedEvent) {
+        self.execution_information(&event.execution_specifier)
+            .deployed_contracts
+            .get_or_insert_default()
+            .insert(event.contract_instance, event.address);
+    }
+
     fn test_case_report(&mut self, specifier: &TestSpecifier) -> &mut TestCaseReport {
         self.report
             .test_case_information
@@ -494,6 +504,9 @@ pub struct ExecutionInformation {
     /// Information on the deployed libraries.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub deployed_libraries: Option<BTreeMap<ContractInstance, Address>>,
+    /// Information on the deployed contracts.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub deployed_contracts: Option<BTreeMap<ContractInstance, Address>>,
 }
 
 /// Information related to compilation

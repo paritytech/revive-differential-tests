@@ -4,7 +4,7 @@ use std::{path::PathBuf, sync::Arc};
 
 use revive_dt_common::define_wrapper_type;
 use revive_dt_compiler::Mode;
-use revive_dt_format::case::CaseIdx;
+use revive_dt_format::{case::CaseIdx, input::StepIdx};
 use serde::{Deserialize, Serialize};
 
 define_wrapper_type!(
@@ -34,4 +34,10 @@ pub struct ExecutionSpecifier {
 pub enum NodeDesignation {
     Leader,
     Follower,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct StepExecutionSpecifier {
+    pub execution_specifier: Arc<ExecutionSpecifier>,
+    pub step_idx: StepIdx,
 }

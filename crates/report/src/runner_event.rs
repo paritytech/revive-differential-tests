@@ -204,6 +204,101 @@ macro_rules! __report_gen_for_variant_exec {
     };
 }
 
+macro_rules! __report_gen_emit_step_execution_specific {
+    (
+        $ident:ident,
+        $variant_ident:ident,
+        $skip_field:ident;
+        $( $bname:ident : $bty:ty, )*
+        ;
+        $( $aname:ident : $aty:ty, )*
+    ) => {
+        paste::paste! {
+            pub fn [< report_ $variant_ident:snake _event >](
+                &self
+                $(, $bname: impl Into<$bty> )*
+                $(, $aname: impl Into<$aty> )*
+            ) -> anyhow::Result<()> {
+                self.report([< $variant_ident Event >] {
+                    $skip_field: self.step_specifier.clone()
+                    $(, $bname: $bname.into() )*
+                    $(, $aname: $aname.into() )*
+                })
+            }
+        }
+    };
+}
+
+macro_rules! __report_gen_emit_step_execution_specific_by_parse {
+    (
+        $ident:ident,
+        $variant_ident:ident,
+        $skip_field:ident;
+        $( $bname:ident : $bty:ty, )* ; $( $aname:ident : $aty:ty, )*
+    ) => {
+        __report_gen_emit_step_execution_specific!(
+            $ident, $variant_ident, $skip_field;
+            $( $bname : $bty, )* ; $( $aname : $aty, )*
+        );
+    };
+}
+
+macro_rules! __report_gen_scan_before_step {
+    (
+        $ident:ident, $variant_ident:ident;
+        $( $before:ident : $bty:ty, )*
+        ;
+        step_specifier : $skip_ty:ty,
+        $( $after:ident : $aty:ty, )*
+        ;
+    ) => {
+        __report_gen_emit_step_execution_specific_by_parse!(
+            $ident, $variant_ident, step_specifier;
+            $( $before : $bty, )* ; $( $after : $aty, )*
+        );
+    };
+    (
+        $ident:ident, $variant_ident:ident;
+        $( $before:ident : $bty:ty, )*
+        ;
+        $name:ident : $ty:ty, $( $after:ident : $aty:ty, )*
+        ;
+    ) => {
+        __report_gen_scan_before_step!(
+            $ident, $variant_ident;
+            $( $before : $bty, )* $name : $ty,
+            ;
+            $( $after : $aty, )*
+            ;
+        );
+    };
+    (
+        $ident:ident, $variant_ident:ident;
+        $( $before:ident : $bty:ty, )*
+        ;
+        ;
+    ) => {};
+}
+
+macro_rules! __report_gen_for_variant_step {
+    (
+        $ident:ident,
+        $variant_ident:ident;
+    ) => {};
+    (
+        $ident:ident,
+        $variant_ident:ident;
+        $( $field_ident:ident : $field_ty:ty ),+ $(,)?
+    ) => {
+        __report_gen_scan_before_step!(
+            $ident, $variant_ident;
+            ;
+            $( $field_ident : $field_ty, )*
+            ;
+        );
+    };
+}
+
 /// Defines the runner-event which is sent from the test runners to the report aggregator.
 ///
 /// This macro defines a number of things related to the reporting infrastructure and the interface
@@ -349,8 +444,26 @@ macro_rules! define_event {
                 fn report(&self, event: impl Into<$ident>) -> anyhow::Result<()> {
                     self.reporter.report(event)
                 }
+
                 $(
                     __report_gen_for_variant_exec! { $ident, $variant_ident; $( $field_ident : $field_ty ),* }
+                )*
+            }
+
+            /// A reporter that's tied to a specific step execution
+            #[derive(Clone, Debug)]
+            pub struct [< $ident StepExecutionSpecificReporter >] {
+                $vis reporter: [< $ident Reporter >],
+                $vis step_specifier: std::sync::Arc<$crate::common::StepExecutionSpecifier>,
+            }
+
+            impl [< $ident StepExecutionSpecificReporter >] {
+                fn report(&self, event: impl Into<$ident>) -> anyhow::Result<()> {
+                    self.reporter.report(event)
+                }
+
+                $(
+                    __report_gen_for_variant_step! { $ident, $variant_ident; $( $field_ident : $field_ty ),* }
                 )*
             }
         }
@@ -494,11 +607,21 @@ define_event! {
             /// The failure reason.
             reason: String,
         },
+        /// An event emitted by the runners when a library has been deployed.
         LibrariesDeployed {
             /// A specifier for the execution that's taking place.
             execution_specifier: Arc<ExecutionSpecifier>,
             /// The addresses of the libraries that were deployed.
             libraries: BTreeMap<ContractInstance, Address>
+        },
+        /// An event emitted by the runners when they've deployed a new contract.
+        ContractDeployed {
+            /// A specifier for the execution that's taking place.
+            execution_specifier: Arc<ExecutionSpecifier>,
+            /// The instance name of the contract.
+            contract_instance: ContractInstance,
+            /// The address of the contract.
+            address: Address
         },
     }
 }

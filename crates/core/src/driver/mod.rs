@@ -22,6 +22,7 @@ use anyhow::Context;
 use futures::TryStreamExt;
 use indexmap::IndexMap;
 use revive_dt_format::traits::{ResolutionContext, ResolverApi};
+use revive_dt_report::ExecutionSpecificReporter;
 use semver::Version;
 
 use revive_dt_format::case::Case;
@@ -51,6 +52,9 @@ pub struct CaseState<T: Platform> {
     /// Stores the version used for the current case.
     compiler_version: Version,
 
+    /// The execution reporter.
+    execution_reporter: ExecutionSpecificReporter,
+
     phantom: PhantomData<T>,
 }
 
@@ -62,12 +66,14 @@ where
         compiler_version: Version,
         compiled_contracts: HashMap<PathBuf, HashMap<String, (String, JsonAbi)>>,
         deployed_contracts: HashMap<ContractInstance, (ContractIdent, Address, JsonAbi)>,
+        execution_reporter: ExecutionSpecificReporter,
     ) -> Self {
         Self {
             compiled_contracts,
             deployed_contracts,
             variables: Default::default(),
             compiler_version,
+            execution_reporter,
             phantom: PhantomData,
         }
     }
@@ -718,6 +724,8 @@ where
             instance_address = ?address,
             "Deployed contract"
         );
+        self.execution_reporter
+            .report_contract_deployed_event(contract_instance.clone(), address)?;
 
         self.deployed_contracts.insert(
             contract_instance.clone(),

@@ -888,11 +888,13 @@ where
         leader_compiler_version,
         leader_post_link_contracts,
         leader_deployed_libraries.unwrap_or_default(),
+        leader_reporter,
     );
     let follower_state = CaseState::<F>::new(
         follower_compiler_version,
         follower_post_link_contracts,
         follower_deployed_libraries.unwrap_or_default(),
+        follower_reporter,
     );
 
     let mut driver = CaseDriver::<L, F>::new(
