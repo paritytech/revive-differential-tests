@@ -132,7 +132,15 @@ impl Metadata {
         ) in contracts
         {
             let alias = alias.clone();
-            let absolute_path = directory.join(contract_source_path).canonicalize()?;
+            let absolute_path = directory
+                .join(contract_source_path)
+                .canonicalize()
+                .map_err(|error| {
+                    anyhow::anyhow!(
+                        "Failed to canonicalize contract source path '{}': {error}",
+                        directory.join(contract_source_path).display()
+                    )
+                })?;
             let contract_ident = contract_ident.clone();
 
             sources.insert(

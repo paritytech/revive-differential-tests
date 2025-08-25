@@ -60,7 +60,7 @@ struct Test<'a> {
 }
 
 fn main() -> anyhow::Result<()> {
-    let (args, _guard) = init_cli()?;
+    let (args, _guard) = init_cli().context("Failed to initialize CLI and tracing subscriber")?;
     info!(
         leader = args.leader.to_string(),
         follower = args.follower.to_string(),
@@ -74,7 +74,8 @@ fn main() -> anyhow::Result<()> {
 
     let number_of_threads = args.number_of_threads;
     let body = async move {
-        let tests = collect_corpora(&args)?
+        let tests = collect_corpora(&args)
+            .context("Failed to collect corpus files from provided arguments")?
             .into_iter()
             .inspect(|(corpus, _)| {
                 reporter
@@ -96,7 +97,9 @@ fn main() -> anyhow::Result<()> {
             Some(platform) => {
                 compile_corpus(&args, &tests, platform, reporter, report_aggregator_task).await
             }
-            None => execute_corpus(&args, &tests, reporter, report_aggregator_task).await?,
+            None => execute_corpus(&args, &tests, reporter, report_aggregator_task)
+                .await
+                .context("Failed to execute corpus")?,
         }
         Ok(())
     };
@@ -183,7 +186,9 @@ where
     F::Blockchain: revive_dt_node::Node + Send + Sync + 'static,
 {
     let tests = prepare_tests::<L, F>(args, metadata_files, reporter.clone());
-    let driver_task = start_driver_task::<L, F>(args, tests).await?;
+    let driver_task = start_driver_task::<L, F>(args, tests)
+        .await
+        .context("Failed to start driver task")?;
     let cli_reporting_task = start_cli_reporting_task(reporter);
 
     let (_, _, rtn) = tokio::join!(cli_reporting_task, driver_task, report_aggregator_task);
@@ -419,9 +424,13 @@ async fn does_compiler_support_mode<P: Platform>(
     mode: &Mode,
 ) -> anyhow::Result<bool> {
     let compiler_version_or_requirement = mode.compiler_version_to_use(args.solc.clone());
-    let compiler_path =
-        P::Compiler::get_compiler_executable(args, compiler_version_or_requirement).await?;
-    let compiler_version = P::Compiler::new(compiler_path.clone()).version().await?;
+    let compiler_path = P::Compiler::get_compiler_executable(args, compiler_version_or_requirement)
+        .await
+        .context("Failed to obtain compiler executable path")?;
+    let compiler_version = P::Compiler::new(compiler_path.clone())
+        .version()
+        .await
+        .context("Failed to query compiler version")?;
 
     Ok(P::Compiler::supports_mode(
         &compiler_version,
@@ -442,15 +451,20 @@ where
 {
     info!("Starting driver task");
 
-    let leader_nodes = Arc::new(NodePool::<L::Blockchain>::new(args)?);
-    let follower_nodes = Arc::new(NodePool::<F::Blockchain>::new(args)?);
+    let leader_nodes = Arc::new(
+        NodePool::<L::Blockchain>::new(args).context("Failed to initialize leader node pool")?,
+    );
+    let follower_nodes = Arc::new(
+        NodePool::<F::Blockchain>::new(args).context("Failed to initialize follower node pool")?,
+    );
     let number_concurrent_tasks = args.number_of_concurrent_tasks();
     let cached_compiler = Arc::new(
         CachedCompiler::new(
             args.directory().join("compilation_cache"),
             args.invalidate_compilation_cache,
         )
-        .await?,
+        .await
+        .context("Failed to initialize cached compiler")?,
     );
 
     Ok(tests.for_each_concurrent(
@@ -695,11 +709,15 @@ where
                     .expect("Can't fail")
             }
         )
-    )?;
+    )
+    .context("Failed to compile pre-link contracts for leader/follower in parallel")?;
 
     let mut leader_deployed_libraries = None::<HashMap<_, _>>;
     let mut follower_deployed_libraries = None::<HashMap<_, _>>;
-    let mut contract_sources = test.metadata.contract_sources()?;
+    let mut contract_sources = test
+        .metadata
+        .contract_sources()
+        .context("Failed to retrieve contract sources from metadata")?;
     for library_instance in test
         .metadata
         .libraries
@@ -890,7 +908,8 @@ where
                     .expect("Can't fail")
             }
         )
-    )?;
+    )
+    .context("Failed to compile post-link contracts for leader/follower in parallel")?;
 
     let leader_state = CaseState::<L>::new(
         leader_compiler_version,
