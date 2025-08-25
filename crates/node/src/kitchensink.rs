@@ -1078,6 +1078,7 @@ mod tests {
         Arguments {
             kitchensink: PathBuf::from("substrate-node"),
             eth_proxy: PathBuf::from("eth-rpc"),
+            use_kitchensink_not_dev_node: true,
             ..Default::default()
         }
     }
