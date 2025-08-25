@@ -181,23 +181,41 @@ impl SolidityCompiler for Resolc {
                     .evm
                     .and_then(|evm| evm.bytecode.clone())
                     .context("Unexpected - Contract compiled with resolc has no bytecode")?;
-                let abi = contract_information
-                    .metadata
-                    .as_ref()
-                    .and_then(|metadata| metadata.as_object())
-                    .and_then(|metadata| metadata.get("solc_metadata"))
-                    .and_then(|solc_metadata| solc_metadata.as_str())
-                    .and_then(|metadata| serde_json::from_str::<serde_json::Value>(metadata).ok())
-                    .and_then(|metadata| {
-                        metadata.get("output").and_then(|output| {
-                            output
-                                .get("abi")
-                                .and_then(|abi| serde_json::from_value::<JsonAbi>(abi.clone()).ok())
-                        })
-                    })
-                    .context(
-                        "Unexpected - Failed to get the ABI for a contract compiled with resolc",
-                    )?;
+                let abi = {
+                    let metadata = contract_information
+                        .metadata
+                        .as_ref()
+                        .context("No metadata found for the contract")?;
+                    let solc_metadata_str = match metadata {
+                        serde_json::Value::String(solc_metadata_str) => solc_metadata_str.as_str(),
+                        serde_json::Value::Object(metadata_object) => {
+                            let solc_metadata_value = metadata_object
+                                .get("solc_metadata")
+                                .context("Contract doesn't have a 'solc_metadata' field")?;
+                            solc_metadata_value
+                                .as_str()
+                                .context("The 'solc_metadata' field is not a string")?
+                        }
+                        serde_json::Value::Null
+                        | serde_json::Value::Bool(_)
+                        | serde_json::Value::Number(_)
+                        | serde_json::Value::Array(_) => {
+                            anyhow::bail!("Unsupported type of metadata {metadata:?}")
+                        }
+                    };
+                    let solc_metadata =
+                        serde_json::from_str::<serde_json::Value>(solc_metadata_str).context(
+                            "Failed to deserialize the solc_metadata as a serde_json generic value",
+                        )?;
+                    let output_value = solc_metadata
+                        .get("output")
+                        .context("solc_metadata doesn't have an output field")?;
+                    let abi_value = output_value
+                        .get("abi")
+                        .context("solc_metadata output doesn't contain an abi field")?;
+                    serde_json::from_value::<JsonAbi>(abi_value.clone())
+                        .context("ABI found in solc_metadata output is not valid ABI")?
+                };
                 map.insert(contract_name, (bytecode.object, abi));
             }
         }
