@@ -94,8 +94,10 @@ impl KitchensinkNode {
         let _ = clear_directory(&self.base_directory);
         let _ = clear_directory(&self.logs_directory);
 
-        create_dir_all(&self.base_directory)?;
-        create_dir_all(&self.logs_directory)?;
+        create_dir_all(&self.base_directory)
+            .context("Failed to create base directory for kitchensink node")?;
+        create_dir_all(&self.logs_directory)
+            .context("Failed to create logs directory for kitchensink node")?;
 
         let template_chainspec_path = self.base_directory.join(Self::CHAIN_SPEC_JSON_FILE);
 
@@ -105,7 +107,8 @@ impl KitchensinkNode {
             .arg("export-chain-spec")
             .arg("--chain")
             .arg("dev")
-            .output()?;
+            .output()
+            .context("Failed to spawn substrate export-chain-spec")?;
 
         if !output.status.success() {
             anyhow::bail!(
@@ -114,8 +117,10 @@ impl KitchensinkNode {
             );
         }
 
-        let content = String::from_utf8(output.stdout)?;
-        let mut chainspec_json: JsonValue = serde_json::from_str(&content)?;
+        let content = String::from_utf8(output.stdout)
+            .context("Failed to decode substrate export-chain-spec output as UTF-8")?;
+        let mut chainspec_json: JsonValue =
+            serde_json::from_str(&content).context("Failed to parse substrate chain spec JSON")?;
 
         let existing_chainspec_balances =
             chainspec_json["genesis"]["runtimeGenesis"]["patch"]["balances"]["balances"]
@@ -137,7 +142,8 @@ impl KitchensinkNode {
             })
             .collect();
         let mut eth_balances = {
-            let mut genesis = serde_json::from_str::<Genesis>(genesis)?;
+            let mut genesis = serde_json::from_str::<Genesis>(genesis)
+                .context("Failed to deserialize EVM genesis JSON for kitchensink")?;
             for signer_address in
                 <EthereumWallet as NetworkWallet<Ethereum>>::signer_addresses(&self.wallet)
             {
@@ -148,7 +154,8 @@ impl KitchensinkNode {
                     .entry(signer_address)
                     .or_insert(GenesisAccount::default().with_balance(U256::from(INITIAL_BALANCE)));
             }
-            self.extract_balance_from_genesis_file(&genesis)?
+            self.extract_balance_from_genesis_file(&genesis)
+                .context("Failed to extract balances from EVM genesis JSON")?
         };
         merged_balances.append(&mut eth_balances);
 
@@ -156,9 +163,11 @@ impl KitchensinkNode {
             json!(merged_balances);
 
         serde_json::to_writer_pretty(
-            std::fs::File::create(&template_chainspec_path)?,
+            std::fs::File::create(&template_chainspec_path)
+                .context("Failed to create kitchensink template chainspec file")?,
             &chainspec_json,
-        )?;
+        )
+        .context("Failed to write kitchensink template chainspec JSON")?;
         Ok(self)
     }
 
@@ -184,10 +193,12 @@ impl KitchensinkNode {
         // Start Substrate node
         let kitchensink_stdout_logs_file = open_options
             .clone()
-            .open(self.kitchensink_stdout_log_file_path())?;
+            .open(self.kitchensink_stdout_log_file_path())
+            .context("Failed to open kitchensink stdout logs file")?;
         let kitchensink_stderr_logs_file = open_options
             .clone()
-            .open(self.kitchensink_stderr_log_file_path())?;
+            .open(self.kitchensink_stderr_log_file_path())
+            .context("Failed to open kitchensink stderr logs file")?;
         self.process_substrate = Command::new(&self.substrate_binary)
             .arg("--dev")
             .arg("--chain")
@@ -206,9 +217,18 @@ impl KitchensinkNode {
             .arg("--rpc-max-connections")
             .arg(u32::MAX.to_string())
             .env("RUST_LOG", Self::SUBSTRATE_LOG_ENV)
-            .stdout(kitchensink_stdout_logs_file.try_clone()?)
-            .stderr(kitchensink_stderr_logs_file.try_clone()?)
-            .spawn()?
+            .stdout(
+                kitchensink_stdout_logs_file
+                    .try_clone()
+                    .context("Failed to clone kitchensink stdout log file handle")?,
+            )
+            .stderr(
+                kitchensink_stderr_logs_file
+                    .try_clone()
+                    .context("Failed to clone kitchensink stderr log file handle")?,
+            )
+            .spawn()
+            .context("Failed to spawn substrate node process")?
             .into();
 
         // Give the node a moment to boot
@@ -217,14 +237,18 @@ impl KitchensinkNode {
             Self::SUBSTRATE_READY_MARKER,
             Duration::from_secs(60),
         ) {
-            self.shutdown()?;
+            self.shutdown()
+                .context("Failed to gracefully shutdown after substrate start error")?;
             return Err(error);
         };
 
         let eth_proxy_stdout_logs_file = open_options
             .clone()
-            .open(self.proxy_stdout_log_file_path())?;
-        let eth_proxy_stderr_logs_file = open_options.open(self.proxy_stderr_log_file_path())?;
+            .open(self.proxy_stdout_log_file_path())
+            .context("Failed to open eth-proxy stdout logs file")?;
+        let eth_proxy_stderr_logs_file = open_options
+            .open(self.proxy_stderr_log_file_path())
+            .context("Failed to open eth-proxy stderr logs file")?;
         self.process_proxy = Command::new(&self.eth_proxy_binary)
             .arg("--dev")
             .arg("--rpc-port")
@@ -234,9 +258,18 @@ impl KitchensinkNode {
             .arg("--rpc-max-connections")
             .arg(u32::MAX.to_string())
             .env("RUST_LOG", Self::PROXY_LOG_ENV)
-            .stdout(eth_proxy_stdout_logs_file.try_clone()?)
-            .stderr(eth_proxy_stderr_logs_file.try_clone()?)
-            .spawn()?
+            .stdout(
+                eth_proxy_stdout_logs_file
+                    .try_clone()
+                    .context("Failed to clone eth-proxy stdout log file handle")?,
+            )
+            .stderr(
+                eth_proxy_stderr_logs_file
+                    .try_clone()
+                    .context("Failed to clone eth-proxy stderr log file handle")?,
+            )
+            .spawn()
+            .context("Failed to spawn eth-proxy process")?
             .into();
 
         if let Err(error) = Self::wait_ready(
@@ -244,7 +277,8 @@ impl KitchensinkNode {
             Self::ETH_PROXY_READY_MARKER,
             Duration::from_secs(60),
         ) {
-            self.shutdown()?;
+            self.shutdown()
+                .context("Failed to gracefully shutdown after eth-proxy start error")?;
             return Err(error);
         };
 
@@ -369,11 +403,14 @@ impl EthereumNode for KitchensinkNode {
     ) -> anyhow::Result<TransactionReceipt> {
         let receipt = self
             .provider()
-            .await?
+            .await
+            .context("Failed to create provider for transaction submission")?
             .send_transaction(transaction)
-            .await?
+            .await
+            .context("Failed to submit transaction to kitchensink proxy")?
             .get_receipt()
-            .await?;
+            .await
+            .context("Failed to fetch transaction receipt from kitchensink proxy")?;
         Ok(receipt)
     }
 
@@ -383,11 +420,12 @@ impl EthereumNode for KitchensinkNode {
         trace_options: GethDebugTracingOptions,
     ) -> anyhow::Result<alloy::rpc::types::trace::geth::GethTrace> {
         let tx_hash = transaction.transaction_hash;
-        Ok(self
-            .provider()
-            .await?
+        self.provider()
+            .await
+            .context("Failed to create provider for debug tracing")?
             .debug_trace_transaction(tx_hash, trace_options)
-            .await?)
+            .await
+            .context("Failed to obtain debug trace from kitchensink proxy")
     }
 
     async fn state_diff(&self, transaction: &TransactionReceipt) -> anyhow::Result<DiffMode> {
@@ -408,7 +446,8 @@ impl EthereumNode for KitchensinkNode {
 
     async fn balance_of(&self, address: Address) -> anyhow::Result<U256> {
         self.provider()
-            .await?
+            .await
+            .context("Failed to get the Kitchensink provider")?
             .get_balance(address)
             .await
             .map_err(Into::into)
@@ -420,7 +459,8 @@ impl EthereumNode for KitchensinkNode {
         keys: Vec<StorageKey>,
     ) -> anyhow::Result<EIP1186AccountProofResponse> {
         self.provider()
-            .await?
+            .await
+            .context("Failed to get the Kitchensink provider")?
             .get_proof(address, keys)
             .latest()
             .await
@@ -431,7 +471,8 @@ impl EthereumNode for KitchensinkNode {
 impl ResolverApi for KitchensinkNode {
     async fn chain_id(&self) -> anyhow::Result<alloy::primitives::ChainId> {
         self.provider()
-            .await?
+            .await
+            .context("Failed to get the Kitchensink provider")?
             .get_chain_id()
             .await
             .map_err(Into::into)
@@ -439,7 +480,8 @@ impl ResolverApi for KitchensinkNode {
 
     async fn transaction_gas_price(&self, tx_hash: &TxHash) -> anyhow::Result<u128> {
         self.provider()
-            .await?
+            .await
+            .context("Failed to get the Kitchensink provider")?
             .get_transaction_receipt(*tx_hash)
             .await?
             .context("Failed to get the transaction receipt")
@@ -448,37 +490,45 @@ impl ResolverApi for KitchensinkNode {
 
     async fn block_gas_limit(&self, number: BlockNumberOrTag) -> anyhow::Result<u128> {
         self.provider()
-            .await?
+            .await
+            .context("Failed to get the Kitchensink provider")?
             .get_block_by_number(number)
-            .await?
-            .ok_or(anyhow::Error::msg("Blockchain has no blocks"))
+            .await
+            .context("Failed to get the kitchensink block")?
+            .context("Failed to get the Kitchensink block, perhaps the chain has no blocks?")
             .map(|block| block.header.gas_limit as _)
     }
 
     async fn block_coinbase(&self, number: BlockNumberOrTag) -> anyhow::Result<Address> {
         self.provider()
-            .await?
+            .await
+            .context("Failed to get the Kitchensink provider")?
             .get_block_by_number(number)
-            .await?
-            .ok_or(anyhow::Error::msg("Blockchain has no blocks"))
+            .await
+            .context("Failed to get the kitchensink block")?
+            .context("Failed to get the Kitchensink block, perhaps the chain has no blocks?")
             .map(|block| block.header.beneficiary)
     }
 
     async fn block_difficulty(&self, number: BlockNumberOrTag) -> anyhow::Result<U256> {
         self.provider()
-            .await?
+            .await
+            .context("Failed to get the Kitchensink provider")?
             .get_block_by_number(number)
-            .await?
-            .ok_or(anyhow::Error::msg("Blockchain has no blocks"))
+            .await
+            .context("Failed to get the kitchensink block")?
+            .context("Failed to get the Kitchensink block, perhaps the chain has no blocks?")
             .map(|block| U256::from_be_bytes(block.header.mix_hash.0))
     }
 
     async fn block_base_fee(&self, number: BlockNumberOrTag) -> anyhow::Result<u64> {
         self.provider()
-            .await?
+            .await
+            .context("Failed to get the Kitchensink provider")?
             .get_block_by_number(number)
-            .await?
-            .ok_or(anyhow::Error::msg("Blockchain has no blocks"))
+            .await
+            .context("Failed to get the kitchensink block")?
+            .context("Failed to get the Kitchensink block, perhaps the chain has no blocks?")
             .and_then(|block| {
                 block
                     .header
@@ -489,25 +539,30 @@ impl ResolverApi for KitchensinkNode {
 
     async fn block_hash(&self, number: BlockNumberOrTag) -> anyhow::Result<BlockHash> {
         self.provider()
-            .await?
+            .await
+            .context("Failed to get the Kitchensink provider")?
             .get_block_by_number(number)
-            .await?
-            .ok_or(anyhow::Error::msg("Blockchain has no blocks"))
+            .await
+            .context("Failed to get the kitchensink block")?
+            .context("Failed to get the Kitchensink block, perhaps the chain has no blocks?")
             .map(|block| block.header.hash)
     }
 
     async fn block_timestamp(&self, number: BlockNumberOrTag) -> anyhow::Result<BlockTimestamp> {
         self.provider()
-            .await?
+            .await
+            .context("Failed to get the Kitchensink provider")?
             .get_block_by_number(number)
-            .await?
-            .ok_or(anyhow::Error::msg("Blockchain has no blocks"))
+            .await
+            .context("Failed to get the kitchensink block")?
+            .context("Failed to get the Kitchensink block, perhaps the chain has no blocks?")
             .map(|block| block.header.timestamp)
     }
 
     async fn last_block_number(&self) -> anyhow::Result<BlockNumber> {
         self.provider()
-            .await?
+            .await
+            .context("Failed to get the Kitchensink provider")?
             .get_block_number()
             .await
             .map_err(Into::into)
@@ -592,8 +647,10 @@ impl Node for KitchensinkNode {
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
-            .spawn()?
-            .wait_with_output()?
+            .spawn()
+            .context("Failed to spawn kitchensink --version")?
+            .wait_with_output()
+            .context("Failed to wait for kitchensink --version")?
             .stdout;
         Ok(String::from_utf8_lossy(&output).into())
     }

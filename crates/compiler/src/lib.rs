@@ -13,6 +13,7 @@ use std::{
 
 use alloy::json_abi::JsonAbi;
 use alloy_primitives::Address;
+use anyhow::Context;
 use semver::Version;
 use serde::{Deserialize, Serialize};
 
@@ -136,9 +137,10 @@ where
     }
 
     pub fn with_source(mut self, path: impl AsRef<Path>) -> anyhow::Result<Self> {
-        self.input
-            .sources
-            .insert(path.as_ref().to_path_buf(), read_to_string(path.as_ref())?);
+        self.input.sources.insert(
+            path.as_ref().to_path_buf(),
+            read_to_string(path.as_ref()).context("Failed to read the contract source")?,
+        );
         Ok(self)
     }
 

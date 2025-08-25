@@ -11,6 +11,7 @@ use semver::Version;
 use sha2::{Digest, Sha256};
 
 use crate::list::List;
+use anyhow::Context;
 
 pub static LIST_CACHE: LazyLock<Mutex<HashMap<&'static str, List>>> =
     LazyLock::new(Default::default);
@@ -30,7 +31,12 @@ impl List {
             return Ok(list.clone());
         }
 
-        let body: List = reqwest::get(url).await?.json().await?;
+        let body: List = reqwest::get(url)
+            .await
+            .with_context(|| format!("Failed to GET solc list from {url}"))?
+            .json()
+            .await
+            .with_context(|| format!("Failed to deserialize solc list JSON from {url}"))?;
 
         LIST_CACHE.lock().unwrap().insert(url, body.clone());
 
@@ -68,7 +74,8 @@ impl SolcDownloader {
             }),
             VersionOrRequirement::Requirement(requirement) => {
                 let Some(version) = List::download(list)
-                    .await?
+                    .await
+                    .with_context(|| format!("Failed to download solc builds list from {list}"))?
                     .builds
                     .into_iter()
                     .map(|build| build.version)
@@ -107,11 +114,20 @@ impl SolcDownloader {
     /// Errors out if the download fails or the digest of the downloaded file
     /// mismatches the expected digest from the release [List].
     pub async fn download(&self) -> anyhow::Result<Vec<u8>> {
-        let builds = List::download(self.list).await?.builds;
+        let builds = List::download(self.list)
+            .await
+            .with_context(|| format!("Failed to download solc builds list from {}", self.list))?
+            .builds;
         let build = builds
             .iter()
             .find(|build| build.version == self.version)
-            .ok_or_else(|| anyhow::anyhow!("solc v{} not found builds", self.version))?;
+            .ok_or_else(|| anyhow::anyhow!("solc v{} not found builds", self.version))
+            .with_context(|| {
+                format!(
+                    "Requested solc version {} was not found in builds list fetched from {}",
+                    self.version, self.list
+                )
+            })?;
 
         let path = build.path.clone();
         let expected_digest = build
@@ -121,7 +137,13 @@ impl SolcDownloader {
             .to_string();
         let url = format!("{}/{}/{}", Self::BASE_URL, self.target, path.display());
 
-        let file = reqwest::get(url).await?.bytes().await?.to_vec();
+        let file = reqwest::get(&url)
+            .await
+            .with_context(|| format!("Failed to GET solc binary from {url}"))?
+            .bytes()
+            .await
+            .with_context(|| format!("Failed to read solc binary bytes from {url}"))?
+            .to_vec();
 
         if hex::encode(Sha256::digest(&file)) != expected_digest {
             anyhow::bail!("sha256 mismatch for solc version {}", self.version);
