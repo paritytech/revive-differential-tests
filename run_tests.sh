@@ -17,6 +17,14 @@ TEST_REPO_DIR="resolc-compiler-tests"
 CORPUS_FILE="./corpus.json"
 WORKDIR="workdir"
 
+# Optional positional argument: path to polkadot-sdk directory
+POLKADOT_SDK_DIR="${1:-}"
+
+# Binary paths (default to names in $PATH)
+REVIVE_DEV_NODE_BIN="revive-dev-node"
+ETH_RPC_BIN="eth-rpc"
+SUBSTRATE_NODE_BIN="substrate-node"
+
 echo -e "${GREEN}=== Revive Differential Tests Quick Start ===${NC}"
 echo ""
 
@@ -29,6 +37,35 @@ if [ -d "$TEST_REPO_DIR" ]; then
 else
     echo -e "${GREEN}Cloning test repository...${NC}"
     git clone "$TEST_REPO_URL"
+fi
+
+# If polkadot-sdk path is provided, verify and use binaries from there; build if needed
+if [ -n "$POLKADOT_SDK_DIR" ]; then
+    if [ ! -d "$POLKADOT_SDK_DIR" ]; then
+        echo -e "${RED}Provided polkadot-sdk directory does not exist: $POLKADOT_SDK_DIR${NC}"
+        exit 1
+    fi
+
+    POLKADOT_SDK_DIR=$(realpath "$POLKADOT_SDK_DIR")
+    echo -e "${GREEN}Using polkadot-sdk at: $POLKADOT_SDK_DIR${NC}"
+
+    REVIVE_DEV_NODE_BIN="$POLKADOT_SDK_DIR/target/release/revive-dev-node"
+    ETH_RPC_BIN="$POLKADOT_SDK_DIR/target/release/eth-rpc"
+    SUBSTRATE_NODE_BIN="$POLKADOT_SDK_DIR/target/release/substrate-node"
+
+    if [ ! -x "$REVIVE_DEV_NODE_BIN" ] || [ ! -x "$ETH_RPC_BIN" ] || [ ! -x "$SUBSTRATE_NODE_BIN" ]; then
+        echo -e "${YELLOW}Required binaries not found in release target. Building...${NC}"
+        (cd "$POLKADOT_SDK_DIR" && cargo build --release --package revive-dev-node --package eth-rpc --package substrate-node)
+    fi
+
+    for bin in "$REVIVE_DEV_NODE_BIN" "$ETH_RPC_BIN" "$SUBSTRATE_NODE_BIN"; do
+        if [ ! -x "$bin" ]; then
+            echo -e "${RED}Expected binary not found after build: $bin${NC}"
+            exit 1
+        fi
+    done
+else
+    echo -e "${YELLOW}No polkadot-sdk path provided. Using binaries from $PATH.${NC}"
 fi
 
 # Create corpus file with absolute path resolved at runtime
@@ -55,6 +92,11 @@ echo ""
 RUST_LOG="error" cargo run --release -- \
     --corpus "$CORPUS_FILE" \
     --workdir "$WORKDIR" \
-    --number-of-nodes 5
+    --number-of-nodes 5 \
+    --kitchensink "$SUBSTRATE_NODE_BIN" \
+    --revive-dev-node "$REVIVE_DEV_NODE_BIN" \
+    --eth_proxy "$ETH_RPC_BIN" \
+    > logs.log \
+    2> output.log
 
 echo -e "${GREEN}=== Test run completed! ===${NC}"
