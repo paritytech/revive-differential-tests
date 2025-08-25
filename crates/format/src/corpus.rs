@@ -29,28 +29,16 @@ impl Corpus {
                 )
             })?;
 
+        let corpus_directory = file_path
+            .as_ref()
+            .canonicalize()
+            .context("Failed to canonicalize the path to the corpus file")?
+            .parent()
+            .context("Corpus file has no parent")?
+            .to_path_buf();
+
         for path in corpus.paths_iter_mut() {
-            *path = file_path
-                .as_ref()
-                .parent()
-                .ok_or_else(|| {
-                    anyhow::anyhow!("Corpus path '{}' does not point to a file", path.display())
-                })
-                .with_context(|| {
-                    format!(
-                        "Failed resolving parent directory for corpus path '{}'",
-                        file_path.as_ref().display()
-                    )
-                })?
-                .canonicalize()
-                .with_context(|| {
-                    format!(
-                        "Failed to canonicalize path to corpus '{}': {}",
-                        path.display(),
-                        file_path.as_ref().display()
-                    )
-                })?
-                .join(path.as_path())
+            *path = corpus_directory.join(path.as_path())
         }
 
         Ok(corpus)
