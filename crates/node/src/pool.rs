@@ -9,6 +9,7 @@ use revive_dt_common::cached_fs::read_to_string;
 
 use anyhow::Context;
 use revive_dt_config::Arguments;
+use tracing::info;
 
 use crate::Node;
 
@@ -43,8 +44,10 @@ where
             nodes.push(
                 handle
                     .join()
-                    .map_err(|error| anyhow::anyhow!("failed to spawn node: {:?}", error))?
-                    .map_err(|error| anyhow::anyhow!("node failed to spawn: {error}"))?,
+                    .map_err(|error| anyhow::anyhow!("failed to spawn node: {:?}", error))
+                    .context("Failed to join node spawn thread")?
+                    .map_err(|error| anyhow::anyhow!("node failed to spawn: {error}"))
+                    .context("Node failed to spawn")?,
             );
         }
 
@@ -63,6 +66,17 @@ where
 
 fn spawn_node<T: Node + Send>(args: &Arguments, genesis: String) -> anyhow::Result<T> {
     let mut node = T::new(args);
-    node.spawn(genesis)?;
+    info!(
+        id = node.id(),
+        connection_string = node.connection_string(),
+        "Spawning node"
+    );
+    node.spawn(genesis)
+        .context("Failed to spawn node process")?;
+    info!(
+        id = node.id(),
+        connection_string = node.connection_string(),
+        "Spawned node"
+    );
     Ok(node)
 }

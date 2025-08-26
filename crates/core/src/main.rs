@@ -19,7 +19,11 @@ use futures::stream;
 use indexmap::IndexMap;
 use revive_dt_node_interaction::EthereumNode;
 use tempfile::TempDir;
-use tokio::{sync::mpsc, try_join};
+use tokio::{join, try_join};
+use revive_dt_report::{
+    NodeDesignation, ReportAggregator, Reporter, ReporterEvent, TestCaseStatus,
+    TestSpecificReporter, TestSpecifier,
+};
 use tracing::{debug, info, info_span, instrument};
 use tracing_appender::non_blocking::WorkerGuard;
 use tracing_subscriber::{EnvFilter, FmtSubscriber};
@@ -39,7 +43,6 @@ use revive_dt_format::{
     mode::ParsedMode,
 };
 use revive_dt_node::{Node, pool::NodePool};
-use revive_dt_report::reporter::{Report, Span};
 
 use crate::cached_compiler::CachedCompiler;
 
@@ -53,13 +56,11 @@ struct Test<'a> {
     mode: Mode,
     case_idx: CaseIdx,
     case: &'a Case,
+    reporter: TestSpecificReporter,
 }
 
-/// This represents the results that we gather from running test cases.
-type CaseResult = Result<usize, anyhow::Error>;
-
 fn main() -> anyhow::Result<()> {
-    let (args, _guard) = init_cli()?;
+    let (args, _guard) = init_cli().context("Failed to initialize CLI and tracing subscriber")?;
     info!(
         leader = args.leader.to_string(),
         follower = args.follower.to_string(),
@@ -69,20 +70,42 @@ fn main() -> anyhow::Result<()> {
         "Differential testing tool has been initialized"
     );
 
-    let body = async {
-        for (corpus, tests) in collect_corpora(&args)? {
-            let span = Span::new(corpus, args.clone())?;
-            match &args.compile_only {
-                Some(platform) => compile_corpus(&args, &tests, platform, span).await,
-                None => execute_corpus(&args, &tests, span).await?,
+    let (reporter, report_aggregator_task) = ReportAggregator::new(args.clone()).into_task();
+
+    let number_of_threads = args.number_of_threads;
+    let body = async move {
+        let tests = collect_corpora(&args)
+            .context("Failed to collect corpus files from provided arguments")?
+            .into_iter()
+            .inspect(|(corpus, _)| {
+                reporter
+                    .report_corpus_file_discovery_event(corpus.clone())
+                    .expect("Can't fail")
+            })
+            .flat_map(|(_, files)| files.into_iter())
+            .inspect(|metadata_file| {
+                reporter
+                    .report_metadata_file_discovery_event(
+                        metadata_file.metadata_file_path.clone(),
+                        metadata_file.content.clone(),
+                    )
+                    .expect("Can't fail")
+            })
+            .collect::<Vec<_>>();
+
+        match &args.compile_only {
+            Some(platform) => {
+                compile_corpus(&args, &tests, platform, reporter, report_aggregator_task).await
             }
-            Report::save()?;
+            None => execute_corpus(&args, &tests, reporter, report_aggregator_task)
+                .await
+                .context("Failed to execute corpus")?,
         }
         Ok(())
     };
 
     tokio::runtime::Builder::new_multi_thread()
-        .worker_threads(args.number_of_threads)
+        .worker_threads(number_of_threads)
         .enable_all()
         .build()
         .expect("Failed building the Runtime")
@@ -153,7 +176,8 @@ fn collect_corpora(args: &Arguments) -> anyhow::Result<HashMap<Corpus, Vec<Metad
 async fn run_driver<L, F>(
     args: &Arguments,
     metadata_files: &[MetadataFile],
-    span: Span,
+    reporter: Reporter,
+    report_aggregator_task: impl Future<Output = anyhow::Result<()>>,
 ) -> anyhow::Result<()>
 where
     L: Platform,
@@ -161,18 +185,22 @@ where
     L::Blockchain: revive_dt_node::Node + Send + Sync + 'static,
     F::Blockchain: revive_dt_node::Node + Send + Sync + 'static,
 {
-    let (report_tx, report_rx) = mpsc::unbounded_channel::<(Test<'_>, CaseResult)>();
+    let tests = prepare_tests::<L, F>(metadata_files, reporter.clone());
+    let driver_task = start_driver_task::<L, F>(args, tests)
+        .await
+        .context("Failed to start driver task")?;
+    let cli_reporting_task = start_cli_reporting_task(reporter);
 
-    let tests = prepare_tests::<L, F>(metadata_files);
-    let driver_task = start_driver_task::<L, F>(args, tests, span, report_tx).await?;
-    let status_reporter_task = start_reporter_task(report_rx);
-
-    tokio::join!(status_reporter_task, driver_task);
+    let (_, _, rtn) = tokio::join!(cli_reporting_task, driver_task, report_aggregator_task);
+    rtn?;
 
     Ok(())
 }
 
-fn prepare_tests<'a, L, F>(metadata_files: &'a [MetadataFile]) -> impl Iterator<Item = Test<'a>>
+fn prepare_tests<'a, L, F>(
+    metadata_files: &'a [MetadataFile],
+    reporter: Reporter,
+) -> impl Iterator<Item = Test<'a>>
 where
     L: Platform,
     F: Platform,
@@ -198,27 +226,25 @@ where
                 .into_iter()
                 .map(move |mode| (metadata_file, case_idx, case, mode))
         })
-        .fold(
-            IndexMap::<_, BTreeMap<_, Vec<_>>>::new(),
-            |mut map, (metadata_file, case_idx, case, mode)| {
-                let test = Test {
-                    metadata: metadata_file,
-                    metadata_file_path: metadata_file.metadata_file_path.as_path(),
-                    mode: mode.clone(),
-                    case_idx: CaseIdx::new(case_idx),
-                    case,
-                };
-                map.entry(mode)
-                    .or_default()
-                    .entry(test.case_idx)
-                    .or_default()
-                    .push(test);
-                map
-            },
-        )
-        .into_values()
-        .flatten()
-        .flat_map(|(_, value)| value.into_iter())
+        .map(move |(metadata_file, case_idx, case, mode)| Test {
+            metadata: metadata_file,
+            metadata_file_path: metadata_file.metadata_file_path.as_path(),
+            mode: mode.clone(),
+            case_idx: CaseIdx::new(case_idx),
+            case,
+            reporter: reporter.test_specific_reporter(Arc::new(TestSpecifier {
+                solc_mode: mode.clone(),
+                metadata_file_path: metadata_file.metadata_file_path.clone(),
+                case_idx: CaseIdx::new(case_idx),
+            })),
+        })
+        .inspect(|test| {
+            test.reporter
+                .report_test_case_discovery_event()
+                .expect("Can't fail")
+        })
+        .collect::<Vec<_>>()
+        .into_iter()
         // Filter the test out if the leader and follower do not support the target.
         .filter(|test| {
             let leader_support =
@@ -233,7 +259,30 @@ where
                     leader_support,
                     follower_support,
                     "Target is not supported, throwing metadata file out"
-                )
+                );
+                test
+                    .reporter
+                    .report_test_ignored_event(
+                        "Either the leader or the follower do not support the target desired by the test",
+                        IndexMap::from_iter([
+                            (
+                                "test_desired_targets".to_string(),
+                                serde_json::to_value(test.metadata.targets.as_ref())
+                                    .expect("Can't fail")
+                            ),
+                            (
+                                "leader_support".to_string(),
+                                serde_json::to_value(leader_support)
+                                    .expect("Can't fail")
+                            ),
+                            (
+                                "follower_support".to_string(),
+                                serde_json::to_value(follower_support)
+                                    .expect("Can't fail")
+                            )
+                        ])
+                    )
+                    .expect("Can't fail");
             }
 
             is_allowed
@@ -245,6 +294,13 @@ where
                     file_path = %test.metadata.relative_path().display(),
                     "Metadata file is ignored, throwing case out"
                 );
+                test
+                    .reporter
+                    .report_test_ignored_event(
+                        "Metadata file is ignored, therefore all cases are ignored",
+                        IndexMap::new(),
+                    )
+                    .expect("Can't fail");
                 false
             } else {
                 true
@@ -258,6 +314,13 @@ where
                     case_idx = %test.case_idx,
                     "Case is ignored, throwing case out"
                 );
+                test
+                    .reporter
+                    .report_test_ignored_event(
+                        "Case is ignored",
+                        IndexMap::new(),
+                    )
+                    .expect("Can't fail");
                 false
             } else {
                 true
@@ -280,6 +343,29 @@ where
                         follower_compatibility,
                         "EVM Version is incompatible, throwing case out"
                     );
+                    test
+                        .reporter
+                        .report_test_ignored_event(
+                            "EVM version is incompatible with either the leader or the follower",
+                            IndexMap::from_iter([
+                                (
+                                    "test_desired_evm_version".to_string(),
+                                    serde_json::to_value(test.metadata.required_evm_version)
+                                        .expect("Can't fail")
+                                ),
+                                (
+                                    "leader_compatibility".to_string(),
+                                    serde_json::to_value(leader_compatibility)
+                                        .expect("Can't fail")
+                                ),
+                                (
+                                    "follower_compatibility".to_string(),
+                                    serde_json::to_value(follower_compatibility)
+                                        .expect("Can't fail")
+                                )
+                            ])
+                        )
+                        .expect("Can't fail");
                 }
 
                 is_allowed
@@ -301,6 +387,24 @@ where
                     follower_support,
                     "Compilers do not support this, throwing case out"
                 );
+                test
+                    .reporter
+                    .report_test_ignored_event(
+                        "Compilers do not support this mode either for the leader or for the follower.",
+                        IndexMap::from_iter([
+                            (
+                                "leader_support".to_string(),
+                                serde_json::to_value(leader_support)
+                                    .expect("Can't fail")
+                            ),
+                            (
+                                "follower_support".to_string(),
+                                serde_json::to_value(follower_support)
+                                    .expect("Can't fail")
+                            )
+                        ])
+                    )
+                    .expect("Can't fail");
             }
 
             is_allowed.then_some(test)
@@ -310,8 +414,6 @@ where
 async fn start_driver_task<'a, L, F>(
     args: &Arguments,
     tests: impl Iterator<Item = Test<'a>>,
-    span: Span,
-    report_tx: mpsc::UnboundedSender<(Test<'a>, CaseResult)>,
 ) -> anyhow::Result<impl Future<Output = ()>>
 where
     L: Platform,
@@ -319,15 +421,22 @@ where
     L::Blockchain: revive_dt_node::Node + Send + Sync + 'static,
     F::Blockchain: revive_dt_node::Node + Send + Sync + 'static,
 {
-    let leader_nodes = Arc::new(NodePool::<L::Blockchain>::new(args)?);
-    let follower_nodes = Arc::new(NodePool::<F::Blockchain>::new(args)?);
+    info!("Starting driver task");
+
+    let leader_nodes = Arc::new(
+        NodePool::<L::Blockchain>::new(args).context("Failed to initialize leader node pool")?,
+    );
+    let follower_nodes = Arc::new(
+        NodePool::<F::Blockchain>::new(args).context("Failed to initialize follower node pool")?,
+    );
     let number_concurrent_tasks = args.number_of_concurrent_tasks();
     let cached_compiler = Arc::new(
         CachedCompiler::new(
             args.directory().join("compilation_cache"),
             args.invalidate_compilation_cache,
         )
-        .await?,
+        .await
+        .context("Failed to initialize cached compiler")?,
     );
 
     Ok(stream::iter(tests).for_each_concurrent(
@@ -342,103 +451,129 @@ where
         move |test| {
             let leader_nodes = leader_nodes.clone();
             let follower_nodes = follower_nodes.clone();
-            let report_tx = report_tx.clone();
             let cached_compiler = cached_compiler.clone();
 
             async move {
                 let leader_node = leader_nodes.round_robbin();
                 let follower_node = follower_nodes.round_robbin();
 
+                test.reporter
+                    .report_leader_node_assigned_event(
+                        leader_node.id(),
+                        L::config_id(),
+                        leader_node.connection_string(),
+                    )
+                    .expect("Can't fail");
+                test.reporter
+                    .report_follower_node_assigned_event(
+                        follower_node.id(),
+                        F::config_id(),
+                        follower_node.connection_string(),
+                    )
+                    .expect("Can't fail");
+
+                let reporter = test.reporter.clone();
                 let result = handle_case_driver::<L, F>(
-                    test.metadata_file_path,
-                    test.metadata,
-                    test.case_idx,
-                    test.case,
-                    test.mode.clone(),
+                    test,
                     args,
                     cached_compiler,
                     leader_node,
                     follower_node,
-                    span,
                 )
                 .await;
 
-                report_tx
-                    .send((test, result))
-                    .expect("Failed to send report");
+                match result {
+                    Ok(steps_executed) => reporter
+                        .report_test_succeeded_event(steps_executed)
+                        .expect("Can't fail"),
+                    Err(error) => reporter
+                        .report_test_failed_event(error.to_string())
+                        .expect("Can't fail"),
+                }
             }
         },
     ))
 }
 
-async fn start_reporter_task(mut report_rx: mpsc::UnboundedReceiver<(Test<'_>, CaseResult)>) {
+#[allow(clippy::uninlined_format_args)]
+#[allow(irrefutable_let_patterns)]
+async fn start_cli_reporting_task(reporter: Reporter) {
+    let mut aggregator_events_rx = reporter.subscribe().await.expect("Can't fail");
+    drop(reporter);
+
     let start = Instant::now();
 
     const GREEN: &str = "\x1B[32m";
     const RED: &str = "\x1B[31m";
-    const COLOUR_RESET: &str = "\x1B[0m";
+    const GREY: &str = "\x1B[90m";
+    const COLOR_RESET: &str = "\x1B[0m";
     const BOLD: &str = "\x1B[1m";
     const BOLD_RESET: &str = "\x1B[22m";
 
     let mut number_of_successes = 0;
     let mut number_of_failures = 0;
-    let mut failures = vec![];
 
-    // Wait for reports to come from our test runner. When the channel closes, this ends.
     let mut buf = BufWriter::new(stderr());
-    while let Some((test, case_result)) = report_rx.recv().await {
-        let case_name = test.case.name.as_deref().unwrap_or("unnamed_case");
-        let case_idx = test.case_idx;
-        let test_path = test.metadata_file_path.display();
-        let test_mode = test.mode.clone();
+    while let Ok(event) = aggregator_events_rx.recv().await {
+        let ReporterEvent::MetadataFileSolcModeCombinationExecutionCompleted {
+            metadata_file_path,
+            mode,
+            case_status,
+        } = event
+        else {
+            continue;
+        };
 
-        match case_result {
-            Ok(_inputs) => {
-                number_of_successes += 1;
-                let _ = writeln!(
+        let _ = writeln!(buf, "{} - {}", mode, metadata_file_path.display());
+        for (case_idx, case_status) in case_status.into_iter() {
+            let _ = write!(buf, "\tCase Index {case_idx:>3}: ");
+            let _ = match case_status {
+                TestCaseStatus::Succeeded { steps_executed } => {
+                    number_of_successes += 1;
+                    writeln!(
+                        buf,
+                        "{}{}Case Succeeded{} - Steps Executed: {}{}",
+                        GREEN, BOLD, BOLD_RESET, steps_executed, COLOR_RESET
+                    )
+                }
+                TestCaseStatus::Failed { reason } => {
+                    number_of_failures += 1;
+                    writeln!(
+                        buf,
+                        "{}{}Case Failed{} - Reason: {}{}",
+                        RED,
+                        BOLD,
+                        BOLD_RESET,
+                        reason.trim(),
+                        COLOR_RESET,
+                    )
+                }
+                TestCaseStatus::Ignored { reason, .. } => writeln!(
                     buf,
-                    "{GREEN}Case Succeeded:{COLOUR_RESET} {test_path} -> {case_name}:{case_idx} (mode: {test_mode})"
-                );
-            }
-            Err(err) => {
-                number_of_failures += 1;
-                let _ = writeln!(
-                    buf,
-                    "{RED}Case Failed:{COLOUR_RESET} {test_path} -> {case_name}:{case_idx} (mode: {test_mode})"
-                );
-                failures.push((test, err));
-            }
+                    "{}{}Case Ignored{} - Reason: {}{}",
+                    GREY,
+                    BOLD,
+                    BOLD_RESET,
+                    reason.trim(),
+                    COLOR_RESET,
+                ),
+            };
         }
-    }
-
-    let _ = writeln!(buf,);
-    let elapsed = start.elapsed();
-
-    // Now, log the failures with more complete errors at the bottom, like `cargo test` does, so
-    // that we don't have to scroll through the entire output to find them.
-    if !failures.is_empty() {
-        let _ = writeln!(buf, "{BOLD}Failures:{BOLD_RESET}\n");
-
-        for failure in failures {
-            let (test, err) = failure;
-            let case_name = test.case.name.as_deref().unwrap_or("unnamed_case");
-            let case_idx = test.case_idx;
-            let test_path = test.metadata_file_path.display();
-            let test_mode = test.mode.clone();
-
-            let _ = writeln!(
-                buf,
-                "---- {RED}Case Failed:{COLOUR_RESET} {test_path} -> {case_name}:{case_idx} (mode: {test_mode}) ----\n\n{err}\n"
-            );
-        }
+        let _ = writeln!(buf);
     }
 
     // Summary at the end.
     let _ = writeln!(
         buf,
-        "{} cases: {GREEN}{number_of_successes}{COLOUR_RESET} cases succeeded, {RED}{number_of_failures}{COLOUR_RESET} cases failed in {} seconds",
+        "{} cases: {}{}{} cases succeeded, {}{}{} cases failed in {} seconds",
         number_of_successes + number_of_failures,
-        elapsed.as_secs()
+        GREEN,
+        number_of_successes,
+        COLOR_RESET,
+        RED,
+        number_of_failures,
+        COLOR_RESET,
+        start.elapsed().as_secs()
     );
 }
 
@@ -448,25 +583,20 @@ async fn start_reporter_task(mut report_rx: mpsc::UnboundedReceiver<(Test<'_>, C
     name = "Handling Case"
     skip_all,
     fields(
-        metadata_file_path = %metadata.relative_path().display(),
-        mode = %mode,
-        %case_idx,
-        case_name = case.name.as_deref().unwrap_or("Unnamed Case"),
+        metadata_file_path = %test.metadata.relative_path().display(),
+        mode = %test.mode,
+        case_idx = %test.case_idx,
+        case_name = test.case.name.as_deref().unwrap_or("Unnamed Case"),
         leader_node = leader_node.id(),
         follower_node = follower_node.id(),
     )
 )]
 async fn handle_case_driver<L, F>(
-    metadata_file_path: &Path,
-    metadata: &MetadataFile,
-    case_idx: CaseIdx,
-    case: &Case,
-    mode: Mode,
+    test: Test<'_>,
     config: &Arguments,
     cached_compiler: Arc<CachedCompiler>,
     leader_node: &L::Blockchain,
     follower_node: &F::Blockchain,
-    _: Span,
 ) -> anyhow::Result<usize>
 where
     L: Platform,
@@ -474,6 +604,13 @@ where
     L::Blockchain: revive_dt_node::Node + Send + Sync + 'static,
     F::Blockchain: revive_dt_node::Node + Send + Sync + 'static,
 {
+    let leader_reporter = test
+        .reporter
+        .execution_specific_reporter(leader_node.id(), NodeDesignation::Leader);
+    let follower_reporter = test
+        .reporter
+        .execution_specific_reporter(follower_node.id(), NodeDesignation::Follower);
+
     let (
         (
             CompilerOutput {
@@ -488,14 +625,73 @@ where
             _,
         ),
     ) = try_join!(
-        cached_compiler.compile_contracts::<L>(metadata, metadata_file_path, &mode, config, None),
-        cached_compiler.compile_contracts::<F>(metadata, metadata_file_path, &mode, config, None)
-    )?;
+        cached_compiler.compile_contracts::<L>(
+            test.metadata,
+            test.metadata_file_path,
+            &test.mode,
+            config,
+            None,
+            |compiler_version, compiler_path, is_cached, compiler_input, compiler_output| {
+                leader_reporter
+                    .report_pre_link_contracts_compilation_succeeded_event(
+                        compiler_version,
+                        compiler_path,
+                        is_cached,
+                        compiler_input,
+                        compiler_output,
+                    )
+                    .expect("Can't fail")
+            },
+            |compiler_version, compiler_path, compiler_input, failure_reason| {
+                leader_reporter
+                    .report_pre_link_contracts_compilation_failed_event(
+                        compiler_version,
+                        compiler_path,
+                        compiler_input,
+                        failure_reason,
+                    )
+                    .expect("Can't fail")
+            }
+        ),
+        cached_compiler.compile_contracts::<F>(
+            test.metadata,
+            test.metadata_file_path,
+            &test.mode,
+            config,
+            None,
+            |compiler_version, compiler_path, is_cached, compiler_input, compiler_output| {
+                follower_reporter
+                    .report_pre_link_contracts_compilation_succeeded_event(
+                        compiler_version,
+                        compiler_path,
+                        is_cached,
+                        compiler_input,
+                        compiler_output,
+                    )
+                    .expect("Can't fail")
+            },
+            |compiler_version, compiler_path, compiler_input, failure_reason| {
+                follower_reporter
+                    .report_pre_link_contracts_compilation_failed_event(
+                        compiler_version,
+                        compiler_path,
+                        compiler_input,
+                        failure_reason,
+                    )
+                    .expect("Can't fail")
+            }
+        )
+    )
+    .context("Failed to compile pre-link contracts for leader/follower in parallel")?;
 
     let mut leader_deployed_libraries = None::<HashMap<_, _>>;
     let mut follower_deployed_libraries = None::<HashMap<_, _>>;
-    let mut contract_sources = metadata.contract_sources()?;
-    for library_instance in metadata
+    let mut contract_sources = test
+        .metadata
+        .contract_sources()
+        .context("Failed to retrieve contract sources from metadata")?;
+    for library_instance in test
+        .metadata
         .libraries
         .iter()
         .flatten()
@@ -535,7 +731,8 @@ where
         // Getting the deployer address from the cases themselves. This is to ensure that we're
         // doing the deployments from different accounts and therefore we're not slowed down by
         // the nonce.
-        let deployer_address = case
+        let deployer_address = test
+            .case
             .steps
             .iter()
             .filter_map(|step| match step {
@@ -594,6 +791,24 @@ where
             ),
         );
     }
+    if let Some(ref leader_deployed_libraries) = leader_deployed_libraries {
+        leader_reporter.report_libraries_deployed_event(
+            leader_deployed_libraries
+                .clone()
+                .into_iter()
+                .map(|(key, (_, address, _))| (key, address))
+                .collect::<BTreeMap<_, _>>(),
+        )?;
+    }
+    if let Some(ref follower_deployed_libraries) = follower_deployed_libraries {
+        follower_reporter.report_libraries_deployed_event(
+            follower_deployed_libraries
+                .clone()
+                .into_iter()
+                .map(|(key, (_, address, _))| (key, address))
+                .collect::<BTreeMap<_, _>>(),
+        )?;
+    }
 
     let (
         (
@@ -610,35 +825,80 @@ where
         ),
     ) = try_join!(
         cached_compiler.compile_contracts::<L>(
-            metadata,
-            metadata_file_path,
-            &mode,
+            test.metadata,
+            test.metadata_file_path,
+            &test.mode,
             config,
-            leader_deployed_libraries.as_ref()
+            leader_deployed_libraries.as_ref(),
+            |compiler_version, compiler_path, is_cached, compiler_input, compiler_output| {
+                leader_reporter
+                    .report_post_link_contracts_compilation_succeeded_event(
+                        compiler_version,
+                        compiler_path,
+                        is_cached,
+                        compiler_input,
+                        compiler_output,
+                    )
+                    .expect("Can't fail")
+            },
+            |compiler_version, compiler_path, compiler_input, failure_reason| {
+                leader_reporter
+                    .report_post_link_contracts_compilation_failed_event(
+                        compiler_version,
+                        compiler_path,
+                        compiler_input,
+                        failure_reason,
+                    )
+                    .expect("Can't fail")
+            }
         ),
         cached_compiler.compile_contracts::<F>(
-            metadata,
-            metadata_file_path,
-            &mode,
+            test.metadata,
+            test.metadata_file_path,
+            &test.mode,
             config,
-            follower_deployed_libraries.as_ref()
+            follower_deployed_libraries.as_ref(),
+            |compiler_version, compiler_path, is_cached, compiler_input, compiler_output| {
+                follower_reporter
+                    .report_post_link_contracts_compilation_succeeded_event(
+                        compiler_version,
+                        compiler_path,
+                        is_cached,
+                        compiler_input,
+                        compiler_output,
+                    )
+                    .expect("Can't fail")
+            },
+            |compiler_version, compiler_path, compiler_input, failure_reason| {
+                follower_reporter
+                    .report_post_link_contracts_compilation_failed_event(
+                        compiler_version,
+                        compiler_path,
+                        compiler_input,
+                        failure_reason,
+                    )
+                    .expect("Can't fail")
+            }
         )
-    )?;
+    )
+    .context("Failed to compile post-link contracts for leader/follower in parallel")?;
 
     let leader_state = CaseState::<L>::new(
         leader_compiler_version,
         leader_post_link_contracts,
         leader_deployed_libraries.unwrap_or_default(),
+        leader_reporter,
     );
     let follower_state = CaseState::<F>::new(
         follower_compiler_version,
         follower_post_link_contracts,
         follower_deployed_libraries.unwrap_or_default(),
+        follower_reporter,
     );
 
     let mut driver = CaseDriver::<L, F>::new(
-        metadata,
-        case,
+        test.metadata,
+        test.case,
         leader_node,
         follower_node,
         leader_state,
@@ -653,14 +913,15 @@ where
 async fn execute_corpus(
     args: &Arguments,
     tests: &[MetadataFile],
-    span: Span,
+    reporter: Reporter,
+    report_aggregator_task: impl Future<Output = anyhow::Result<()>>,
 ) -> anyhow::Result<()> {
     match (&args.leader, &args.follower) {
         (TestingPlatform::Geth, TestingPlatform::Kitchensink) => {
-            run_driver::<Geth, Kitchensink>(args, tests, span).await?
+            run_driver::<Geth, Kitchensink>(args, tests, reporter, report_aggregator_task).await?
         }
         (TestingPlatform::Geth, TestingPlatform::Geth) => {
-            run_driver::<Geth, Geth>(args, tests, span).await?
+            run_driver::<Geth, Geth>(args, tests, reporter, report_aggregator_task).await?
         }
         _ => unimplemented!(),
     }
@@ -672,7 +933,8 @@ async fn compile_corpus(
     config: &Arguments,
     tests: &[MetadataFile],
     platform: &TestingPlatform,
-    _: Span,
+    _: Reporter,
+    report_aggregator_task: impl Future<Output = anyhow::Result<()>>,
 ) {
     let tests = tests.iter().flat_map(|metadata| {
         metadata
@@ -687,8 +949,8 @@ async fn compile_corpus(
         .map(Arc::new)
         .expect("Failed to create the cached compiler");
 
-    futures::stream::iter(tests)
-        .for_each_concurrent(None, |(metadata, mode)| {
+    let compilation_task =
+        futures::stream::iter(tests).for_each_concurrent(None, |(metadata, mode)| {
             let cached_compiler = cached_compiler.clone();
 
             async move {
@@ -701,6 +963,8 @@ async fn compile_corpus(
                                 &mode,
                                 config,
                                 None,
+                                |_, _, _, _, _| {},
+                                |_, _, _, _| {},
                             )
                             .await;
                     }
@@ -712,11 +976,13 @@ async fn compile_corpus(
                                 &mode,
                                 config,
                                 None,
+                                |_, _, _, _, _| {},
+                                |_, _, _, _| {},
                             )
                             .await;
                     }
                 }
             }
-        })
-        .await;
+        });
+    let _ = join!(compilation_task, report_aggregator_task);
 }

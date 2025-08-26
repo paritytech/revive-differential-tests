@@ -71,6 +71,7 @@ impl Case {
 
 define_wrapper_type!(
     /// A wrapper type for the index of test cases found in metadata file.
-    #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-    pub struct CaseIdx(usize) impl Display;
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+    #[serde(transparent)]
+    pub struct CaseIdx(usize) impl Display, FromStr;
 );

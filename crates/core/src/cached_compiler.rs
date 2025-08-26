@@ -9,13 +9,13 @@ use std::{
 
 use futures::FutureExt;
 use revive_dt_common::iterators::FilesWithExtensionIterator;
-use revive_dt_compiler::{Compiler, CompilerOutput, Mode};
+use revive_dt_compiler::{Compiler, CompilerInput, CompilerOutput, Mode};
 use revive_dt_config::Arguments;
 use revive_dt_format::metadata::{ContractIdent, ContractInstance, Metadata};
 use revive_dt_solc_binaries::solc_version;
 
 use alloy::{hex::ToHexExt, json_abi::JsonAbi, primitives::Address};
-use anyhow::{Error, Result};
+use anyhow::{Context as _, Error, Result};
 use once_cell::sync::Lazy;
 use semver::Version;
 use serde::{Deserialize, Serialize};
@@ -30,12 +30,16 @@ impl CachedCompiler {
     pub async fn new(path: impl AsRef<Path>, invalidate_cache: bool) -> Result<Self> {
         let mut cache = ArtifactsCache::new(path);
         if invalidate_cache {
-            cache = cache.with_invalidated_cache().await?;
+            cache = cache
+                .with_invalidated_cache()
+                .await
+                .context("Failed to invalidate compilation cache directory")?;
         }
         Ok(Self(cache))
     }
 
     /// Compiles or gets the compilation artifacts from the cache.
+    #[allow(clippy::too_many_arguments)]
     #[instrument(
         level = "debug",
         skip_all,
@@ -53,6 +57,19 @@ impl CachedCompiler {
         mode: &Mode,
         config: &Arguments,
         deployed_libraries: Option<&HashMap<ContractInstance, (ContractIdent, Address, JsonAbi)>>,
+        compilation_success_report_callback: impl Fn(
+            Version,
+            PathBuf,
+            bool,
+            Option<CompilerInput>,
+            CompilerOutput,
+        ) + Clone,
+        compilation_failure_report_callback: impl Fn(
+            Option<Version>,
+            Option<PathBuf>,
+            Option<CompilerInput>,
+            String,
+        ),
     ) -> Result<(CompilerOutput, Version)> {
         static CACHE_KEY_LOCK: Lazy<RwLock<HashMap<CacheKey, Arc<Mutex<()>>>>> =
             Lazy::new(Default::default);
@@ -68,6 +85,9 @@ impl CachedCompiler {
         };
 
         let compilation_callback = || {
+            // let compiler_path = compiler_path.clone();
+            // let compiler_version = compiler_version.clone();
+            let compilation_success_report_callback = compilation_success_report_callback.clone();
             async move {
                 compile_contracts::<P>(
                     metadata.directory()?,
@@ -75,6 +95,8 @@ impl CachedCompiler {
                     config,
                     mode,
                     deployed_libraries,
+                    compilation_success_report_callback,
+                    compilation_failure_report_callback,
                 )
                 .map(|compilation_result| compilation_result.map(CacheValue::new))
                 .await
@@ -94,7 +116,10 @@ impl CachedCompiler {
             Some(_) => {
                 debug!("Deployed libraries defined, recompilation must take place");
                 debug!("Cache miss");
-                compilation_callback().await?.compiler_output
+                compilation_callback()
+                    .await
+                    .context("Compilation callback for deployed libraries failed")?
+                    .compiler_output
             }
             // If no deployed libraries are specified then we can follow the cached flow and attempt
             // to lookup the compilation artifacts in the cache.
@@ -119,10 +144,24 @@ impl CachedCompiler {
                 };
                 let _guard = mutex.lock().await;
 
-                self.0
-                    .get_or_insert_with(&cache_key, compilation_callback)
-                    .await
-                    .map(|value| value.compiler_output)?
+                match self.0.get(&cache_key).await {
+                    Some(cache_value) => {
+                        // compilation_success_report_callback(
+                        //     compiler_version.clone(),
+                        //     compiler_path,
+                        //     true,
+                        //     None,
+                        //     cache_value.compiler_output.clone(),
+                        // );
+                        cache_value.compiler_output
+                    }
+                    None => {
+                        compilation_callback()
+                            .await
+                            .context("Compilation callback failed (cache miss path)")?
+                            .compiler_output
+                    }
+                }
             }
         };
 
@@ -130,19 +169,33 @@ impl CachedCompiler {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn compile_contracts<P: Platform>(
     metadata_directory: impl AsRef<Path>,
     mut files_to_compile: impl Iterator<Item = PathBuf>,
     config: &Arguments,
     mode: &Mode,
     deployed_libraries: Option<&HashMap<ContractInstance, (ContractIdent, Address, JsonAbi)>>,
+    compilation_success_report_callback: impl Fn(
+        Version,
+        PathBuf,
+        bool,
+        Option<CompilerInput>,
+        CompilerOutput,
+    ),
+    compilation_failure_report_callback: impl Fn(
+        Option<Version>,
+        Option<PathBuf>,
+        Option<CompilerInput>,
+        String,
+    ),
 ) -> Result<CompilerOutput> {
     let all_sources_in_dir = FilesWithExtensionIterator::new(metadata_directory.as_ref())
         .with_allowed_extension("sol")
         .with_use_cached_fs(true)
         .collect::<Vec<_>>();
 
-    Compiler::<P::Compiler>::new()
+    let compiler = Compiler::<P::Compiler>::new()
         .with_solc_version_req(mode.version.clone())
         .with_allow_path(metadata_directory)
         // Handling the modes
@@ -151,6 +204,14 @@ async fn compile_contracts<P: Platform>(
         // Adding the contract sources to the compiler.
         .try_then(|compiler| {
             files_to_compile.try_fold(compiler, |compiler, path| compiler.with_source(path))
+        // })
+        // .inspect_err(|err| {
+        //     compilation_failure_report_callback(
+        //         Some(compiler_version.clone()),
+        //         Some(compiler_path.as_ref().to_path_buf()),
+        //         None,
+        //         err.to_string(),
+        //     )
         })?
         // Adding the deployed libraries to the compiler.
         .then(|compiler| {
@@ -166,9 +227,29 @@ async fn compile_contracts<P: Platform>(
                 .fold(compiler, |compiler, (ident, address, path)| {
                     compiler.with_library(path, ident.as_str(), *address)
                 })
-        })
+        });
+
+    let compiler_input = compiler.input();
+    let compiler_output = compiler
         .try_build(config)
         .await
+        // .inspect_err(|err| {
+        //     compilation_failure_report_callback(
+        //         Some(compiler_version.clone()),
+        //         Some(compiler_path.as_ref().to_path_buf()),
+        //         Some(compiler_input.clone()),
+        //         err.to_string(),
+        //     )
+        // })
+        .context("Failed to configure compiler with sources and options")?;
+    // compilation_success_report_callback(
+    //     compiler_version,
+    //     compiler_path.as_ref().to_path_buf(),
+    //     false,
+    //     Some(compiler_input),
+    //     compiler_output.clone(),
+    // );
+    Ok(compiler_output)
 }
 
 struct ArtifactsCache {
@@ -186,15 +267,20 @@ impl ArtifactsCache {
     pub async fn with_invalidated_cache(self) -> Result<Self> {
         cacache::clear(self.path.as_path())
             .await
-            .map_err(Into::<Error>::into)?;
+            .map_err(Into::<Error>::into)
+            .with_context(|| format!("Failed to clear cache at {}", self.path.display()))?;
         Ok(self)
     }
 
     #[instrument(level = "debug", skip_all, err)]
     pub async fn insert(&self, key: &CacheKey, value: &CacheValue) -> Result<()> {
-        let key = bson::to_vec(key)?;
-        let value = bson::to_vec(value)?;
-        cacache::write(self.path.as_path(), key.encode_hex(), value).await?;
+        let key = bson::to_vec(key).context("Failed to serialize cache key (bson)")?;
+        let value = bson::to_vec(value).context("Failed to serialize cache value (bson)")?;
+        cacache::write(self.path.as_path(), key.encode_hex(), value)
+            .await
+            .with_context(|| {
+                format!("Failed to write cache entry under {}", self.path.display())
+            })?;
         Ok(())
     }
 

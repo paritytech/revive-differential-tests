@@ -15,6 +15,7 @@ use std::{
 use alloy::json_abi::JsonAbi;
 use alloy_primitives::Address;
 use semver::VersionReq;
+use anyhow::Context;
 use serde::{Deserialize, Serialize};
 
 use revive_common::EVMVersion;
@@ -133,9 +134,10 @@ where
     }
 
     pub fn with_source(mut self, path: impl AsRef<Path>) -> anyhow::Result<Self> {
-        self.input
-            .sources
-            .insert(path.as_ref().to_path_buf(), read_to_string(path.as_ref())?);
+        self.input.sources.insert(
+            path.as_ref().to_path_buf(),
+            read_to_string(path.as_ref()).context("Failed to read the contract source")?,
+        );
         Ok(self)
     }
 

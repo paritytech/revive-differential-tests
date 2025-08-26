@@ -22,6 +22,7 @@ use anyhow::Context;
 use futures::TryStreamExt;
 use indexmap::IndexMap;
 use revive_dt_format::traits::{ResolutionContext, ResolverApi};
+use revive_dt_report::ExecutionSpecificReporter;
 use semver::Version;
 
 use revive_dt_format::case::Case;
@@ -51,6 +52,9 @@ pub struct CaseState<T: Platform> {
     /// Stores the version used for the current case.
     compiler_version: Version,
 
+    /// The execution reporter.
+    execution_reporter: ExecutionSpecificReporter,
+
     phantom: PhantomData<T>,
 }
 
@@ -62,12 +66,14 @@ where
         compiler_version: Version,
         compiled_contracts: HashMap<PathBuf, HashMap<String, (String, JsonAbi)>>,
         deployed_contracts: HashMap<ContractInstance, (ContractIdent, Address, JsonAbi)>,
+        execution_reporter: ExecutionSpecificReporter,
     ) -> Self {
         Self {
             compiled_contracts,
             deployed_contracts,
             variables: Default::default(),
             compiler_version,
+            execution_reporter,
             phantom: PhantomData,
         }
     }
@@ -80,18 +86,22 @@ where
     ) -> anyhow::Result<StepOutput> {
         match step {
             Step::FunctionCall(input) => {
-                let (receipt, geth_trace, diff_mode) =
-                    self.handle_input(metadata, input, node).await?;
+                let (receipt, geth_trace, diff_mode) = self
+                    .handle_input(metadata, input, node)
+                    .await
+                    .context("Failed to handle function call step")?;
                 Ok(StepOutput::FunctionCall(receipt, geth_trace, diff_mode))
             }
             Step::BalanceAssertion(balance_assertion) => {
                 self.handle_balance_assertion(metadata, balance_assertion, node)
-                    .await?;
+                    .await
+                    .context("Failed to handle balance assertion step")?;
                 Ok(StepOutput::BalanceAssertion)
             }
             Step::StorageEmptyAssertion(storage_empty) => {
                 self.handle_storage_empty(metadata, storage_empty, node)
-                    .await?;
+                    .await
+                    .context("Failed to handle storage empty assertion step")?;
                 Ok(StepOutput::StorageEmptyAssertion)
             }
         }
@@ -107,18 +117,23 @@ where
     ) -> anyhow::Result<(TransactionReceipt, GethTrace, DiffMode)> {
         let deployment_receipts = self
             .handle_input_contract_deployment(metadata, input, node)
-            .await?;
+            .await
+            .context("Failed during contract deployment phase of input handling")?;
         let execution_receipt = self
             .handle_input_execution(input, deployment_receipts, node)
-            .await?;
+            .await
+            .context("Failed during transaction execution phase of input handling")?;
         let tracing_result = self
             .handle_input_call_frame_tracing(&execution_receipt, node)
-            .await?;
-        self.handle_input_variable_assignment(input, &tracing_result)?;
+            .await
+            .context("Failed during callframe tracing phase of input handling")?;
+        self.handle_input_variable_assignment(input, &tracing_result)
+            .context("Failed to assign variables from callframe output")?;
         let (_, (geth_trace, diff_mode)) = try_join!(
             self.handle_input_expectations(input, &execution_receipt, node, &tracing_result),
             self.handle_input_diff(&execution_receipt, node)
-        )?;
+        )
+        .context("Failed while evaluating expectations and diffs in parallel")?;
         Ok((execution_receipt, geth_trace, diff_mode))
     }
 
@@ -130,9 +145,11 @@ where
         node: &T::Blockchain,
     ) -> anyhow::Result<()> {
         self.handle_balance_assertion_contract_deployment(metadata, balance_assertion, node)
-            .await?;
+            .await
+            .context("Failed to deploy contract for balance assertion")?;
         self.handle_balance_assertion_execution(balance_assertion, node)
-            .await?;
+            .await
+            .context("Failed to execute balance assertion")?;
         Ok(())
     }
 
@@ -144,9 +161,11 @@ where
         node: &T::Blockchain,
     ) -> anyhow::Result<()> {
         self.handle_storage_empty_assertion_contract_deployment(metadata, storage_empty, node)
-            .await?;
+            .await
+            .context("Failed to deploy contract for storage empty assertion")?;
         self.handle_storage_empty_assertion_execution(storage_empty, node)
-            .await?;
+            .await
+            .context("Failed to execute storage empty assertion")?;
         Ok(())
     }
 
@@ -185,7 +204,8 @@ where
                     value,
                     node,
                 )
-                .await?
+                .await
+                .context("Failed to get or deploy contract instance during input execution")?
             {
                 receipts.insert(instance.clone(), receipt);
             }
@@ -207,7 +227,7 @@ where
             // lookup the transaction receipt in this case and continue on.
             Method::Deployer => deployment_receipts
                 .remove(&input.instance)
-                .context("Failed to find deployment receipt"),
+                .context("Failed to find deployment receipt for constructor call"),
             Method::Fallback | Method::FunctionName(_) => {
                 let tx = match input
                     .legacy_transaction(node, self.default_resolution_context())
@@ -379,7 +399,8 @@ where
             let actual = &tracing_result.output.as_ref().unwrap_or_default();
             if !expected
                 .is_equivalent(actual, resolver, resolution_context)
-                .await?
+                .await
+                .context("Failed to resolve calldata equivalence for return data assertion")?
             {
                 tracing::error!(
                     ?execution_receipt,
@@ -442,7 +463,8 @@ where
                     let expected = Calldata::new_compound([expected]);
                     if !expected
                         .is_equivalent(&actual.0, resolver, resolution_context)
-                        .await?
+                        .await
+                        .context("Failed to resolve event topic equivalence")?
                     {
                         tracing::error!(
                             event_idx,
@@ -462,7 +484,8 @@ where
                 let actual = &actual_event.data().data;
                 if !expected
                     .is_equivalent(&actual.0, resolver, resolution_context)
-                    .await?
+                    .await
+                    .context("Failed to resolve event value equivalence")?
                 {
                     tracing::error!(
                         event_idx,
@@ -495,8 +518,12 @@ where
 
         let trace = node
             .trace_transaction(execution_receipt, trace_options)
-            .await?;
-        let diff = node.state_diff(execution_receipt).await?;
+            .await
+            .context("Failed to obtain geth prestate tracer output")?;
+        let diff = node
+            .state_diff(execution_receipt)
+            .await
+            .context("Failed to obtain state diff for transaction")?;
 
         Ok((trace, diff))
     }
@@ -718,6 +745,8 @@ where
             instance_address = ?address,
             "Deployed contract"
         );
+        self.execution_reporter
+            .report_contract_deployed_event(contract_instance.clone(), address)?;
 
         self.deployed_contracts.insert(
             contract_instance.clone(),

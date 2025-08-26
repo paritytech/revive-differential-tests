@@ -115,6 +115,18 @@ pub struct Arguments {
     #[arg(short, long = "kitchensink", default_value = "substrate-node")]
     pub kitchensink: PathBuf,
 
+    /// The path to the `revive-dev-node` executable.
+    ///
+    /// By default it uses `revive-dev-node` binary found in `$PATH`.
+    #[arg(long = "revive-dev-node", default_value = "revive-dev-node")]
+    pub revive_dev_node: PathBuf,
+
+    /// By default the tool uses the revive-dev-node when it's running differential tests against
+    /// PolkaVM since the dev-node is much faster than kitchensink. This flag allows the caller to
+    /// configure the tool to use kitchensink rather than the dev-node.
+    #[arg(long)]
+    pub use_kitchensink_not_dev_node: bool,
+
     /// The path to the `eth_proxy` executable.
     ///
     /// By default it uses `eth-rpc` binary found in `$PATH`.
@@ -124,6 +136,14 @@ pub struct Arguments {
     /// Controls if the compilation cache should be invalidated or not.
     #[arg(short, long)]
     pub invalidate_compilation_cache: bool,
+
+    /// Controls if the compiler input is included in the final report.
+    #[clap(long = "report.include-compiler-input")]
+    pub report_include_compiler_input: bool,
+
+    /// Controls if the compiler output is included in the final report.
+    #[clap(long = "report.include-compiler-output")]
+    pub report_include_compiler_output: bool,
 }
 
 impl Arguments {

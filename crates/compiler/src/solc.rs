@@ -142,15 +142,25 @@ impl SolidityCompiler for Solc {
                     .join(","),
             );
         }
-        let mut child = command.spawn()?;
+        let mut child = command
+            .spawn()
+            .with_context(|| format!("Failed to spawn solc at {}", solc_path.display()))?;
 
         let stdin = child.stdin.as_mut().expect("should be piped");
-        let serialized_input = serde_json::to_vec(&input)?;
-        stdin.write_all(&serialized_input).await?;
-        let output = child.wait_with_output().await?;
+        let serialized_input = serde_json::to_vec(&input)
+            .context("Failed to serialize Standard JSON input for solc")?;
+        stdin
+            .write_all(&serialized_input)
+            .await
+            .context("Failed to write Standard JSON to solc stdin")?;
+        let output = child
+            .wait_with_output()
+            .await
+            .context("Failed while waiting for solc process to finish")?;
 
         if !output.status.success() {
-            let json_in = serde_json::to_string_pretty(&input)?;
+            let json_in = serde_json::to_string_pretty(&input)
+                .context("Failed to pretty-print Standard JSON input for logging")?;
             let message = String::from_utf8_lossy(&output.stderr);
             tracing::error!(
                 status = %output.status,
@@ -161,12 +171,14 @@ impl SolidityCompiler for Solc {
             anyhow::bail!("Compilation failed with an error: {message}");
         }
 
-        let parsed = serde_json::from_slice::<SolcOutput>(&output.stdout).map_err(|e| {
-            anyhow::anyhow!(
-                "failed to parse resolc JSON output: {e}\nstderr: {}",
-                String::from_utf8_lossy(&output.stdout)
-            )
-        })?;
+        let parsed = serde_json::from_slice::<SolcOutput>(&output.stdout)
+            .map_err(|e| {
+                anyhow::anyhow!(
+                    "failed to parse resolc JSON output: {e}\nstderr: {}",
+                    String::from_utf8_lossy(&output.stdout)
+                )
+            })
+            .context("Failed to parse solc standard JSON output")?;
 
         // Detecting if the compiler output contained errors and reporting them through logs and
         // errors instead of returning the compiler output that might contain errors.
@@ -186,7 +198,12 @@ impl SolidityCompiler for Solc {
         for (contract_path, contracts) in parsed.contracts {
             let map = compiler_output
                 .contracts
-                .entry(contract_path.canonicalize()?)
+                .entry(contract_path.canonicalize().with_context(|| {
+                    format!(
+                        "Failed to canonicalize contract path {}",
+                        contract_path.display()
+                    )
+                })?)
                 .or_default();
             for (contract_name, contract_info) in contracts.into_iter() {
                 let source_code = contract_info

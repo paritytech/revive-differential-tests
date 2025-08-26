@@ -101,10 +101,13 @@ impl GethNode {
         let _ = clear_directory(&self.base_directory);
         let _ = clear_directory(&self.logs_directory);
 
-        create_dir_all(&self.base_directory)?;
-        create_dir_all(&self.logs_directory)?;
+        create_dir_all(&self.base_directory)
+            .context("Failed to create base directory for geth node")?;
+        create_dir_all(&self.logs_directory)
+            .context("Failed to create logs directory for geth node")?;
 
-        let mut genesis = serde_json::from_str::<Genesis>(&genesis)?;
+        let mut genesis = serde_json::from_str::<Genesis>(&genesis)
+            .context("Failed to deserialize geth genesis JSON")?;
         for signer_address in
             <EthereumWallet as NetworkWallet<Ethereum>>::signer_addresses(&self.wallet)
         {
@@ -116,7 +119,11 @@ impl GethNode {
                 .or_insert(GenesisAccount::default().with_balance(U256::from(INITIAL_BALANCE)));
         }
         let genesis_path = self.base_directory.join(Self::GENESIS_JSON_FILE);
-        serde_json::to_writer(File::create(&genesis_path)?, &genesis)?;
+        serde_json::to_writer(
+            File::create(&genesis_path).context("Failed to create geth genesis file")?,
+            &genesis,
+        )
+        .context("Failed to serialize geth genesis JSON to file")?;
 
         let mut child = Command::new(&self.geth)
             .arg("--state.scheme")
@@ -127,16 +134,22 @@ impl GethNode {
             .arg(genesis_path)
             .stderr(Stdio::piped())
             .stdout(Stdio::null())
-            .spawn()?;
+            .spawn()
+            .context("Failed to spawn geth --init process")?;
 
         let mut stderr = String::new();
         child
             .stderr
             .take()
             .expect("should be piped")
-            .read_to_string(&mut stderr)?;
+            .read_to_string(&mut stderr)
+            .context("Failed to read geth --init stderr")?;
 
-        if !child.wait()?.success() {
+        if !child
+            .wait()
+            .context("Failed waiting for geth --init process to finish")?
+            .success()
+        {
             anyhow::bail!("failed to initialize geth node #{:?}: {stderr}", &self.id);
         }
 
@@ -161,8 +174,11 @@ impl GethNode {
 
         let stdout_logs_file = open_options
             .clone()
-            .open(self.geth_stdout_log_file_path())?;
-        let stderr_logs_file = open_options.open(self.geth_stderr_log_file_path())?;
+            .open(self.geth_stdout_log_file_path())
+            .context("Failed to open geth stdout logs file")?;
+        let stderr_logs_file = open_options
+            .open(self.geth_stderr_log_file_path())
+            .context("Failed to open geth stderr logs file")?;
         self.handle = Command::new(&self.geth)
             .arg("--dev")
             .arg("--datadir")
@@ -182,14 +198,24 @@ impl GethNode {
             .arg("full")
             .arg("--gcmode")
             .arg("archive")
-            .stderr(stderr_logs_file.try_clone()?)
-            .stdout(stdout_logs_file.try_clone()?)
-            .spawn()?
+            .stderr(
+                stderr_logs_file
+                    .try_clone()
+                    .context("Failed to clone geth stderr log file handle")?,
+            )
+            .stdout(
+                stdout_logs_file
+                    .try_clone()
+                    .context("Failed to clone geth stdout log file handle")?,
+            )
+            .spawn()
+            .context("Failed to spawn geth node process")?
             .into();
 
         if let Err(error) = self.wait_ready() {
             tracing::error!(?error, "Failed to start geth, shutting down gracefully");
-            self.shutdown()?;
+            self.shutdown()
+                .context("Failed to gracefully shutdown after geth start error")?;
             return Err(error);
         }
 
@@ -211,7 +237,8 @@ impl GethNode {
             .write(false)
             .append(false)
             .truncate(false)
-            .open(self.geth_stderr_log_file_path())?;
+            .open(self.geth_stderr_log_file_path())
+            .context("Failed to open geth stderr logs file for readiness check")?;
 
         let maximum_wait_time = Duration::from_millis(self.start_timeout);
         let mut stderr = BufReader::new(logs_file).lines();
@@ -277,11 +304,18 @@ impl EthereumNode for GethNode {
         &self,
         transaction: TransactionRequest,
     ) -> anyhow::Result<alloy::rpc::types::TransactionReceipt> {
-        let provider = self.provider().await?;
+        let provider = self
+            .provider()
+            .await
+            .context("Failed to create provider for transaction submission")?;
 
-        let pending_transaction = provider.send_transaction(transaction).await.inspect_err(
-            |err| tracing::error!(%err, "Encountered an error when submitting the transaction"),
-        )?;
+        let pending_transaction = provider
+            .send_transaction(transaction)
+            .await
+            .inspect_err(
+                |err| tracing::error!(%err, "Encountered an error when submitting the transaction"),
+            )
+            .context("Failed to submit transaction to geth node")?;
         let transaction_hash = *pending_transaction.tx_hash();
 
         // The following is a fix for the "transaction indexing is in progress" error that we used
@@ -335,7 +369,11 @@ impl EthereumNode for GethNode {
         transaction: &TransactionReceipt,
         trace_options: GethDebugTracingOptions,
     ) -> anyhow::Result<alloy::rpc::types::trace::geth::GethTrace> {
-        let provider = Arc::new(self.provider().await?);
+        let provider = Arc::new(
+            self.provider()
+                .await
+                .context("Failed to create provider for tracing")?,
+        );
         poll(
             Self::TRACE_POLLING_DURATION,
             PollingWaitBehavior::Constant(Duration::from_millis(200)),
@@ -371,8 +409,10 @@ impl EthereumNode for GethNode {
         });
         match self
             .trace_transaction(transaction, trace_options)
-            .await?
-            .try_into_pre_state_frame()?
+            .await
+            .context("Failed to trace transaction for prestate diff")?
+            .try_into_pre_state_frame()
+            .context("Failed to convert trace into pre-state frame")?
         {
             PreStateFrame::Diff(diff) => Ok(diff),
             _ => anyhow::bail!("expected a diff mode trace"),
@@ -382,7 +422,8 @@ impl EthereumNode for GethNode {
     #[instrument(level = "info", skip_all, fields(geth_node_id = self.id))]
     async fn balance_of(&self, address: Address) -> anyhow::Result<U256> {
         self.provider()
-            .await?
+            .await
+            .context("Failed to get the Geth provider")?
             .get_balance(address)
             .await
             .map_err(Into::into)
@@ -395,7 +436,8 @@ impl EthereumNode for GethNode {
         keys: Vec<StorageKey>,
     ) -> anyhow::Result<EIP1186AccountProofResponse> {
         self.provider()
-            .await?
+            .await
+            .context("Failed to get the Geth provider")?
             .get_proof(address, keys)
             .latest()
             .await
@@ -407,7 +449,8 @@ impl ResolverApi for GethNode {
     #[instrument(level = "info", skip_all, fields(geth_node_id = self.id))]
     async fn chain_id(&self) -> anyhow::Result<alloy::primitives::ChainId> {
         self.provider()
-            .await?
+            .await
+            .context("Failed to get the Geth provider")?
             .get_chain_id()
             .await
             .map_err(Into::into)
@@ -416,7 +459,8 @@ impl ResolverApi for GethNode {
     #[instrument(level = "info", skip_all, fields(geth_node_id = self.id))]
     async fn transaction_gas_price(&self, tx_hash: &TxHash) -> anyhow::Result<u128> {
         self.provider()
-            .await?
+            .await
+            .context("Failed to get the Geth provider")?
             .get_transaction_receipt(*tx_hash)
             .await?
             .context("Failed to get the transaction receipt")
@@ -426,40 +470,48 @@ impl ResolverApi for GethNode {
     #[instrument(level = "info", skip_all, fields(geth_node_id = self.id))]
     async fn block_gas_limit(&self, number: BlockNumberOrTag) -> anyhow::Result<u128> {
         self.provider()
-            .await?
+            .await
+            .context("Failed to get the Geth provider")?
             .get_block_by_number(number)
-            .await?
-            .ok_or(anyhow::Error::msg("Blockchain has no blocks"))
+            .await
+            .context("Failed to get the geth block")?
+            .context("Failed to get the Geth block, perhaps there are no blocks?")
             .map(|block| block.header.gas_limit as _)
     }
 
     #[instrument(level = "info", skip_all, fields(geth_node_id = self.id))]
     async fn block_coinbase(&self, number: BlockNumberOrTag) -> anyhow::Result<Address> {
         self.provider()
-            .await?
+            .await
+            .context("Failed to get the Geth provider")?
             .get_block_by_number(number)
-            .await?
-            .ok_or(anyhow::Error::msg("Blockchain has no blocks"))
+            .await
+            .context("Failed to get the geth block")?
+            .context("Failed to get the Geth block, perhaps there are no blocks?")
             .map(|block| block.header.beneficiary)
     }
 
     #[instrument(level = "info", skip_all, fields(geth_node_id = self.id))]
     async fn block_difficulty(&self, number: BlockNumberOrTag) -> anyhow::Result<U256> {
         self.provider()
-            .await?
+            .await
+            .context("Failed to get the Geth provider")?
             .get_block_by_number(number)
-            .await?
-            .ok_or(anyhow::Error::msg("Blockchain has no blocks"))
+            .await
+            .context("Failed to get the geth block")?
+            .context("Failed to get the Geth block, perhaps there are no blocks?")
             .map(|block| U256::from_be_bytes(block.header.mix_hash.0))
     }
 
     #[instrument(level = "info", skip_all, fields(geth_node_id = self.id))]
     async fn block_base_fee(&self, number: BlockNumberOrTag) -> anyhow::Result<u64> {
         self.provider()
-            .await?
+            .await
+            .context("Failed to get the Geth provider")?
             .get_block_by_number(number)
-            .await?
-            .ok_or(anyhow::Error::msg("Blockchain has no blocks"))
+            .await
+            .context("Failed to get the geth block")?
+            .context("Failed to get the Geth block, perhaps there are no blocks?")
             .and_then(|block| {
                 block
                     .header
@@ -471,27 +523,32 @@ impl ResolverApi for GethNode {
     #[instrument(level = "info", skip_all, fields(geth_node_id = self.id))]
     async fn block_hash(&self, number: BlockNumberOrTag) -> anyhow::Result<BlockHash> {
         self.provider()
-            .await?
+            .await
+            .context("Failed to get the Geth provider")?
             .get_block_by_number(number)
-            .await?
-            .ok_or(anyhow::Error::msg("Blockchain has no blocks"))
+            .await
+            .context("Failed to get the geth block")?
+            .context("Failed to get the Geth block, perhaps there are no blocks?")
             .map(|block| block.header.hash)
     }
 
     #[instrument(level = "info", skip_all, fields(geth_node_id = self.id))]
     async fn block_timestamp(&self, number: BlockNumberOrTag) -> anyhow::Result<BlockTimestamp> {
         self.provider()
-            .await?
+            .await
+            .context("Failed to get the Geth provider")?
             .get_block_by_number(number)
-            .await?
-            .ok_or(anyhow::Error::msg("Blockchain has no blocks"))
+            .await
+            .context("Failed to get the geth block")?
+            .context("Failed to get the Geth block, perhaps there are no blocks?")
             .map(|block| block.header.timestamp)
     }
 
     #[instrument(level = "info", skip_all, fields(geth_node_id = self.id))]
     async fn last_block_number(&self) -> anyhow::Result<BlockNumber> {
         self.provider()
-            .await?
+            .await
+            .context("Failed to get the Geth provider")?
             .get_block_number()
             .await
             .map_err(Into::into)
@@ -576,8 +633,10 @@ impl Node for GethNode {
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
-            .spawn()?
-            .wait_with_output()?
+            .spawn()
+            .context("Failed to spawn geth --version process")?
+            .wait_with_output()
+            .context("Failed to wait for geth --version output")?
             .stdout;
         Ok(String::from_utf8_lossy(&output).into())
     }

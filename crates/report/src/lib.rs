@@ -1,4 +1,11 @@
-//! The revive differential tests reporting facility.
+//! This crate implements the reporting infrastructure for the differential testing tool.
 
-pub mod analyzer;
-pub mod reporter;
+mod aggregator;
+mod common;
+mod reporter_event;
+mod runner_event;
+
+pub use aggregator::*;
+pub use common::*;
+pub use reporter_event::*;
+pub use runner_event::*;
