@@ -79,7 +79,9 @@ impl CachedCompiler {
             compiler_version_or_requirement,
         )
         .await
-        .inspect_err(|err| compilation_failure_report_callback(None, None, None, err.to_string()))
+        .inspect_err(|err| {
+            compilation_failure_report_callback(None, None, None, format!("{err:#}"))
+        })
         .context("Failed to obtain compiler executable path")?;
         let compiler_version = <P::Compiler as SolidityCompiler>::new(compiler_path.clone())
             .version()
@@ -89,7 +91,7 @@ impl CachedCompiler {
                     None,
                     Some(compiler_path.clone()),
                     None,
-                    err.to_string(),
+                    format!("{err:#}"),
                 )
             })
             .context("Failed to query compiler version")?;
@@ -232,7 +234,7 @@ async fn compile_contracts<P: Platform>(
                 Some(compiler_version.clone()),
                 Some(compiler_path.as_ref().to_path_buf()),
                 None,
-                err.to_string(),
+                format!("{err:#}"),
             )
         })?
         // Adding the deployed libraries to the compiler.
@@ -260,7 +262,7 @@ async fn compile_contracts<P: Platform>(
                 Some(compiler_version.clone()),
                 Some(compiler_path.as_ref().to_path_buf()),
                 Some(compiler_input.clone()),
-                err.to_string(),
+                format!("{err:#}"),
             )
         })
         .context("Failed to configure compiler with sources and options")?;

@@ -55,7 +55,7 @@ if [ -n "$POLKADOT_SDK_DIR" ]; then
 
     if [ ! -x "$REVIVE_DEV_NODE_BIN" ] || [ ! -x "$ETH_RPC_BIN" ] || [ ! -x "$SUBSTRATE_NODE_BIN" ]; then
         echo -e "${YELLOW}Required binaries not found in release target. Building...${NC}"
-        (cd "$POLKADOT_SDK_DIR" && cargo build --release --package revive-dev-node --package eth-rpc --package substrate-node)
+        (cd "$POLKADOT_SDK_DIR" && cargo build --release --package staging-node-cli --package pallet-revive-eth-rpc --package revive-dev-node)
     fi
 
     for bin in "$REVIVE_DEV_NODE_BIN" "$ETH_RPC_BIN" "$SUBSTRATE_NODE_BIN"; do
