@@ -82,7 +82,7 @@ impl SolcDownloader {
                     .filter(|version| requirement.matches(version))
                     .max()
                 else {
-                    anyhow::bail!("Failed to find a version that satisfies {requirement:?}");
+                    anyhow::bail!("Failed to find a version that satisfies {requirement}");
                 };
                 Ok(Self {
                     version,
