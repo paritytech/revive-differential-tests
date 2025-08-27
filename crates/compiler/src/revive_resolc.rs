@@ -1,9 +1,8 @@
 //! Implements the [SolidityCompiler] trait with `resolc` for
 //! compiling contracts to PolkaVM (PVM) bytecode.
 
-use std::{collections::HashMap, path::PathBuf, process::Stdio};
+use std::{path::PathBuf, process::Stdio};
 
-use revive_dt_common::types::VersionOrRequirement;
 use revive_dt_config::Arguments;
 use revive_solc_json_interface::{
     SolcStandardJsonInput, SolcStandardJsonInputLanguage, SolcStandardJsonInputSettings,
@@ -11,12 +10,7 @@ use revive_solc_json_interface::{
     SolcStandardJsonOutput,
 };
 
-use super::constants::SOLC_VERSION_SUPPORTING_VIA_YUL_IR;
-use super::utils;
-use crate::{
-    CompilerInput, CompilerOutput, ModeOptimizerSetting, ModePipeline, SolcCompilerInformation,
-    SolidityCompiler,
-};
+use crate::{CompilerInput, CompilerOutput, ModeOptimizerSetting, ModePipeline, SolidityCompiler};
 
 use alloy::json_abi::JsonAbi;
 use anyhow::Context;
@@ -26,11 +20,6 @@ use tokio::{io::AsyncWriteExt, process::Command as AsyncCommand};
 /// A wrapper around the `resolc` binary, emitting PVM-compatible bytecode.
 #[derive(Debug)]
 pub struct Resolc {
-    // Where to cache compiler executables.
-    compiler_executables_cache_directory: PathBuf,
-    // We'll use this version when no explicit version
-    // requirement is given in the test mode.
-    solc_version: Version,
     /// Path to the `resolc` executable
     resolc_path: PathBuf,
 }
@@ -44,7 +33,7 @@ impl SolidityCompiler for Resolc {
         CompilerInput {
             pipeline,
             optimization,
-            solc_version,
+            solc,
             evm_version,
             allow_paths,
             base_path,
@@ -62,22 +51,7 @@ impl SolidityCompiler for Resolc {
             );
         }
 
-        let solc_version_req = solc_version
-            .unwrap_or_else(|| VersionOrRequirement::version_to_requirement(&self.solc_version));
-        let solc_path = revive_dt_solc_binaries::download_solc(
-            &self.compiler_executables_cache_directory,
-            solc_version_req,
-            false,
-        )
-        .await?;
-        let solc_version = utils::solc_version(&solc_path).await?;
-
-        if solc_version < SOLC_VERSION_SUPPORTING_VIA_YUL_IR {
-            anyhow::bail!(
-                "We are trying to run the test with solc version {solc_version}, but require {SOLC_VERSION_SUPPORTING_VIA_YUL_IR} or greater"
-            );
-        }
-
+        let solc = solc.ok_or_else(|| anyhow::anyhow!("solc compiler not provided to resolc."))?;
         let input = SolcStandardJsonInput {
             language: SolcStandardJsonInputLanguage::Solidity,
             sources: sources
@@ -124,7 +98,7 @@ impl SolidityCompiler for Resolc {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .arg("--solc")
-            .arg(&solc_path)
+            .arg(&solc.path)
             .arg("--standard-json");
 
         if let Some(ref base_path) = base_path {
@@ -203,14 +177,14 @@ impl SolidityCompiler for Resolc {
             anyhow::bail!("Unexpected error - resolc output doesn't have a contracts section");
         };
 
-        let mut compiled_contracts = HashMap::<PathBuf, HashMap<_, _>>::new();
+        let mut compiler_output = CompilerOutput::default();
         for (source_path, contracts) in contracts.into_iter() {
             let src_for_msg = source_path.clone();
             let source_path = PathBuf::from(source_path)
                 .canonicalize()
                 .with_context(|| format!("Failed to canonicalize path {src_for_msg}"))?;
 
-            let map = compiled_contracts.entry(source_path).or_default();
+            let map = compiler_output.contracts.entry(source_path).or_default();
             for (contract_name, contract_information) in contracts.into_iter() {
                 let bytecode = contract_information
                     .evm
@@ -255,19 +229,11 @@ impl SolidityCompiler for Resolc {
             }
         }
 
-        Ok(CompilerOutput {
-            solc: SolcCompilerInformation {
-                version: solc_version,
-                path: solc_path,
-            },
-            contracts: compiled_contracts,
-        })
+        Ok(compiler_output)
     }
 
     fn new(config: &Arguments) -> Self {
         Resolc {
-            compiler_executables_cache_directory: config.directory().to_path_buf(),
-            solc_version: config.solc.clone(),
             resolc_path: config.resolc.clone(),
         }
     }

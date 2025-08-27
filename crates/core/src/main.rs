@@ -604,6 +604,14 @@ where
     L::Blockchain: revive_dt_node::Node + Send + Sync + 'static,
     F::Blockchain: revive_dt_node::Node + Send + Sync + 'static,
 {
+    let solc = revive_dt_compiler::solc_compiler(
+        config.directory(),
+        &config.solc,
+        test.mode.version.as_ref(),
+        test.mode.pipeline,
+    )
+    .await?;
+
     let leader_reporter = test
         .reporter
         .execution_specific_reporter(leader_node.id(), NodeDesignation::Leader);
@@ -614,16 +622,15 @@ where
     let (
         CompilerOutput {
             contracts: leader_pre_link_contracts,
-            ..
         },
         CompilerOutput {
             contracts: follower_pre_link_contracts,
-            ..
         },
     ) = try_join!(
         cached_compiler.compile_contracts::<L>(
             test.metadata,
             test.metadata_file_path,
+            solc.clone(),
             &test.mode,
             config,
             None,
@@ -631,15 +638,16 @@ where
                 leader_reporter
                     .report_pre_link_contracts_compilation_succeeded_event(
                         is_cached,
+                        solc.clone(),
                         compiler_input,
                         compiler_output,
                     )
                     .expect("Can't fail")
             },
-            |solc_info, compiler_input, failure_reason| {
+            |compiler_input, failure_reason| {
                 leader_reporter
                     .report_pre_link_contracts_compilation_failed_event(
-                        solc_info,
+                        solc.clone(),
                         compiler_input,
                         failure_reason,
                     )
@@ -649,6 +657,7 @@ where
         cached_compiler.compile_contracts::<F>(
             test.metadata,
             test.metadata_file_path,
+            solc.clone(),
             &test.mode,
             config,
             None,
@@ -656,15 +665,16 @@ where
                 follower_reporter
                     .report_pre_link_contracts_compilation_succeeded_event(
                         is_cached,
+                        solc.clone(),
                         compiler_input,
                         compiler_output,
                     )
                     .expect("Can't fail")
             },
-            |solc_info, compiler_input, failure_reason| {
+            |compiler_input, failure_reason| {
                 follower_reporter
                     .report_pre_link_contracts_compilation_failed_event(
-                        solc_info,
+                        solc.clone(),
                         compiler_input,
                         failure_reason,
                     )
@@ -802,17 +812,16 @@ where
 
     let (
         CompilerOutput {
-            solc: leader_solc_info,
             contracts: leader_post_link_contracts,
         },
         CompilerOutput {
-            solc: follower_solc_info,
             contracts: follower_post_link_contracts,
         },
     ) = try_join!(
         cached_compiler.compile_contracts::<L>(
             test.metadata,
             test.metadata_file_path,
+            solc.clone(),
             &test.mode,
             config,
             leader_deployed_libraries.as_ref(),
@@ -820,15 +829,16 @@ where
                 leader_reporter
                     .report_post_link_contracts_compilation_succeeded_event(
                         is_cached,
+                        solc.clone(),
                         compiler_input,
                         compiler_output,
                     )
                     .expect("Can't fail")
             },
-            |solc_info, compiler_input, failure_reason| {
+            |compiler_input, failure_reason| {
                 leader_reporter
                     .report_post_link_contracts_compilation_failed_event(
-                        solc_info,
+                        solc.clone(),
                         compiler_input,
                         failure_reason,
                     )
@@ -838,6 +848,7 @@ where
         cached_compiler.compile_contracts::<F>(
             test.metadata,
             test.metadata_file_path,
+            solc.clone(),
             &test.mode,
             config,
             follower_deployed_libraries.as_ref(),
@@ -845,15 +856,16 @@ where
                 follower_reporter
                     .report_post_link_contracts_compilation_succeeded_event(
                         is_cached,
+                        solc.clone(),
                         compiler_input,
                         compiler_output,
                     )
                     .expect("Can't fail")
             },
-            |solc_info, compiler_input, failure_reason| {
+            |compiler_input, failure_reason| {
                 follower_reporter
                     .report_post_link_contracts_compilation_failed_event(
-                        solc_info,
+                        solc.clone(),
                         compiler_input,
                         failure_reason,
                     )
@@ -864,13 +876,13 @@ where
     .context("Failed to compile post-link contracts for leader/follower in parallel")?;
 
     let leader_state = CaseState::<L>::new(
-        leader_solc_info.version,
+        solc.version.clone(),
         leader_post_link_contracts,
         leader_deployed_libraries.unwrap_or_default(),
         leader_reporter,
     );
     let follower_state = CaseState::<F>::new(
-        follower_solc_info.version,
+        solc.version.clone(),
         follower_post_link_contracts,
         follower_deployed_libraries.unwrap_or_default(),
         follower_reporter,
@@ -913,7 +925,7 @@ async fn compile_corpus(
     config: &Arguments,
     tests: &[MetadataFile],
     platform: &TestingPlatform,
-    _: Reporter,
+    reporter: Reporter,
     report_aggregator_task: impl Future<Output = anyhow::Result<()>>,
 ) {
     let tests = tests.iter().flat_map(|metadata| {
@@ -932,19 +944,42 @@ async fn compile_corpus(
     let compilation_task =
         futures::stream::iter(tests).for_each_concurrent(None, |(metadata, mode)| {
             let cached_compiler = cached_compiler.clone();
+            let reporter = reporter.clone();
 
             async move {
+                let solc = revive_dt_compiler::solc_compiler(
+                    config.directory(),
+                    &config.solc,
+                    mode.version.as_ref(),
+                    mode.pipeline,
+                )
+                .await;
+
+                let solc = match solc {
+                    Ok(solc) => solc,
+                    Err(err) => {
+                        let test_specifier = TestSpecifier {
+                            solc_mode: mode,
+                            metadata_file_path: metadata.metadata_file_path.clone(),
+                            case_idx: 0.into(),
+                        };
+                        let _ = reporter.report_test_failed_event(test_specifier, err.to_string());
+                        return;
+                    }
+                };
+
                 match platform {
                     TestingPlatform::Geth => {
                         let _ = cached_compiler
                             .compile_contracts::<Geth>(
                                 metadata,
                                 metadata.metadata_file_path.as_path(),
+                                solc,
                                 &mode,
                                 config,
                                 None,
                                 |_, _, _| {},
-                                |_, _, _| {},
+                                |_, _| {},
                             )
                             .await;
                     }
@@ -953,11 +988,12 @@ async fn compile_corpus(
                             .compile_contracts::<Kitchensink>(
                                 metadata,
                                 metadata.metadata_file_path.as_path(),
+                                solc,
                                 &mode,
                                 config,
                                 None,
                                 |_, _, _| {},
-                                |_, _, _| {},
+                                |_, _| {},
                             )
                             .await;
                     }

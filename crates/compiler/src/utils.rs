@@ -1,3 +1,4 @@
+use serde::{Deserialize, Serialize};
 use std::{
     path::{Path, PathBuf},
     process::{Command, Stdio},
@@ -6,10 +7,61 @@ use std::{
 
 use anyhow::Context;
 use dashmap::DashMap;
-use semver::Version;
+use revive_dt_common::types::{ModePipeline, VersionOrRequirement};
+use semver::{Version, VersionReq};
+
+/// Return the path and version of a suitable `solc` compiler given the requirements provided.
+///
+/// This caches any compiler binaries/paths that are downloaded as a result of calling this.
+pub async fn solc_compiler(
+    cache_directory: &Path,
+    fallback_version: &Version,
+    required_version: Option<&VersionReq>,
+    pipeline: ModePipeline,
+) -> anyhow::Result<SolcCompiler> {
+    // Require Yul compatible solc, or any if we don't care about compiling via Yul.
+    let mut version_req = if pipeline == ModePipeline::ViaYulIR {
+        solc_versions_supporting_yul_ir()
+    } else {
+        VersionReq::STAR
+    };
+
+    // Take into account the version requirements passed in, too.
+    if let Some(other_version_req) = required_version {
+        version_req
+            .comparators
+            .extend(other_version_req.comparators.iter().cloned());
+    }
+
+    // If no requirements yet then fall back to the fallback version.
+    let version_req = if version_req == VersionReq::STAR {
+        VersionOrRequirement::version_to_requirement(fallback_version)
+    } else {
+        version_req
+    };
+
+    // Download (or pull from cache) a suitable solc compiler given this.
+    let solc_path =
+        revive_dt_solc_binaries::download_solc(cache_directory, version_req, false).await?;
+    let solc_version = solc_version(&solc_path).await?;
+
+    Ok(SolcCompiler {
+        version: solc_version,
+        path: solc_path,
+    })
+}
+
+/// A `solc` compiler, returned from [`solc_compiler`].
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SolcCompiler {
+    /// Version of the compiler.
+    pub version: Version,
+    /// Path to the compiler executable.
+    pub path: PathBuf,
+}
 
 /// Fetch the solc version given a path to the executable
-pub async fn solc_version(solc_path: &Path) -> anyhow::Result<semver::Version> {
+async fn solc_version(solc_path: &Path) -> anyhow::Result<semver::Version> {
     /// This is a cache of the path of the compiler to the version number of the compiler. We
     /// choose to cache the version in this way rather than through a field on the struct since
     /// compiler objects are being created all the time from the path and the compiler object is
@@ -46,6 +98,20 @@ pub async fn solc_version(solc_path: &Path) -> anyhow::Result<semver::Version> {
 
             Ok(version)
         }
+    }
+}
+
+/// This returns the solc versions which support Yul IR.
+pub fn solc_versions_supporting_yul_ir() -> VersionReq {
+    use semver::{Comparator, Op, Prerelease, VersionReq};
+    VersionReq {
+        comparators: vec![Comparator {
+            op: Op::GreaterEq,
+            major: 0,
+            minor: Some(8),
+            patch: Some(13),
+            pre: Prerelease::EMPTY,
+        }],
     }
 }
 

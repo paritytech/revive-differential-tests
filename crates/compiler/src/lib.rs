@@ -3,7 +3,6 @@
 //! - Polkadot revive resolc compiler
 //! - Polkadot revive Wasm compiler
 
-mod constants;
 mod utils;
 
 use std::{
@@ -15,7 +14,6 @@ use std::{
 use alloy::json_abi::JsonAbi;
 use alloy_primitives::Address;
 use anyhow::Context;
-use semver::{Version, VersionReq};
 use serde::{Deserialize, Serialize};
 
 use revive_common::EVMVersion;
@@ -24,6 +22,9 @@ use revive_dt_config::Arguments;
 
 // Re-export this as it's a part of the compiler interface.
 pub use revive_dt_common::types::{Mode, ModeOptimizerSetting, ModePipeline};
+
+// Expose functionality for instantiating a SolcCompiler.
+pub use utils::{SolcCompiler, solc_compiler};
 
 pub mod revive_js;
 pub mod revive_resolc;
@@ -53,7 +54,7 @@ pub trait SolidityCompiler {
 pub struct CompilerInput {
     pub pipeline: Option<ModePipeline>,
     pub optimization: Option<ModeOptimizerSetting>,
-    pub solc_version: Option<VersionReq>,
+    pub solc: Option<SolcCompiler>,
     pub evm_version: Option<EVMVersion>,
     pub allow_paths: Vec<PathBuf>,
     pub base_path: Option<PathBuf>,
@@ -63,22 +64,11 @@ pub struct CompilerInput {
 }
 
 /// The generic compilation output configuration.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct CompilerOutput {
-    /// Information about the `solc` compiler used to compile the contracts.
-    pub solc: SolcCompilerInformation,
     /// The compiled contracts. The bytecode of the contract is kept as a string incase linking is
     /// required and the compiled source has placeholders.
     pub contracts: HashMap<PathBuf, HashMap<String, (String, JsonAbi)>>,
-}
-
-/// Information about the `solc` compiler.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SolcCompilerInformation {
-    /// Version of the compiler.
-    pub version: Version,
-    /// Path to the compiler executable.
-    pub path: PathBuf,
 }
 
 /// A generic builder style interface for configuring the supported compiler options.
@@ -102,7 +92,7 @@ where
             input: CompilerInput {
                 pipeline: Default::default(),
                 optimization: Default::default(),
-                solc_version: Default::default(),
+                solc: Default::default(),
                 evm_version: Default::default(),
                 allow_paths: Default::default(),
                 base_path: Default::default(),
@@ -114,8 +104,8 @@ where
         }
     }
 
-    pub fn with_solc_version_req(mut self, value: impl Into<Option<VersionReq>>) -> Self {
-        self.input.solc_version = value.into();
+    pub fn with_solc(mut self, value: impl Into<Option<SolcCompiler>>) -> Self {
+        self.input.solc = value.into();
         self
     }
 

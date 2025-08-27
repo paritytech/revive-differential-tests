@@ -9,10 +9,9 @@ use std::{
 
 use futures::FutureExt;
 use revive_dt_common::iterators::FilesWithExtensionIterator;
-use revive_dt_compiler::{Compiler, CompilerInput, CompilerOutput, Mode, SolcCompilerInformation};
+use revive_dt_compiler::{Compiler, CompilerInput, CompilerOutput, Mode, SolcCompiler};
 use revive_dt_config::Arguments;
 use revive_dt_format::metadata::{ContractIdent, ContractInstance, Metadata};
-use revive_dt_solc_binaries::solc_version;
 
 use alloy::{hex::ToHexExt, json_abi::JsonAbi, primitives::Address};
 use anyhow::{Context as _, Error, Result};
@@ -54,26 +53,20 @@ impl CachedCompiler {
         &self,
         metadata: &Metadata,
         metadata_file_path: impl AsRef<Path>,
+        solc: SolcCompiler,
         mode: &Mode,
         config: &Arguments,
         deployed_libraries: Option<&HashMap<ContractInstance, (ContractIdent, Address, JsonAbi)>>,
         compilation_success_report_callback: impl Fn(bool, Option<CompilerInput>, CompilerOutput)
         + Clone,
-        compilation_failure_report_callback: impl Fn(
-            Option<SolcCompilerInformation>,
-            Option<CompilerInput>,
-            String,
-        ),
+        compilation_failure_report_callback: impl Fn(Option<CompilerInput>, String),
     ) -> Result<CompilerOutput> {
         static CACHE_KEY_LOCK: Lazy<RwLock<HashMap<CacheKey, Arc<Mutex<()>>>>> =
             Lazy::new(Default::default);
 
-        let solc_version_or_requirement = mode.compiler_version_to_use(config.solc.clone());
-        let solc_version = solc_version(solc_version_or_requirement, false).await?;
-
         let cache_key = CacheKey {
             platform_key: P::config_id().to_string(),
-            compiler_version: solc_version.clone(),
+            compiler_version: solc.version.clone(),
             metadata_file_path: metadata_file_path.as_ref().to_path_buf(),
             solc_mode: mode.clone(),
         };
@@ -91,6 +84,7 @@ impl CachedCompiler {
                         .files_to_compile()
                         .context("Failed to enumerate files to compile from metadata")?,
                     config,
+                    solc,
                     mode,
                     deployed_libraries,
                     compilation_success_report_callback,
@@ -170,14 +164,11 @@ async fn compile_contracts<P: Platform>(
     metadata_directory: impl AsRef<Path>,
     mut files_to_compile: impl Iterator<Item = PathBuf>,
     config: &Arguments,
+    solc: SolcCompiler,
     mode: &Mode,
     deployed_libraries: Option<&HashMap<ContractInstance, (ContractIdent, Address, JsonAbi)>>,
     compilation_success_report_callback: impl Fn(bool, Option<CompilerInput>, CompilerOutput),
-    compilation_failure_report_callback: impl Fn(
-        Option<SolcCompilerInformation>,
-        Option<CompilerInput>,
-        String,
-    ),
+    compilation_failure_report_callback: impl Fn(Option<CompilerInput>, String),
 ) -> Result<CompilerOutput> {
     let all_sources_in_dir = FilesWithExtensionIterator::new(metadata_directory.as_ref())
         .with_allowed_extension("sol")
@@ -185,7 +176,7 @@ async fn compile_contracts<P: Platform>(
         .collect::<Vec<_>>();
 
     let compiler = Compiler::<P::Compiler>::new()
-        .with_solc_version_req(mode.version.clone())
+        .with_solc(solc)
         .with_allow_path(metadata_directory)
         // Handling the modes
         .with_optimization(mode.optimize_setting)
@@ -194,7 +185,7 @@ async fn compile_contracts<P: Platform>(
         .try_then(|compiler| {
             files_to_compile.try_fold(compiler, |compiler, path| compiler.with_source(path))
         })
-        .inspect_err(|err| compilation_failure_report_callback(None, None, format!("{err:#}")))?
+        .inspect_err(|err| compilation_failure_report_callback(None, format!("{err:#}")))?
         // Adding the deployed libraries to the compiler.
         .then(|compiler| {
             deployed_libraries
@@ -216,11 +207,7 @@ async fn compile_contracts<P: Platform>(
         .try_build(config)
         .await
         .inspect_err(|err| {
-            compilation_failure_report_callback(
-                None,
-                Some(compiler_input.clone()),
-                format!("{err:#}"),
-            )
+            compilation_failure_report_callback(Some(compiler_input.clone()), format!("{err:#}"))
         })
         .context("Failed to configure compiler with sources and options")?;
 

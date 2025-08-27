@@ -5,7 +5,6 @@
 
 use cache::get_or_download;
 use download::SolcDownloader;
-use semver::Version;
 use std::path::{Path, PathBuf};
 
 use revive_dt_common::types::VersionOrRequirement;
@@ -45,14 +44,4 @@ pub async fn download_solc(
 ) -> anyhow::Result<PathBuf> {
     let downloader = downloader(version, wasm).await?;
     get_or_download(cache_directory, &downloader).await
-}
-
-/// Return the version of solc that will be downloaded via [`download_solc`]
-/// given the version requirements and wasm flag.
-pub async fn solc_version(
-    version: impl Into<VersionOrRequirement>,
-    wasm: bool,
-) -> anyhow::Result<Version> {
-    let downloader = downloader(version, wasm).await?;
-    Ok(downloader.version.clone())
 }

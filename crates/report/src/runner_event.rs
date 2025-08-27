@@ -6,7 +6,7 @@ use std::{collections::BTreeMap, sync::Arc};
 use alloy_primitives::Address;
 use anyhow::Context as _;
 use indexmap::IndexMap;
-use revive_dt_compiler::{CompilerInput, CompilerOutput, SolcCompilerInformation};
+use revive_dt_compiler::{CompilerInput, CompilerOutput, SolcCompiler};
 use revive_dt_config::TestingPlatform;
 use revive_dt_format::metadata::Metadata;
 use revive_dt_format::{corpus::Corpus, metadata::ContractInstance};
@@ -549,6 +549,8 @@ define_event! {
             /// A flag of whether the contract bytecode and ABI were cached or if they were compiled
             /// anew.
             is_cached: bool,
+            /// The version and path of the solc compiler used to compile the contracts.
+            solc_info: SolcCompiler,
             /// The input provided to the compiler - this is optional and not provided if the
             /// contracts were obtained from the cache.
             compiler_input: Option<CompilerInput>,
@@ -563,6 +565,8 @@ define_event! {
             /// A flag of whether the contract bytecode and ABI were cached or if they were compiled
             /// anew.
             is_cached: bool,
+            /// The version and path of the solc compiler used to compile the contracts.
+            solc_info: SolcCompiler,
             /// The input provided to the compiler - this is optional and not provided if the
             /// contracts were obtained from the cache.
             compiler_input: Option<CompilerInput>,
@@ -575,7 +579,7 @@ define_event! {
             /// A specifier for the execution that's taking place.
             execution_specifier: Arc<ExecutionSpecifier>,
             /// The version and path of the solc compiler used to compile the contracts.
-            solc_info: Option<SolcCompilerInformation>,
+            solc_info: SolcCompiler,
             /// The input provided to the compiler - this is optional and not provided if the
             /// contracts were obtained from the cache.
             compiler_input: Option<CompilerInput>,
@@ -588,7 +592,7 @@ define_event! {
             /// A specifier for the execution that's taking place.
             execution_specifier: Arc<ExecutionSpecifier>,
             /// The version and path of the solc compiler used to compile the contracts.
-            solc_info: Option<SolcCompilerInformation>,
+            solc_info: SolcCompiler,
             /// The input provided to the compiler - this is optional and not provided if the
             /// contracts were obtained from the cache.
             compiler_input: Option<CompilerInput>,

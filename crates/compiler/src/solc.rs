@@ -1,18 +1,8 @@
 //! Implements the [SolidityCompiler] trait with solc for
 //! compiling contracts to EVM bytecode.
 
-use std::{collections::HashMap, path::PathBuf, process::Stdio};
-
-use revive_dt_common::types::VersionOrRequirement;
-use revive_dt_config::Arguments;
-
-use super::constants::SOLC_VERSION_SUPPORTING_VIA_YUL_IR;
 use super::utils;
-use crate::{
-    CompilerInput, CompilerOutput, ModeOptimizerSetting, ModePipeline, SolcCompilerInformation,
-    SolidityCompiler,
-};
-
+use crate::{CompilerInput, CompilerOutput, ModeOptimizerSetting, ModePipeline, SolidityCompiler};
 use anyhow::Context;
 use foundry_compilers_artifacts::{
     output_selection::{
@@ -21,17 +11,12 @@ use foundry_compilers_artifacts::{
     solc::CompilerOutput as SolcOutput,
     solc::*,
 };
-use semver::Version;
+use revive_dt_config::Arguments;
+use std::process::Stdio;
 use tokio::{io::AsyncWriteExt, process::Command as AsyncCommand};
 
 #[derive(Debug)]
-pub struct Solc {
-    // Where to cache artifacts.
-    cache_directory: PathBuf,
-    // We'll use this version when no explicit version requirement
-    // is given in the test mode.
-    solc_version: Version,
-}
+pub struct Solc {}
 
 impl SolidityCompiler for Solc {
     type Options = ();
@@ -42,7 +27,7 @@ impl SolidityCompiler for Solc {
         CompilerInput {
             pipeline,
             optimization,
-            solc_version,
+            solc,
             evm_version,
             allow_paths,
             base_path,
@@ -52,15 +37,9 @@ impl SolidityCompiler for Solc {
         }: CompilerInput,
         _: Self::Options,
     ) -> anyhow::Result<CompilerOutput> {
-        let solc_version_req = solc_version
-            .unwrap_or_else(|| VersionOrRequirement::version_to_requirement(&self.solc_version));
-        let solc_path =
-            revive_dt_solc_binaries::download_solc(&self.cache_directory, solc_version_req, false)
-                .await?;
-        let solc_version = utils::solc_version(&solc_path).await?;
-
+        let solc = solc.ok_or_else(|| anyhow::anyhow!("solc compiler not provided to resolc."))?;
         let compiler_supports_via_ir =
-            utils::solc_version(&solc_path).await? >= SOLC_VERSION_SUPPORTING_VIA_YUL_IR;
+            utils::solc_versions_supporting_yul_ir().matches(&solc.version);
 
         // Be careful to entirely omit the viaIR field if the compiler does not support it,
         // as it will error if you provide fields it does not know about. Because
@@ -126,7 +105,7 @@ impl SolidityCompiler for Solc {
             },
         };
 
-        let mut command = AsyncCommand::new(&solc_path);
+        let mut command = AsyncCommand::new(&solc.path);
         command
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -147,7 +126,7 @@ impl SolidityCompiler for Solc {
         }
         let mut child = command
             .spawn()
-            .with_context(|| format!("Failed to spawn solc at {}", solc_path.display()))?;
+            .with_context(|| format!("Failed to spawn solc at {}", solc.path.display()))?;
 
         let stdin = child.stdin.as_mut().expect("should be piped");
         let serialized_input = serde_json::to_vec(&input)
@@ -197,9 +176,10 @@ impl SolidityCompiler for Solc {
             "Compiled successfully"
         );
 
-        let mut compiled_contracts = HashMap::<PathBuf, HashMap<_, _>>::new();
+        let mut compiler_output = CompilerOutput::default();
         for (contract_path, contracts) in parsed.contracts {
-            let map = compiled_contracts
+            let map = compiler_output
+                .contracts
                 .entry(contract_path.canonicalize().with_context(|| {
                     format!(
                         "Failed to canonicalize contract path {}",
@@ -223,20 +203,11 @@ impl SolidityCompiler for Solc {
             }
         }
 
-        Ok(CompilerOutput {
-            solc: SolcCompilerInformation {
-                version: solc_version,
-                path: solc_path,
-            },
-            contracts: compiled_contracts,
-        })
+        Ok(compiler_output)
     }
 
-    fn new(config: &Arguments) -> Self {
-        Self {
-            cache_directory: config.directory().to_path_buf(),
-            solc_version: config.solc.clone(),
-        }
+    fn new(_config: &Arguments) -> Self {
+        Self {}
     }
 
     fn supports_mode(_optimize_setting: ModeOptimizerSetting, pipeline: ModePipeline) -> bool {
