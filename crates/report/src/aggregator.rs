@@ -495,7 +495,7 @@ pub struct TestCaseNodeInformation {
     /// The ID of the node that this case is being executed on.
     pub id: usize,
     /// The platform of the node.
-    pub platform: TestingPlatform,
+    pub platform: &'static TestingPlatform,
     /// The connection string of the node.
     pub connection_string: String,
 }

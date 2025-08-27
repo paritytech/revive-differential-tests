@@ -84,10 +84,6 @@ pub struct Arguments {
     #[arg(short, long = "follower", default_value = "kitchensink")]
     pub follower: TestingPlatform,
 
-    /// Only compile against this testing platform (doesn't execute the tests).
-    #[arg(long = "compile-only")]
-    pub compile_only: Option<TestingPlatform>,
-
     /// Determines the amount of nodes that will be spawned for each chain.
     #[arg(long, default_value = "1")]
     pub number_of_nodes: usize,

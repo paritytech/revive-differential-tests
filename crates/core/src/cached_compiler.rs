@@ -2,6 +2,7 @@
 //! be reused between runs.
 
 use std::{
+    borrow::Cow,
     collections::HashMap,
     path::{Path, PathBuf},
     sync::Arc,
@@ -9,13 +10,12 @@ use std::{
 
 use futures::FutureExt;
 use revive_dt_common::iterators::FilesWithExtensionIterator;
-use revive_dt_compiler::{Compiler, CompilerInput, CompilerOutput, Mode, SolidityCompiler};
-use revive_dt_config::Arguments;
+use revive_dt_compiler::{Compiler, CompilerOutput, Mode, SolidityCompiler};
+use revive_dt_config::TestingPlatform;
 use revive_dt_format::metadata::{ContractIdent, ContractInstance, Metadata};
 
 use alloy::{hex::ToHexExt, json_abi::JsonAbi, primitives::Address};
 use anyhow::{Context as _, Error, Result};
-use once_cell::sync::Lazy;
 use semver::Version;
 use serde::{Deserialize, Serialize};
 use tokio::sync::{Mutex, RwLock};
@@ -23,9 +23,17 @@ use tracing::{Instrument, debug, debug_span, instrument};
 
 use crate::Platform;
 
-pub struct CachedCompiler(ArtifactsCache);
+pub struct CachedCompiler<'a> {
+    /// The cache that stores the compiled contracts.
+    artifacts_cache: ArtifactsCache,
 
-impl CachedCompiler {
+    /// This is a mechanism that the cached compiler uses so that if multiple compilation requests
+    /// come in for the same contract we never compile all of them and only compile it once and all
+    /// other tasks that request this same compilation concurrently get the cached version.
+    cache_key_lock: RwLock<HashMap<CacheKey<'a>, Arc<Mutex<()>>>>,
+}
+
+impl<'a> CachedCompiler<'a> {
     pub async fn new(path: impl AsRef<Path>, invalidate_cache: bool) -> Result<Self> {
         let mut cache = ArtifactsCache::new(path);
         if invalidate_cache {
@@ -34,7 +42,10 @@ impl CachedCompiler {
                 .await
                 .context("Failed to invalidate compilation cache directory")?;
         }
-        Ok(Self(cache))
+        Ok(Self {
+            artifacts_cache: cache,
+            cache_key_lock: Default::default(),
+        })
     }
 
     /// Compiles or gets the compilation artifacts from the cache.
@@ -43,7 +54,7 @@ impl CachedCompiler {
         level = "debug",
         skip_all,
         fields(
-            metadata_file_path = %metadata_file_path.as_ref().display(),
+            metadata_file_path = %metadata_file_path.display(),
             %mode,
             platform = P::config_id().to_string()
         ),
@@ -51,76 +62,31 @@ impl CachedCompiler {
     )]
     pub async fn compile_contracts<P: Platform>(
         &self,
-        metadata: &Metadata,
-        metadata_file_path: impl AsRef<Path>,
-        mode: &Mode,
-        config: &Arguments,
+        metadata: &'a Metadata,
+        metadata_file_path: &'a Path,
+        mode: Cow<'a, Mode>,
         deployed_libraries: Option<&HashMap<ContractInstance, (ContractIdent, Address, JsonAbi)>>,
-        compilation_success_report_callback: impl Fn(
-            Version,
-            PathBuf,
-            bool,
-            Option<CompilerInput>,
-            CompilerOutput,
-        ) + Clone,
-        compilation_failure_report_callback: impl Fn(
-            Option<Version>,
-            Option<PathBuf>,
-            Option<CompilerInput>,
-            String,
-        ),
-    ) -> Result<(CompilerOutput, Version)> {
-        static CACHE_KEY_LOCK: Lazy<RwLock<HashMap<CacheKey, Arc<Mutex<()>>>>> =
-            Lazy::new(Default::default);
-
-        let compiler_version_or_requirement = mode.compiler_version_to_use(config.solc.clone());
-        let compiler_path = <P::Compiler as SolidityCompiler>::get_compiler_executable(
-            config,
-            compiler_version_or_requirement,
-        )
-        .await
-        .inspect_err(|err| {
-            compilation_failure_report_callback(None, None, None, format!("{err:#}"))
-        })
-        .context("Failed to obtain compiler executable path")?;
-        let compiler_version = <P::Compiler as SolidityCompiler>::new(compiler_path.clone())
-            .version()
-            .await
-            .inspect_err(|err| {
-                compilation_failure_report_callback(
-                    None,
-                    Some(compiler_path.clone()),
-                    None,
-                    format!("{err:#}"),
-                )
-            })
-            .context("Failed to query compiler version")?;
-
+        compiler: &P::Compiler,
+    ) -> Result<CompilerOutput> {
         let cache_key = CacheKey {
-            platform_key: P::config_id().to_string(),
-            compiler_version: compiler_version.clone(),
-            metadata_file_path: metadata_file_path.as_ref().to_path_buf(),
+            platform_key: P::config_id(),
+            compiler_version: compiler.version().clone(),
+            metadata_file_path,
             solc_mode: mode.clone(),
         };
 
         let compilation_callback = || {
-            let compiler_path = compiler_path.clone();
-            let compiler_version = compiler_version.clone();
-            let compilation_success_report_callback = compilation_success_report_callback.clone();
             async move {
                 compile_contracts::<P>(
                     metadata
                         .directory()
                         .context("Failed to get metadata directory while preparing compilation")?,
-                    compiler_path,
-                    compiler_version,
                     metadata
                         .files_to_compile()
                         .context("Failed to enumerate files to compile from metadata")?,
-                    mode,
+                    &mode,
                     deployed_libraries,
-                    compilation_success_report_callback,
-                    compilation_failure_report_callback,
+                    compiler,
                 )
                 .map(|compilation_result| compilation_result.map(CacheValue::new))
                 .await
@@ -153,12 +119,15 @@ impl CachedCompiler {
                 // Lock this specific cache key such that we do not get inconsistent state. We want
                 // that when multiple cases come in asking for the compilation artifacts then they
                 // don't all trigger a compilation if there's a cache miss. Hence, the lock here.
-                let read_guard = CACHE_KEY_LOCK.read().await;
+                let read_guard = self.cache_key_lock.read().await;
                 let mutex = match read_guard.get(&cache_key).cloned() {
-                    Some(value) => value,
+                    Some(value) => {
+                        drop(read_guard);
+                        value
+                    }
                     None => {
                         drop(read_guard);
-                        CACHE_KEY_LOCK
+                        self.cache_key_lock
                             .write()
                             .await
                             .entry(cache_key.clone())
@@ -168,17 +137,8 @@ impl CachedCompiler {
                 };
                 let _guard = mutex.lock().await;
 
-                match self.0.get(&cache_key).await {
-                    Some(cache_value) => {
-                        compilation_success_report_callback(
-                            compiler_version.clone(),
-                            compiler_path,
-                            true,
-                            None,
-                            cache_value.compiler_output.clone(),
-                        );
-                        cache_value.compiler_output
-                    }
+                match self.artifacts_cache.get(&cache_key).await {
+                    Some(cache_value) => cache_value.compiler_output,
                     None => {
                         compilation_callback()
                             .await
@@ -189,38 +149,24 @@ impl CachedCompiler {
             }
         };
 
-        Ok((compiled_contracts, compiler_version))
+        Ok(compiled_contracts)
     }
 }
 
 #[allow(clippy::too_many_arguments)]
 async fn compile_contracts<P: Platform>(
     metadata_directory: impl AsRef<Path>,
-    compiler_path: impl AsRef<Path>,
-    compiler_version: Version,
     mut files_to_compile: impl Iterator<Item = PathBuf>,
     mode: &Mode,
     deployed_libraries: Option<&HashMap<ContractInstance, (ContractIdent, Address, JsonAbi)>>,
-    compilation_success_report_callback: impl Fn(
-        Version,
-        PathBuf,
-        bool,
-        Option<CompilerInput>,
-        CompilerOutput,
-    ),
-    compilation_failure_report_callback: impl Fn(
-        Option<Version>,
-        Option<PathBuf>,
-        Option<CompilerInput>,
-        String,
-    ),
+    compiler: &P::Compiler,
 ) -> Result<CompilerOutput> {
     let all_sources_in_dir = FilesWithExtensionIterator::new(metadata_directory.as_ref())
         .with_allowed_extension("sol")
         .with_use_cached_fs(true)
         .collect::<Vec<_>>();
 
-    let compiler = Compiler::<P::Compiler>::new()
+    Compiler::new()
         .with_allow_path(metadata_directory)
         // Handling the modes
         .with_optimization(mode.optimize_setting)
@@ -228,14 +174,6 @@ async fn compile_contracts<P: Platform>(
         // Adding the contract sources to the compiler.
         .try_then(|compiler| {
             files_to_compile.try_fold(compiler, |compiler, path| compiler.with_source(path))
-        })
-        .inspect_err(|err| {
-            compilation_failure_report_callback(
-                Some(compiler_version.clone()),
-                Some(compiler_path.as_ref().to_path_buf()),
-                None,
-                format!("{err:#}"),
-            )
         })?
         // Adding the deployed libraries to the compiler.
         .then(|compiler| {
@@ -251,29 +189,9 @@ async fn compile_contracts<P: Platform>(
                 .fold(compiler, |compiler, (ident, address, path)| {
                     compiler.with_library(path, ident.as_str(), *address)
                 })
-        });
-
-    let compiler_input = compiler.input();
-    let compiler_output = compiler
-        .try_build(compiler_path.as_ref())
-        .await
-        .inspect_err(|err| {
-            compilation_failure_report_callback(
-                Some(compiler_version.clone()),
-                Some(compiler_path.as_ref().to_path_buf()),
-                Some(compiler_input.clone()),
-                format!("{err:#}"),
-            )
         })
-        .context("Failed to configure compiler with sources and options")?;
-    compilation_success_report_callback(
-        compiler_version,
-        compiler_path.as_ref().to_path_buf(),
-        false,
-        Some(compiler_input),
-        compiler_output.clone(),
-    );
-    Ok(compiler_output)
+        .try_build(compiler)
+        .await
 }
 
 struct ArtifactsCache {
@@ -297,7 +215,7 @@ impl ArtifactsCache {
     }
 
     #[instrument(level = "debug", skip_all, err)]
-    pub async fn insert(&self, key: &CacheKey, value: &CacheValue) -> Result<()> {
+    pub async fn insert(&self, key: &CacheKey<'_>, value: &CacheValue) -> Result<()> {
         let key = bson::to_vec(key).context("Failed to serialize cache key (bson)")?;
         let value = bson::to_vec(value).context("Failed to serialize cache value (bson)")?;
         cacache::write(self.path.as_path(), key.encode_hex(), value)
@@ -308,7 +226,7 @@ impl ArtifactsCache {
         Ok(())
     }
 
-    pub async fn get(&self, key: &CacheKey) -> Option<CacheValue> {
+    pub async fn get(&self, key: &CacheKey<'_>) -> Option<CacheValue> {
         let key = bson::to_vec(key).ok()?;
         let value = cacache::read(self.path.as_path(), key.encode_hex())
             .await
@@ -320,7 +238,7 @@ impl ArtifactsCache {
     #[instrument(level = "debug", skip_all, err)]
     pub async fn get_or_insert_with(
         &self,
-        key: &CacheKey,
+        key: &CacheKey<'_>,
         callback: impl AsyncFnOnce() -> Result<CacheValue>,
     ) -> Result<CacheValue> {
         match self.get(key).await {
@@ -338,20 +256,20 @@ impl ArtifactsCache {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
-struct CacheKey {
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize)]
+struct CacheKey<'a> {
     /// The platform name that this artifact was compiled for. For example, this could be EVM or
     /// PVM.
-    platform_key: String,
+    platform_key: &'a TestingPlatform,
 
     /// The version of the compiler that was used to compile the artifacts.
     compiler_version: Version,
 
     /// The path of the metadata file that the compilation artifacts are for.
-    metadata_file_path: PathBuf,
+    metadata_file_path: &'a Path,
 
     /// The mode that the compilation artifacts where compiled with.
-    solc_mode: Mode,
+    solc_mode: Cow<'a, Mode>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

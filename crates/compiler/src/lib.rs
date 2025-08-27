@@ -3,17 +3,16 @@
 //! - Polkadot revive resolc compiler
 //! - Polkadot revive Wasm compiler
 
-mod constants;
-
 use std::{
     collections::HashMap,
     hash::Hash,
     path::{Path, PathBuf},
+    sync::Arc,
 };
 
 use alloy::json_abi::JsonAbi;
 use alloy_primitives::Address;
-use anyhow::Context;
+use anyhow::{Context, Result};
 use semver::Version;
 use serde::{Deserialize, Serialize};
 
@@ -31,35 +30,32 @@ pub mod solc;
 
 /// A common interface for all supported Solidity compilers.
 pub trait SolidityCompiler {
-    /// Extra options specific to the compiler.
-    type Options: Default + PartialEq + Eq + Hash;
+    /// Instantiates a new compiler object.
+    ///
+    /// Based on the given [`Arguments`] and [`VersionOrRequirement`] this function instantiates a
+    /// new compiler object. Certain implementations of this trait might choose to cache cache the
+    /// compiler objects and return the same ones over and over again.
+    fn new(
+        config: &Arguments,
+        version: impl Into<Option<VersionOrRequirement>>,
+    ) -> impl Future<Output = Result<Arc<Self>>>;
+
+    /// Returns the version of the compiler.
+    fn version(&self) -> &Version;
 
     /// The low-level compiler interface.
-    fn build(
-        &self,
-        input: CompilerInput,
-        additional_options: Self::Options,
-    ) -> impl Future<Output = anyhow::Result<CompilerOutput>>;
+    fn build(&self, input: CompilerInput) -> impl Future<Output = Result<CompilerOutput>>;
 
-    fn new(solc_executable: PathBuf) -> Self;
-
-    fn get_compiler_executable(
-        config: &Arguments,
-        version: impl Into<VersionOrRequirement>,
-    ) -> impl Future<Output = anyhow::Result<PathBuf>>;
-
-    fn version(&self) -> impl Future<Output = anyhow::Result<Version>>;
-
-    /// Does the compiler support the provided mode and version settings?
+    /// Does the compiler support the provided mode and version settings.
     fn supports_mode(
-        compiler_version: &Version,
-        optimize_setting: ModeOptimizerSetting,
+        &self,
+        optimizer_setting: ModeOptimizerSetting,
         pipeline: ModePipeline,
     ) -> bool;
 }
 
 /// The generic compilation input configuration.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct CompilerInput {
     pub pipeline: Option<ModePipeline>,
     pub optimization: Option<ModeOptimizerSetting>,
@@ -80,21 +76,12 @@ pub struct CompilerOutput {
 }
 
 /// A generic builder style interface for configuring the supported compiler options.
-pub struct Compiler<T: SolidityCompiler> {
+#[derive(Default)]
+pub struct Compiler {
     input: CompilerInput,
-    additional_options: T::Options,
 }
 
-impl Default for Compiler<solc::Solc> {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl<T> Compiler<T>
-where
-    T: SolidityCompiler,
-{
+impl Compiler {
     pub fn new() -> Self {
         Self {
             input: CompilerInput {
@@ -107,7 +94,6 @@ where
                 libraries: Default::default(),
                 revert_string_handling: Default::default(),
             },
-            additional_options: T::Options::default(),
         }
     }
 
@@ -136,7 +122,7 @@ where
         self
     }
 
-    pub fn with_source(mut self, path: impl AsRef<Path>) -> anyhow::Result<Self> {
+    pub fn with_source(mut self, path: impl AsRef<Path>) -> Result<Self> {
         self.input.sources.insert(
             path.as_ref().to_path_buf(),
             read_to_string(path.as_ref()).context("Failed to read the contract source")?,
@@ -166,11 +152,6 @@ where
         self
     }
 
-    pub fn with_additional_options(mut self, options: impl Into<T::Options>) -> Self {
-        self.additional_options = options.into();
-        self
-    }
-
     pub fn then(self, callback: impl FnOnce(Self) -> Self) -> Self {
         callback(self)
     }
@@ -179,17 +160,12 @@ where
         callback(self)
     }
 
-    pub async fn try_build(
-        self,
-        compiler_path: impl AsRef<Path>,
-    ) -> anyhow::Result<CompilerOutput> {
-        T::new(compiler_path.as_ref().to_path_buf())
-            .build(self.input, self.additional_options)
-            .await
+    pub async fn try_build(self, compiler: &impl SolidityCompiler) -> Result<CompilerOutput> {
+        compiler.build(self.input).await
     }
 
-    pub fn input(&self) -> CompilerInput {
-        self.input.clone()
+    pub fn input(&self) -> &CompilerInput {
+        &self.input
     }
 }
 

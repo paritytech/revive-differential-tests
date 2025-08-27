@@ -99,7 +99,7 @@ impl Metadata {
     pub fn solc_modes(&self) -> Vec<Mode> {
         match &self.modes {
             Some(modes) => ParsedMode::many_to_modes(modes.iter()).collect(),
-            None => Mode::all().collect(),
+            None => Mode::all().cloned().collect(),
         }
     }
 

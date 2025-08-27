@@ -527,7 +527,7 @@ define_event! {
             /// The ID of the node that this case is being executed on.
             id: usize,
             /// The platform of the node.
-            platform: TestingPlatform,
+            platform: &'static TestingPlatform,
             /// The connection string of the node.
             connection_string: String,
         },
@@ -538,7 +538,7 @@ define_event! {
             /// The ID of the node that this case is being executed on.
             id: usize,
             /// The platform of the node.
-            platform: TestingPlatform,
+            platform: &'static TestingPlatform,
             /// The connection string of the node.
             connection_string: String,
         },
