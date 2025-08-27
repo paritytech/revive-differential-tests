@@ -84,8 +84,12 @@ impl CachedCompiler {
             let compilation_success_report_callback = compilation_success_report_callback.clone();
             async move {
                 compile_contracts::<P>(
-                    metadata.directory()?,
-                    metadata.files_to_compile()?,
+                    metadata
+                        .directory()
+                        .context("Failed to get metadata directory while preparing compilation")?,
+                    metadata
+                        .files_to_compile()
+                        .context("Failed to enumerate files to compile from metadata")?,
                     config,
                     mode,
                     deployed_libraries,
