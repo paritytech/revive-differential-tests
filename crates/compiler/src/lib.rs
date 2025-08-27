@@ -14,8 +14,8 @@ use std::{
 
 use alloy::json_abi::JsonAbi;
 use alloy_primitives::Address;
-use semver::VersionReq;
 use anyhow::Context;
+use semver::{Version, VersionReq};
 use serde::{Deserialize, Serialize};
 
 use revive_common::EVMVersion;
@@ -63,11 +63,22 @@ pub struct CompilerInput {
 }
 
 /// The generic compilation output configuration.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CompilerOutput {
+    /// Information about the `solc` compiler used to compile the contracts.
+    pub solc: SolcCompilerInformation,
     /// The compiled contracts. The bytecode of the contract is kept as a string incase linking is
     /// required and the compiled source has placeholders.
     pub contracts: HashMap<PathBuf, HashMap<String, (String, JsonAbi)>>,
+}
+
+/// Information about the `solc` compiler.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SolcCompilerInformation {
+    /// Version of the compiler.
+    pub version: Version,
+    /// Path to the compiler executable.
+    pub path: PathBuf,
 }
 
 /// A generic builder style interface for configuring the supported compiler options.

@@ -3,10 +3,10 @@
 //!
 //! [0]: https://binaries.soliditylang.org
 
-use std::path::{Path, PathBuf};
 use cache::get_or_download;
 use download::SolcDownloader;
 use semver::Version;
+use std::path::{Path, PathBuf};
 
 use revive_dt_common::types::VersionOrRequirement;
 

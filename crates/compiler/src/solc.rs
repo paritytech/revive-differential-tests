@@ -1,14 +1,17 @@
 //! Implements the [SolidityCompiler] trait with solc for
 //! compiling contracts to EVM bytecode.
 
-use std::{path::PathBuf, process::Stdio};
+use std::{collections::HashMap, path::PathBuf, process::Stdio};
 
 use revive_dt_common::types::VersionOrRequirement;
 use revive_dt_config::Arguments;
 
 use super::constants::SOLC_VERSION_SUPPORTING_VIA_YUL_IR;
 use super::utils;
-use crate::{CompilerInput, CompilerOutput, ModeOptimizerSetting, ModePipeline, SolidityCompiler};
+use crate::{
+    CompilerInput, CompilerOutput, ModeOptimizerSetting, ModePipeline, SolcCompilerInformation,
+    SolidityCompiler,
+};
 
 use anyhow::Context;
 use foundry_compilers_artifacts::{
@@ -23,8 +26,6 @@ use tokio::{io::AsyncWriteExt, process::Command as AsyncCommand};
 
 #[derive(Debug)]
 pub struct Solc {
-    // Enable wasm compilation.
-    wasm: bool,
     // Where to cache artifacts.
     cache_directory: PathBuf,
     // We'll use this version when no explicit version requirement
@@ -51,11 +52,13 @@ impl SolidityCompiler for Solc {
         }: CompilerInput,
         _: Self::Options,
     ) -> anyhow::Result<CompilerOutput> {
-        let solc_version = solc_version
+        let solc_version_req = solc_version
             .unwrap_or_else(|| VersionOrRequirement::version_to_requirement(&self.solc_version));
         let solc_path =
-            revive_dt_solc_binaries::download_solc(&self.cache_directory, solc_version, self.wasm)
+            revive_dt_solc_binaries::download_solc(&self.cache_directory, solc_version_req, false)
                 .await?;
+        let solc_version = utils::solc_version(&solc_path).await?;
+
         let compiler_supports_via_ir =
             utils::solc_version(&solc_path).await? >= SOLC_VERSION_SUPPORTING_VIA_YUL_IR;
 
@@ -194,10 +197,9 @@ impl SolidityCompiler for Solc {
             "Compiled successfully"
         );
 
-        let mut compiler_output = CompilerOutput::default();
+        let mut compiled_contracts = HashMap::<PathBuf, HashMap<_, _>>::new();
         for (contract_path, contracts) in parsed.contracts {
-            let map = compiler_output
-                .contracts
+            let map = compiled_contracts
                 .entry(contract_path.canonicalize().with_context(|| {
                     format!(
                         "Failed to canonicalize contract path {}",
@@ -221,12 +223,17 @@ impl SolidityCompiler for Solc {
             }
         }
 
-        Ok(compiler_output)
+        Ok(CompilerOutput {
+            solc: SolcCompilerInformation {
+                version: solc_version,
+                path: solc_path,
+            },
+            contracts: compiled_contracts,
+        })
     }
 
     fn new(config: &Arguments) -> Self {
         Self {
-            wasm: config.wasm,
             cache_directory: config.directory().to_path_buf(),
             solc_version: config.solc.clone(),
         }

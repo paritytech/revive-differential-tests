@@ -1,7 +1,7 @@
 //! Implements the [SolidityCompiler] trait with `resolc` for
 //! compiling contracts to PolkaVM (PVM) bytecode.
 
-use std::{path::PathBuf, process::Stdio};
+use std::{collections::HashMap, path::PathBuf, process::Stdio};
 
 use revive_dt_common::types::VersionOrRequirement;
 use revive_dt_config::Arguments;
@@ -13,7 +13,10 @@ use revive_solc_json_interface::{
 
 use super::constants::SOLC_VERSION_SUPPORTING_VIA_YUL_IR;
 use super::utils;
-use crate::{CompilerInput, CompilerOutput, ModeOptimizerSetting, ModePipeline, SolidityCompiler};
+use crate::{
+    CompilerInput, CompilerOutput, ModeOptimizerSetting, ModePipeline, SolcCompilerInformation,
+    SolidityCompiler,
+};
 
 use alloy::json_abi::JsonAbi;
 use anyhow::Context;
@@ -23,10 +26,8 @@ use tokio::{io::AsyncWriteExt, process::Command as AsyncCommand};
 /// A wrapper around the `resolc` binary, emitting PVM-compatible bytecode.
 #[derive(Debug)]
 pub struct Resolc {
-    // Enable wasm compilation.
-    wasm: bool,
-    // Where to cache artifacts.
-    cache_directory: PathBuf,
+    // Where to cache compiler executables.
+    compiler_executables_cache_directory: PathBuf,
     // We'll use this version when no explicit version
     // requirement is given in the test mode.
     solc_version: Version,
@@ -64,9 +65,9 @@ impl SolidityCompiler for Resolc {
         let solc_version_req = solc_version
             .unwrap_or_else(|| VersionOrRequirement::version_to_requirement(&self.solc_version));
         let solc_path = revive_dt_solc_binaries::download_solc(
-            &self.cache_directory,
+            &self.compiler_executables_cache_directory,
             solc_version_req,
-            self.wasm,
+            false,
         )
         .await?;
         let solc_version = utils::solc_version(&solc_path).await?;
@@ -202,14 +203,14 @@ impl SolidityCompiler for Resolc {
             anyhow::bail!("Unexpected error - resolc output doesn't have a contracts section");
         };
 
-        let mut compiler_output = CompilerOutput::default();
+        let mut compiled_contracts = HashMap::<PathBuf, HashMap<_, _>>::new();
         for (source_path, contracts) in contracts.into_iter() {
             let src_for_msg = source_path.clone();
             let source_path = PathBuf::from(source_path)
                 .canonicalize()
                 .with_context(|| format!("Failed to canonicalize path {src_for_msg}"))?;
 
-            let map = compiler_output.contracts.entry(source_path).or_default();
+            let map = compiled_contracts.entry(source_path).or_default();
             for (contract_name, contract_information) in contracts.into_iter() {
                 let bytecode = contract_information
                     .evm
@@ -254,13 +255,18 @@ impl SolidityCompiler for Resolc {
             }
         }
 
-        Ok(compiler_output)
+        Ok(CompilerOutput {
+            solc: SolcCompilerInformation {
+                version: solc_version,
+                path: solc_path,
+            },
+            contracts: compiled_contracts,
+        })
     }
 
     fn new(config: &Arguments) -> Self {
         Resolc {
-            wasm: config.wasm,
-            cache_directory: config.directory().to_path_buf(),
+            compiler_executables_cache_directory: config.directory().to_path_buf(),
             solc_version: config.solc.clone(),
             resolc_path: config.resolc.clone(),
         }

@@ -18,12 +18,12 @@ use futures::StreamExt;
 use futures::stream;
 use indexmap::IndexMap;
 use revive_dt_node_interaction::EthereumNode;
-use tempfile::TempDir;
-use tokio::{join, try_join};
 use revive_dt_report::{
     NodeDesignation, ReportAggregator, Reporter, ReporterEvent, TestCaseStatus,
     TestSpecificReporter, TestSpecifier,
 };
+use tempfile::TempDir;
+use tokio::{join, try_join};
 use tracing::{debug, info, info_span, instrument};
 use tracing_appender::non_blocking::WorkerGuard;
 use tracing_subscriber::{EnvFilter, FmtSubscriber};
@@ -612,18 +612,14 @@ where
         .execution_specific_reporter(follower_node.id(), NodeDesignation::Follower);
 
     let (
-        (
-            CompilerOutput {
-                contracts: leader_pre_link_contracts,
-            },
-            _,
-        ),
-        (
-            CompilerOutput {
-                contracts: follower_pre_link_contracts,
-            },
-            _,
-        ),
+        CompilerOutput {
+            contracts: leader_pre_link_contracts,
+            ..
+        },
+        CompilerOutput {
+            contracts: follower_pre_link_contracts,
+            ..
+        },
     ) = try_join!(
         cached_compiler.compile_contracts::<L>(
             test.metadata,
@@ -631,22 +627,19 @@ where
             &test.mode,
             config,
             None,
-            |compiler_version, compiler_path, is_cached, compiler_input, compiler_output| {
+            |is_cached, compiler_input, compiler_output| {
                 leader_reporter
                     .report_pre_link_contracts_compilation_succeeded_event(
-                        compiler_version,
-                        compiler_path,
                         is_cached,
                         compiler_input,
                         compiler_output,
                     )
                     .expect("Can't fail")
             },
-            |compiler_version, compiler_path, compiler_input, failure_reason| {
+            |solc_info, compiler_input, failure_reason| {
                 leader_reporter
                     .report_pre_link_contracts_compilation_failed_event(
-                        compiler_version,
-                        compiler_path,
+                        solc_info,
                         compiler_input,
                         failure_reason,
                     )
@@ -659,22 +652,19 @@ where
             &test.mode,
             config,
             None,
-            |compiler_version, compiler_path, is_cached, compiler_input, compiler_output| {
+            |is_cached, compiler_input, compiler_output| {
                 follower_reporter
                     .report_pre_link_contracts_compilation_succeeded_event(
-                        compiler_version,
-                        compiler_path,
                         is_cached,
                         compiler_input,
                         compiler_output,
                     )
                     .expect("Can't fail")
             },
-            |compiler_version, compiler_path, compiler_input, failure_reason| {
+            |solc_info, compiler_input, failure_reason| {
                 follower_reporter
                     .report_pre_link_contracts_compilation_failed_event(
-                        compiler_version,
-                        compiler_path,
+                        solc_info,
                         compiler_input,
                         failure_reason,
                     )
@@ -811,18 +801,14 @@ where
     }
 
     let (
-        (
-            CompilerOutput {
-                contracts: leader_post_link_contracts,
-            },
-            leader_compiler_version,
-        ),
-        (
-            CompilerOutput {
-                contracts: follower_post_link_contracts,
-            },
-            follower_compiler_version,
-        ),
+        CompilerOutput {
+            solc: leader_solc_info,
+            contracts: leader_post_link_contracts,
+        },
+        CompilerOutput {
+            solc: follower_solc_info,
+            contracts: follower_post_link_contracts,
+        },
     ) = try_join!(
         cached_compiler.compile_contracts::<L>(
             test.metadata,
@@ -830,22 +816,19 @@ where
             &test.mode,
             config,
             leader_deployed_libraries.as_ref(),
-            |compiler_version, compiler_path, is_cached, compiler_input, compiler_output| {
+            |is_cached, compiler_input, compiler_output| {
                 leader_reporter
                     .report_post_link_contracts_compilation_succeeded_event(
-                        compiler_version,
-                        compiler_path,
                         is_cached,
                         compiler_input,
                         compiler_output,
                     )
                     .expect("Can't fail")
             },
-            |compiler_version, compiler_path, compiler_input, failure_reason| {
+            |solc_info, compiler_input, failure_reason| {
                 leader_reporter
                     .report_post_link_contracts_compilation_failed_event(
-                        compiler_version,
-                        compiler_path,
+                        solc_info,
                         compiler_input,
                         failure_reason,
                     )
@@ -858,22 +841,19 @@ where
             &test.mode,
             config,
             follower_deployed_libraries.as_ref(),
-            |compiler_version, compiler_path, is_cached, compiler_input, compiler_output| {
+            |is_cached, compiler_input, compiler_output| {
                 follower_reporter
                     .report_post_link_contracts_compilation_succeeded_event(
-                        compiler_version,
-                        compiler_path,
                         is_cached,
                         compiler_input,
                         compiler_output,
                     )
                     .expect("Can't fail")
             },
-            |compiler_version, compiler_path, compiler_input, failure_reason| {
+            |solc_info, compiler_input, failure_reason| {
                 follower_reporter
                     .report_post_link_contracts_compilation_failed_event(
-                        compiler_version,
-                        compiler_path,
+                        solc_info,
                         compiler_input,
                         failure_reason,
                     )
@@ -884,13 +864,13 @@ where
     .context("Failed to compile post-link contracts for leader/follower in parallel")?;
 
     let leader_state = CaseState::<L>::new(
-        leader_compiler_version,
+        leader_solc_info.version,
         leader_post_link_contracts,
         leader_deployed_libraries.unwrap_or_default(),
         leader_reporter,
     );
     let follower_state = CaseState::<F>::new(
-        follower_compiler_version,
+        follower_solc_info.version,
         follower_post_link_contracts,
         follower_deployed_libraries.unwrap_or_default(),
         follower_reporter,
@@ -963,8 +943,8 @@ async fn compile_corpus(
                                 &mode,
                                 config,
                                 None,
-                                |_, _, _, _, _| {},
-                                |_, _, _, _| {},
+                                |_, _, _| {},
+                                |_, _, _| {},
                             )
                             .await;
                     }
@@ -976,8 +956,8 @@ async fn compile_corpus(
                                 &mode,
                                 config,
                                 None,
-                                |_, _, _, _, _| {},
-                                |_, _, _, _| {},
+                                |_, _, _| {},
+                                |_, _, _| {},
                             )
                             .await;
                     }

@@ -1,16 +1,15 @@
 //! The types associated with the events sent by the runner to the reporter.
 #![allow(dead_code)]
 
-use std::{collections::BTreeMap, path::PathBuf, sync::Arc};
+use std::{collections::BTreeMap, sync::Arc};
 
 use alloy_primitives::Address;
 use anyhow::Context as _;
 use indexmap::IndexMap;
-use revive_dt_compiler::{CompilerInput, CompilerOutput};
+use revive_dt_compiler::{CompilerInput, CompilerOutput, SolcCompilerInformation};
 use revive_dt_config::TestingPlatform;
 use revive_dt_format::metadata::Metadata;
 use revive_dt_format::{corpus::Corpus, metadata::ContractInstance};
-use semver::Version;
 use tokio::sync::{broadcast, oneshot};
 
 use crate::{ExecutionSpecifier, ReporterEvent, TestSpecifier, common::MetadataFilePath};
@@ -547,10 +546,6 @@ define_event! {
         PreLinkContractsCompilationSucceeded {
             /// A specifier for the execution that's taking place.
             execution_specifier: Arc<ExecutionSpecifier>,
-            /// The version of the compiler used to compile the contracts.
-            compiler_version: Version,
-            /// The path of the compiler used to compile the contracts.
-            compiler_path: PathBuf,
             /// A flag of whether the contract bytecode and ABI were cached or if they were compiled
             /// anew.
             is_cached: bool,
@@ -565,10 +560,6 @@ define_event! {
         PostLinkContractsCompilationSucceeded {
             /// A specifier for the execution that's taking place.
             execution_specifier: Arc<ExecutionSpecifier>,
-            /// The version of the compiler used to compile the contracts.
-            compiler_version: Version,
-            /// The path of the compiler used to compile the contracts.
-            compiler_path: PathBuf,
             /// A flag of whether the contract bytecode and ABI were cached or if they were compiled
             /// anew.
             is_cached: bool,
@@ -583,10 +574,8 @@ define_event! {
         PreLinkContractsCompilationFailed {
             /// A specifier for the execution that's taking place.
             execution_specifier: Arc<ExecutionSpecifier>,
-            /// The version of the compiler used to compile the contracts.
-            compiler_version: Option<Version>,
-            /// The path of the compiler used to compile the contracts.
-            compiler_path: Option<PathBuf>,
+            /// The version and path of the solc compiler used to compile the contracts.
+            solc_info: Option<SolcCompilerInformation>,
             /// The input provided to the compiler - this is optional and not provided if the
             /// contracts were obtained from the cache.
             compiler_input: Option<CompilerInput>,
@@ -598,10 +587,8 @@ define_event! {
         PostLinkContractsCompilationFailed {
             /// A specifier for the execution that's taking place.
             execution_specifier: Arc<ExecutionSpecifier>,
-            /// The version of the compiler used to compile the contracts.
-            compiler_version: Option<Version>,
-            /// The path of the compiler used to compile the contracts.
-            compiler_path: Option<PathBuf>,
+            /// The version and path of the solc compiler used to compile the contracts.
+            solc_info: Option<SolcCompilerInformation>,
             /// The input provided to the compiler - this is optional and not provided if the
             /// contracts were obtained from the cache.
             compiler_input: Option<CompilerInput>,

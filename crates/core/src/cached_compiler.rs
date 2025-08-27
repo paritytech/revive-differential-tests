@@ -9,7 +9,7 @@ use std::{
 
 use futures::FutureExt;
 use revive_dt_common::iterators::FilesWithExtensionIterator;
-use revive_dt_compiler::{Compiler, CompilerInput, CompilerOutput, Mode};
+use revive_dt_compiler::{Compiler, CompilerInput, CompilerOutput, Mode, SolcCompilerInformation};
 use revive_dt_config::Arguments;
 use revive_dt_format::metadata::{ContractIdent, ContractInstance, Metadata};
 use revive_dt_solc_binaries::solc_version;
@@ -57,29 +57,23 @@ impl CachedCompiler {
         mode: &Mode,
         config: &Arguments,
         deployed_libraries: Option<&HashMap<ContractInstance, (ContractIdent, Address, JsonAbi)>>,
-        compilation_success_report_callback: impl Fn(
-            Version,
-            PathBuf,
-            bool,
-            Option<CompilerInput>,
-            CompilerOutput,
-        ) + Clone,
+        compilation_success_report_callback: impl Fn(bool, Option<CompilerInput>, CompilerOutput)
+        + Clone,
         compilation_failure_report_callback: impl Fn(
-            Option<Version>,
-            Option<PathBuf>,
+            Option<SolcCompilerInformation>,
             Option<CompilerInput>,
             String,
         ),
-    ) -> Result<(CompilerOutput, Version)> {
+    ) -> Result<CompilerOutput> {
         static CACHE_KEY_LOCK: Lazy<RwLock<HashMap<CacheKey, Arc<Mutex<()>>>>> =
             Lazy::new(Default::default);
 
-        let compiler_version_or_requirement = mode.compiler_version_to_use(config.solc.clone());
-        let compiler_version = solc_version(compiler_version_or_requirement, config.wasm).await?;
+        let solc_version_or_requirement = mode.compiler_version_to_use(config.solc.clone());
+        let solc_version = solc_version(solc_version_or_requirement, false).await?;
 
         let cache_key = CacheKey {
             platform_key: P::config_id().to_string(),
-            compiler_version: compiler_version.clone(),
+            compiler_version: solc_version.clone(),
             metadata_file_path: metadata_file_path.as_ref().to_path_buf(),
             solc_mode: mode.clone(),
         };
@@ -146,13 +140,11 @@ impl CachedCompiler {
 
                 match self.0.get(&cache_key).await {
                     Some(cache_value) => {
-                        // compilation_success_report_callback(
-                        //     compiler_version.clone(),
-                        //     compiler_path,
-                        //     true,
-                        //     None,
-                        //     cache_value.compiler_output.clone(),
-                        // );
+                        compilation_success_report_callback(
+                            true,
+                            None,
+                            cache_value.compiler_output.clone(),
+                        );
                         cache_value.compiler_output
                     }
                     None => {
@@ -165,7 +157,7 @@ impl CachedCompiler {
             }
         };
 
-        Ok((compiled_contracts, compiler_version))
+        Ok(compiled_contracts)
     }
 }
 
@@ -176,16 +168,9 @@ async fn compile_contracts<P: Platform>(
     config: &Arguments,
     mode: &Mode,
     deployed_libraries: Option<&HashMap<ContractInstance, (ContractIdent, Address, JsonAbi)>>,
-    compilation_success_report_callback: impl Fn(
-        Version,
-        PathBuf,
-        bool,
-        Option<CompilerInput>,
-        CompilerOutput,
-    ),
+    compilation_success_report_callback: impl Fn(bool, Option<CompilerInput>, CompilerOutput),
     compilation_failure_report_callback: impl Fn(
-        Option<Version>,
-        Option<PathBuf>,
+        Option<SolcCompilerInformation>,
         Option<CompilerInput>,
         String,
     ),
@@ -204,15 +189,8 @@ async fn compile_contracts<P: Platform>(
         // Adding the contract sources to the compiler.
         .try_then(|compiler| {
             files_to_compile.try_fold(compiler, |compiler, path| compiler.with_source(path))
-        // })
-        // .inspect_err(|err| {
-        //     compilation_failure_report_callback(
-        //         Some(compiler_version.clone()),
-        //         Some(compiler_path.as_ref().to_path_buf()),
-        //         None,
-        //         format!("{err:#}"),
-        //     )
-        })?
+        })
+        .inspect_err(|err| compilation_failure_report_callback(None, None, format!("{err:#}")))?
         // Adding the deployed libraries to the compiler.
         .then(|compiler| {
             deployed_libraries
@@ -233,22 +211,16 @@ async fn compile_contracts<P: Platform>(
     let compiler_output = compiler
         .try_build(config)
         .await
-        // .inspect_err(|err| {
-        //     compilation_failure_report_callback(
-        //         Some(compiler_version.clone()),
-        //         Some(compiler_path.as_ref().to_path_buf()),
-        //         Some(compiler_input.clone()),
-        //         format!("{err:#}"),
-        //     )
-        // })
+        .inspect_err(|err| {
+            compilation_failure_report_callback(
+                None,
+                Some(compiler_input.clone()),
+                format!("{err:#}"),
+            )
+        })
         .context("Failed to configure compiler with sources and options")?;
-    // compilation_success_report_callback(
-    //     compiler_version,
-    //     compiler_path.as_ref().to_path_buf(),
-    //     false,
-    //     Some(compiler_input),
-    //     compiler_output.clone(),
-    // );
+
+    compilation_success_report_callback(false, Some(compiler_input), compiler_output.clone());
     Ok(compiler_output)
 }
 

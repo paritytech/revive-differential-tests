@@ -4,17 +4,15 @@
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap, HashSet},
     fs::OpenOptions,
-    path::PathBuf,
     time::{SystemTime, UNIX_EPOCH},
 };
 
 use alloy_primitives::Address;
 use anyhow::{Context as _, Result};
 use indexmap::IndexMap;
-use revive_dt_compiler::{CompilerInput, CompilerOutput, Mode};
+use revive_dt_compiler::{CompilerInput, CompilerOutput, Mode, SolcCompilerInformation};
 use revive_dt_config::{Arguments, TestingPlatform};
 use revive_dt_format::{case::CaseIdx, corpus::Corpus, metadata::ContractInstance};
-use semver::Version;
 use serde::Serialize;
 use serde_with::{DisplayFromStr, serde_as};
 use tokio::sync::{
@@ -292,6 +290,7 @@ impl ReportAggregator {
         } else {
             None
         };
+        let solc_info = event.compiler_output.solc.clone();
         let compiler_output = if include_output {
             Some(event.compiler_output)
         } else {
@@ -300,8 +299,7 @@ impl ReportAggregator {
 
         execution_information.pre_link_compilation_status = Some(CompilationStatus::Success {
             is_cached: event.is_cached,
-            compiler_version: event.compiler_version,
-            compiler_path: event.compiler_path,
+            solc_info,
             compiler_input,
             compiler_output,
         });
@@ -321,6 +319,7 @@ impl ReportAggregator {
         } else {
             None
         };
+        let solc_info = event.compiler_output.solc.clone();
         let compiler_output = if include_output {
             Some(event.compiler_output)
         } else {
@@ -329,8 +328,7 @@ impl ReportAggregator {
 
         execution_information.post_link_compilation_status = Some(CompilationStatus::Success {
             is_cached: event.is_cached,
-            compiler_version: event.compiler_version,
-            compiler_path: event.compiler_path,
+            solc_info,
             compiler_input,
             compiler_output,
         });
@@ -352,8 +350,7 @@ impl ReportAggregator {
 
         execution_information.pre_link_compilation_status = Some(CompilationStatus::Failure {
             reason: event.reason,
-            compiler_version: event.compiler_version,
-            compiler_path: event.compiler_path,
+            solc_info: event.solc_info,
             compiler_input,
         });
     }
@@ -374,8 +371,7 @@ impl ReportAggregator {
 
         execution_information.post_link_compilation_status = Some(CompilationStatus::Failure {
             reason: event.reason,
-            compiler_version: event.compiler_version,
-            compiler_path: event.compiler_path,
+            solc_info: event.solc_info,
             compiler_input,
         });
     }
@@ -528,10 +524,8 @@ pub enum CompilationStatus {
     Success {
         /// A flag with information on whether the compilation artifacts were cached or not.
         is_cached: bool,
-        /// The version of the compiler used to compile the contracts.
-        compiler_version: Version,
-        /// The path of the compiler used to compile the contracts.
-        compiler_path: PathBuf,
+        /// The version and path of the solc compiler used to compile the contracts.
+        solc_info: SolcCompilerInformation,
         /// The input provided to the compiler to compile the contracts. This is only included if
         /// the appropriate flag is set in the CLI configuration and if the contracts were not
         /// cached and the compiler was invoked.
@@ -546,12 +540,8 @@ pub enum CompilationStatus {
     Failure {
         /// The failure reason.
         reason: String,
-        /// The version of the compiler used to compile the contracts.
-        #[serde(skip_serializing_if = "Option::is_none")]
-        compiler_version: Option<Version>,
-        /// The path of the compiler used to compile the contracts.
-        #[serde(skip_serializing_if = "Option::is_none")]
-        compiler_path: Option<PathBuf>,
+        /// The version and path of the solc compiler used to compile the contracts.
+        solc_info: Option<SolcCompilerInformation>,
         /// The input provided to the compiler to compile the contracts. This is only included if
         /// the appropriate flag is set in the CLI configuration and if the contracts were not
         /// cached and the compiler was invoked.
