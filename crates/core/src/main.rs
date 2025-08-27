@@ -487,7 +487,7 @@ where
                         .report_test_succeeded_event(steps_executed)
                         .expect("Can't fail"),
                     Err(error) => reporter
-                        .report_test_failed_event(error.to_string())
+                        .report_test_failed_event(format!("{error:#}"))
                         .expect("Can't fail"),
                 }
             }

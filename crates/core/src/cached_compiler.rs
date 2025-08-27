@@ -210,7 +210,7 @@ async fn compile_contracts<P: Platform>(
         //         Some(compiler_version.clone()),
         //         Some(compiler_path.as_ref().to_path_buf()),
         //         None,
-        //         err.to_string(),
+        //         format!("{err:#}"),
         //     )
         })?
         // Adding the deployed libraries to the compiler.
@@ -238,7 +238,7 @@ async fn compile_contracts<P: Platform>(
         //         Some(compiler_version.clone()),
         //         Some(compiler_path.as_ref().to_path_buf()),
         //         Some(compiler_input.clone()),
-        //         err.to_string(),
+        //         format!("{err:#}"),
         //     )
         // })
         .context("Failed to configure compiler with sources and options")?;
