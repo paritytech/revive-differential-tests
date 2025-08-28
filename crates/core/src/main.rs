@@ -248,20 +248,11 @@ where
     // Note: before we do any kind of filtering or process the iterator in any way, we need to
     // inform the report aggregator of all of the cases that were found as it keeps a state of the
     // test cases for its internal use.
-    stream::iter(tests.iter())
-        .for_each_concurrent(None, |(_, _, _, _, reporter)| {
-            let reporter = reporter.clone();
-            async move {
-                tokio::task::spawn_blocking(move || {
-                    reporter
-                        .report_test_case_discovery_event()
-                        .expect("Can't fail");
-                })
-                .await
-                .expect("Should not fail");
-            }
-        })
-        .await;
+    for (_, _, _, _, reporter) in tests.iter() {
+        reporter
+            .report_test_case_discovery_event()
+            .expect("Can't fail")
+    }
 
     stream::iter(tests.into_iter())
         .map(Ok::<_, anyhow::Error>)
