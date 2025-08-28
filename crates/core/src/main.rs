@@ -255,26 +255,28 @@ where
     }
 
     stream::iter(tests.into_iter())
-        .map(Ok::<_, anyhow::Error>)
-        .try_filter_map(
+        .filter_map(
             move |(metadata_file, case_idx, case, mode, reporter)| async move {
                 let leader_compiler = <L::Compiler as SolidityCompiler>::new(
                     args,
                     mode.version.clone().map(Into::into),
                 )
                 .await
-                .inspect_err(|err| error!(?err, "Failed to instantiate the leader compiler"))?;
+                .inspect_err(|err| error!(?err, "Failed to instantiate the leader compiler"))
+                .ok()?;
+
                 let follower_compiler = <F::Compiler as SolidityCompiler>::new(
                     args,
                     mode.version.clone().map(Into::into),
                 )
                 .await
-                .inspect_err(|err| error!(?err, "Failed to instantiate the follower compiler"))?;
+                .inspect_err(|err| error!(?err, "Failed to instantiate the follower compiler"))
+                .ok()?;
 
                 let leader_node = leader_node_pool.round_robbin();
                 let follower_node = follower_node_pool.round_robbin();
 
-                Ok(Some(Test::<L, F> {
+                Some(Test::<L, F> {
                     metadata: metadata_file,
                     metadata_file_path: metadata_file.metadata_file_path.as_path(),
                     mode: mode.clone(),
@@ -285,10 +287,9 @@ where
                     leader_compiler,
                     follower_compiler,
                     reporter,
-                }))
+                })
             },
         )
-        .filter_map(|result| async move { result.ok() })
         .filter_map(move |test| async move {
             match test.check_compatibility() {
                 Ok(()) => Some(test),
