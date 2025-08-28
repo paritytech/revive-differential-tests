@@ -478,19 +478,19 @@ async fn start_cli_reporting_task(reporter: Reporter) {
 }
 
 #[allow(clippy::too_many_arguments)]
-// #[instrument(
-//     level = "info",
-//     name = "Handling Case"
-//     skip_all,
-//     fields(
-//         metadata_file_path = %test.metadata.relative_path().display(),
-//         mode = %test.mode,
-//         case_idx = %test.case_idx,
-//         case_name = test.case.name.as_deref().unwrap_or("Unnamed Case"),
-//         leader_node = test.leader_node.id(),
-//         follower_node = test.follower_node.id(),
-//     )
-// )]
+#[instrument(
+    level = "info",
+    name = "Handling Case"
+    skip_all,
+    fields(
+        metadata_file_path = %test.metadata.relative_path().display(),
+        mode = %test.mode,
+        case_idx = %test.case_idx,
+        case_name = test.case.name.as_deref().unwrap_or("Unnamed Case"),
+        leader_node = test.leader_node.id(),
+        follower_node = test.follower_node.id(),
+    )
+)]
 async fn handle_case_driver<'a, L, F>(
     test: Test<'a, L, F>,
     cached_compiler: Arc<CachedCompiler<'a>>,
