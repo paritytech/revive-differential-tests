@@ -514,7 +514,7 @@ where
             test.metadata_file_path,
             test.mode.clone(),
             None,
-            test.leader_compiler.as_ref(),
+            &test.leader_compiler,
             &leader_reporter,
         ),
         cached_compiler.compile_contracts::<F>(
@@ -522,7 +522,7 @@ where
             test.metadata_file_path,
             test.mode.clone(),
             None,
-            test.follower_compiler.as_ref(),
+            &test.follower_compiler,
             &follower_reporter
         )
     )
@@ -667,7 +667,7 @@ where
             test.metadata_file_path,
             test.mode.clone(),
             leader_deployed_libraries.as_ref(),
-            test.leader_compiler.as_ref(),
+            &test.leader_compiler,
             &leader_reporter,
         ),
         cached_compiler.compile_contracts::<F>(
@@ -675,7 +675,7 @@ where
             test.metadata_file_path,
             test.mode.clone(),
             follower_deployed_libraries.as_ref(),
-            test.follower_compiler.as_ref(),
+            &test.follower_compiler,
             &follower_reporter
         )
     )
@@ -737,8 +737,8 @@ struct Test<'a, L: Platform, F: Platform> {
     case: &'a Case,
     leader_node: &'a <L as Platform>::Blockchain,
     follower_node: &'a <F as Platform>::Blockchain,
-    leader_compiler: Arc<L::Compiler>,
-    follower_compiler: Arc<F::Compiler>,
+    leader_compiler: L::Compiler,
+    follower_compiler: F::Compiler,
     reporter: TestSpecificReporter,
 }
 

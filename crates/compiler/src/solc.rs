@@ -26,7 +26,10 @@ use semver::Version;
 use tokio::{io::AsyncWriteExt, process::Command as AsyncCommand};
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct Solc {
+pub struct Solc(Arc<SolcInner>);
+
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+struct SolcInner {
     /// The path of the solidity compiler executable that this object uses.
     solc_path: PathBuf,
     /// The version of the solidity compiler executable that this object uses.
@@ -37,12 +40,11 @@ impl SolidityCompiler for Solc {
     async fn new(
         config: &Arguments,
         version: impl Into<Option<VersionOrRequirement>>,
-    ) -> Result<std::sync::Arc<Self>> {
+    ) -> Result<Self> {
         // This is a cache for the compiler objects so that whenever the same compiler version is
         // requested the same object is returned. We do this as we do not want to keep cloning the
         // compiler around.
-        static COMPILERS_CACHE: LazyLock<DashMap<Version, Arc<Solc>>> =
-            LazyLock::new(Default::default);
+        static COMPILERS_CACHE: LazyLock<DashMap<Version, Solc>> = LazyLock::new(Default::default);
 
         // We attempt to download the solc binary. Note the following: this call does the version
         // resolution for us. Therefore, even if the download didn't proceed, this function will
@@ -56,20 +58,20 @@ impl SolidityCompiler for Solc {
         Ok(COMPILERS_CACHE
             .entry(version.clone())
             .or_insert_with(|| {
-                Arc::new(Self {
+                Self(Arc::new(SolcInner {
                     solc_path: path,
                     solc_version: version,
-                })
+                }))
             })
             .clone())
     }
 
     fn version(&self) -> &Version {
-        &self.solc_version
+        &self.0.solc_version
     }
 
     fn path(&self) -> &std::path::Path {
-        &self.solc_path
+        &self.0.solc_path
     }
 
     #[tracing::instrument(level = "debug", ret)]
@@ -150,7 +152,7 @@ impl SolidityCompiler for Solc {
             },
         };
 
-        let mut command = AsyncCommand::new(&self.solc_path);
+        let mut command = AsyncCommand::new(self.path());
         command
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -171,7 +173,7 @@ impl SolidityCompiler for Solc {
         }
         let mut child = command
             .spawn()
-            .with_context(|| format!("Failed to spawn solc at {}", self.solc_path.display()))?;
+            .with_context(|| format!("Failed to spawn solc at {}", self.path().display()))?;
 
         let stdin = child.stdin.as_mut().expect("should be piped");
         let serialized_input = serde_json::to_vec(&input)
@@ -266,6 +268,6 @@ impl SolidityCompiler for Solc {
 impl Solc {
     fn compiler_supports_yul(&self) -> bool {
         const SOLC_VERSION_SUPPORTING_VIA_YUL_IR: Version = Version::new(0, 8, 13);
-        self.solc_version >= SOLC_VERSION_SUPPORTING_VIA_YUL_IR
+        self.version() >= &SOLC_VERSION_SUPPORTING_VIA_YUL_IR
     }
 }

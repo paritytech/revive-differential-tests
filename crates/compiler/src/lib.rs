@@ -7,7 +7,6 @@ use std::{
     collections::HashMap,
     hash::Hash,
     path::{Path, PathBuf},
-    sync::Arc,
 };
 
 use alloy::json_abi::JsonAbi;
@@ -29,7 +28,7 @@ pub mod revive_resolc;
 pub mod solc;
 
 /// A common interface for all supported Solidity compilers.
-pub trait SolidityCompiler {
+pub trait SolidityCompiler: Sized {
     /// Instantiates a new compiler object.
     ///
     /// Based on the given [`Arguments`] and [`VersionOrRequirement`] this function instantiates a
@@ -38,7 +37,7 @@ pub trait SolidityCompiler {
     fn new(
         config: &Arguments,
         version: impl Into<Option<VersionOrRequirement>>,
-    ) -> impl Future<Output = Result<Arc<Self>>>;
+    ) -> impl Future<Output = Result<Self>>;
 
     /// Returns the version of the compiler.
     fn version(&self) -> &Version;

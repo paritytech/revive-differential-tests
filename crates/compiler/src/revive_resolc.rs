@@ -26,11 +26,13 @@ use semver::Version;
 use tokio::{io::AsyncWriteExt, process::Command as AsyncCommand};
 
 /// A wrapper around the `resolc` binary, emitting PVM-compatible bytecode.
-#[derive(Debug)]
-pub struct Resolc {
-    /// The internal solc compiler that the resolc compiler uses as a compiler frontend.
-    solc: Arc<Solc>,
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Resolc(Arc<ResolcInner>);
 
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+struct ResolcInner {
+    /// The internal solc compiler that the resolc compiler uses as a compiler frontend.
+    solc: Solc,
     /// Path to the `resolc` executable
     resolc_path: PathBuf,
 }
@@ -39,12 +41,11 @@ impl SolidityCompiler for Resolc {
     async fn new(
         config: &Arguments,
         version: impl Into<Option<VersionOrRequirement>>,
-    ) -> Result<std::sync::Arc<Self>> {
+    ) -> Result<Self> {
         /// This is a cache of all of the resolc compiler objects. Since we do not currently support
         /// multiple resolc compiler versions, so our cache is just keyed by the solc compiler and
         /// its version to the resolc compiler.
-        static COMPILERS_CACHE: LazyLock<DashMap<Arc<Solc>, Arc<Resolc>>> =
-            LazyLock::new(Default::default);
+        static COMPILERS_CACHE: LazyLock<DashMap<Solc, Resolc>> = LazyLock::new(Default::default);
 
         let solc = Solc::new(config, version)
             .await
@@ -53,10 +54,10 @@ impl SolidityCompiler for Resolc {
         Ok(COMPILERS_CACHE
             .entry(solc.clone())
             .or_insert_with(|| {
-                Arc::new(Self {
+                Self(Arc::new(ResolcInner {
                     solc,
                     resolc_path: config.resolc.clone(),
-                })
+                }))
             })
             .clone())
     }
@@ -64,11 +65,11 @@ impl SolidityCompiler for Resolc {
     fn version(&self) -> &Version {
         // We currently return the solc compiler version since we do not support multiple resolc
         // compiler versions.
-        self.solc.version()
+        self.0.solc.version()
     }
 
     fn path(&self) -> &std::path::Path {
-        &self.resolc_path
+        &self.0.resolc_path
     }
 
     #[tracing::instrument(level = "debug", ret)]
@@ -133,7 +134,7 @@ impl SolidityCompiler for Resolc {
             },
         };
 
-        let mut command = AsyncCommand::new(&self.resolc_path);
+        let mut command = AsyncCommand::new(self.path());
         command
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -154,7 +155,7 @@ impl SolidityCompiler for Resolc {
         }
         let mut child = command
             .spawn()
-            .with_context(|| format!("Failed to spawn resolc at {}", self.resolc_path.display()))?;
+            .with_context(|| format!("Failed to spawn resolc at {}", self.path().display()))?;
 
         let stdin_pipe = child.stdin.as_mut().expect("stdin must be piped");
         let serialized_input = serde_json::to_vec(&input)
@@ -276,6 +277,6 @@ impl SolidityCompiler for Resolc {
         optimize_setting: ModeOptimizerSetting,
         pipeline: ModePipeline,
     ) -> bool {
-        pipeline == ModePipeline::ViaYulIR && self.solc.supports_mode(optimize_setting, pipeline)
+        pipeline == ModePipeline::ViaYulIR && self.0.solc.supports_mode(optimize_setting, pipeline)
     }
 }

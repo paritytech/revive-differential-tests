@@ -19,7 +19,7 @@ async fn contracts_can_be_compiled_with_solc() {
         .unwrap()
         .with_source("./tests/assets/array_one_element/main.sol")
         .unwrap()
-        .try_build(solc.as_ref())
+        .try_build(&solc)
         .await;
 
     // Assert
@@ -60,7 +60,7 @@ async fn contracts_can_be_compiled_with_resolc() {
         .unwrap()
         .with_source("./tests/assets/array_one_element/main.sol")
         .unwrap()
-        .try_build(resolc.as_ref())
+        .try_build(&resolc)
         .await;
 
     // Assert
