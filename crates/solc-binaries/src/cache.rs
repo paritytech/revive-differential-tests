@@ -9,6 +9,7 @@ use std::{
     sync::LazyLock,
 };
 
+use semver::Version;
 use tokio::sync::Mutex;
 
 use crate::download::SolcDownloader;
@@ -20,7 +21,7 @@ pub(crate) static SOLC_CACHER: LazyLock<Mutex<HashSet<PathBuf>>> = LazyLock::new
 pub(crate) async fn get_or_download(
     working_directory: &Path,
     downloader: &SolcDownloader,
-) -> anyhow::Result<PathBuf> {
+) -> anyhow::Result<(Version, PathBuf)> {
     let target_directory = working_directory
         .join(SOLC_CACHE_DIRECTORY)
         .join(downloader.version.to_string());
@@ -29,7 +30,7 @@ pub(crate) async fn get_or_download(
     let mut cache = SOLC_CACHER.lock().await;
     if cache.contains(&target_file) {
         tracing::debug!("using cached solc: {}", target_file.display());
-        return Ok(target_file);
+        return Ok((downloader.version.clone(), target_file));
     }
 
     create_dir_all(&target_directory).with_context(|| {
@@ -48,7 +49,7 @@ pub(crate) async fn get_or_download(
         })?;
     cache.insert(target_file.clone());
 
-    Ok(target_file)
+    Ok((downloader.version.clone(), target_file))
 }
 
 async fn download_to_file(path: &Path, downloader: &SolcDownloader) -> anyhow::Result<()> {

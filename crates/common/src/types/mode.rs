@@ -3,6 +3,7 @@ use semver::Version;
 use serde::{Deserialize, Serialize};
 use std::fmt::Display;
 use std::str::FromStr;
+use std::sync::LazyLock;
 
 /// This represents a mode that a given test should be run with, if possible.
 ///
@@ -34,14 +35,19 @@ impl Display for Mode {
 
 impl Mode {
     /// Return all of the available mode combinations.
-    pub fn all() -> impl Iterator<Item = Mode> {
-        ModePipeline::test_cases().flat_map(|pipeline| {
-            ModeOptimizerSetting::test_cases().map(move |optimize_setting| Mode {
-                pipeline,
-                optimize_setting,
-                version: None,
-            })
-        })
+    pub fn all() -> impl Iterator<Item = &'static Mode> {
+        static ALL_MODES: LazyLock<Vec<Mode>> = LazyLock::new(|| {
+            ModePipeline::test_cases()
+                .flat_map(|pipeline| {
+                    ModeOptimizerSetting::test_cases().map(move |optimize_setting| Mode {
+                        pipeline,
+                        optimize_setting,
+                        version: None,
+                    })
+                })
+                .collect::<Vec<_>>()
+        });
+        ALL_MODES.iter()
     }
 
     /// Resolves the [`Mode`]'s solidity version requirement into a [`VersionOrRequirement`] if

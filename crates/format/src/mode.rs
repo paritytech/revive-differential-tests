@@ -1,5 +1,6 @@
 use anyhow::Context;
 use regex::Regex;
+use revive_dt_common::iterators::EitherIter;
 use revive_dt_common::types::{Mode, ModeOptimizerSetting, ModePipeline};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
@@ -173,27 +174,6 @@ impl ParsedMode {
     ) -> impl Iterator<Item = Mode> {
         let modes: HashSet<_> = parsed.flat_map(|p| p.to_modes()).collect();
         modes.into_iter()
-    }
-}
-
-/// An iterator that could be either of two iterators.
-#[derive(Clone, Debug)]
-enum EitherIter<A, B> {
-    A(A),
-    B(B),
-}
-
-impl<A, B> Iterator for EitherIter<A, B>
-where
-    A: Iterator,
-    B: Iterator<Item = A::Item>,
-{
-    type Item = A::Item;
-    fn next(&mut self) -> Option<Self::Item> {
-        match self {
-            EitherIter::A(iter) => iter.next(),
-            EitherIter::B(iter) => iter.next(),
-        }
     }
 }
 

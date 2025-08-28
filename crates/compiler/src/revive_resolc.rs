@@ -3,8 +3,8 @@
 
 use std::{
     path::PathBuf,
-    process::{Command, Stdio},
-    sync::LazyLock,
+    process::Stdio,
+    sync::{Arc, LazyLock},
 };
 
 use dashmap::DashMap;
@@ -16,26 +16,61 @@ use revive_solc_json_interface::{
     SolcStandardJsonOutput,
 };
 
-use crate::{CompilerInput, CompilerOutput, ModeOptimizerSetting, ModePipeline, SolidityCompiler};
+use crate::{
+    CompilerInput, CompilerOutput, ModeOptimizerSetting, ModePipeline, SolidityCompiler, solc::Solc,
+};
 
 use alloy::json_abi::JsonAbi;
-use anyhow::Context;
+use anyhow::{Context, Result};
 use semver::Version;
 use tokio::{io::AsyncWriteExt, process::Command as AsyncCommand};
 
-// TODO: I believe that we need to also pass the solc compiler to resolc so that resolc uses the
-// specified solc compiler. I believe that currently we completely ignore the specified solc binary
-// when invoking resolc which doesn't seem right if we're using solc as a compiler frontend.
-
 /// A wrapper around the `resolc` binary, emitting PVM-compatible bytecode.
-#[derive(Debug)]
-pub struct Resolc {
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Resolc(Arc<ResolcInner>);
+
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+struct ResolcInner {
+    /// The internal solc compiler that the resolc compiler uses as a compiler frontend.
+    solc: Solc,
     /// Path to the `resolc` executable
     resolc_path: PathBuf,
 }
 
 impl SolidityCompiler for Resolc {
-    type Options = Vec<String>;
+    async fn new(
+        config: &Arguments,
+        version: impl Into<Option<VersionOrRequirement>>,
+    ) -> Result<Self> {
+        /// This is a cache of all of the resolc compiler objects. Since we do not currently support
+        /// multiple resolc compiler versions, so our cache is just keyed by the solc compiler and
+        /// its version to the resolc compiler.
+        static COMPILERS_CACHE: LazyLock<DashMap<Solc, Resolc>> = LazyLock::new(Default::default);
+
+        let solc = Solc::new(config, version)
+            .await
+            .context("Failed to create the solc compiler frontend for resolc")?;
+
+        Ok(COMPILERS_CACHE
+            .entry(solc.clone())
+            .or_insert_with(|| {
+                Self(Arc::new(ResolcInner {
+                    solc,
+                    resolc_path: config.resolc.clone(),
+                }))
+            })
+            .clone())
+    }
+
+    fn version(&self) -> &Version {
+        // We currently return the solc compiler version since we do not support multiple resolc
+        // compiler versions.
+        self.0.solc.version()
+    }
+
+    fn path(&self) -> &std::path::Path {
+        &self.0.resolc_path
+    }
 
     #[tracing::instrument(level = "debug", ret)]
     async fn build(
@@ -52,8 +87,7 @@ impl SolidityCompiler for Resolc {
             // resolc. So, we need to go back to this later once it's supported.
             revert_string_handling: _,
         }: CompilerInput,
-        additional_options: Self::Options,
-    ) -> anyhow::Result<CompilerOutput> {
+    ) -> Result<CompilerOutput> {
         if !matches!(pipeline, None | Some(ModePipeline::ViaYulIR)) {
             anyhow::bail!(
                 "Resolc only supports the Y (via Yul IR) pipeline, but the provided pipeline is {pipeline:?}"
@@ -100,7 +134,7 @@ impl SolidityCompiler for Resolc {
             },
         };
 
-        let mut command = AsyncCommand::new(&self.resolc_path);
+        let mut command = AsyncCommand::new(self.path());
         command
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -121,7 +155,7 @@ impl SolidityCompiler for Resolc {
         }
         let mut child = command
             .spawn()
-            .with_context(|| format!("Failed to spawn resolc at {}", self.resolc_path.display()))?;
+            .with_context(|| format!("Failed to spawn resolc at {}", self.path().display()))?;
 
         let stdin_pipe = child.stdin.as_mut().expect("stdin must be piped");
         let serialized_input = serde_json::to_vec(&input)
@@ -238,108 +272,11 @@ impl SolidityCompiler for Resolc {
         Ok(compiler_output)
     }
 
-    fn new(resolc_path: PathBuf) -> Self {
-        Resolc { resolc_path }
-    }
-
-    async fn get_compiler_executable(
-        config: &Arguments,
-        _version: impl Into<VersionOrRequirement>,
-    ) -> anyhow::Result<PathBuf> {
-        if !config.resolc.as_os_str().is_empty() {
-            return Ok(config.resolc.clone());
-        }
-
-        Ok(PathBuf::from("resolc"))
-    }
-
-    async fn version(&self) -> anyhow::Result<semver::Version> {
-        /// This is a cache of the path of the compiler to the version number of the compiler. We
-        /// choose to cache the version in this way rather than through a field on the struct since
-        /// compiler objects are being created all the time from the path and the compiler object is
-        /// not reused over time.
-        static VERSION_CACHE: LazyLock<DashMap<PathBuf, Version>> = LazyLock::new(Default::default);
-
-        match VERSION_CACHE.entry(self.resolc_path.clone()) {
-            dashmap::Entry::Occupied(occupied_entry) => Ok(occupied_entry.get().clone()),
-            dashmap::Entry::Vacant(vacant_entry) => {
-                let output = Command::new(self.resolc_path.as_path())
-                    .arg("--version")
-                    .stdout(Stdio::piped())
-                    .spawn()
-                    .with_context(|| {
-                        format!(
-                            "Failed to spawn resolc at {} to get version",
-                            self.resolc_path.display()
-                        )
-                    })?
-                    .wait_with_output()
-                    .with_context(|| {
-                        format!(
-                            "Failed waiting for resolc at {} to finish --version",
-                            self.resolc_path.display()
-                        )
-                    })?
-                    .stdout;
-
-                let output = String::from_utf8_lossy(&output);
-                let version_string = output
-                    .split("version ")
-                    .nth(1)
-                    .context("Version parsing failed")?
-                    .split("+")
-                    .next()
-                    .context("Version parsing failed")?;
-
-                let version = Version::parse(version_string).with_context(|| {
-                    format!("Failed to parse resolc semver from '{version_string}'")
-                })?;
-
-                vacant_entry.insert(version.clone());
-
-                Ok(version)
-            }
-        }
-    }
-
     fn supports_mode(
-        _compiler_version: &Version,
-        _optimize_setting: ModeOptimizerSetting,
+        &self,
+        optimize_setting: ModeOptimizerSetting,
         pipeline: ModePipeline,
     ) -> bool {
-        // We only support the Y (IE compile via Yul IR) mode here, which also means that we can
-        // only use solc version 0.8.13 and above. We must always compile via Yul IR as resolc
-        // needs this to translate to LLVM IR and then RISCV.
-
-        // Note: the original implementation of this function looked like the following:
-        // ```
-        // pipeline == ModePipeline::ViaYulIR && compiler_version >= &SOLC_VERSION_SUPPORTING_VIA_YUL_IR
-        // ```
-        // However, that implementation is sadly incorrect since the version that's passed into this
-        // function is not the version of solc but the version of resolc. This is despite the fact
-        // that resolc depends on Solc for the initial Yul codegen. Therefore, we have skipped the
-        // version check until we do a better integrations between resolc and solc.
-        pipeline == ModePipeline::ViaYulIR
-    }
-}
-
-#[cfg(test)]
-mod test {
-    use super::*;
-
-    #[tokio::test]
-    async fn compiler_version_can_be_obtained() {
-        // Arrange
-        let args = Arguments::default();
-        let path = Resolc::get_compiler_executable(&args, Version::new(0, 7, 6))
-            .await
-            .unwrap();
-        let compiler = Resolc::new(path);
-
-        // Act
-        let version = compiler.version().await;
-
-        // Assert
-        let _ = version.expect("Failed to get version");
+        pipeline == ModePipeline::ViaYulIR && self.0.solc.supports_mode(optimize_setting, pipeline)
     }
 }

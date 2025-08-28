@@ -19,7 +19,7 @@ pub trait Platform {
     type Compiler: SolidityCompiler;
 
     /// Returns the matching [TestingPlatform] of the [revive_dt_config::Arguments].
-    fn config_id() -> TestingPlatform;
+    fn config_id() -> &'static TestingPlatform;
 }
 
 #[derive(Default)]
@@ -29,8 +29,8 @@ impl Platform for Geth {
     type Blockchain = geth::GethNode;
     type Compiler = solc::Solc;
 
-    fn config_id() -> TestingPlatform {
-        TestingPlatform::Geth
+    fn config_id() -> &'static TestingPlatform {
+        &TestingPlatform::Geth
     }
 }
 
@@ -41,7 +41,7 @@ impl Platform for Kitchensink {
     type Blockchain = KitchensinkNode;
     type Compiler = revive_resolc::Resolc;
 
-    fn config_id() -> TestingPlatform {
-        TestingPlatform::Kitchensink
+    fn config_id() -> &'static TestingPlatform {
+        &TestingPlatform::Kitchensink
     }
 }

@@ -340,21 +340,13 @@ impl ReportAggregator {
         &mut self,
         event: PreLinkContractsCompilationFailedEvent,
     ) {
-        let include_input = self.report.config.report_include_compiler_input;
-
         let execution_information = self.execution_information(&event.execution_specifier);
-
-        let compiler_input = if include_input {
-            event.compiler_input
-        } else {
-            None
-        };
 
         execution_information.pre_link_compilation_status = Some(CompilationStatus::Failure {
             reason: event.reason,
             compiler_version: event.compiler_version,
             compiler_path: event.compiler_path,
-            compiler_input,
+            compiler_input: event.compiler_input,
         });
     }
 
@@ -362,21 +354,13 @@ impl ReportAggregator {
         &mut self,
         event: PostLinkContractsCompilationFailedEvent,
     ) {
-        let include_input = self.report.config.report_include_compiler_input;
-
         let execution_information = self.execution_information(&event.execution_specifier);
-
-        let compiler_input = if include_input {
-            event.compiler_input
-        } else {
-            None
-        };
 
         execution_information.post_link_compilation_status = Some(CompilationStatus::Failure {
             reason: event.reason,
             compiler_version: event.compiler_version,
             compiler_path: event.compiler_path,
-            compiler_input,
+            compiler_input: event.compiler_input,
         });
     }
 

@@ -10,6 +10,7 @@ use cache::get_or_download;
 use download::SolcDownloader;
 
 use revive_dt_common::types::VersionOrRequirement;
+use semver::Version;
 
 pub mod cache;
 pub mod download;
@@ -24,7 +25,7 @@ pub async fn download_solc(
     cache_directory: &Path,
     version: impl Into<VersionOrRequirement>,
     wasm: bool,
-) -> anyhow::Result<PathBuf> {
+) -> anyhow::Result<(Version, PathBuf)> {
     let downloader = if wasm {
         SolcDownloader::wasm(version).await
     } else if cfg!(target_os = "linux") {
