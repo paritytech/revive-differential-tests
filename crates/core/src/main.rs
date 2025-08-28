@@ -367,14 +367,14 @@ where
                 test.reporter
                     .report_leader_node_assigned_event(
                         test.leader_node.id(),
-                        L::config_id(),
+                        *L::config_id(),
                         test.leader_node.connection_string(),
                     )
                     .expect("Can't fail");
                 test.reporter
                     .report_follower_node_assigned_event(
                         test.follower_node.id(),
-                        F::config_id(),
+                        *F::config_id(),
                         test.follower_node.connection_string(),
                     )
                     .expect("Can't fail");
