@@ -16,6 +16,7 @@ use revive_dt_format::metadata::{ContractIdent, ContractInstance, Metadata};
 
 use alloy::{hex::ToHexExt, json_abi::JsonAbi, primitives::Address};
 use anyhow::{Context as _, Error, Result};
+use revive_dt_report::ExecutionSpecificReporter;
 use semver::Version;
 use serde::{Deserialize, Serialize};
 use tokio::sync::{Mutex, RwLock};
@@ -67,6 +68,7 @@ impl<'a> CachedCompiler<'a> {
         mode: Cow<'a, Mode>,
         deployed_libraries: Option<&HashMap<ContractInstance, (ContractIdent, Address, JsonAbi)>>,
         compiler: &P::Compiler,
+        reporter: &ExecutionSpecificReporter,
     ) -> Result<CompilerOutput> {
         let cache_key = CacheKey {
             platform_key: P::config_id(),
@@ -87,6 +89,7 @@ impl<'a> CachedCompiler<'a> {
                     &mode,
                     deployed_libraries,
                     compiler,
+                    reporter,
                 )
                 .map(|compilation_result| compilation_result.map(CacheValue::new))
                 .await
@@ -138,7 +141,30 @@ impl<'a> CachedCompiler<'a> {
                 let _guard = mutex.lock().await;
 
                 match self.artifacts_cache.get(&cache_key).await {
-                    Some(cache_value) => cache_value.compiler_output,
+                    Some(cache_value) => {
+                        if deployed_libraries.is_some() {
+                            reporter
+                                .report_post_link_contracts_compilation_succeeded_event(
+                                    compiler.version().clone(),
+                                    compiler.path(),
+                                    true,
+                                    None,
+                                    cache_value.compiler_output.clone(),
+                                )
+                                .expect("Can't happen");
+                        } else {
+                            reporter
+                                .report_pre_link_contracts_compilation_succeeded_event(
+                                    compiler.version().clone(),
+                                    compiler.path(),
+                                    true,
+                                    None,
+                                    cache_value.compiler_output.clone(),
+                                )
+                                .expect("Can't happen");
+                        }
+                        cache_value.compiler_output
+                    }
                     None => {
                         compilation_callback()
                             .await
@@ -153,20 +179,20 @@ impl<'a> CachedCompiler<'a> {
     }
 }
 
-#[allow(clippy::too_many_arguments)]
 async fn compile_contracts<P: Platform>(
     metadata_directory: impl AsRef<Path>,
     mut files_to_compile: impl Iterator<Item = PathBuf>,
     mode: &Mode,
     deployed_libraries: Option<&HashMap<ContractInstance, (ContractIdent, Address, JsonAbi)>>,
     compiler: &P::Compiler,
+    reporter: &ExecutionSpecificReporter,
 ) -> Result<CompilerOutput> {
     let all_sources_in_dir = FilesWithExtensionIterator::new(metadata_directory.as_ref())
         .with_allowed_extension("sol")
         .with_use_cached_fs(true)
         .collect::<Vec<_>>();
 
-    Compiler::new()
+    let compilation = Compiler::new()
         .with_allow_path(metadata_directory)
         // Handling the modes
         .with_optimization(mode.optimize_setting)
@@ -189,9 +215,57 @@ async fn compile_contracts<P: Platform>(
                 .fold(compiler, |compiler, (ident, address, path)| {
                     compiler.with_library(path, ident.as_str(), *address)
                 })
-        })
-        .try_build(compiler)
-        .await
+        });
+
+    let input = compilation.input().clone();
+    let output = compilation.try_build(compiler).await;
+
+    match (output.as_ref(), deployed_libraries.is_some()) {
+        (Ok(output), true) => {
+            reporter
+                .report_post_link_contracts_compilation_succeeded_event(
+                    compiler.version().clone(),
+                    compiler.path(),
+                    false,
+                    input,
+                    output.clone(),
+                )
+                .expect("Can't happen");
+        }
+        (Ok(output), false) => {
+            reporter
+                .report_pre_link_contracts_compilation_succeeded_event(
+                    compiler.version().clone(),
+                    compiler.path(),
+                    false,
+                    input,
+                    output.clone(),
+                )
+                .expect("Can't happen");
+        }
+        (Err(err), true) => {
+            reporter
+                .report_post_link_contracts_compilation_failed_event(
+                    compiler.version().clone(),
+                    compiler.path().to_path_buf(),
+                    input,
+                    format!("{err:#}"),
+                )
+                .expect("Can't happen");
+        }
+        (Err(err), false) => {
+            reporter
+                .report_pre_link_contracts_compilation_failed_event(
+                    compiler.version().clone(),
+                    compiler.path().to_path_buf(),
+                    input,
+                    format!("{err:#}"),
+                )
+                .expect("Can't happen");
+        }
+    }
+
+    output
 }
 
 struct ArtifactsCache {

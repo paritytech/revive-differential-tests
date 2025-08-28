@@ -523,14 +523,16 @@ where
             test.metadata_file_path,
             test.mode.clone(),
             None,
-            test.leader_compiler.as_ref()
+            test.leader_compiler.as_ref(),
+            &leader_reporter,
         ),
         cached_compiler.compile_contracts::<F>(
             test.metadata,
             test.metadata_file_path,
             test.mode.clone(),
             None,
-            test.follower_compiler.as_ref()
+            test.follower_compiler.as_ref(),
+            &follower_reporter
         )
     )
     .context("Failed to compile pre-link contracts for leader/follower in parallel")?;
@@ -675,6 +677,7 @@ where
             test.mode.clone(),
             leader_deployed_libraries.as_ref(),
             test.leader_compiler.as_ref(),
+            &leader_reporter,
         ),
         cached_compiler.compile_contracts::<F>(
             test.metadata,
@@ -682,6 +685,7 @@ where
             test.mode.clone(),
             follower_deployed_libraries.as_ref(),
             test.follower_compiler.as_ref(),
+            &follower_reporter
         )
     )
     .context("Failed to compile post-link contracts for leader/follower in parallel")?;

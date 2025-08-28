@@ -43,6 +43,9 @@ pub trait SolidityCompiler {
     /// Returns the version of the compiler.
     fn version(&self) -> &Version;
 
+    /// Returns the path of the compiler executable.
+    fn path(&self) -> &Path;
+
     /// The low-level compiler interface.
     fn build(&self, input: CompilerInput) -> impl Future<Output = Result<CompilerOutput>>;
 

@@ -68,6 +68,10 @@ impl SolidityCompiler for Solc {
         &self.solc_version
     }
 
+    fn path(&self) -> &std::path::Path {
+        &self.solc_path
+    }
+
     #[tracing::instrument(level = "debug", ret)]
     async fn build(
         &self,
