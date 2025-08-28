@@ -15,8 +15,8 @@ use alloy::{
 };
 use anyhow::Context;
 use clap::Parser;
+use futures::stream;
 use futures::{Stream, StreamExt};
-use futures::{TryStreamExt, stream};
 use indexmap::{IndexMap, indexmap};
 use revive_dt_node_interaction::EthereumNode;
 use revive_dt_report::{
