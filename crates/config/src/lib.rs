@@ -408,7 +408,7 @@ where
 #[derive(Clone, Debug, Parser, Serialize)]
 pub struct ConcurrencyConfiguration {
     /// Determines the amount of nodes that will be spawned for each chain.
-    #[clap(long = "concurrency.number-of-nodes")]
+    #[clap(long = "concurrency.number-of-nodes", default_value_t = 5)]
     pub number_of_nodes: usize,
 
     /// Determines the amount of tokio worker threads that will will be used.

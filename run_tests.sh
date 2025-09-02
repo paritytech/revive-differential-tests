@@ -89,13 +89,13 @@ echo "This may take a while..."
 echo ""
 
 # Run the tool
-RUST_LOG="error" cargo run --release -- \
+RUST_LOG="error" cargo run --release -- execute-tests \
     --corpus "$CORPUS_FILE" \
     --working-directory "$WORKDIR" \
     --concurrency.number-of-nodes 5 \
     --kitchensink.path "$SUBSTRATE_NODE_BIN" \
     --revive-dev-node.path "$REVIVE_DEV_NODE_BIN" \
-    --eth_proxy.path "$ETH_RPC_BIN" \
+    --eth-rpc.path "$ETH_RPC_BIN" \
     > logs.log \
     2> output.log
 
