@@ -11,7 +11,7 @@ use semver::Version;
 use sha2::{Digest, Sha256};
 
 use crate::list::List;
-use anyhow::Context;
+use anyhow::Context as _;
 
 pub static LIST_CACHE: LazyLock<Mutex<HashMap<&'static str, List>>> =
     LazyLock::new(Default::default);

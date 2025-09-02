@@ -11,14 +11,14 @@ use std::{
 
 use alloy::json_abi::JsonAbi;
 use alloy_primitives::Address;
-use anyhow::{Context, Result};
+use anyhow::{Context as _, Result};
 use semver::Version;
 use serde::{Deserialize, Serialize};
 
 use revive_common::EVMVersion;
 use revive_dt_common::cached_fs::read_to_string;
 use revive_dt_common::types::VersionOrRequirement;
-use revive_dt_config::Arguments;
+use revive_dt_config::{ResolcConfiguration, SolcConfiguration, WorkingDirectoryConfiguration};
 
 // Re-export this as it's a part of the compiler interface.
 pub use revive_dt_common::types::{Mode, ModeOptimizerSetting, ModePipeline};
@@ -31,11 +31,13 @@ pub mod solc;
 pub trait SolidityCompiler: Sized {
     /// Instantiates a new compiler object.
     ///
-    /// Based on the given [`Arguments`] and [`VersionOrRequirement`] this function instantiates a
+    /// Based on the given [`Context`] and [`VersionOrRequirement`] this function instantiates a
     /// new compiler object. Certain implementations of this trait might choose to cache cache the
     /// compiler objects and return the same ones over and over again.
     fn new(
-        config: &Arguments,
+        context: impl AsRef<SolcConfiguration>
+        + AsRef<ResolcConfiguration>
+        + AsRef<WorkingDirectoryConfiguration>,
         version: impl Into<Option<VersionOrRequirement>>,
     ) -> impl Future<Output = Result<Self>>;
 

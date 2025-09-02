@@ -1,4 +1,4 @@
-use anyhow::Context;
+use anyhow::Context as _;
 use regex::Regex;
 use revive_dt_common::iterators::EitherIter;
 use revive_dt_common::types::{Mode, ModeOptimizerSetting, ModePipeline};

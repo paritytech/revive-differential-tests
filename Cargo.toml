@@ -48,6 +48,7 @@ serde_with = { version = "3.14.0" }
 sha2 = { version = "0.10.9" }
 sp-core = "36.1.0"
 sp-runtime = "41.1.0"
+strum = { version = "0.27.2", features = ["derive"] }
 temp-dir = { version = "0.1.16" }
 tempfile = "3.3"
 thiserror = "2"

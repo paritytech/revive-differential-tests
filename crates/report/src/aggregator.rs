@@ -12,7 +12,7 @@ use alloy_primitives::Address;
 use anyhow::{Context as _, Result};
 use indexmap::IndexMap;
 use revive_dt_compiler::{CompilerInput, CompilerOutput, Mode};
-use revive_dt_config::{Arguments, TestingPlatform};
+use revive_dt_config::{Context, TestingPlatform};
 use revive_dt_format::{case::CaseIdx, corpus::Corpus, metadata::ContractInstance};
 use semver::Version;
 use serde::Serialize;
@@ -36,11 +36,11 @@ pub struct ReportAggregator {
 }
 
 impl ReportAggregator {
-    pub fn new(config: Arguments) -> Self {
+    pub fn new(context: Context) -> Self {
         let (runner_tx, runner_rx) = unbounded_channel::<RunnerEvent>();
         let (listener_tx, _) = channel::<ReporterEvent>(1024);
         Self {
-            report: Report::new(config),
+            report: Report::new(context),
             remaining_cases: Default::default(),
             runner_tx: Some(runner_tx),
             runner_rx,
@@ -121,7 +121,12 @@ impl ReportAggregator {
             file_name.push_str(".json");
             file_name
         };
-        let file_path = self.report.config.directory().join(file_name);
+        let file_path = self
+            .report
+            .context
+            .working_directory_configuration()
+            .as_path()
+            .join(file_name);
         let file = OpenOptions::new()
             .create(true)
             .write(true)
@@ -282,8 +287,16 @@ impl ReportAggregator {
         &mut self,
         event: PreLinkContractsCompilationSucceededEvent,
     ) {
-        let include_input = self.report.config.report_include_compiler_input;
-        let include_output = self.report.config.report_include_compiler_output;
+        let include_input = self
+            .report
+            .context
+            .report_configuration()
+            .include_compiler_input;
+        let include_output = self
+            .report
+            .context
+            .report_configuration()
+            .include_compiler_output;
 
         let execution_information = self.execution_information(&event.execution_specifier);
 
@@ -311,8 +324,16 @@ impl ReportAggregator {
         &mut self,
         event: PostLinkContractsCompilationSucceededEvent,
     ) {
-        let include_input = self.report.config.report_include_compiler_input;
-        let include_output = self.report.config.report_include_compiler_output;
+        let include_input = self
+            .report
+            .context
+            .report_configuration()
+            .include_compiler_input;
+        let include_output = self
+            .report
+            .context
+            .report_configuration()
+            .include_compiler_output;
 
         let execution_information = self.execution_information(&event.execution_specifier);
 
@@ -406,12 +427,8 @@ impl ReportAggregator {
 #[serde_as]
 #[derive(Clone, Debug, Serialize)]
 pub struct Report {
-    /// The configuration that the tool was started up with.
-    pub config: Arguments,
-    /// The platform of the leader chain.
-    pub leader_platform: TestingPlatform,
-    /// The platform of the follower chain.
-    pub follower_platform: TestingPlatform,
+    /// The context that the tool was started up with.
+    pub context: Context,
     /// The list of corpus files that the tool found.
     pub corpora: Vec<Corpus>,
     /// The list of metadata files that were found by the tool.
@@ -423,11 +440,9 @@ pub struct Report {
 }
 
 impl Report {
-    pub fn new(config: Arguments) -> Self {
+    pub fn new(context: Context) -> Self {
         Self {
-            leader_platform: config.leader,
-            follower_platform: config.follower,
-            config,
+            context,
             corpora: Default::default(),
             metadata_files: Default::default(),
             test_case_information: Default::default(),
@@ -517,12 +532,12 @@ pub enum CompilationStatus {
         /// The path of the compiler used to compile the contracts.
         compiler_path: PathBuf,
         /// The input provided to the compiler to compile the contracts. This is only included if
-        /// the appropriate flag is set in the CLI configuration and if the contracts were not
-        /// cached and the compiler was invoked.
+        /// the appropriate flag is set in the CLI context and if the contracts were not cached and
+        /// the compiler was invoked.
         #[serde(skip_serializing_if = "Option::is_none")]
         compiler_input: Option<CompilerInput>,
         /// The output of the compiler. This is only included if the appropriate flag is set in the
-        /// CLI configurations.
+        /// CLI contexts.
         #[serde(skip_serializing_if = "Option::is_none")]
         compiler_output: Option<CompilerOutput>,
     },
@@ -537,8 +552,8 @@ pub enum CompilationStatus {
         #[serde(skip_serializing_if = "Option::is_none")]
         compiler_path: Option<PathBuf>,
         /// The input provided to the compiler to compile the contracts. This is only included if
-        /// the appropriate flag is set in the CLI configuration and if the contracts were not
-        /// cached and the compiler was invoked.
+        /// the appropriate flag is set in the CLI context and if the contracts were not cached and
+        /// the compiler was invoked.
         #[serde(skip_serializing_if = "Option::is_none")]
         compiler_input: Option<CompilerInput>,
     },

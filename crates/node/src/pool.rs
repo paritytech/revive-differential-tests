@@ -5,10 +5,13 @@ use std::{
     thread,
 };
 
-use revive_dt_common::cached_fs::read_to_string;
-
-use anyhow::Context;
-use revive_dt_config::Arguments;
+use alloy::genesis::Genesis;
+use anyhow::Context as _;
+use revive_dt_config::{
+    ConcurrencyConfiguration, EthRpcConfiguration, GenesisConfiguration, GethConfiguration,
+    KitchensinkConfiguration, ReviveDevNodeConfiguration, WalletConfiguration,
+    WorkingDirectoryConfiguration,
+};
 use tracing::info;
 
 use crate::Node;
@@ -25,18 +28,31 @@ where
     T: Node + Send + 'static,
 {
     /// Create a new Pool. This will start as many nodes as there are workers in `config`.
-    pub fn new(config: &Arguments) -> anyhow::Result<Self> {
-        let nodes = config.number_of_nodes;
-        let genesis = read_to_string(&config.genesis_file).context(format!(
-            "can not read genesis file: {}",
-            config.genesis_file.display()
-        ))?;
+    pub fn new(
+        context: impl AsRef<WorkingDirectoryConfiguration>
+        + AsRef<ConcurrencyConfiguration>
+        + AsRef<GenesisConfiguration>
+        + AsRef<WalletConfiguration>
+        + AsRef<GethConfiguration>
+        + AsRef<KitchensinkConfiguration>
+        + AsRef<ReviveDevNodeConfiguration>
+        + AsRef<EthRpcConfiguration>
+        + Send
+        + Sync
+        + Clone
+        + 'static,
+    ) -> anyhow::Result<Self> {
+        let concurrency_configuration = AsRef::<ConcurrencyConfiguration>::as_ref(&context);
+        let genesis_configuration = AsRef::<GenesisConfiguration>::as_ref(&context);
+
+        let nodes = concurrency_configuration.number_of_nodes;
+        let genesis = genesis_configuration.genesis()?;
 
         let mut handles = Vec::with_capacity(nodes);
         for _ in 0..nodes {
-            let config = config.clone();
+            let context = context.clone();
             let genesis = genesis.clone();
-            handles.push(thread::spawn(move || spawn_node::<T>(&config, genesis)));
+            handles.push(thread::spawn(move || spawn_node::<T>(context, genesis)));
         }
 
         let mut nodes = Vec::with_capacity(nodes);
@@ -64,8 +80,20 @@ where
     }
 }
 
-fn spawn_node<T: Node + Send>(args: &Arguments, genesis: String) -> anyhow::Result<T> {
-    let mut node = T::new(args);
+fn spawn_node<T: Node + Send>(
+    context: impl AsRef<WorkingDirectoryConfiguration>
+    + AsRef<ConcurrencyConfiguration>
+    + AsRef<GenesisConfiguration>
+    + AsRef<WalletConfiguration>
+    + AsRef<GethConfiguration>
+    + AsRef<KitchensinkConfiguration>
+    + AsRef<ReviveDevNodeConfiguration>
+    + AsRef<EthRpcConfiguration>
+    + Clone
+    + 'static,
+    genesis: Genesis,
+) -> anyhow::Result<T> {
+    let mut node = T::new(context);
     info!(
         id = node.id(),
         connection_string = node.connection_string(),

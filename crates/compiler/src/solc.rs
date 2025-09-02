@@ -9,12 +9,12 @@ use std::{
 
 use dashmap::DashMap;
 use revive_dt_common::types::VersionOrRequirement;
-use revive_dt_config::Arguments;
+use revive_dt_config::{ResolcConfiguration, SolcConfiguration, WorkingDirectoryConfiguration};
 use revive_dt_solc_binaries::download_solc;
 
 use crate::{CompilerInput, CompilerOutput, ModeOptimizerSetting, ModePipeline, SolidityCompiler};
 
-use anyhow::{Context, Result};
+use anyhow::{Context as _, Result};
 use foundry_compilers_artifacts::{
     output_selection::{
         BytecodeOutputSelection, ContractOutputSelection, EvmOutputSelection, OutputSelection,
@@ -38,7 +38,9 @@ struct SolcInner {
 
 impl SolidityCompiler for Solc {
     async fn new(
-        config: &Arguments,
+        context: impl AsRef<SolcConfiguration>
+        + AsRef<ResolcConfiguration>
+        + AsRef<WorkingDirectoryConfiguration>,
         version: impl Into<Option<VersionOrRequirement>>,
     ) -> Result<Self> {
         // This is a cache for the compiler objects so that whenever the same compiler version is
@@ -46,14 +48,21 @@ impl SolidityCompiler for Solc {
         // compiler around.
         static COMPILERS_CACHE: LazyLock<DashMap<Version, Solc>> = LazyLock::new(Default::default);
 
+        let working_directory_configuration =
+            AsRef::<WorkingDirectoryConfiguration>::as_ref(&context);
+        let solc_configuration = AsRef::<SolcConfiguration>::as_ref(&context);
+
         // We attempt to download the solc binary. Note the following: this call does the version
         // resolution for us. Therefore, even if the download didn't proceed, this function will
         // resolve the version requirement into a canonical version of the compiler. It's then up
         // to us to either use the provided path or not.
-        let version = version.into().unwrap_or_else(|| config.solc.clone().into());
-        let (version, path) = download_solc(config.directory(), version, false)
-            .await
-            .context("Failed to download/get path to solc binary")?;
+        let version = version
+            .into()
+            .unwrap_or_else(|| solc_configuration.version.clone().into());
+        let (version, path) =
+            download_solc(working_directory_configuration.as_path(), version, false)
+                .await
+                .context("Failed to download/get path to solc binary")?;
 
         Ok(COMPILERS_CACHE
             .entry(version.clone())

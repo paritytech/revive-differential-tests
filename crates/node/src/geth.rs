@@ -17,9 +17,7 @@ use alloy::{
     eips::BlockNumberOrTag,
     genesis::{Genesis, GenesisAccount},
     network::{Ethereum, EthereumWallet, NetworkWallet},
-    primitives::{
-        Address, BlockHash, BlockNumber, BlockTimestamp, FixedBytes, StorageKey, TxHash, U256,
-    },
+    primitives::{Address, BlockHash, BlockNumber, BlockTimestamp, StorageKey, TxHash, U256},
     providers::{
         Provider, ProviderBuilder,
         ext::DebugApi,
@@ -29,9 +27,8 @@ use alloy::{
         EIP1186AccountProofResponse, TransactionReceipt, TransactionRequest,
         trace::geth::{DiffMode, GethDebugTracingOptions, PreStateConfig, PreStateFrame},
     },
-    signers::local::PrivateKeySigner,
 };
-use anyhow::Context;
+use anyhow::Context as _;
 use revive_common::EVMVersion;
 use tracing::{Instrument, instrument};
 
@@ -39,7 +36,7 @@ use revive_dt_common::{
     fs::clear_directory,
     futures::{PollingWaitBehavior, poll},
 };
-use revive_dt_config::Arguments;
+use revive_dt_config::*;
 use revive_dt_format::traits::ResolverApi;
 use revive_dt_node_interaction::EthereumNode;
 
@@ -64,7 +61,7 @@ pub struct GethNode {
     geth: PathBuf,
     id: u32,
     handle: Option<Child>,
-    start_timeout: u64,
+    start_timeout: Duration,
     wallet: Arc<EthereumWallet>,
     nonce_manager: CachedNonceManager,
     chain_id_filler: ChainIdFiller,
@@ -97,7 +94,7 @@ impl GethNode {
 
     /// Create the node directory and call `geth init` to configure the genesis.
     #[instrument(level = "info", skip_all, fields(geth_node_id = self.id))]
-    fn init(&mut self, genesis: String) -> anyhow::Result<&mut Self> {
+    fn init(&mut self, mut genesis: Genesis) -> anyhow::Result<&mut Self> {
         let _ = clear_directory(&self.base_directory);
         let _ = clear_directory(&self.logs_directory);
 
@@ -106,8 +103,6 @@ impl GethNode {
         create_dir_all(&self.logs_directory)
             .context("Failed to create logs directory for geth node")?;
 
-        let mut genesis = serde_json::from_str::<Genesis>(&genesis)
-            .context("Failed to deserialize geth genesis JSON")?;
         for signer_address in
             <EthereumWallet as NetworkWallet<Ethereum>>::signer_addresses(&self.wallet)
         {
@@ -240,7 +235,7 @@ impl GethNode {
             .open(self.geth_stderr_log_file_path())
             .context("Failed to open geth stderr logs file for readiness check")?;
 
-        let maximum_wait_time = Duration::from_millis(self.start_timeout);
+        let maximum_wait_time = self.start_timeout;
         let mut stderr = BufReader::new(logs_file).lines();
         let mut lines = vec![];
         loop {
@@ -256,7 +251,7 @@ impl GethNode {
             if Instant::now().duration_since(start_time) > maximum_wait_time {
                 anyhow::bail!(
                     "Timeout in starting geth: took longer than {}ms. stdout:\n\n{}\n",
-                    self.start_timeout,
+                    self.start_timeout.as_millis(),
                     lines.join("\n")
                 );
             }
@@ -556,30 +551,40 @@ impl ResolverApi for GethNode {
 }
 
 impl Node for GethNode {
-    fn new(config: &Arguments) -> Self {
-        let geth_directory = config.directory().join(Self::BASE_DIRECTORY);
+    fn new(
+        context: impl AsRef<WorkingDirectoryConfiguration>
+        + AsRef<ConcurrencyConfiguration>
+        + AsRef<GenesisConfiguration>
+        + AsRef<WalletConfiguration>
+        + AsRef<GethConfiguration>
+        + AsRef<KitchensinkConfiguration>
+        + AsRef<ReviveDevNodeConfiguration>
+        + AsRef<EthRpcConfiguration>
+        + Clone,
+    ) -> Self {
+        let working_directory_configuration =
+            AsRef::<WorkingDirectoryConfiguration>::as_ref(&context);
+        let wallet_configuration = AsRef::<WalletConfiguration>::as_ref(&context);
+        let geth_configuration = AsRef::<GethConfiguration>::as_ref(&context);
+
+        let geth_directory = working_directory_configuration
+            .as_path()
+            .join(Self::BASE_DIRECTORY);
         let id = NODE_COUNT.fetch_add(1, Ordering::SeqCst);
         let base_directory = geth_directory.join(id.to_string());
 
-        let mut wallet = config.wallet();
-        for signer in (1..=config.private_keys_to_add)
-            .map(|id| U256::from(id))
-            .map(|id| id.to_be_bytes::<32>())
-            .map(|id| PrivateKeySigner::from_bytes(&FixedBytes(id)).unwrap())
-        {
-            wallet.register_signer(signer);
-        }
+        let wallet = wallet_configuration.wallet();
 
         Self {
             connection_string: base_directory.join(Self::IPC_FILE).display().to_string(),
             data_directory: base_directory.join(Self::DATA_DIRECTORY),
             logs_directory: base_directory.join(Self::LOGS_DIRECTORY),
             base_directory,
-            geth: config.geth.clone(),
+            geth: geth_configuration.path.clone(),
             id,
             handle: None,
-            start_timeout: config.geth_start_timeout,
-            wallet: Arc::new(wallet),
+            start_timeout: geth_configuration.start_timeout_ms,
+            wallet: wallet.clone(),
             chain_id_filler: Default::default(),
             nonce_manager: Default::default(),
             // We know that we only need to be storing 2 files so we can specify that when creating
@@ -621,7 +626,7 @@ impl Node for GethNode {
     }
 
     #[instrument(level = "info", skip_all, fields(geth_node_id = self.id))]
-    fn spawn(&mut self, genesis: String) -> anyhow::Result<()> {
+    fn spawn(&mut self, genesis: Genesis) -> anyhow::Result<()> {
         self.init(genesis)?.spawn_process()?;
         Ok(())
     }
@@ -662,49 +667,25 @@ impl Drop for GethNode {
 
 #[cfg(test)]
 mod tests {
-    use revive_dt_config::Arguments;
-
-    use temp_dir::TempDir;
-
-    use crate::{GENESIS_JSON, Node};
-
     use super::*;
 
-    fn test_config() -> (Arguments, TempDir) {
-        let mut config = Arguments::default();
-        let temp_dir = TempDir::new().unwrap();
-        config.working_directory = temp_dir.path().to_path_buf().into();
-
-        (config, temp_dir)
+    fn test_config() -> ExecutionContext {
+        ExecutionContext::default()
     }
 
-    fn new_node() -> (GethNode, TempDir) {
-        let (args, temp_dir) = test_config();
-        let mut node = GethNode::new(&args);
-        node.init(GENESIS_JSON.to_owned())
+    fn new_node() -> (ExecutionContext, GethNode) {
+        let context = test_config();
+        let mut node = GethNode::new(&context);
+        node.init(context.genesis_configuration.genesis().unwrap().clone())
             .expect("Failed to initialize the node")
             .spawn_process()
             .expect("Failed to spawn the node process");
-        (node, temp_dir)
-    }
-
-    #[test]
-    fn init_works() {
-        GethNode::new(&test_config().0)
-            .init(GENESIS_JSON.to_string())
-            .unwrap();
-    }
-
-    #[test]
-    fn spawn_works() {
-        GethNode::new(&test_config().0)
-            .spawn(GENESIS_JSON.to_string())
-            .unwrap();
+        (context, node)
     }
 
     #[test]
     fn version_works() {
-        let version = GethNode::new(&test_config().0).version().unwrap();
+        let version = GethNode::new(&test_config()).version().unwrap();
         assert!(
             version.starts_with("geth version"),
             "expected version string, got: '{version}'"
@@ -714,7 +695,7 @@ mod tests {
     #[tokio::test]
     async fn can_get_chain_id_from_node() {
         // Arrange
-        let (node, _temp_dir) = new_node();
+        let (_context, node) = new_node();
 
         // Act
         let chain_id = node.chain_id().await;
@@ -727,7 +708,7 @@ mod tests {
     #[tokio::test]
     async fn can_get_gas_limit_from_node() {
         // Arrange
-        let (node, _temp_dir) = new_node();
+        let (_context, node) = new_node();
 
         // Act
         let gas_limit = node.block_gas_limit(BlockNumberOrTag::Latest).await;
@@ -740,7 +721,7 @@ mod tests {
     #[tokio::test]
     async fn can_get_coinbase_from_node() {
         // Arrange
-        let (node, _temp_dir) = new_node();
+        let (_context, node) = new_node();
 
         // Act
         let coinbase = node.block_coinbase(BlockNumberOrTag::Latest).await;
@@ -753,7 +734,7 @@ mod tests {
     #[tokio::test]
     async fn can_get_block_difficulty_from_node() {
         // Arrange
-        let (node, _temp_dir) = new_node();
+        let (_context, node) = new_node();
 
         // Act
         let block_difficulty = node.block_difficulty(BlockNumberOrTag::Latest).await;
@@ -766,7 +747,7 @@ mod tests {
     #[tokio::test]
     async fn can_get_block_hash_from_node() {
         // Arrange
-        let (node, _temp_dir) = new_node();
+        let (_context, node) = new_node();
 
         // Act
         let block_hash = node.block_hash(BlockNumberOrTag::Latest).await;
@@ -778,7 +759,7 @@ mod tests {
     #[tokio::test]
     async fn can_get_block_timestamp_from_node() {
         // Arrange
-        let (node, _temp_dir) = new_node();
+        let (_context, node) = new_node();
 
         // Act
         let block_timestamp = node.block_timestamp(BlockNumberOrTag::Latest).await;
@@ -790,7 +771,7 @@ mod tests {
     #[tokio::test]
     async fn can_get_block_number_from_node() {
         // Arrange
-        let (node, _temp_dir) = new_node();
+        let (_context, node) = new_node();
 
         // Act
         let block_number = node.last_block_number().await;
