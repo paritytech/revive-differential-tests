@@ -84,47 +84,47 @@ pub struct ExecutionContext {
     pub corpus: Vec<PathBuf>,
 
     /// Configuration parameters for the solc compiler.
-    #[clap(flatten)]
+    #[clap(flatten, next_help_heading = "Solc Configuration")]
     pub solc_configuration: SolcConfiguration,
 
     /// Configuration parameters for the resolc compiler.
-    #[clap(flatten)]
+    #[clap(flatten, next_help_heading = "Resolc Configuration")]
     pub resolc_configuration: ResolcConfiguration,
 
     /// Configuration parameters for the geth node.
-    #[clap(flatten)]
+    #[clap(flatten, next_help_heading = "Geth Configuration")]
     pub geth_configuration: GethConfiguration,
 
     /// Configuration parameters for the Kitchensink.
-    #[clap(flatten)]
+    #[clap(flatten, next_help_heading = "Kitchensink Configuration")]
     pub kitchensink_configuration: KitchensinkConfiguration,
 
     /// Configuration parameters for the Revive Dev Node.
-    #[clap(flatten)]
+    #[clap(flatten, next_help_heading = "Revive Dev Node Configuration")]
     pub revive_dev_node_configuration: ReviveDevNodeConfiguration,
 
     /// Configuration parameters for the Eth Rpc.
-    #[clap(flatten)]
+    #[clap(flatten, next_help_heading = "Eth RPC Configuration")]
     pub eth_rpc_configuration: EthRpcConfiguration,
 
     /// Configuration parameters for the genesis.
-    #[clap(flatten)]
+    #[clap(flatten, next_help_heading = "Genesis Configuration")]
     pub genesis_configuration: GenesisConfiguration,
 
     /// Configuration parameters for the wallet.
-    #[clap(flatten)]
+    #[clap(flatten, next_help_heading = "Wallet Configuration")]
     pub wallet_configuration: WalletConfiguration,
 
     /// Configuration parameters for concurrency.
-    #[clap(flatten)]
+    #[clap(flatten, next_help_heading = "Concurrency Configuration")]
     pub concurrency_configuration: ConcurrencyConfiguration,
 
     /// Configuration parameters for the compilers and compilation.
-    #[clap(flatten)]
+    #[clap(flatten, next_help_heading = "Compilation Configuration")]
     pub compilation_configuration: CompilationConfiguration,
 
     /// Configuration parameters for the report.
-    #[clap(flatten)]
+    #[clap(flatten, next_help_heading = "Report Configuration")]
     pub report_configuration: ReportConfiguration,
 }
 
@@ -222,7 +222,7 @@ pub struct ResolcConfiguration {
     ///
     /// If this is not specified, then the tool assumes that it should use the resolc binary that's
     /// provided in the user's $PATH.
-    #[clap(long = "resolc.path", default_value = "resolc")]
+    #[clap(id = "resolc.path", long = "resolc.path", default_value = "resolc")]
     pub path: PathBuf,
 }
 
@@ -233,11 +233,12 @@ pub struct GethConfiguration {
     ///
     /// If this is not specified, then the tool assumes that it should use the geth binary that's
     /// provided in the user's $PATH.
-    #[clap(long = "geth.path", default_value = "geth")]
+    #[clap(id = "geth.path", long = "geth.path", default_value = "geth")]
     pub path: PathBuf,
 
     /// The amount of time to wait upon startup before considering that the node timed out.
     #[clap(
+        id = "geth.start-timeout-ms",
         long = "geth.start-timeout-ms",
         default_value = "5000",
         value_parser = parse_duration
@@ -252,11 +253,16 @@ pub struct KitchensinkConfiguration {
     ///
     /// If this is not specified, then the tool assumes that it should use the kitchensink binary
     /// that's provided in the user's $PATH.
-    #[clap(long = "kitchensink.path", default_value = "kitchensink")]
+    #[clap(
+        id = "kitchensink.path",
+        long = "kitchensink.path",
+        default_value = "kitchensink"
+    )]
     pub path: PathBuf,
 
     /// The amount of time to wait upon startup before considering that the node timed out.
     #[clap(
+        id = "kitchensink.start-timeout-ms",
         long = "kitchensink.start-timeout-ms",
         default_value = "5000",
         value_parser = parse_duration
@@ -275,11 +281,16 @@ pub struct ReviveDevNodeConfiguration {
     ///
     /// If this is not specified, then the tool assumes that it should use the revive dev node binary
     /// that's provided in the user's $PATH.
-    #[clap(long = "revive-dev-node.path", default_value = "revive-dev-node")]
+    #[clap(
+        id = "revive-dev-node.path",
+        long = "revive-dev-node.path",
+        default_value = "revive-dev-node"
+    )]
     pub path: PathBuf,
 
     /// The amount of time to wait upon startup before considering that the node timed out.
     #[clap(
+        id = "revive-dev-node.start-timeout-ms",
         long = "revive-dev-node.start-timeout-ms",
         default_value = "5000",
         value_parser = parse_duration
@@ -294,11 +305,12 @@ pub struct EthRpcConfiguration {
     ///
     /// If this is not specified, then the tool assumes that it should use the ETH RPC binary
     /// that's provided in the user's $PATH.
-    #[clap(long = "eth-rpc.path", default_value = "eth-rpc")]
+    #[clap(id = "eth-rpc.path", long = "eth-rpc.path", default_value = "eth-rpc")]
     pub path: PathBuf,
 
     /// The amount of time to wait upon startup before considering that the node timed out.
     #[clap(
+        id = "eth-rpc.start-timeout-ms",
         long = "eth-rpc.start-timeout-ms",
         default_value = "5000",
         value_parser = parse_duration
@@ -312,7 +324,7 @@ pub struct GenesisConfiguration {
     /// Specifies the path of the genesis file to use for the nodes that are started.
     ///
     /// This is expected to be the path of a JSON geth genesis file.
-    #[clap(long = "genesis.path")]
+    #[clap(id = "genesis.path", long = "genesis.path")]
     path: Option<PathBuf>,
 
     /// The genesis object found at the provided path.
@@ -401,7 +413,7 @@ pub struct ConcurrencyConfiguration {
 
     /// Determines the amount of tokio worker threads that will will be used.
     #[arg(
-        long = "concurrency.number-of-nodes",
+        long = "concurrency.number-of-threads",
         default_value_t = std::thread::available_parallelism()
             .map(|n| n.get())
             .unwrap_or(1)
@@ -541,6 +553,7 @@ fn parse_duration(s: &str) -> anyhow::Result<Duration> {
     AsRefStr,
     IntoStaticStr,
 )]
+#[strum(serialize_all = "kebab-case")]
 pub enum TestingPlatform {
     /// The go-ethereum reference full node EVM implementation.
     Geth,

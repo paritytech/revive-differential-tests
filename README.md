@@ -187,10 +187,11 @@ The above corpus file instructs the tool to look for all of the test cases conta
 The simplest command to run this tool is the following:
 
 ```bash
-RUST_LOG="info" cargo run --release -- \
+RUST_LOG="info" cargo run --release -- execute-tests \
+    --follower geth \
     --corpus path_to_your_corpus_file.json \
-    --workdir path_to_a_temporary_directory_to_cache_things_in \
-    --number-of-nodes 5 \
+    --working-directory path_to_a_temporary_directory_to_cache_things_in \
+    --concurrency.number-of-nodes 5 \
     > logs.log \
     2> output.log
 ```
