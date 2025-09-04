@@ -46,7 +46,8 @@ impl SolidityCompiler for Solc {
         // This is a cache for the compiler objects so that whenever the same compiler version is
         // requested the same object is returned. We do this as we do not want to keep cloning the
         // compiler around.
-        static COMPILERS_CACHE: LazyLock<DashMap<Version, Solc>> = LazyLock::new(Default::default);
+        static COMPILERS_CACHE: LazyLock<DashMap<(PathBuf, Version), Solc>> =
+            LazyLock::new(Default::default);
 
         let working_directory_configuration =
             AsRef::<WorkingDirectoryConfiguration>::as_ref(&context);
@@ -65,7 +66,7 @@ impl SolidityCompiler for Solc {
                 .context("Failed to download/get path to solc binary")?;
 
         Ok(COMPILERS_CACHE
-            .entry(version.clone())
+            .entry((path.clone(), version.clone()))
             .or_insert_with(|| {
                 Self(Arc::new(SolcInner {
                     solc_path: path,

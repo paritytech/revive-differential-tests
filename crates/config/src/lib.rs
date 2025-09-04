@@ -256,7 +256,7 @@ pub struct KitchensinkConfiguration {
     #[clap(
         id = "kitchensink.path",
         long = "kitchensink.path",
-        default_value = "kitchensink"
+        default_value = "substrate-node"
     )]
     pub path: PathBuf,
 
