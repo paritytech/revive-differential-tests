@@ -1338,20 +1338,9 @@ mod tests {
     }
 
     #[test]
-    fn spawn_works() {
-        let config = test_config();
-
-        let mut node = KitchensinkNode::new(&config);
-
-        node.spawn(config.genesis_configuration.genesis().unwrap().clone())
-            .unwrap();
-    }
-
-    #[test]
     fn version_works() {
-        let config = test_config();
+        let node = shared_node();
 
-        let node = KitchensinkNode::new(&config);
         let version = node.version().unwrap();
 
         assert!(
@@ -1362,9 +1351,8 @@ mod tests {
 
     #[test]
     fn eth_rpc_version_works() {
-        let config = test_config();
+        let node = shared_node();
 
-        let node = KitchensinkNode::new(&config);
         let version = node.eth_rpc_version().unwrap();
 
         assert!(
