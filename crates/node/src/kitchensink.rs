@@ -1138,7 +1138,9 @@ mod tests {
     use crate::Node;
 
     fn test_config() -> ExecutionContext {
-        ExecutionContext::default()
+        let mut context = ExecutionContext::default();
+        context.kitchensink_configuration.use_kitchensink = true;
+        context
     }
 
     fn new_node() -> (ExecutionContext, KitchensinkNode) {
