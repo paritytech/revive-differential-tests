@@ -8,7 +8,7 @@ use alloy::{
     rpc::types::TransactionRequest,
 };
 use alloy_primitives::{FixedBytes, utils::parse_units};
-use anyhow::Context;
+use anyhow::Context as _;
 use futures::{FutureExt, StreamExt, TryFutureExt, TryStreamExt, stream};
 use semver::VersionReq;
 use serde::{Deserialize, Serialize};

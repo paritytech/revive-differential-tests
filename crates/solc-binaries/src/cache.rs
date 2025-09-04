@@ -13,7 +13,7 @@ use semver::Version;
 use tokio::sync::Mutex;
 
 use crate::download::SolcDownloader;
-use anyhow::Context;
+use anyhow::Context as _;
 
 pub const SOLC_CACHE_DIRECTORY: &str = "solc";
 pub(crate) static SOLC_CACHER: LazyLock<Mutex<HashSet<PathBuf>>> = LazyLock::new(Default::default);

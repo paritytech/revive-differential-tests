@@ -1,7 +1,8 @@
 //! This crate implements the testing nodes.
 
+use alloy::genesis::Genesis;
 use revive_common::EVMVersion;
-use revive_dt_config::Arguments;
+use revive_dt_config::*;
 use revive_dt_node_interaction::EthereumNode;
 
 pub mod common;
@@ -10,13 +11,20 @@ pub mod geth;
 pub mod kitchensink;
 pub mod pool;
 
-/// The default genesis configuration.
-pub const GENESIS_JSON: &str = include_str!("../../../genesis.json");
-
 /// An abstract interface for testing nodes.
 pub trait Node: EthereumNode {
     /// Create a new uninitialized instance.
-    fn new(config: &Arguments) -> Self;
+    fn new(
+        context: impl AsRef<WorkingDirectoryConfiguration>
+        + AsRef<ConcurrencyConfiguration>
+        + AsRef<GenesisConfiguration>
+        + AsRef<WalletConfiguration>
+        + AsRef<GethConfiguration>
+        + AsRef<KitchensinkConfiguration>
+        + AsRef<ReviveDevNodeConfiguration>
+        + AsRef<EthRpcConfiguration>
+        + Clone,
+    ) -> Self;
 
     /// Returns the identifier of the node.
     fn id(&self) -> usize;
@@ -24,7 +32,7 @@ pub trait Node: EthereumNode {
     /// Spawns a node configured according to the genesis json.
     ///
     /// Blocking until it's ready to accept transactions.
-    fn spawn(&mut self, genesis: String) -> anyhow::Result<()>;
+    fn spawn(&mut self, genesis: Genesis) -> anyhow::Result<()>;
 
     /// Prune the node instance and related data.
     ///

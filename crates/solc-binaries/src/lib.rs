@@ -5,7 +5,7 @@
 
 use std::path::{Path, PathBuf};
 
-use anyhow::Context;
+use anyhow::Context as _;
 use cache::get_or_download;
 use download::SolcDownloader;
 

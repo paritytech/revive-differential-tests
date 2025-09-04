@@ -19,8 +19,8 @@ use alloy::{
         TransactionBuilderError, UnbuiltTransactionError,
     },
     primitives::{
-        Address, B64, B256, BlockHash, BlockNumber, BlockTimestamp, Bloom, Bytes, FixedBytes,
-        StorageKey, TxHash, U256,
+        Address, B64, B256, BlockHash, BlockNumber, BlockTimestamp, Bloom, Bytes, StorageKey,
+        TxHash, U256,
     },
     providers::{
         Provider, ProviderBuilder,
@@ -32,9 +32,8 @@ use alloy::{
         eth::{Block, Header, Transaction},
         trace::geth::{DiffMode, GethDebugTracingOptions, PreStateConfig, PreStateFrame},
     },
-    signers::local::PrivateKeySigner,
 };
-use anyhow::Context;
+use anyhow::Context as _;
 use revive_common::EVMVersion;
 use revive_dt_common::fs::clear_directory;
 use revive_dt_format::traits::ResolverApi;
@@ -43,7 +42,7 @@ use serde_json::{Value as JsonValue, json};
 use sp_core::crypto::Ss58Codec;
 use sp_runtime::AccountId32;
 
-use revive_dt_config::Arguments;
+use revive_dt_config::*;
 use revive_dt_node_interaction::EthereumNode;
 
 use crate::{Node, common::FallbackGasFiller, constants::INITIAL_BALANCE};
@@ -92,7 +91,7 @@ impl KitchensinkNode {
     const PROXY_STDOUT_LOG_FILE_NAME: &str = "proxy_stdout.log";
     const PROXY_STDERR_LOG_FILE_NAME: &str = "proxy_stderr.log";
 
-    fn init(&mut self, genesis: &str) -> anyhow::Result<&mut Self> {
+    fn init(&mut self, mut genesis: Genesis) -> anyhow::Result<&mut Self> {
         let _ = clear_directory(&self.base_directory);
         let _ = clear_directory(&self.logs_directory);
 
@@ -153,8 +152,6 @@ impl KitchensinkNode {
             })
             .collect();
         let mut eth_balances = {
-            let mut genesis = serde_json::from_str::<Genesis>(genesis)
-                .context("Failed to deserialize EVM genesis JSON for kitchensink")?;
             for signer_address in
                 <EthereumWallet as NetworkWallet<Ethereum>>::signer_addresses(&self.wallet)
             {
@@ -586,35 +583,47 @@ impl ResolverApi for KitchensinkNode {
 }
 
 impl Node for KitchensinkNode {
-    fn new(config: &Arguments) -> Self {
-        let kitchensink_directory = config.directory().join(Self::BASE_DIRECTORY);
+    fn new(
+        context: impl AsRef<WorkingDirectoryConfiguration>
+        + AsRef<ConcurrencyConfiguration>
+        + AsRef<GenesisConfiguration>
+        + AsRef<WalletConfiguration>
+        + AsRef<GethConfiguration>
+        + AsRef<KitchensinkConfiguration>
+        + AsRef<ReviveDevNodeConfiguration>
+        + AsRef<EthRpcConfiguration>
+        + Clone,
+    ) -> Self {
+        let kitchensink_configuration = AsRef::<KitchensinkConfiguration>::as_ref(&context);
+        let dev_node_configuration = AsRef::<ReviveDevNodeConfiguration>::as_ref(&context);
+        let eth_rpc_configuration = AsRef::<EthRpcConfiguration>::as_ref(&context);
+        let working_directory_configuration =
+            AsRef::<WorkingDirectoryConfiguration>::as_ref(&context);
+        let wallet_configuration = AsRef::<WalletConfiguration>::as_ref(&context);
+
+        let kitchensink_directory = working_directory_configuration
+            .as_path()
+            .join(Self::BASE_DIRECTORY);
         let id = NODE_COUNT.fetch_add(1, Ordering::SeqCst);
         let base_directory = kitchensink_directory.join(id.to_string());
         let logs_directory = base_directory.join(Self::LOGS_DIRECTORY);
 
-        let mut wallet = config.wallet();
-        for signer in (1..=config.private_keys_to_add)
-            .map(|id| U256::from(id))
-            .map(|id| id.to_be_bytes::<32>())
-            .map(|id| PrivateKeySigner::from_bytes(&FixedBytes(id)).unwrap())
-        {
-            wallet.register_signer(signer);
-        }
+        let wallet = wallet_configuration.wallet();
 
         Self {
             id,
-            substrate_binary: config.kitchensink.clone(),
-            dev_node_binary: config.revive_dev_node.clone(),
-            eth_proxy_binary: config.eth_proxy.clone(),
+            substrate_binary: kitchensink_configuration.path.clone(),
+            dev_node_binary: dev_node_configuration.path.clone(),
+            eth_proxy_binary: eth_rpc_configuration.path.clone(),
             rpc_url: String::new(),
             base_directory,
             logs_directory,
             process_substrate: None,
             process_proxy: None,
-            wallet: Arc::new(wallet),
+            wallet: wallet.clone(),
             chain_id_filler: Default::default(),
             nonce_manager: Default::default(),
-            use_kitchensink_not_dev_node: config.use_kitchensink_not_dev_node,
+            use_kitchensink_not_dev_node: kitchensink_configuration.use_kitchensink,
             // We know that we only need to be storing 4 files so we can specify that when creating
             // the vector. It's the stdout and stderr of the substrate-node and the eth-rpc.
             logs_file_to_flush: Vec::with_capacity(4),
@@ -655,8 +664,8 @@ impl Node for KitchensinkNode {
         Ok(())
     }
 
-    fn spawn(&mut self, genesis: String) -> anyhow::Result<()> {
-        self.init(&genesis)?.spawn_process()
+    fn spawn(&mut self, genesis: Genesis) -> anyhow::Result<()> {
+        self.init(genesis)?.spawn_process()
     }
 
     fn version(&self) -> anyhow::Result<String> {
@@ -1121,25 +1130,20 @@ impl BlockHeader for KitchenSinkHeader {
 #[cfg(test)]
 mod tests {
     use alloy::rpc::types::TransactionRequest;
-    use revive_dt_config::Arguments;
-    use std::path::PathBuf;
     use std::sync::{LazyLock, Mutex};
 
     use std::fs;
 
     use super::*;
-    use crate::{GENESIS_JSON, Node};
+    use crate::Node;
 
-    fn test_config() -> Arguments {
-        Arguments {
-            kitchensink: PathBuf::from("substrate-node"),
-            eth_proxy: PathBuf::from("eth-rpc"),
-            use_kitchensink_not_dev_node: true,
-            ..Default::default()
-        }
+    fn test_config() -> ExecutionContext {
+        let mut context = ExecutionContext::default();
+        context.kitchensink_configuration.use_kitchensink = true;
+        context
     }
 
-    fn new_node() -> (KitchensinkNode, Arguments) {
+    fn new_node() -> (ExecutionContext, KitchensinkNode) {
         // Note: When we run the tests in the CI we found that if they're all
         // run in parallel then the CI is unable to start all of the nodes in
         // time and their start up times-out. Therefore, we want all of the
@@ -1158,32 +1162,36 @@ mod tests {
         static NODE_START_MUTEX: Mutex<()> = Mutex::new(());
         let _guard = NODE_START_MUTEX.lock().unwrap();
 
-        let args = test_config();
-        let mut node = KitchensinkNode::new(&args);
-        node.init(GENESIS_JSON)
+        let context = test_config();
+        let mut node = KitchensinkNode::new(&context);
+        node.init(context.genesis_configuration.genesis().unwrap().clone())
             .expect("Failed to initialize the node")
             .spawn_process()
             .expect("Failed to spawn the node process");
-        (node, args)
+        (context, node)
     }
 
     /// A shared node that multiple tests can use. It starts up once.
     fn shared_node() -> &'static KitchensinkNode {
-        static NODE: LazyLock<(KitchensinkNode, Arguments)> = LazyLock::new(|| {
-            let (node, args) = new_node();
-            (node, args)
+        static NODE: LazyLock<(ExecutionContext, KitchensinkNode)> = LazyLock::new(|| {
+            let (context, node) = new_node();
+            (context, node)
         });
-        &NODE.0
+        &NODE.1
     }
 
     #[tokio::test]
     async fn node_mines_simple_transfer_transaction_and_returns_receipt() {
         // Arrange
-        let (node, args) = new_node();
+        let (context, node) = new_node();
 
         let provider = node.provider().await.expect("Failed to create provider");
 
-        let account_address = args.wallet().default_signer().address();
+        let account_address = context
+            .wallet_configuration
+            .wallet()
+            .default_signer()
+            .address();
         let transaction = TransactionRequest::default()
             .to(account_address)
             .value(U256::from(100_000_000_000_000u128));
@@ -1217,7 +1225,9 @@ mod tests {
         let mut dummy_node = KitchensinkNode::new(&test_config());
 
         // Call `init()`
-        dummy_node.init(genesis_content).expect("init failed");
+        dummy_node
+            .init(serde_json::from_str(genesis_content).unwrap())
+            .expect("init failed");
 
         // Check that the patched chainspec file was generated
         let final_chainspec_path = dummy_node
@@ -1328,19 +1338,9 @@ mod tests {
     }
 
     #[test]
-    fn spawn_works() {
-        let config = test_config();
-
-        let mut node = KitchensinkNode::new(&config);
-
-        node.spawn(GENESIS_JSON.to_string()).unwrap();
-    }
-
-    #[test]
     fn version_works() {
-        let config = test_config();
+        let node = shared_node();
 
-        let node = KitchensinkNode::new(&config);
         let version = node.version().unwrap();
 
         assert!(
@@ -1351,9 +1351,8 @@ mod tests {
 
     #[test]
     fn eth_rpc_version_works() {
-        let config = test_config();
+        let node = shared_node();
 
-        let node = KitchensinkNode::new(&config);
         let version = node.eth_rpc_version().unwrap();
 
         assert!(

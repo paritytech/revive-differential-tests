@@ -18,7 +18,7 @@ use alloy::{
     primitives::Address,
     rpc::types::{TransactionRequest, trace::geth::DiffMode},
 };
-use anyhow::Context;
+use anyhow::Context as _;
 use futures::TryStreamExt;
 use indexmap::IndexMap;
 use revive_dt_format::traits::{ResolutionContext, ResolverApi};

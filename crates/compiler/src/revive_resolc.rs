@@ -9,7 +9,7 @@ use std::{
 
 use dashmap::DashMap;
 use revive_dt_common::types::VersionOrRequirement;
-use revive_dt_config::Arguments;
+use revive_dt_config::{ResolcConfiguration, SolcConfiguration, WorkingDirectoryConfiguration};
 use revive_solc_json_interface::{
     SolcStandardJsonInput, SolcStandardJsonInputLanguage, SolcStandardJsonInputSettings,
     SolcStandardJsonInputSettingsOptimizer, SolcStandardJsonInputSettingsSelection,
@@ -21,7 +21,7 @@ use crate::{
 };
 
 use alloy::json_abi::JsonAbi;
-use anyhow::{Context, Result};
+use anyhow::{Context as _, Result};
 use semver::Version;
 use tokio::{io::AsyncWriteExt, process::Command as AsyncCommand};
 
@@ -39,7 +39,9 @@ struct ResolcInner {
 
 impl SolidityCompiler for Resolc {
     async fn new(
-        config: &Arguments,
+        context: impl AsRef<SolcConfiguration>
+        + AsRef<ResolcConfiguration>
+        + AsRef<WorkingDirectoryConfiguration>,
         version: impl Into<Option<VersionOrRequirement>>,
     ) -> Result<Self> {
         /// This is a cache of all of the resolc compiler objects. Since we do not currently support
@@ -47,7 +49,9 @@ impl SolidityCompiler for Resolc {
         /// its version to the resolc compiler.
         static COMPILERS_CACHE: LazyLock<DashMap<Solc, Resolc>> = LazyLock::new(Default::default);
 
-        let solc = Solc::new(config, version)
+        let resolc_configuration = AsRef::<ResolcConfiguration>::as_ref(&context);
+
+        let solc = Solc::new(&context, version)
             .await
             .context("Failed to create the solc compiler frontend for resolc")?;
 
@@ -56,7 +60,7 @@ impl SolidityCompiler for Resolc {
             .or_insert_with(|| {
                 Self(Arc::new(ResolcInner {
                     solc,
-                    resolc_path: config.resolc.clone(),
+                    resolc_path: resolc_configuration.path.clone(),
                 }))
             })
             .clone())

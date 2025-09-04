@@ -2,215 +2,561 @@
 
 use std::{
     fmt::Display,
+    fs::read_to_string,
+    ops::Deref,
     path::{Path, PathBuf},
-    sync::LazyLock,
+    str::FromStr,
+    sync::{Arc, LazyLock, OnceLock},
+    time::Duration,
 };
 
-use alloy::{network::EthereumWallet, signers::local::PrivateKeySigner};
-use clap::{Parser, ValueEnum};
+use alloy::{
+    genesis::Genesis,
+    hex::ToHexExt,
+    network::EthereumWallet,
+    primitives::{FixedBytes, U256},
+    signers::local::PrivateKeySigner,
+};
+use clap::{Parser, ValueEnum, ValueHint};
 use semver::Version;
-use serde::{Deserialize, Serialize};
+use serde::{Serialize, Serializer};
+use strum::{AsRefStr, Display, EnumString, IntoStaticStr};
 use temp_dir::TempDir;
 
-#[derive(Debug, Parser, Clone, Serialize, Deserialize)]
+#[derive(Clone, Debug, Parser, Serialize)]
 #[command(name = "retester")]
-pub struct Arguments {
-    /// The `solc` version to use if the test didn't specify it explicitly.
-    #[arg(long = "solc", short, default_value = "0.8.29")]
-    pub solc: Version,
+pub enum Context {
+    /// Executes tests in the MatterLabs format differentially against a leader and a follower.
+    ExecuteTests(ExecutionContext),
+}
 
-    /// Use the Wasm compiler versions.
-    #[arg(long = "wasm")]
-    pub wasm: bool,
+impl Context {
+    pub fn working_directory_configuration(&self) -> &WorkingDirectoryConfiguration {
+        self.as_ref()
+    }
 
-    /// The path to the `resolc` executable to be tested.
+    pub fn report_configuration(&self) -> &ReportConfiguration {
+        self.as_ref()
+    }
+}
+
+impl AsRef<WorkingDirectoryConfiguration> for Context {
+    fn as_ref(&self) -> &WorkingDirectoryConfiguration {
+        match self {
+            Context::ExecuteTests(execution_context) => &execution_context.working_directory,
+        }
+    }
+}
+
+impl AsRef<ReportConfiguration> for Context {
+    fn as_ref(&self) -> &ReportConfiguration {
+        match self {
+            Context::ExecuteTests(execution_context) => &execution_context.report_configuration,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Parser, Serialize)]
+pub struct ExecutionContext {
+    /// The working directory that the program will use for all of the temporary artifacts needed at
+    /// runtime.
     ///
-    /// By default it uses the `resolc` binary found in `$PATH`.
-    ///
-    /// If `--wasm` is set, this should point to the resolc Wasm ile.
-    #[arg(long = "resolc", short, default_value = "resolc")]
-    pub resolc: PathBuf,
+    /// If not specified, then a temporary directory will be created and used by the program for all
+    /// temporary artifacts.
+    #[clap(
+        short,
+        long,
+        default_value = "",
+        value_hint = ValueHint::DirPath,
+    )]
+    pub working_directory: WorkingDirectoryConfiguration,
+
+    /// The differential testing leader node implementation.
+    #[arg(short, long = "leader", default_value_t = TestingPlatform::Geth)]
+    pub leader: TestingPlatform,
+
+    /// The differential testing follower node implementation.
+    #[arg(short, long = "follower", default_value_t = TestingPlatform::Kitchensink)]
+    pub follower: TestingPlatform,
 
     /// A list of test corpus JSON files to be tested.
     #[arg(long = "corpus", short)]
     pub corpus: Vec<PathBuf>,
 
-    /// A place to store temporary artifacts during test execution.
-    ///
-    /// Creates a temporary dir if not specified.
-    #[arg(long = "workdir", short)]
-    pub working_directory: Option<PathBuf>,
+    /// Configuration parameters for the solc compiler.
+    #[clap(flatten, next_help_heading = "Solc Configuration")]
+    pub solc_configuration: SolcConfiguration,
 
-    /// Add a tempdir manually if `working_directory` was not given.
+    /// Configuration parameters for the resolc compiler.
+    #[clap(flatten, next_help_heading = "Resolc Configuration")]
+    pub resolc_configuration: ResolcConfiguration,
+
+    /// Configuration parameters for the geth node.
+    #[clap(flatten, next_help_heading = "Geth Configuration")]
+    pub geth_configuration: GethConfiguration,
+
+    /// Configuration parameters for the Kitchensink.
+    #[clap(flatten, next_help_heading = "Kitchensink Configuration")]
+    pub kitchensink_configuration: KitchensinkConfiguration,
+
+    /// Configuration parameters for the Revive Dev Node.
+    #[clap(flatten, next_help_heading = "Revive Dev Node Configuration")]
+    pub revive_dev_node_configuration: ReviveDevNodeConfiguration,
+
+    /// Configuration parameters for the Eth Rpc.
+    #[clap(flatten, next_help_heading = "Eth RPC Configuration")]
+    pub eth_rpc_configuration: EthRpcConfiguration,
+
+    /// Configuration parameters for the genesis.
+    #[clap(flatten, next_help_heading = "Genesis Configuration")]
+    pub genesis_configuration: GenesisConfiguration,
+
+    /// Configuration parameters for the wallet.
+    #[clap(flatten, next_help_heading = "Wallet Configuration")]
+    pub wallet_configuration: WalletConfiguration,
+
+    /// Configuration parameters for concurrency.
+    #[clap(flatten, next_help_heading = "Concurrency Configuration")]
+    pub concurrency_configuration: ConcurrencyConfiguration,
+
+    /// Configuration parameters for the compilers and compilation.
+    #[clap(flatten, next_help_heading = "Compilation Configuration")]
+    pub compilation_configuration: CompilationConfiguration,
+
+    /// Configuration parameters for the report.
+    #[clap(flatten, next_help_heading = "Report Configuration")]
+    pub report_configuration: ReportConfiguration,
+}
+
+impl Default for ExecutionContext {
+    fn default() -> Self {
+        Self::parse_from(["execution-context"])
+    }
+}
+
+impl AsRef<WorkingDirectoryConfiguration> for ExecutionContext {
+    fn as_ref(&self) -> &WorkingDirectoryConfiguration {
+        &self.working_directory
+    }
+}
+
+impl AsRef<SolcConfiguration> for ExecutionContext {
+    fn as_ref(&self) -> &SolcConfiguration {
+        &self.solc_configuration
+    }
+}
+
+impl AsRef<ResolcConfiguration> for ExecutionContext {
+    fn as_ref(&self) -> &ResolcConfiguration {
+        &self.resolc_configuration
+    }
+}
+
+impl AsRef<GethConfiguration> for ExecutionContext {
+    fn as_ref(&self) -> &GethConfiguration {
+        &self.geth_configuration
+    }
+}
+
+impl AsRef<KitchensinkConfiguration> for ExecutionContext {
+    fn as_ref(&self) -> &KitchensinkConfiguration {
+        &self.kitchensink_configuration
+    }
+}
+
+impl AsRef<ReviveDevNodeConfiguration> for ExecutionContext {
+    fn as_ref(&self) -> &ReviveDevNodeConfiguration {
+        &self.revive_dev_node_configuration
+    }
+}
+
+impl AsRef<EthRpcConfiguration> for ExecutionContext {
+    fn as_ref(&self) -> &EthRpcConfiguration {
+        &self.eth_rpc_configuration
+    }
+}
+
+impl AsRef<GenesisConfiguration> for ExecutionContext {
+    fn as_ref(&self) -> &GenesisConfiguration {
+        &self.genesis_configuration
+    }
+}
+
+impl AsRef<WalletConfiguration> for ExecutionContext {
+    fn as_ref(&self) -> &WalletConfiguration {
+        &self.wallet_configuration
+    }
+}
+
+impl AsRef<ConcurrencyConfiguration> for ExecutionContext {
+    fn as_ref(&self) -> &ConcurrencyConfiguration {
+        &self.concurrency_configuration
+    }
+}
+
+impl AsRef<CompilationConfiguration> for ExecutionContext {
+    fn as_ref(&self) -> &CompilationConfiguration {
+        &self.compilation_configuration
+    }
+}
+
+impl AsRef<ReportConfiguration> for ExecutionContext {
+    fn as_ref(&self) -> &ReportConfiguration {
+        &self.report_configuration
+    }
+}
+
+/// A set of configuration parameters for Solc.
+#[derive(Clone, Debug, Parser, Serialize)]
+pub struct SolcConfiguration {
+    /// Specifies the default version of the Solc compiler that should be used if there is no
+    /// override specified by one of the test cases.
+    #[clap(long = "solc.version", default_value = "0.8.29")]
+    pub version: Version,
+}
+
+/// A set of configuration parameters for Resolc.
+#[derive(Clone, Debug, Parser, Serialize)]
+pub struct ResolcConfiguration {
+    /// Specifies the path of the resolc compiler to be used by the tool.
     ///
-    /// We attach it here because [TempDir] prunes itself on drop.
+    /// If this is not specified, then the tool assumes that it should use the resolc binary that's
+    /// provided in the user's $PATH.
+    #[clap(id = "resolc.path", long = "resolc.path", default_value = "resolc")]
+    pub path: PathBuf,
+}
+
+/// A set of configuration parameters for Geth.
+#[derive(Clone, Debug, Parser, Serialize)]
+pub struct GethConfiguration {
+    /// Specifies the path of the geth node to be used by the tool.
+    ///
+    /// If this is not specified, then the tool assumes that it should use the geth binary that's
+    /// provided in the user's $PATH.
+    #[clap(id = "geth.path", long = "geth.path", default_value = "geth")]
+    pub path: PathBuf,
+
+    /// The amount of time to wait upon startup before considering that the node timed out.
+    #[clap(
+        id = "geth.start-timeout-ms",
+        long = "geth.start-timeout-ms",
+        default_value = "5000",
+        value_parser = parse_duration
+    )]
+    pub start_timeout_ms: Duration,
+}
+
+/// A set of configuration parameters for Kitchensink.
+#[derive(Clone, Debug, Parser, Serialize)]
+pub struct KitchensinkConfiguration {
+    /// Specifies the path of the kitchensink node to be used by the tool.
+    ///
+    /// If this is not specified, then the tool assumes that it should use the kitchensink binary
+    /// that's provided in the user's $PATH.
+    #[clap(
+        id = "kitchensink.path",
+        long = "kitchensink.path",
+        default_value = "substrate-node"
+    )]
+    pub path: PathBuf,
+
+    /// The amount of time to wait upon startup before considering that the node timed out.
+    #[clap(
+        id = "kitchensink.start-timeout-ms",
+        long = "kitchensink.start-timeout-ms",
+        default_value = "5000",
+        value_parser = parse_duration
+    )]
+    pub start_timeout_ms: Duration,
+
+    /// This configures the tool to use Kitchensink instead of using the revive-dev-node.
+    #[clap(long = "kitchensink.dont-use-dev-node")]
+    pub use_kitchensink: bool,
+}
+
+/// A set of configuration parameters for the revive dev node.
+#[derive(Clone, Debug, Parser, Serialize)]
+pub struct ReviveDevNodeConfiguration {
+    /// Specifies the path of the revive dev node to be used by the tool.
+    ///
+    /// If this is not specified, then the tool assumes that it should use the revive dev node binary
+    /// that's provided in the user's $PATH.
+    #[clap(
+        id = "revive-dev-node.path",
+        long = "revive-dev-node.path",
+        default_value = "revive-dev-node"
+    )]
+    pub path: PathBuf,
+
+    /// The amount of time to wait upon startup before considering that the node timed out.
+    #[clap(
+        id = "revive-dev-node.start-timeout-ms",
+        long = "revive-dev-node.start-timeout-ms",
+        default_value = "5000",
+        value_parser = parse_duration
+    )]
+    pub start_timeout_ms: Duration,
+}
+
+/// A set of configuration parameters for the ETH RPC.
+#[derive(Clone, Debug, Parser, Serialize)]
+pub struct EthRpcConfiguration {
+    /// Specifies the path of the ETH RPC to be used by the tool.
+    ///
+    /// If this is not specified, then the tool assumes that it should use the ETH RPC binary
+    /// that's provided in the user's $PATH.
+    #[clap(id = "eth-rpc.path", long = "eth-rpc.path", default_value = "eth-rpc")]
+    pub path: PathBuf,
+
+    /// The amount of time to wait upon startup before considering that the node timed out.
+    #[clap(
+        id = "eth-rpc.start-timeout-ms",
+        long = "eth-rpc.start-timeout-ms",
+        default_value = "5000",
+        value_parser = parse_duration
+    )]
+    pub start_timeout_ms: Duration,
+}
+
+/// A set of configuration parameters for the genesis.
+#[derive(Clone, Debug, Parser, Serialize)]
+pub struct GenesisConfiguration {
+    /// Specifies the path of the genesis file to use for the nodes that are started.
+    ///
+    /// This is expected to be the path of a JSON geth genesis file.
+    #[clap(id = "genesis.path", long = "genesis.path")]
+    path: Option<PathBuf>,
+
+    /// The genesis object found at the provided path.
     #[clap(skip)]
     #[serde(skip)]
-    pub temp_dir: Option<&'static TempDir>,
+    genesis: OnceLock<Genesis>,
+}
 
-    /// The path to the `geth` executable.
-    ///
-    /// By default it uses `geth` binary found in `$PATH`.
-    #[arg(short, long = "geth", default_value = "geth")]
-    pub geth: PathBuf,
+impl GenesisConfiguration {
+    pub fn genesis(&self) -> anyhow::Result<&Genesis> {
+        static DEFAULT_GENESIS: LazyLock<Genesis> = LazyLock::new(|| {
+            let genesis = include_str!("../../../genesis.json");
+            serde_json::from_str(genesis).unwrap()
+        });
 
-    /// The maximum time in milliseconds to wait for geth to start.
-    #[arg(long = "geth-start-timeout", default_value = "5000")]
-    pub geth_start_timeout: u64,
+        match self.genesis.get() {
+            Some(genesis) => Ok(genesis),
+            None => {
+                let genesis = match self.path.as_ref() {
+                    Some(genesis_path) => {
+                        let genesis_content = read_to_string(genesis_path)?;
+                        serde_json::from_str(genesis_content.as_str())?
+                    }
+                    None => DEFAULT_GENESIS.clone(),
+                };
+                Ok(self.genesis.get_or_init(|| genesis))
+            }
+        }
+    }
+}
 
-    /// Configure nodes according to this genesis.json file.
-    #[arg(long = "genesis", default_value = "genesis.json")]
-    pub genesis_file: PathBuf,
-
-    /// The signing account private key.
-    #[arg(
-        short,
-        long = "account",
+/// A set of configuration parameters for the wallet.
+#[derive(Clone, Debug, Parser, Serialize)]
+pub struct WalletConfiguration {
+    /// The private key of the default signer.
+    #[clap(
+        long = "wallet.default-private-key",
         default_value = "0x4f3edf983ac636a65a842ce7c78d9aa706d3b113bce9c46f30d7d21715b23b1d"
     )]
-    pub account: String,
+    #[serde(serialize_with = "serialize_private_key")]
+    default_key: PrivateKeySigner,
 
     /// This argument controls which private keys the nodes should have access to and be added to
     /// its wallet signers. With a value of N, private keys (0, N] will be added to the signer set
     /// of the node.
-    #[arg(long = "private-keys-count", default_value_t = 100_000)]
-    pub private_keys_to_add: usize,
+    #[clap(long = "wallet.additional-keys", default_value_t = 100_000)]
+    additional_keys: usize,
 
-    /// The differential testing leader node implementation.
-    #[arg(short, long = "leader", default_value = "geth")]
-    pub leader: TestingPlatform,
+    /// The wallet object that will be used.
+    #[clap(skip)]
+    #[serde(skip)]
+    wallet: OnceLock<Arc<EthereumWallet>>,
+}
 
-    /// The differential testing follower node implementation.
-    #[arg(short, long = "follower", default_value = "kitchensink")]
-    pub follower: TestingPlatform,
+impl WalletConfiguration {
+    pub fn wallet(&self) -> Arc<EthereumWallet> {
+        self.wallet
+            .get_or_init(|| {
+                let mut wallet = EthereumWallet::new(self.default_key.clone());
+                for signer in (1..=self.additional_keys)
+                    .map(|id| U256::from(id))
+                    .map(|id| id.to_be_bytes::<32>())
+                    .map(|id| PrivateKeySigner::from_bytes(&FixedBytes(id)).unwrap())
+                {
+                    wallet.register_signer(signer);
+                }
+                Arc::new(wallet)
+            })
+            .clone()
+    }
+}
 
+fn serialize_private_key<S>(value: &PrivateKeySigner, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    value.to_bytes().encode_hex().serialize(serializer)
+}
+
+/// A set of configuration for concurrency.
+#[derive(Clone, Debug, Parser, Serialize)]
+pub struct ConcurrencyConfiguration {
     /// Determines the amount of nodes that will be spawned for each chain.
-    #[arg(long, default_value = "1")]
+    #[clap(long = "concurrency.number-of-nodes", default_value_t = 5)]
     pub number_of_nodes: usize,
 
     /// Determines the amount of tokio worker threads that will will be used.
     #[arg(
-        long,
+        long = "concurrency.number-of-threads",
         default_value_t = std::thread::available_parallelism()
             .map(|n| n.get())
             .unwrap_or(1)
     )]
     pub number_of_threads: usize,
 
-    /// Determines the amount of concurrent tasks that will be spawned to run tests. Defaults to 10 x the number of nodes.
-    #[arg(long)]
-    pub number_concurrent_tasks: Option<usize>,
-
-    /// Extract problems back to the test corpus.
-    #[arg(short, long = "extract-problems")]
-    pub extract_problems: bool,
-
-    /// The path to the `kitchensink` executable.
+    /// Determines the amount of concurrent tasks that will be spawned to run tests.
     ///
-    /// By default it uses `substrate-node` binary found in `$PATH`.
-    #[arg(short, long = "kitchensink", default_value = "substrate-node")]
-    pub kitchensink: PathBuf,
+    /// Defaults to 10 x the number of nodes.
+    #[arg(long = "concurrency.number-of-concurrent-tasks")]
+    number_concurrent_tasks: Option<usize>,
 
-    /// The path to the `revive-dev-node` executable.
-    ///
-    /// By default it uses `revive-dev-node` binary found in `$PATH`.
-    #[arg(long = "revive-dev-node", default_value = "revive-dev-node")]
-    pub revive_dev_node: PathBuf,
+    /// Determines if the concurrency limit should be ignored or not.
+    #[arg(long = "concurrency.ignore-concurrency-limit")]
+    ignore_concurrency_limit: bool,
+}
 
-    /// By default the tool uses the revive-dev-node when it's running differential tests against
-    /// PolkaVM since the dev-node is much faster than kitchensink. This flag allows the caller to
-    /// configure the tool to use kitchensink rather than the dev-node.
-    #[arg(long)]
-    pub use_kitchensink_not_dev_node: bool,
+impl ConcurrencyConfiguration {
+    pub fn concurrency_limit(&self) -> Option<usize> {
+        match self.ignore_concurrency_limit {
+            true => None,
+            false => Some(
+                self.number_concurrent_tasks
+                    .unwrap_or(20 * self.number_of_nodes),
+            ),
+        }
+    }
+}
 
-    /// The path to the `eth_proxy` executable.
-    ///
-    /// By default it uses `eth-rpc` binary found in `$PATH`.
-    #[arg(short = 'p', long = "eth_proxy", default_value = "eth-rpc")]
-    pub eth_proxy: PathBuf,
-
+#[derive(Clone, Debug, Parser, Serialize)]
+pub struct CompilationConfiguration {
     /// Controls if the compilation cache should be invalidated or not.
-    #[arg(short, long)]
+    #[arg(long = "compilation.invalidate-cache")]
     pub invalidate_compilation_cache: bool,
+}
 
+#[derive(Clone, Debug, Parser, Serialize)]
+pub struct ReportConfiguration {
     /// Controls if the compiler input is included in the final report.
     #[clap(long = "report.include-compiler-input")]
-    pub report_include_compiler_input: bool,
+    pub include_compiler_input: bool,
 
     /// Controls if the compiler output is included in the final report.
     #[clap(long = "report.include-compiler-output")]
-    pub report_include_compiler_output: bool,
+    pub include_compiler_output: bool,
 }
 
-impl Arguments {
-    /// Return the configured working directory with the following precedence:
-    /// 1. `self.working_directory` if it was provided.
-    /// 2. `self.temp_dir` if it it was provided
-    /// 3. Panic.
-    pub fn directory(&self) -> &Path {
-        if let Some(path) = &self.working_directory {
-            return path.as_path();
-        }
+/// Represents the working directory that the program uses.
+#[derive(Debug, Clone)]
+pub enum WorkingDirectoryConfiguration {
+    /// A temporary directory is used as the working directory. This will be removed when dropped.
+    TemporaryDirectory(Arc<TempDir>),
+    /// A directory with a path is used as the working directory.
+    Path(PathBuf),
+}
 
-        if let Some(temp_dir) = &self.temp_dir {
-            return temp_dir.path();
-        }
-
-        panic!("should have a workdir configured")
-    }
-
-    /// Return the number of concurrent tasks to run. This is provided via the
-    /// `--number-concurrent-tasks` argument, and otherwise defaults to --number-of-nodes * 20.
-    pub fn number_of_concurrent_tasks(&self) -> usize {
-        self.number_concurrent_tasks
-            .unwrap_or(20 * self.number_of_nodes)
-    }
-
-    /// Try to parse `self.account` into a [PrivateKeySigner],
-    /// panicing on error.
-    pub fn wallet(&self) -> EthereumWallet {
-        let signer = self
-            .account
-            .parse::<PrivateKeySigner>()
-            .unwrap_or_else(|error| {
-                panic!("private key '{}' parsing error: {error}", self.account);
-            });
-        EthereumWallet::new(signer)
+impl WorkingDirectoryConfiguration {
+    pub fn as_path(&self) -> &Path {
+        self.as_ref()
     }
 }
 
-impl Default for Arguments {
+impl Deref for WorkingDirectoryConfiguration {
+    type Target = Path;
+
+    fn deref(&self) -> &Self::Target {
+        self.as_path()
+    }
+}
+
+impl AsRef<Path> for WorkingDirectoryConfiguration {
+    fn as_ref(&self) -> &Path {
+        match self {
+            WorkingDirectoryConfiguration::TemporaryDirectory(temp_dir) => temp_dir.path(),
+            WorkingDirectoryConfiguration::Path(path) => path.as_path(),
+        }
+    }
+}
+
+impl Default for WorkingDirectoryConfiguration {
     fn default() -> Self {
-        static TEMP_DIR: LazyLock<TempDir> = LazyLock::new(|| TempDir::new().unwrap());
+        TempDir::new()
+            .map(Arc::new)
+            .map(Self::TemporaryDirectory)
+            .expect("Failed to create the temporary directory")
+    }
+}
 
-        let default = Arguments::parse_from(["retester"]);
+impl FromStr for WorkingDirectoryConfiguration {
+    type Err = anyhow::Error;
 
-        Arguments {
-            temp_dir: Some(&TEMP_DIR),
-            ..default
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "" => Ok(Default::default()),
+            _ => Ok(Self::Path(PathBuf::from(s))),
         }
     }
+}
+
+impl Display for WorkingDirectoryConfiguration {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        Display::fmt(&self.as_path().display(), f)
+    }
+}
+
+impl Serialize for WorkingDirectoryConfiguration {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        self.as_path().serialize(serializer)
+    }
+}
+
+fn parse_duration(s: &str) -> anyhow::Result<Duration> {
+    u64::from_str(s)
+        .map(Duration::from_millis)
+        .map_err(Into::into)
 }
 
 /// The Solidity compatible node implementation.
 ///
 /// This describes the solutions to be tested against on a high level.
 #[derive(
-    Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, ValueEnum, Serialize, Deserialize,
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    Serialize,
+    ValueEnum,
+    EnumString,
+    Display,
+    AsRefStr,
+    IntoStaticStr,
 )]
-#[clap(rename_all = "lower")]
+#[strum(serialize_all = "kebab-case")]
 pub enum TestingPlatform {
     /// The go-ethereum reference full node EVM implementation.
     Geth,
-    /// The kitchensink runtime provides the PolkaVM (PVM) based node implentation.
+    /// The kitchensink runtime provides the PolkaVM (PVM) based node implementation.
     Kitchensink,
-}
-
-impl Display for TestingPlatform {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Geth => f.write_str("geth"),
-            Self::Kitchensink => f.write_str("revive"),
-        }
-    }
 }
