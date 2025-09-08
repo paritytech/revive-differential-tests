@@ -8,6 +8,7 @@ use std::{
     str::FromStr,
 };
 
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use revive_common::EVMVersion;
@@ -56,30 +57,62 @@ impl Deref for MetadataFile {
     }
 }
 
-#[derive(Debug, Default, Serialize, Deserialize, Clone, Eq, PartialEq)]
+/// A MatterLabs metadata file.
+///
+/// This defines the structure that the MatterLabs metadata files follow for defining the tests or
+/// the workloads.
+///
+/// Each metadata file is composed of multiple test cases where each test case is isolated from the
+/// others and runs in a completely different address space. Each test case is composed of a number
+/// of steps and assertions that should be performed as part of the test case.
+#[derive(Debug, Default, Serialize, Deserialize, JsonSchema, Clone, Eq, PartialEq)]
 pub struct Metadata {
-    /// A comment on the test case that's added for human-readability.
+    /// This is an optional comment on the metadata file which has no impact on the execution in any
+    /// way.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub comment: Option<String>,
 
+    /// An optional boolean which defines if the metadata file as a whole should be ignored. If null
+    /// then the metadata file will not be ignored.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ignore: Option<bool>,
 
+    /// An optional vector of targets that this Metadata file's cases can be executed on. As an
+    /// example, if we wish for the metadata file's cases to only be run on PolkaVM then we'd
+    /// specify a target of "PolkaVM" in here.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub targets: Option<Vec<String>>,
 
+    /// A vector of the test cases and workloads contained within the metadata file. This is their
+    /// primary description.
     pub cases: Vec<Case>,
 
+    /// A map of all of the contracts that the test requires to run.
+    ///
+    /// This is a map where the key is the name of the contract instance and the value is the
+    /// contract's path and ident in the file.
+    ///
+    /// If any contract is to be used by the test then it must be included in here first so that the
+    /// framework is aware of its path, compiles it, and prepares it.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub contracts: Option<BTreeMap<ContractInstance, ContractPathAndIdent>>,
 
+    /// The set of libraries that this metadata file requires.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub libraries: Option<BTreeMap<PathBuf, BTreeMap<ContractIdent, ContractInstance>>>,
 
+    /// This represents a mode that has been parsed from test metadata.
+    ///
+    /// Mode strings can take the following form (in pseudo-regex):
+    ///
+    /// ```text
+    /// [YEILV][+-]? (M[0123sz])? <semver>?
+    /// ```
     #[serde(skip_serializing_if = "Option::is_none")]
     pub modes: Option<Vec<ParsedMode>>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[schemars(skip)]
     pub file_path: Option<PathBuf>,
 
     /// This field specifies an EVM version requirement that the test case has where the test might
@@ -87,9 +120,9 @@ pub struct Metadata {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub required_evm_version: Option<EvmVersionRequirement>,
 
-    /// A set of compilation directives that will be passed to the compiler whenever the contracts for
-    /// the test are being compiled. Note that this differs from the [`Mode`]s in that a [`Mode`] is
-    /// just a filter for when a test can run whereas this is an instruction to the compiler.
+    /// A set of compilation directives that will be passed to the compiler whenever the contracts
+    /// for the test are being compiled. Note that this differs from the [`Mode`]s in that a [`Mode`]
+    /// is just a filter for when a test can run whereas this is an instruction to the compiler.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub compiler_directives: Option<CompilationDirectives>,
 }
@@ -262,7 +295,7 @@ define_wrapper_type!(
     ///
     /// Typically, this is used as the key to the "contracts" field of metadata files.
     #[derive(
-        Clone, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,
+        Clone, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, JsonSchema
     )]
     #[serde(transparent)]
     pub struct ContractInstance(String) impl Display;
@@ -273,7 +306,7 @@ define_wrapper_type!(
     ///
     /// A contract identifier is the name of the contract in the source code.
     #[derive(
-        Clone, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,
+        Clone, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, JsonSchema
     )]
     #[serde(transparent)]
     pub struct ContractIdent(String) impl Display;
@@ -286,7 +319,9 @@ define_wrapper_type!(
 /// ```text
 /// ${path}:${contract_ident}
 /// ```
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[derive(
+    Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, JsonSchema,
+)]
 #[serde(try_from = "String", into = "String")]
 pub struct ContractPathAndIdent {
     /// The path of the contract source code relative to the directory containing the metadata file.
@@ -363,9 +398,15 @@ impl From<ContractPathAndIdent> for String {
     }
 }
 
-/// An EVM version requirement that the test case has. This gets serialized and
-/// deserialized from and into [`String`].
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+/// An EVM version requirement that the test case has. This gets serialized and deserialized from
+/// and into [`String`]. This follows a simple format of (>=|<=|=|>|<) followed by a string of the
+/// EVM version.
+///
+/// When specified, the framework will only run the test if the node's EVM version matches that
+/// required by the metadata file.
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, JsonSchema,
+)]
 #[serde(try_from = "String", into = "String")]
 pub struct EvmVersionRequirement {
     ordering: Ordering,
@@ -493,7 +534,18 @@ impl From<EvmVersionRequirement> for String {
 /// just a filter for when a test can run whereas this is an instruction to the compiler.
 /// Defines how the compiler should handle revert strings.
 #[derive(
-    Clone, Debug, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default, Serialize, Deserialize,
+    Clone,
+    Debug,
+    Copy,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    Default,
+    Serialize,
+    Deserialize,
+    JsonSchema,
 )]
 pub struct CompilationDirectives {
     /// Defines how the revert strings should be handled.
@@ -502,14 +554,29 @@ pub struct CompilationDirectives {
 
 /// Defines how the compiler should handle revert strings.
 #[derive(
-    Clone, Debug, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default, Serialize, Deserialize,
+    Clone,
+    Debug,
+    Copy,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    Default,
+    Serialize,
+    Deserialize,
+    JsonSchema,
 )]
 #[serde(rename_all = "camelCase")]
 pub enum RevertString {
+    /// The default handling of the revert strings.
     #[default]
     Default,
+    /// The debug handling of the revert strings.
     Debug,
+    /// Strip the revert strings.
     Strip,
+    /// Provide verbose debug strings for the revert string.
     VerboseDebug,
 }
 

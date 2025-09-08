@@ -11,3 +11,5 @@ node_modules
 profile.json.gz
 resolc-compiler-tests
 workdir
+
+!/schema.json

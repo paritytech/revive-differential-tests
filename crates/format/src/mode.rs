@@ -2,6 +2,7 @@ use anyhow::Context as _;
 use regex::Regex;
 use revive_dt_common::iterators::EitherIter;
 use revive_dt_common::types::{Mode, ModeOptimizerSetting, ModePipeline};
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::fmt::Display;
@@ -17,7 +18,7 @@ use std::sync::LazyLock;
 /// ```
 ///
 /// We can parse valid mode strings into [`ParsedMode`] using [`ParsedMode::from_str`].
-#[derive(Clone, Debug, PartialEq, Eq, Hash, Deserialize, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Deserialize, Serialize, JsonSchema)]
 #[serde(try_from = "String", into = "String")]
 pub struct ParsedMode {
     pub pipeline: Option<ModePipeline>,

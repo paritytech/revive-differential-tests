@@ -23,6 +23,7 @@ use revive_dt_report::{
     NodeDesignation, ReportAggregator, Reporter, ReporterEvent, TestCaseStatus,
     TestSpecificReporter, TestSpecifier,
 };
+use schemars::schema_for;
 use serde_json::{Value, json};
 use tokio::try_join;
 use tracing::{debug, error, info, info_span, instrument};
@@ -39,7 +40,7 @@ use revive_dt_format::{
     case::{Case, CaseIdx},
     corpus::Corpus,
     input::{Input, Step},
-    metadata::{ContractPathAndIdent, MetadataFile},
+    metadata::{ContractPathAndIdent, Metadata, MetadataFile},
     mode::ParsedMode,
 };
 use revive_dt_node::{Node, pool::NodePool};
@@ -96,10 +97,15 @@ fn main() -> anyhow::Result<()> {
                 .build()
                 .expect("Failed building the Runtime")
                 .block_on(async move {
-                    execute_corpus(context, &tests, reporter, report_aggregator_task)
+                    execute_corpus(*context, &tests, reporter, report_aggregator_task)
                         .await
                         .context("Failed to execute corpus")
                 })
+        }
+        Context::ExportJsonSchema => {
+            let schema = schema_for!(Metadata);
+            println!("{}", serde_json::to_string_pretty(&schema).unwrap());
+            Ok(())
         }
     }
 }
