@@ -1,0 +1,497 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Metadata",
+  "description": "A MatterLabs metadata file.\n\nThis defines the structure that the MatterLabs metadata files follow for defining the tests or\nthe workloads.\n\nEach metadata file is composed of multiple test cases where each test case is isolated from the\nothers and runs in a completely different address space. Each test case is composed of a number\nof steps and assertions that should be performed as part of the test case.",
+  "type": "object",
+  "properties": {
+    "comment": {
+      "description": "This is an optional comment on the metadata file which has no impact on the execution in any\nway.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "ignore": {
+      "description": "An optional boolean which defines if the metadata file as a whole should be ignored. If null\nthen the metadata file will not be ignored.",
+      "type": [
+        "boolean",
+        "null"
+      ]
+    },
+    "targets": {
+      "description": "An optional vector of targets that this Metadata file's cases can be executed on. As an\nexample, if we wish for the metadata file's cases to only be run on PolkaVM then we'd\nspecify a target of \"PolkaVM\" in here.",
+      "type": [
+        "array",
+        "null"
+      ],
+      "items": {
+        "type": "string"
+      }
+    },
+    "cases": {
+      "description": "A vector of the test cases and workloads contained within the metadata file. This is their\nprimary description.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Case"
+      }
+    },
+    "contracts": {
+      "description": "A map of all of the contracts that the test requires to run.\n\nThis is a map where the key is the name of the contract instance and the value is the\ncontract's path and ident in the file.\n\nIf any contract is to be used by the test then it must be included in here first so that the\nframework is aware of its path, compiles it, and prepares it.",
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": {
+        "$ref": "#/$defs/ContractPathAndIdent"
+      }
+    },
+    "libraries": {
+      "description": "The set of libraries that this metadata file requires.",
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": {
+          "$ref": "#/$defs/ContractInstance"
+        }
+      }
+    },
+    "modes": {
+      "description": "This represents a mode that has been parsed from test metadata.\n\nMode strings can take the following form (in pseudo-regex):\n\n```text\n[YEILV][+-]? (M[0123sz])? <semver>?\n```",
+      "type": [
+        "array",
+        "null"
+      ],
+      "items": {
+        "$ref": "#/$defs/ParsedMode"
+      }
+    },
+    "required_evm_version": {
+      "description": "This field specifies an EVM version requirement that the test case has where the test might\nbe run of the evm version of the nodes match the evm version specified here.",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/EvmVersionRequirement"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "compiler_directives": {
+      "description": "A set of compilation directives that will be passed to the compiler whenever the contracts\nfor the test are being compiled. Note that this differs from the [`Mode`]s in that a [`Mode`]\nis just a filter for when a test can run whereas this is an instruction to the compiler.",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/CompilationDirectives"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "required": [
+    "cases"
+  ],
+  "$defs": {
+    "Case": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "description": "An optional name of the test case.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "comment": {
+          "description": "An optional comment on the case which has no impact on the execution in any way.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "modes": {
+          "description": "This represents a mode that has been parsed from test metadata.\n\nMode strings can take the following form (in pseudo-regex):\n\n```text\n[YEILV][+-]? (M[0123sz])? <semver>?\n```\n\nIf this is provided then it takes higher priority than the modes specified in the metadata\nfile.",
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "$ref": "#/$defs/ParsedMode"
+          }
+        },
+        "inputs": {
+          "description": "The set of steps to run as part of this test case.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Step"
+          }
+        },
+        "group": {
+          "description": "An optional name of the group of tests that this test belongs to.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "expected": {
+          "description": "An optional set of expectations and assertions to make about the transaction after it ran.\n\nIf this is not specified then the only assertion that will be ran is that the transaction\nwas successful.\n\nThis expectation that's on the case itself will be attached to the final step of the case.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Expected"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "ignore": {
+          "description": "An optional boolean which defines if the case as a whole should be ignored. If null then the\ncase will not be ignored.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "inputs"
+      ]
+    },
+    "ParsedMode": {
+      "description": "This represents a mode that has been parsed from test metadata.\n\nMode strings can take the following form (in pseudo-regex):\n\n```text\n[YEILV][+-]? (M[0123sz])? <semver>?\n```\n\nWe can parse valid mode strings into [`ParsedMode`] using [`ParsedMode::from_str`].",
+      "type": "string"
+    },
+    "Step": {
+      "description": "A test step.\n\nA test step can be anything. It could be an invocation to a function, an assertion, or any other\naction that needs to be run or executed on the nodes used in the tests.",
+      "anyOf": [
+        {
+          "description": "A function call or an invocation to some function on some smart contract.",
+          "$ref": "#/$defs/Input"
+        },
+        {
+          "description": "A step for performing a balance assertion on some account or contract.",
+          "$ref": "#/$defs/BalanceAssertion"
+        },
+        {
+          "description": "A step for asserting that the storage of some contract or account is empty.",
+          "$ref": "#/$defs/StorageEmptyAssertion"
+        }
+      ]
+    },
+    "Input": {
+      "description": "This is an input step which is a transaction description that the framework translates into a\ntransaction and executes on the nodes.",
+      "type": "object",
+      "properties": {
+        "caller": {
+          "description": "The address of the account performing the call and paying the fees for it.",
+          "type": "string",
+          "default": "0x90f8bf6a479f320ead074411a4b0e7944ea8c9c1"
+        },
+        "comment": {
+          "description": "An optional comment on the step which has no impact on the execution in any way.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "instance": {
+          "description": "The contract instance that's being called in this transaction step.",
+          "$ref": "#/$defs/ContractInstance",
+          "default": "Test"
+        },
+        "method": {
+          "description": "The method that's being called in this step.",
+          "$ref": "#/$defs/Method"
+        },
+        "calldata": {
+          "description": "The calldata that the function should be invoked with.",
+          "$ref": "#/$defs/Calldata",
+          "default": []
+        },
+        "expected": {
+          "description": "A set of assertions and expectations to have for the transaction.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Expected"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "value": {
+          "description": "An optional value to provide as part of the transaction.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EtherValue"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "variable_assignments": {
+          "description": "Variable assignment to perform in the framework allowing us to reference them again later on\nduring the execution.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/VariableAssignments"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "method"
+      ]
+    },
+    "ContractInstance": {
+      "description": "Represents a contract instance found a metadata file.\n\nTypically, this is used as the key to the \"contracts\" field of metadata files.",
+      "type": "string"
+    },
+    "Method": {
+      "description": "Specify how the contract is called.",
+      "anyOf": [
+        {
+          "description": "Initiate a deploy transaction, calling contracts constructor.\n\nIndicated by `#deployer`.",
+          "type": "string",
+          "const": "#deployer"
+        },
+        {
+          "description": "Does not calculate and insert a function selector.\n\nIndicated by `#fallback`.",
+          "type": "string",
+          "const": "#fallback"
+        },
+        {
+          "description": "Call the public function with the given name.",
+          "type": "string"
+        }
+      ]
+    },
+    "Calldata": {
+      "description": "A type definition for the calldata supported by the testing framework.\n\nWe choose to document all of the types used in [`Calldata`] in this one doc comment to elaborate\non why they exist and consolidate all of the documentation for calldata in a single place where\nit can be viewed and understood.\n\nThe [`Single`] variant of this enum is quite simple and straightforward: it's a hex-encoded byte\narray of the calldata.\n\nThe [`Compound`] type is more intricate and allows for capabilities such as resolution and some\nsimple arithmetic operations. It houses a vector of [`CalldataItem`]s which is just a wrapper\naround an owned string.\n\nA [`CalldataItem`] could be a simple hex string of a single calldata argument, but it could also\nbe something that requires resolution such as `MyContract.address` which is a variable that is\nunderstood by the resolution logic to mean \"Lookup the address of this particular contract\ninstance\".\n\nIn addition to the above, the format supports some simple arithmetic operations like add, sub,\ndivide, multiply, bitwise AND, bitwise OR, and bitwise XOR. Our parser understands the [reverse\npolish notation] simply because it's easy to write a calculator for that notation and since we\ndo not have plans to use arithmetic too often in tests. In reverse polish notation a typical\n`2 + 4` would be written as `2 4 +` which makes this notation very simple to implement through\na stack.\n\nCombining the above, a single [`CalldataItem`] could employ both resolution and arithmetic at\nthe same time. For example, a [`CalldataItem`] of `$BLOCK_NUMBER $BLOCK_NUMBER +` means that\nthe block number should be retrieved and then it should be added to itself.\n\nInternally, we split the [`CalldataItem`] by spaces. Therefore, `$BLOCK_NUMBER $BLOCK_NUMBER+`\nis invalid but `$BLOCK_NUMBER $BLOCK_NUMBER +` is valid and can be understood by the parser and\ncalculator. After the split is done, each token is parsed into a [`CalldataToken<&str>`] forming\nan [`Iterator`] over [`CalldataToken<&str>`]. A [`CalldataToken<&str>`] can then be resolved\ninto a [`CalldataToken<U256>`] through the resolution logic. Finally, after resolution is done,\nthis iterator of [`CalldataToken<U256>`] is collapsed into the final result by applying the\narithmetic operations requested.\n\nFor example, supplying a [`Compound`] calldata of `0xdeadbeef` produces an iterator of a single\n[`CalldataToken<&str>`] items of the value [`CalldataToken::Item`] of the string value 12 which\nwe can then resolve into the appropriate [`U256`] value and convert into calldata.\n\nIn summary, the various types used in [`Calldata`] represent the following:\n- [`CalldataItem`]: A calldata string from the metadata files.\n- [`CalldataToken<&str>`]: Typically used in an iterator of items from the space splitted\n  [`CalldataItem`] and represents a token that has not yet been resolved into its value.\n- [`CalldataToken<U256>`]: Represents a token that's been resolved from being a string and into\n  the word-size calldata argument on which we can perform arithmetic.\n\n[`Single`]: Calldata::Single\n[`Compound`]: Calldata::Compound\n[reverse polish notation]: https://en.wikipedia.org/wiki/Reverse_Polish_notation",
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/CalldataItem"
+          }
+        }
+      ]
+    },
+    "CalldataItem": {
+      "description": "This represents an item in the [`Calldata::Compound`] variant. Each item will be resolved\naccording to the resolution rules of the tool.",
+      "type": "string"
+    },
+    "Expected": {
+      "description": "A set of expectations and assertions to make about the transaction after it ran.\n\nIf this is not specified then the only assertion that will be ran is that the transaction\nwas successful.",
+      "anyOf": [
+        {
+          "description": "An assertion that the transaction succeeded and returned the provided set of data.",
+          "$ref": "#/$defs/Calldata"
+        },
+        {
+          "description": "A more complex assertion.",
+          "$ref": "#/$defs/ExpectedOutput"
+        },
+        {
+          "description": "A set of assertions.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ExpectedOutput"
+          }
+        }
+      ]
+    },
+    "ExpectedOutput": {
+      "description": "A set of assertions to run on the transaction.",
+      "type": "object",
+      "properties": {
+        "compiler_version": {
+          "description": "An optional compiler version that's required in order for this assertion to run.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "return_data": {
+          "description": "An optional field of the expected returns from the invocation.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Calldata"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "events": {
+          "description": "An optional set of assertions to run on the emitted events from the transaction.",
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "$ref": "#/$defs/Event"
+          }
+        },
+        "exception": {
+          "description": "A boolean which defines whether we expect the transaction to succeed or fail.",
+          "type": "boolean",
+          "default": false
+        }
+      }
+    },
+    "Event": {
+      "type": "object",
+      "properties": {
+        "address": {
+          "description": "An optional field of the address of the emitter of the event.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "topics": {
+          "description": "The set of topics to expect the event to have.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "values": {
+          "description": "The set of values to expect the event to have.",
+          "$ref": "#/$defs/Calldata"
+        }
+      },
+      "required": [
+        "topics",
+        "values"
+      ]
+    },
+    "EtherValue": {
+      "description": "Defines an Ether value.\n\nThis is an unsigned 256 bit integer that's followed by some denomination which can either be\neth, ether, gwei, or wei.",
+      "type": "string"
+    },
+    "VariableAssignments": {
+      "type": "object",
+      "properties": {
+        "return_data": {
+          "description": "A vector of the variable names to assign to the return data.\n\nExample: `UniswapV3PoolAddress`",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "return_data"
+      ]
+    },
+    "BalanceAssertion": {
+      "description": "This represents a balance assertion step where the framework needs to query the balance of some\naccount or contract and assert that it's some amount.",
+      "type": "object",
+      "properties": {
+        "comment": {
+          "description": "An optional comment on the balance assertion.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "address": {
+          "description": "The address that the balance assertion should be done on.\n\nThis is a string which will be resolved into an address when being processed. Therefore,\nthis could be a normal hex address, a variable such as `Test.address`, or perhaps even a\nfull on variable like `$VARIABLE:Uniswap`. It follows the same resolution rules that are\nfollowed in the calldata.",
+          "type": "string"
+        },
+        "expected_balance": {
+          "description": "The amount of balance to assert that the account or contract has. This is a 256 bit string\nthat's serialized and deserialized into a decimal string.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "address",
+        "expected_balance"
+      ]
+    },
+    "StorageEmptyAssertion": {
+      "type": "object",
+      "properties": {
+        "comment": {
+          "description": "An optional comment on the storage empty assertion.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "address": {
+          "description": "The address that the balance assertion should be done on.\n\nThis is a string which will be resolved into an address when being processed. Therefore,\nthis could be a normal hex address, a variable such as `Test.address`, or perhaps even a\nfull on variable like `$VARIABLE:Uniswap`. It follows the same resolution rules that are\nfollowed in the calldata.",
+          "type": "string"
+        },
+        "is_storage_empty": {
+          "description": "A boolean of whether the storage of the address is empty or not.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "address",
+        "is_storage_empty"
+      ]
+    },
+    "ContractPathAndIdent": {
+      "description": "Represents an identifier used for contracts.\n\nThe type supports serialization from and into the following string format:\n\n```text\n${path}:${contract_ident}\n```",
+      "type": "string"
+    },
+    "EvmVersionRequirement": {
+      "description": "An EVM version requirement that the test case has. This gets serialized and deserialized from\nand into [`String`]. This follows a simple format of (>=|<=|=|>|<) followed by a string of the\nEVM version.\n\nWhen specified, the framework will only run the test if the node's EVM version matches that\nrequired by the metadata file.",
+      "type": "string"
+    },
+    "CompilationDirectives": {
+      "description": "A set of compilation directives that will be passed to the compiler whenever the contracts for\nthe test are being compiled. Note that this differs from the [`Mode`]s in that a [`Mode`] is\njust a filter for when a test can run whereas this is an instruction to the compiler.\nDefines how the compiler should handle revert strings.",
+      "type": "object",
+      "properties": {
+        "revert_string_handling": {
+          "description": "Defines how the revert strings should be handled.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RevertString"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "RevertString": {
+      "description": "Defines how the compiler should handle revert strings.",
+      "oneOf": [
+        {
+          "description": "The default handling of the revert strings.",
+          "type": "string",
+          "const": "default"
+        },
+        {
+          "description": "The debug handling of the revert strings.",
+          "type": "string",
+          "const": "debug"
+        },
+        {
+          "description": "Strip the revert strings.",
+          "type": "string",
+          "const": "strip"
+        },
+        {
+          "description": "Provide verbose debug strings for the revert string.",
+          "type": "string",
+          "const": "verboseDebug"
+        }
+      ]
+    }
+  }
+}

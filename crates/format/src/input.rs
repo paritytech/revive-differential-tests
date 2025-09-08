@@ -10,6 +10,7 @@ use alloy::{
 use alloy_primitives::{FixedBytes, utils::parse_units};
 use anyhow::Context as _;
 use futures::{FutureExt, StreamExt, TryFutureExt, TryStreamExt, stream};
+use schemars::JsonSchema;
 use semver::VersionReq;
 use serde::{Deserialize, Serialize};
 
@@ -23,7 +24,7 @@ use crate::{metadata::ContractInstance, traits::ResolutionContext};
 ///
 /// A test step can be anything. It could be an invocation to a function, an assertion, or any other
 /// action that needs to be run or executed on the nodes used in the tests.
-#[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq, JsonSchema)]
 #[serde(untagged)]
 pub enum Step {
     /// A function call or an invocation to some function on some smart contract.
@@ -39,36 +40,51 @@ define_wrapper_type!(
     pub struct StepIdx(usize) impl Display;
 );
 
-#[derive(Clone, Debug, Default, Serialize, Deserialize, Eq, PartialEq)]
+/// This is an input step which is a transaction description that the framework translates into a
+/// transaction and executes on the nodes.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, Eq, PartialEq, JsonSchema)]
 pub struct Input {
+    /// The address of the account performing the call and paying the fees for it.
     #[serde(default = "Input::default_caller")]
+    #[schemars(with = "String")]
     pub caller: Address,
 
+    /// An optional comment on the step which has no impact on the execution in any way.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub comment: Option<String>,
 
+    /// The contract instance that's being called in this transaction step.
     #[serde(default = "Input::default_instance")]
     pub instance: ContractInstance,
 
+    /// The method that's being called in this step.
     pub method: Method,
 
+    /// The calldata that the function should be invoked with.
     #[serde(default)]
     pub calldata: Calldata,
 
+    /// A set of assertions and expectations to have for the transaction.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub expected: Option<Expected>,
 
+    /// An optional value to provide as part of the transaction.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub value: Option<EtherValue>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[schemars(skip)]
     pub storage: Option<HashMap<String, Calldata>>,
 
+    /// Variable assignment to perform in the framework allowing us to reference them again later on
+    /// during the execution.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub variable_assignments: Option<VariableAssignments>,
 }
 
-#[derive(Clone, Debug, Default, Serialize, Deserialize, Eq, PartialEq)]
+/// This represents a balance assertion step where the framework needs to query the balance of some
+/// account or contract and assert that it's some amount.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, Eq, PartialEq, JsonSchema)]
 pub struct BalanceAssertion {
     /// An optional comment on the balance assertion.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -82,11 +98,13 @@ pub struct BalanceAssertion {
     /// followed in the calldata.
     pub address: String,
 
-    /// The amount of balance to assert that the account or contract has.
+    /// The amount of balance to assert that the account or contract has. This is a 256 bit string
+    /// that's serialized and deserialized into a decimal string.
+    #[schemars(with = "String")]
     pub expected_balance: U256,
 }
 
-#[derive(Clone, Debug, Default, Serialize, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize, Eq, PartialEq, JsonSchema)]
 pub struct StorageEmptyAssertion {
     /// An optional comment on the storage empty assertion.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -104,31 +122,52 @@ pub struct StorageEmptyAssertion {
     pub is_storage_empty: bool,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq)]
+/// A set of expectations and assertions to make about the transaction after it ran.
+///
+/// If this is not specified then the only assertion that will be ran is that the transaction
+/// was successful.
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, Eq, PartialEq)]
 #[serde(untagged)]
 pub enum Expected {
+    /// An assertion that the transaction succeeded and returned the provided set of data.
     Calldata(Calldata),
+    /// A more complex assertion.
     Expected(ExpectedOutput),
+    /// A set of assertions.
     ExpectedMany(Vec<ExpectedOutput>),
 }
 
-#[derive(Clone, Debug, Default, Serialize, Deserialize, Eq, PartialEq)]
+/// A set of assertions to run on the transaction.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, JsonSchema, Eq, PartialEq)]
 pub struct ExpectedOutput {
+    /// An optional compiler version that's required in order for this assertion to run.
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[schemars(with = "Option<String>")]
     pub compiler_version: Option<VersionReq>,
+
+    /// An optional field of the expected returns from the invocation.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub return_data: Option<Calldata>,
+
+    /// An optional set of assertions to run on the emitted events from the transaction.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub events: Option<Vec<Event>>,
+
+    /// A boolean which defines whether we expect the transaction to succeed or fail.
     #[serde(default)]
     pub exception: bool,
 }
 
-#[derive(Clone, Debug, Default, Serialize, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize, JsonSchema, Eq, PartialEq)]
 pub struct Event {
+    /// An optional field of the address of the emitter of the event.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub address: Option<String>,
+
+    /// The set of topics to expect the event to have.
     pub topics: Vec<String>,
+
+    /// The set of values to expect the event to have.
     pub values: Calldata,
 }
 
@@ -183,16 +222,17 @@ pub struct Event {
 /// [`Single`]: Calldata::Single
 /// [`Compound`]: Calldata::Compound
 /// [reverse polish notation]: https://en.wikipedia.org/wiki/Reverse_Polish_notation
-#[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, Eq, PartialEq)]
 #[serde(untagged)]
 pub enum Calldata {
-    Single(Bytes),
+    Single(#[schemars(with = "String")] Bytes),
     Compound(Vec<CalldataItem>),
 }
 
 define_wrapper_type! {
-    /// This represents an item in the [`Calldata::Compound`] variant.
-    #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+    /// This represents an item in the [`Calldata::Compound`] variant. Each item will be resolved
+    /// according to the resolution rules of the tool.
+    #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, JsonSchema)]
     #[serde(transparent)]
     pub struct CalldataItem(String) impl Display;
 }
@@ -217,7 +257,7 @@ enum Operation {
 }
 
 /// Specify how the contract is called.
-#[derive(Debug, Default, Serialize, Deserialize, Clone, Eq, PartialEq)]
+#[derive(Debug, Default, Serialize, Deserialize, JsonSchema, Clone, Eq, PartialEq)]
 pub enum Method {
     /// Initiate a deploy transaction, calling contracts constructor.
     ///
@@ -238,11 +278,16 @@ pub enum Method {
 }
 
 define_wrapper_type!(
-    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    /// Defines an Ether value.
+    ///
+    /// This is an unsigned 256 bit integer that's followed by some denomination which can either be
+    /// eth, ether, gwei, or wei.
+    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash, JsonSchema)]
+    #[schemars(with = "String")]
     pub struct EtherValue(U256) impl Display;
 );
 
-#[derive(Clone, Debug, Default, Serialize, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize, Eq, PartialEq, JsonSchema)]
 pub struct VariableAssignments {
     /// A vector of the variable names to assign to the return data.
     ///

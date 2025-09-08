@@ -27,7 +27,9 @@ use temp_dir::TempDir;
 #[command(name = "retester")]
 pub enum Context {
     /// Executes tests in the MatterLabs format differentially against a leader and a follower.
-    ExecuteTests(ExecutionContext),
+    ExecuteTests(Box<ExecutionContext>),
+    /// Exports the JSON schema of the MatterLabs test format used by the tool.
+    ExportJsonSchema,
 }
 
 impl Context {
@@ -44,6 +46,7 @@ impl AsRef<WorkingDirectoryConfiguration> for Context {
     fn as_ref(&self) -> &WorkingDirectoryConfiguration {
         match self {
             Context::ExecuteTests(execution_context) => &execution_context.working_directory,
+            Context::ExportJsonSchema => unreachable!(),
         }
     }
 }
@@ -52,6 +55,7 @@ impl AsRef<ReportConfiguration> for Context {
     fn as_ref(&self) -> &ReportConfiguration {
         match self {
             Context::ExecuteTests(execution_context) => &execution_context.report_configuration,
+            Context::ExportJsonSchema => unreachable!(),
         }
     }
 }
