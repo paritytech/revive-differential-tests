@@ -4,6 +4,7 @@ use alloy::primitives::{Address, StorageKey, U256};
 use alloy::rpc::types::trace::geth::{DiffMode, GethDebugTracingOptions, GethTrace};
 use alloy::rpc::types::{EIP1186AccountProofResponse, TransactionReceipt, TransactionRequest};
 use anyhow::Result;
+use revive_dt_format::traits::ResolverApi;
 
 /// An interface for all interactions with Ethereum compatible nodes.
 pub trait EthereumNode {
@@ -32,4 +33,7 @@ pub trait EthereumNode {
         address: Address,
         keys: Vec<StorageKey>,
     ) -> impl Future<Output = Result<EIP1186AccountProofResponse>>;
+
+    /// Returns the resolver that is to use with this ethereum node.
+    fn resolver(&self) -> impl Future<Output = Result<Box<dyn ResolverApi + '_>>>;
 }

@@ -4,7 +4,7 @@
 //! provides a helper utility to execute tests.
 
 use revive_dt_compiler::{SolidityCompiler, revive_resolc, solc};
-use revive_dt_config::TestingPlatform;
+use revive_dt_config::{PlatformIdentifier, TestingPlatform};
 use revive_dt_format::traits::ResolverApi;
 use revive_dt_node::{Node, geth, kitchensink::KitchensinkNode};
 use revive_dt_node_interaction::EthereumNode;
@@ -44,4 +44,14 @@ impl Platform for Kitchensink {
     fn config_id() -> &'static TestingPlatform {
         &TestingPlatform::Kitchensink
     }
+}
+
+/// A trait that describes the interface for the platforms that are supported by the tool.
+pub trait DynPlatform {
+    /// Returns the identifier of this platform.
+    fn platform_identifier(&self) -> PlatformIdentifier;
+
+    /// Creates a new node for the platform by spawning a new thread, creating the node object,
+    /// initializing it, spawning it, and waiting for it to start up.
+    fn new_node(&self) -> Box<dyn PlatformNode>;
 }

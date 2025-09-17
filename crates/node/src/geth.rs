@@ -5,6 +5,7 @@ use std::{
     io::{BufRead, BufReader, Read, Write},
     ops::ControlFlow,
     path::PathBuf,
+    pin::Pin,
     process::{Child, Command, Stdio},
     sync::{
         Arc,
@@ -438,115 +439,294 @@ impl EthereumNode for GethNode {
             .await
             .map_err(Into::into)
     }
+
+    #[instrument(level = "info", skip_all, fields(geth_node_id = self.id))]
+    fn resolver(&self) -> impl Future<Output = anyhow::Result<Box<dyn ResolverApi + '_>>> {
+        Box::pin(async move {
+            let id = self.id;
+            let provider = self.provider().await?;
+            Ok(Box::new(GethNodeResolver { id, provider }) as Box<dyn ResolverApi>)
+        })
+    }
 }
 
+pub struct GethNodeResolver<F: TxFiller<Ethereum>, P: Provider<Ethereum>> {
+    id: u32,
+    provider: FillProvider<F, P, Ethereum>,
+}
+
+impl<F: TxFiller<Ethereum>, P: Provider<Ethereum>> ResolverApi for GethNodeResolver<F, P> {
+    #[instrument(level = "info", skip_all, fields(geth_node_id = self.id))]
+    fn chain_id(
+        &self,
+    ) -> Pin<Box<dyn Future<Output = anyhow::Result<alloy::primitives::ChainId>> + '_>> {
+        Box::pin(async move { self.provider.get_chain_id().await.map_err(Into::into) })
+    }
+
+    #[instrument(level = "info", skip_all, fields(geth_node_id = self.id))]
+    fn transaction_gas_price(
+        &self,
+        tx_hash: TxHash,
+    ) -> Pin<Box<dyn Future<Output = anyhow::Result<u128>> + '_>> {
+        Box::pin(async move {
+            self.provider
+                .get_transaction_receipt(tx_hash)
+                .await?
+                .context("Failed to get the transaction receipt")
+                .map(|receipt| receipt.effective_gas_price)
+        })
+    }
+
+    #[instrument(level = "info", skip_all, fields(geth_node_id = self.id))]
+    fn block_gas_limit(
+        &self,
+        number: BlockNumberOrTag,
+    ) -> Pin<Box<dyn Future<Output = anyhow::Result<u128>> + '_>> {
+        Box::pin(async move {
+            self.provider
+                .get_block_by_number(number)
+                .await
+                .context("Failed to get the geth block")?
+                .context("Failed to get the Geth block, perhaps there are no blocks?")
+                .map(|block| block.header.gas_limit as _)
+        })
+    }
+
+    #[instrument(level = "info", skip_all, fields(geth_node_id = self.id))]
+    fn block_coinbase(
+        &self,
+        number: BlockNumberOrTag,
+    ) -> Pin<Box<dyn Future<Output = anyhow::Result<Address>> + '_>> {
+        Box::pin(async move {
+            self.provider
+                .get_block_by_number(number)
+                .await
+                .context("Failed to get the geth block")?
+                .context("Failed to get the Geth block, perhaps there are no blocks?")
+                .map(|block| block.header.beneficiary)
+        })
+    }
+
+    #[instrument(level = "info", skip_all, fields(geth_node_id = self.id))]
+    fn block_difficulty(
+        &self,
+        number: BlockNumberOrTag,
+    ) -> Pin<Box<dyn Future<Output = anyhow::Result<U256>> + '_>> {
+        Box::pin(async move {
+            self.provider
+                .get_block_by_number(number)
+                .await
+                .context("Failed to get the geth block")?
+                .context("Failed to get the Geth block, perhaps there are no blocks?")
+                .map(|block| U256::from_be_bytes(block.header.mix_hash.0))
+        })
+    }
+
+    #[instrument(level = "info", skip_all, fields(geth_node_id = self.id))]
+    fn block_base_fee(
+        &self,
+        number: BlockNumberOrTag,
+    ) -> Pin<Box<dyn Future<Output = anyhow::Result<u64>> + '_>> {
+        Box::pin(async move {
+            self.provider
+                .get_block_by_number(number)
+                .await
+                .context("Failed to get the geth block")?
+                .context("Failed to get the Geth block, perhaps there are no blocks?")
+                .and_then(|block| {
+                    block
+                        .header
+                        .base_fee_per_gas
+                        .context("Failed to get the base fee per gas")
+                })
+        })
+    }
+
+    #[instrument(level = "info", skip_all, fields(geth_node_id = self.id))]
+    fn block_hash(
+        &self,
+        number: BlockNumberOrTag,
+    ) -> Pin<Box<dyn Future<Output = anyhow::Result<BlockHash>> + '_>> {
+        Box::pin(async move {
+            self.provider
+                .get_block_by_number(number)
+                .await
+                .context("Failed to get the geth block")?
+                .context("Failed to get the Geth block, perhaps there are no blocks?")
+                .map(|block| block.header.hash)
+        })
+    }
+
+    #[instrument(level = "info", skip_all, fields(geth_node_id = self.id))]
+    fn block_timestamp(
+        &self,
+        number: BlockNumberOrTag,
+    ) -> Pin<Box<dyn Future<Output = anyhow::Result<BlockTimestamp>> + '_>> {
+        Box::pin(async move {
+            self.provider
+                .get_block_by_number(number)
+                .await
+                .context("Failed to get the geth block")?
+                .context("Failed to get the Geth block, perhaps there are no blocks?")
+                .map(|block| block.header.timestamp)
+        })
+    }
+
+    #[instrument(level = "info", skip_all, fields(geth_node_id = self.id))]
+    fn last_block_number(&self) -> Pin<Box<dyn Future<Output = anyhow::Result<BlockNumber>> + '_>> {
+        Box::pin(async move { self.provider.get_block_number().await.map_err(Into::into) })
+    }
+}
+
+// TODO: Remove
 impl ResolverApi for GethNode {
     #[instrument(level = "info", skip_all, fields(geth_node_id = self.id))]
-    async fn chain_id(&self) -> anyhow::Result<alloy::primitives::ChainId> {
-        self.provider()
-            .await
-            .context("Failed to get the Geth provider")?
-            .get_chain_id()
-            .await
-            .map_err(Into::into)
+    fn chain_id(
+        &self,
+    ) -> Pin<Box<dyn Future<Output = anyhow::Result<alloy::primitives::ChainId>> + '_>> {
+        Box::pin(async move {
+            self.provider()
+                .await
+                .context("Failed to get the Geth provider")?
+                .get_chain_id()
+                .await
+                .map_err(Into::into)
+        })
     }
 
     #[instrument(level = "info", skip_all, fields(geth_node_id = self.id))]
-    async fn transaction_gas_price(&self, tx_hash: &TxHash) -> anyhow::Result<u128> {
-        self.provider()
-            .await
-            .context("Failed to get the Geth provider")?
-            .get_transaction_receipt(*tx_hash)
-            .await?
-            .context("Failed to get the transaction receipt")
-            .map(|receipt| receipt.effective_gas_price)
+    fn transaction_gas_price(
+        &self,
+        tx_hash: TxHash,
+    ) -> Pin<Box<dyn Future<Output = anyhow::Result<u128>> + '_>> {
+        Box::pin(async move {
+            self.provider()
+                .await
+                .context("Failed to get the Geth provider")?
+                .get_transaction_receipt(tx_hash)
+                .await?
+                .context("Failed to get the transaction receipt")
+                .map(|receipt| receipt.effective_gas_price)
+        })
     }
 
     #[instrument(level = "info", skip_all, fields(geth_node_id = self.id))]
-    async fn block_gas_limit(&self, number: BlockNumberOrTag) -> anyhow::Result<u128> {
-        self.provider()
-            .await
-            .context("Failed to get the Geth provider")?
-            .get_block_by_number(number)
-            .await
-            .context("Failed to get the geth block")?
-            .context("Failed to get the Geth block, perhaps there are no blocks?")
-            .map(|block| block.header.gas_limit as _)
+    fn block_gas_limit(
+        &self,
+        number: BlockNumberOrTag,
+    ) -> Pin<Box<dyn Future<Output = anyhow::Result<u128>> + '_>> {
+        Box::pin(async move {
+            self.provider()
+                .await
+                .context("Failed to get the Geth provider")?
+                .get_block_by_number(number)
+                .await
+                .context("Failed to get the geth block")?
+                .context("Failed to get the Geth block, perhaps there are no blocks?")
+                .map(|block| block.header.gas_limit as _)
+        })
     }
 
     #[instrument(level = "info", skip_all, fields(geth_node_id = self.id))]
-    async fn block_coinbase(&self, number: BlockNumberOrTag) -> anyhow::Result<Address> {
-        self.provider()
-            .await
-            .context("Failed to get the Geth provider")?
-            .get_block_by_number(number)
-            .await
-            .context("Failed to get the geth block")?
-            .context("Failed to get the Geth block, perhaps there are no blocks?")
-            .map(|block| block.header.beneficiary)
+    fn block_coinbase(
+        &self,
+        number: BlockNumberOrTag,
+    ) -> Pin<Box<dyn Future<Output = anyhow::Result<Address>> + '_>> {
+        Box::pin(async move {
+            self.provider()
+                .await
+                .context("Failed to get the Geth provider")?
+                .get_block_by_number(number)
+                .await
+                .context("Failed to get the geth block")?
+                .context("Failed to get the Geth block, perhaps there are no blocks?")
+                .map(|block| block.header.beneficiary)
+        })
     }
 
     #[instrument(level = "info", skip_all, fields(geth_node_id = self.id))]
-    async fn block_difficulty(&self, number: BlockNumberOrTag) -> anyhow::Result<U256> {
-        self.provider()
-            .await
-            .context("Failed to get the Geth provider")?
-            .get_block_by_number(number)
-            .await
-            .context("Failed to get the geth block")?
-            .context("Failed to get the Geth block, perhaps there are no blocks?")
-            .map(|block| U256::from_be_bytes(block.header.mix_hash.0))
+    fn block_difficulty(
+        &self,
+        number: BlockNumberOrTag,
+    ) -> Pin<Box<dyn Future<Output = anyhow::Result<U256>> + '_>> {
+        Box::pin(async move {
+            self.provider()
+                .await
+                .context("Failed to get the Geth provider")?
+                .get_block_by_number(number)
+                .await
+                .context("Failed to get the geth block")?
+                .context("Failed to get the Geth block, perhaps there are no blocks?")
+                .map(|block| U256::from_be_bytes(block.header.mix_hash.0))
+        })
     }
 
     #[instrument(level = "info", skip_all, fields(geth_node_id = self.id))]
-    async fn block_base_fee(&self, number: BlockNumberOrTag) -> anyhow::Result<u64> {
-        self.provider()
-            .await
-            .context("Failed to get the Geth provider")?
-            .get_block_by_number(number)
-            .await
-            .context("Failed to get the geth block")?
-            .context("Failed to get the Geth block, perhaps there are no blocks?")
-            .and_then(|block| {
-                block
-                    .header
-                    .base_fee_per_gas
-                    .context("Failed to get the base fee per gas")
-            })
+    fn block_base_fee(
+        &self,
+        number: BlockNumberOrTag,
+    ) -> Pin<Box<dyn Future<Output = anyhow::Result<u64>> + '_>> {
+        Box::pin(async move {
+            self.provider()
+                .await
+                .context("Failed to get the Geth provider")?
+                .get_block_by_number(number)
+                .await
+                .context("Failed to get the geth block")?
+                .context("Failed to get the Geth block, perhaps there are no blocks?")
+                .and_then(|block| {
+                    block
+                        .header
+                        .base_fee_per_gas
+                        .context("Failed to get the base fee per gas")
+                })
+        })
     }
 
     #[instrument(level = "info", skip_all, fields(geth_node_id = self.id))]
-    async fn block_hash(&self, number: BlockNumberOrTag) -> anyhow::Result<BlockHash> {
-        self.provider()
-            .await
-            .context("Failed to get the Geth provider")?
-            .get_block_by_number(number)
-            .await
-            .context("Failed to get the geth block")?
-            .context("Failed to get the Geth block, perhaps there are no blocks?")
-            .map(|block| block.header.hash)
+    fn block_hash(
+        &self,
+        number: BlockNumberOrTag,
+    ) -> Pin<Box<dyn Future<Output = anyhow::Result<BlockHash>> + '_>> {
+        Box::pin(async move {
+            self.provider()
+                .await
+                .context("Failed to get the Geth provider")?
+                .get_block_by_number(number)
+                .await
+                .context("Failed to get the geth block")?
+                .context("Failed to get the Geth block, perhaps there are no blocks?")
+                .map(|block| block.header.hash)
+        })
     }
 
     #[instrument(level = "info", skip_all, fields(geth_node_id = self.id))]
-    async fn block_timestamp(&self, number: BlockNumberOrTag) -> anyhow::Result<BlockTimestamp> {
-        self.provider()
-            .await
-            .context("Failed to get the Geth provider")?
-            .get_block_by_number(number)
-            .await
-            .context("Failed to get the geth block")?
-            .context("Failed to get the Geth block, perhaps there are no blocks?")
-            .map(|block| block.header.timestamp)
+    fn block_timestamp(
+        &self,
+        number: BlockNumberOrTag,
+    ) -> Pin<Box<dyn Future<Output = anyhow::Result<BlockTimestamp>> + '_>> {
+        Box::pin(async move {
+            self.provider()
+                .await
+                .context("Failed to get the Geth provider")?
+                .get_block_by_number(number)
+                .await
+                .context("Failed to get the geth block")?
+                .context("Failed to get the Geth block, perhaps there are no blocks?")
+                .map(|block| block.header.timestamp)
+        })
     }
 
     #[instrument(level = "info", skip_all, fields(geth_node_id = self.id))]
-    async fn last_block_number(&self) -> anyhow::Result<BlockNumber> {
-        self.provider()
-            .await
-            .context("Failed to get the Geth provider")?
-            .get_block_number()
-            .await
-            .map_err(Into::into)
+    fn last_block_number(&self) -> Pin<Box<dyn Future<Output = anyhow::Result<BlockNumber>> + '_>> {
+        Box::pin(async move {
+            self.provider()
+                .await
+                .context("Failed to get the Geth provider")?
+                .get_block_number()
+                .await
+                .map_err(Into::into)
+        })
     }
 }
 

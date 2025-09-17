@@ -695,7 +695,7 @@ impl<T: AsRef<str>> CalldataToken<T> {
                     context
                         .transaction_hash()
                         .context("No transaction hash provided to get the transaction gas price")
-                        .map(|tx_hash| resolver.transaction_gas_price(tx_hash))?
+                        .map(|tx_hash| resolver.transaction_gas_price(*tx_hash))?
                         .await
                         .map(U256::from)
                 } else if item == Self::GAS_LIMIT_VARIABLE {
@@ -799,7 +799,7 @@ mod tests {
     use alloy::{eips::BlockNumberOrTag, json_abi::JsonAbi};
     use alloy_primitives::{BlockHash, BlockNumber, BlockTimestamp, ChainId, TxHash, address};
     use alloy_sol_types::SolValue;
-    use std::collections::HashMap;
+    use std::{collections::HashMap, pin::Pin};
 
     use super::*;
     use crate::metadata::ContractIdent;
@@ -807,40 +807,63 @@ mod tests {
     struct MockResolver;
 
     impl ResolverApi for MockResolver {
-        async fn chain_id(&self) -> anyhow::Result<ChainId> {
-            Ok(0x123)
+        fn chain_id(&self) -> Pin<Box<dyn Future<Output = anyhow::Result<ChainId>> + '_>> {
+            Box::pin(async move { Ok(0x123) })
         }
 
-        async fn block_gas_limit(&self, _: BlockNumberOrTag) -> anyhow::Result<u128> {
-            Ok(0x1234)
+        fn block_gas_limit(
+            &self,
+            _: BlockNumberOrTag,
+        ) -> Pin<Box<dyn Future<Output = anyhow::Result<u128>> + '_>> {
+            Box::pin(async move { Ok(0x1234) })
         }
 
-        async fn block_coinbase(&self, _: BlockNumberOrTag) -> anyhow::Result<Address> {
-            Ok(Address::ZERO)
+        fn block_coinbase(
+            &self,
+            _: BlockNumberOrTag,
+        ) -> Pin<Box<dyn Future<Output = anyhow::Result<Address>> + '_>> {
+            Box::pin(async move { Ok(Address::ZERO) })
         }
 
-        async fn block_difficulty(&self, _: BlockNumberOrTag) -> anyhow::Result<U256> {
-            Ok(U256::from(0x12345u128))
+        fn block_difficulty(
+            &self,
+            _: BlockNumberOrTag,
+        ) -> Pin<Box<dyn Future<Output = anyhow::Result<U256>> + '_>> {
+            Box::pin(async move { Ok(U256::from(0x12345u128)) })
         }
 
-        async fn block_base_fee(&self, _: BlockNumberOrTag) -> anyhow::Result<u64> {
-            Ok(0x100)
+        fn block_base_fee(
+            &self,
+            _: BlockNumberOrTag,
+        ) -> Pin<Box<dyn Future<Output = anyhow::Result<u64>> + '_>> {
+            Box::pin(async move { Ok(0x100) })
         }
 
-        async fn block_hash(&self, _: BlockNumberOrTag) -> anyhow::Result<BlockHash> {
-            Ok([0xEE; 32].into())
+        fn block_hash(
+            &self,
+            _: BlockNumberOrTag,
+        ) -> Pin<Box<dyn Future<Output = anyhow::Result<BlockHash>> + '_>> {
+            Box::pin(async move { Ok([0xEE; 32].into()) })
         }
 
-        async fn block_timestamp(&self, _: BlockNumberOrTag) -> anyhow::Result<BlockTimestamp> {
-            Ok(0x123456)
+        fn block_timestamp(
+            &self,
+            _: BlockNumberOrTag,
+        ) -> Pin<Box<dyn Future<Output = anyhow::Result<BlockTimestamp>> + '_>> {
+            Box::pin(async move { Ok(0x123456) })
         }
 
-        async fn last_block_number(&self) -> anyhow::Result<BlockNumber> {
-            Ok(0x1234567)
+        fn last_block_number(
+            &self,
+        ) -> Pin<Box<dyn Future<Output = anyhow::Result<BlockNumber>> + '_>> {
+            Box::pin(async move { Ok(0x1234567) })
         }
 
-        async fn transaction_gas_price(&self, _: &TxHash) -> anyhow::Result<u128> {
-            Ok(0x200)
+        fn transaction_gas_price(
+            &self,
+            _: TxHash,
+        ) -> Pin<Box<dyn Future<Output = anyhow::Result<u128>> + '_>> {
+            Box::pin(async move { Ok(0x200) })
         }
     }
 

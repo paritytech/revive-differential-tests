@@ -2,6 +2,7 @@ use std::{
     fs::{File, OpenOptions, create_dir_all, remove_dir_all},
     io::{BufRead, Write},
     path::{Path, PathBuf},
+    pin::Pin,
     process::{Child, Command, Stdio},
     sync::{
         Arc,
@@ -44,6 +45,7 @@ use sp_runtime::AccountId32;
 
 use revive_dt_config::*;
 use revive_dt_node_interaction::EthereumNode;
+use tracing::instrument;
 
 use crate::{Node, common::FallbackGasFiller, constants::INITIAL_BALANCE};
 
@@ -387,14 +389,14 @@ impl KitchensinkNode {
         &self,
     ) -> anyhow::Result<
         FillProvider<
-            impl TxFiller<KitchenSinkNetwork>,
-            impl Provider<KitchenSinkNetwork>,
-            KitchenSinkNetwork,
+            impl TxFiller<KitchensinkNetwork>,
+            impl Provider<KitchensinkNetwork>,
+            KitchensinkNetwork,
         >,
     > {
         ProviderBuilder::new()
             .disable_recommended_fillers()
-            .network::<KitchenSinkNetwork>()
+            .network::<KitchensinkNetwork>()
             .filler(FallbackGasFiller::new(
                 25_000_000,
                 1_000_000_000,
@@ -479,106 +481,287 @@ impl EthereumNode for KitchensinkNode {
             .await
             .map_err(Into::into)
     }
+
+    fn resolver(&self) -> impl Future<Output = anyhow::Result<Box<dyn ResolverApi + '_>>> {
+        Box::pin(async move {
+            let id = self.id;
+            let provider = self.provider().await?;
+            Ok(Box::new(KitchensinkNodeResolver { id, provider }) as Box<dyn ResolverApi>)
+        })
+    }
 }
 
+pub struct KitchensinkNodeResolver<F: TxFiller<KitchensinkNetwork>, P: Provider<KitchensinkNetwork>>
+{
+    id: u32,
+    provider: FillProvider<F, P, KitchensinkNetwork>,
+}
+
+impl<F: TxFiller<KitchensinkNetwork>, P: Provider<KitchensinkNetwork>> ResolverApi
+    for KitchensinkNodeResolver<F, P>
+{
+    #[instrument(level = "info", skip_all, fields(kitchensink_node_id = self.id))]
+    fn chain_id(
+        &self,
+    ) -> Pin<Box<dyn Future<Output = anyhow::Result<alloy::primitives::ChainId>> + '_>> {
+        Box::pin(async move { self.provider.get_chain_id().await.map_err(Into::into) })
+    }
+
+    #[instrument(level = "info", skip_all, fields(kitchensink_node_id = self.id))]
+    fn transaction_gas_price(
+        &self,
+        tx_hash: TxHash,
+    ) -> Pin<Box<dyn Future<Output = anyhow::Result<u128>> + '_>> {
+        Box::pin(async move {
+            self.provider
+                .get_transaction_receipt(tx_hash)
+                .await?
+                .context("Failed to get the transaction receipt")
+                .map(|receipt| receipt.effective_gas_price)
+        })
+    }
+
+    #[instrument(level = "info", skip_all, fields(kitchensink_node_id = self.id))]
+    fn block_gas_limit(
+        &self,
+        number: BlockNumberOrTag,
+    ) -> Pin<Box<dyn Future<Output = anyhow::Result<u128>> + '_>> {
+        Box::pin(async move {
+            self.provider
+                .get_block_by_number(number)
+                .await
+                .context("Failed to get the kitchensink block")?
+                .context("Failed to get the Kitchensink block, perhaps the chain has no blocks?")
+                .map(|block| block.header.gas_limit as _)
+        })
+    }
+
+    #[instrument(level = "info", skip_all, fields(kitchensink_node_id = self.id))]
+    fn block_coinbase(
+        &self,
+        number: BlockNumberOrTag,
+    ) -> Pin<Box<dyn Future<Output = anyhow::Result<Address>> + '_>> {
+        Box::pin(async move {
+            self.provider
+                .get_block_by_number(number)
+                .await
+                .context("Failed to get the kitchensink block")?
+                .context("Failed to get the Kitchensink block, perhaps the chain has no blocks?")
+                .map(|block| block.header.beneficiary)
+        })
+    }
+
+    #[instrument(level = "info", skip_all, fields(kitchensink_node_id = self.id))]
+    fn block_difficulty(
+        &self,
+        number: BlockNumberOrTag,
+    ) -> Pin<Box<dyn Future<Output = anyhow::Result<U256>> + '_>> {
+        Box::pin(async move {
+            self.provider
+                .get_block_by_number(number)
+                .await
+                .context("Failed to get the kitchensink block")?
+                .context("Failed to get the Kitchensink block, perhaps the chain has no blocks?")
+                .map(|block| U256::from_be_bytes(block.header.mix_hash.0))
+        })
+    }
+
+    #[instrument(level = "info", skip_all, fields(kitchensink_node_id = self.id))]
+    fn block_base_fee(
+        &self,
+        number: BlockNumberOrTag,
+    ) -> Pin<Box<dyn Future<Output = anyhow::Result<u64>> + '_>> {
+        Box::pin(async move {
+            self.provider
+                .get_block_by_number(number)
+                .await
+                .context("Failed to get the kitchensink block")?
+                .context("Failed to get the Kitchensink block, perhaps the chain has no blocks?")
+                .and_then(|block| {
+                    block
+                        .header
+                        .base_fee_per_gas
+                        .context("Failed to get the base fee per gas")
+                })
+        })
+    }
+
+    #[instrument(level = "info", skip_all, fields(kitchensink_node_id = self.id))]
+    fn block_hash(
+        &self,
+        number: BlockNumberOrTag,
+    ) -> Pin<Box<dyn Future<Output = anyhow::Result<BlockHash>> + '_>> {
+        Box::pin(async move {
+            self.provider
+                .get_block_by_number(number)
+                .await
+                .context("Failed to get the kitchensink block")?
+                .context("Failed to get the Kitchensink block, perhaps the chain has no blocks?")
+                .map(|block| block.header.hash)
+        })
+    }
+
+    #[instrument(level = "info", skip_all, fields(kitchensink_node_id = self.id))]
+    fn block_timestamp(
+        &self,
+        number: BlockNumberOrTag,
+    ) -> Pin<Box<dyn Future<Output = anyhow::Result<BlockTimestamp>> + '_>> {
+        Box::pin(async move {
+            self.provider
+                .get_block_by_number(number)
+                .await
+                .context("Failed to get the kitchensink block")?
+                .context("Failed to get the Kitchensink block, perhaps the chain has no blocks?")
+                .map(|block| block.header.timestamp)
+        })
+    }
+
+    #[instrument(level = "info", skip_all, fields(kitchensink_node_id = self.id))]
+    fn last_block_number(&self) -> Pin<Box<dyn Future<Output = anyhow::Result<BlockNumber>> + '_>> {
+        Box::pin(async move { self.provider.get_block_number().await.map_err(Into::into) })
+    }
+}
+
+// TODO: Remove
 impl ResolverApi for KitchensinkNode {
-    async fn chain_id(&self) -> anyhow::Result<alloy::primitives::ChainId> {
-        self.provider()
-            .await
-            .context("Failed to get the Kitchensink provider")?
-            .get_chain_id()
-            .await
-            .map_err(Into::into)
+    fn chain_id(
+        &self,
+    ) -> Pin<Box<dyn Future<Output = anyhow::Result<alloy::primitives::ChainId>> + '_>> {
+        Box::pin(async move {
+            self.provider()
+                .await
+                .context("Failed to get the Kitchensink provider")?
+                .get_chain_id()
+                .await
+                .map_err(Into::into)
+        })
     }
 
-    async fn transaction_gas_price(&self, tx_hash: &TxHash) -> anyhow::Result<u128> {
-        self.provider()
-            .await
-            .context("Failed to get the Kitchensink provider")?
-            .get_transaction_receipt(*tx_hash)
-            .await?
-            .context("Failed to get the transaction receipt")
-            .map(|receipt| receipt.effective_gas_price)
+    fn transaction_gas_price(
+        &self,
+        tx_hash: TxHash,
+    ) -> Pin<Box<dyn Future<Output = anyhow::Result<u128>> + '_>> {
+        Box::pin(async move {
+            self.provider()
+                .await
+                .context("Failed to get the Kitchensink provider")?
+                .get_transaction_receipt(tx_hash)
+                .await?
+                .context("Failed to get the transaction receipt")
+                .map(|receipt| receipt.effective_gas_price)
+        })
     }
 
-    async fn block_gas_limit(&self, number: BlockNumberOrTag) -> anyhow::Result<u128> {
-        self.provider()
-            .await
-            .context("Failed to get the Kitchensink provider")?
-            .get_block_by_number(number)
-            .await
-            .context("Failed to get the kitchensink block")?
-            .context("Failed to get the Kitchensink block, perhaps the chain has no blocks?")
-            .map(|block| block.header.gas_limit as _)
+    fn block_gas_limit(
+        &self,
+        number: BlockNumberOrTag,
+    ) -> Pin<Box<dyn Future<Output = anyhow::Result<u128>> + '_>> {
+        Box::pin(async move {
+            self.provider()
+                .await
+                .context("Failed to get the Kitchensink provider")?
+                .get_block_by_number(number)
+                .await
+                .context("Failed to get the kitchensink block")?
+                .context("Failed to get the Kitchensink block, perhaps the chain has no blocks?")
+                .map(|block| block.header.gas_limit as _)
+        })
     }
 
-    async fn block_coinbase(&self, number: BlockNumberOrTag) -> anyhow::Result<Address> {
-        self.provider()
-            .await
-            .context("Failed to get the Kitchensink provider")?
-            .get_block_by_number(number)
-            .await
-            .context("Failed to get the kitchensink block")?
-            .context("Failed to get the Kitchensink block, perhaps the chain has no blocks?")
-            .map(|block| block.header.beneficiary)
+    fn block_coinbase(
+        &self,
+        number: BlockNumberOrTag,
+    ) -> Pin<Box<dyn Future<Output = anyhow::Result<Address>> + '_>> {
+        Box::pin(async move {
+            self.provider()
+                .await
+                .context("Failed to get the Kitchensink provider")?
+                .get_block_by_number(number)
+                .await
+                .context("Failed to get the kitchensink block")?
+                .context("Failed to get the Kitchensink block, perhaps the chain has no blocks?")
+                .map(|block| block.header.beneficiary)
+        })
     }
 
-    async fn block_difficulty(&self, number: BlockNumberOrTag) -> anyhow::Result<U256> {
-        self.provider()
-            .await
-            .context("Failed to get the Kitchensink provider")?
-            .get_block_by_number(number)
-            .await
-            .context("Failed to get the kitchensink block")?
-            .context("Failed to get the Kitchensink block, perhaps the chain has no blocks?")
-            .map(|block| U256::from_be_bytes(block.header.mix_hash.0))
+    fn block_difficulty(
+        &self,
+        number: BlockNumberOrTag,
+    ) -> Pin<Box<dyn Future<Output = anyhow::Result<U256>> + '_>> {
+        Box::pin(async move {
+            self.provider()
+                .await
+                .context("Failed to get the Kitchensink provider")?
+                .get_block_by_number(number)
+                .await
+                .context("Failed to get the kitchensink block")?
+                .context("Failed to get the Kitchensink block, perhaps the chain has no blocks?")
+                .map(|block| U256::from_be_bytes(block.header.mix_hash.0))
+        })
     }
 
-    async fn block_base_fee(&self, number: BlockNumberOrTag) -> anyhow::Result<u64> {
-        self.provider()
-            .await
-            .context("Failed to get the Kitchensink provider")?
-            .get_block_by_number(number)
-            .await
-            .context("Failed to get the kitchensink block")?
-            .context("Failed to get the Kitchensink block, perhaps the chain has no blocks?")
-            .and_then(|block| {
-                block
-                    .header
-                    .base_fee_per_gas
-                    .context("Failed to get the base fee per gas")
-            })
+    fn block_base_fee(
+        &self,
+        number: BlockNumberOrTag,
+    ) -> Pin<Box<dyn Future<Output = anyhow::Result<u64>> + '_>> {
+        Box::pin(async move {
+            self.provider()
+                .await
+                .context("Failed to get the Kitchensink provider")?
+                .get_block_by_number(number)
+                .await
+                .context("Failed to get the kitchensink block")?
+                .context("Failed to get the Kitchensink block, perhaps the chain has no blocks?")
+                .and_then(|block| {
+                    block
+                        .header
+                        .base_fee_per_gas
+                        .context("Failed to get the base fee per gas")
+                })
+        })
     }
 
-    async fn block_hash(&self, number: BlockNumberOrTag) -> anyhow::Result<BlockHash> {
-        self.provider()
-            .await
-            .context("Failed to get the Kitchensink provider")?
-            .get_block_by_number(number)
-            .await
-            .context("Failed to get the kitchensink block")?
-            .context("Failed to get the Kitchensink block, perhaps the chain has no blocks?")
-            .map(|block| block.header.hash)
+    fn block_hash(
+        &self,
+        number: BlockNumberOrTag,
+    ) -> Pin<Box<dyn Future<Output = anyhow::Result<BlockHash>> + '_>> {
+        Box::pin(async move {
+            self.provider()
+                .await
+                .context("Failed to get the Kitchensink provider")?
+                .get_block_by_number(number)
+                .await
+                .context("Failed to get the kitchensink block")?
+                .context("Failed to get the Kitchensink block, perhaps the chain has no blocks?")
+                .map(|block| block.header.hash)
+        })
     }
 
-    async fn block_timestamp(&self, number: BlockNumberOrTag) -> anyhow::Result<BlockTimestamp> {
-        self.provider()
-            .await
-            .context("Failed to get the Kitchensink provider")?
-            .get_block_by_number(number)
-            .await
-            .context("Failed to get the kitchensink block")?
-            .context("Failed to get the Kitchensink block, perhaps the chain has no blocks?")
-            .map(|block| block.header.timestamp)
+    fn block_timestamp(
+        &self,
+        number: BlockNumberOrTag,
+    ) -> Pin<Box<dyn Future<Output = anyhow::Result<BlockTimestamp>> + '_>> {
+        Box::pin(async move {
+            self.provider()
+                .await
+                .context("Failed to get the Kitchensink provider")?
+                .get_block_by_number(number)
+                .await
+                .context("Failed to get the kitchensink block")?
+                .context("Failed to get the Kitchensink block, perhaps the chain has no blocks?")
+                .map(|block| block.header.timestamp)
+        })
     }
 
-    async fn last_block_number(&self) -> anyhow::Result<BlockNumber> {
-        self.provider()
-            .await
-            .context("Failed to get the Kitchensink provider")?
-            .get_block_number()
-            .await
-            .map_err(Into::into)
+    fn last_block_number(&self) -> Pin<Box<dyn Future<Output = anyhow::Result<BlockNumber>> + '_>> {
+        Box::pin(async move {
+            self.provider()
+                .await
+                .context("Failed to get the Kitchensink provider")?
+                .get_block_number()
+                .await
+                .map_err(Into::into)
+        })
     }
 }
 
@@ -701,9 +884,9 @@ impl Drop for KitchensinkNode {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-struct KitchenSinkNetwork;
+pub struct KitchensinkNetwork;
 
-impl Network for KitchenSinkNetwork {
+impl Network for KitchensinkNetwork {
     type TxType = <Ethereum as Network>::TxType;
 
     type TxEnvelope = <Ethereum as Network>::TxEnvelope;
@@ -712,7 +895,7 @@ impl Network for KitchenSinkNetwork {
 
     type ReceiptEnvelope = <Ethereum as Network>::ReceiptEnvelope;
 
-    type Header = KitchenSinkHeader;
+    type Header = KitchensinkHeader;
 
     type TransactionRequest = <Ethereum as Network>::TransactionRequest;
 
@@ -720,12 +903,12 @@ impl Network for KitchenSinkNetwork {
 
     type ReceiptResponse = <Ethereum as Network>::ReceiptResponse;
 
-    type HeaderResponse = Header<KitchenSinkHeader>;
+    type HeaderResponse = Header<KitchensinkHeader>;
 
-    type BlockResponse = Block<Transaction<TxEnvelope>, Header<KitchenSinkHeader>>;
+    type BlockResponse = Block<Transaction<TxEnvelope>, Header<KitchensinkHeader>>;
 }
 
-impl TransactionBuilder<KitchenSinkNetwork> for <Ethereum as Network>::TransactionRequest {
+impl TransactionBuilder<KitchensinkNetwork> for <Ethereum as Network>::TransactionRequest {
     fn chain_id(&self) -> Option<alloy::primitives::ChainId> {
         <<Ethereum as Network>::TransactionRequest as TransactionBuilder<Ethereum>>::chain_id(self)
     }
@@ -857,7 +1040,7 @@ impl TransactionBuilder<KitchenSinkNetwork> for <Ethereum as Network>::Transacti
 
     fn complete_type(
         &self,
-        ty: <KitchenSinkNetwork as Network>::TxType,
+        ty: <KitchensinkNetwork as Network>::TxType,
     ) -> Result<(), Vec<&'static str>> {
         <<Ethereum as Network>::TransactionRequest as TransactionBuilder<Ethereum>>::complete_type(
             self, ty,
@@ -874,13 +1057,13 @@ impl TransactionBuilder<KitchenSinkNetwork> for <Ethereum as Network>::Transacti
         <<Ethereum as Network>::TransactionRequest as TransactionBuilder<Ethereum>>::can_build(self)
     }
 
-    fn output_tx_type(&self) -> <KitchenSinkNetwork as Network>::TxType {
+    fn output_tx_type(&self) -> <KitchensinkNetwork as Network>::TxType {
         <<Ethereum as Network>::TransactionRequest as TransactionBuilder<Ethereum>>::output_tx_type(
             self,
         )
     }
 
-    fn output_tx_type_checked(&self) -> Option<<KitchenSinkNetwork as Network>::TxType> {
+    fn output_tx_type_checked(&self) -> Option<<KitchensinkNetwork as Network>::TxType> {
         <<Ethereum as Network>::TransactionRequest as TransactionBuilder<Ethereum>>::output_tx_type_checked(
             self,
         )
@@ -894,7 +1077,7 @@ impl TransactionBuilder<KitchenSinkNetwork> for <Ethereum as Network>::Transacti
 
     fn build_unsigned(
         self,
-    ) -> alloy::network::BuildResult<<KitchenSinkNetwork as Network>::UnsignedTx, KitchenSinkNetwork>
+    ) -> alloy::network::BuildResult<<KitchensinkNetwork as Network>::UnsignedTx, KitchensinkNetwork>
     {
         let result = <<Ethereum as Network>::TransactionRequest as TransactionBuilder<Ethereum>>::build_unsigned(
             self,
@@ -902,7 +1085,7 @@ impl TransactionBuilder<KitchenSinkNetwork> for <Ethereum as Network>::Transacti
         match result {
             Ok(unsigned_tx) => Ok(unsigned_tx),
             Err(UnbuiltTransactionError { request, error }) => {
-                Err(UnbuiltTransactionError::<KitchenSinkNetwork> {
+                Err(UnbuiltTransactionError::<KitchensinkNetwork> {
                     request,
                     error: match error {
                         TransactionBuilderError::InvalidTransactionRequest(tx_type, items) => {
@@ -923,12 +1106,12 @@ impl TransactionBuilder<KitchenSinkNetwork> for <Ethereum as Network>::Transacti
         }
     }
 
-    async fn build<W: alloy::network::NetworkWallet<KitchenSinkNetwork>>(
+    async fn build<W: alloy::network::NetworkWallet<KitchensinkNetwork>>(
         self,
         wallet: &W,
     ) -> Result<
-        <KitchenSinkNetwork as Network>::TxEnvelope,
-        TransactionBuilderError<KitchenSinkNetwork>,
+        <KitchensinkNetwork as Network>::TxEnvelope,
+        TransactionBuilderError<KitchensinkNetwork>,
     > {
         Ok(wallet.sign_request(self).await?)
     }
@@ -936,7 +1119,7 @@ impl TransactionBuilder<KitchenSinkNetwork> for <Ethereum as Network>::Transacti
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct KitchenSinkHeader {
+pub struct KitchensinkHeader {
     /// The Keccak 256-bit hash of the parent
     /// block’s header, in its entirety; formally Hp.
     pub parent_hash: B256,
@@ -1039,7 +1222,7 @@ pub struct KitchenSinkHeader {
     pub requests_hash: Option<B256>,
 }
 
-impl BlockHeader for KitchenSinkHeader {
+impl BlockHeader for KitchensinkHeader {
     fn parent_hash(&self) -> B256 {
         self.parent_hash
     }
