@@ -17,7 +17,7 @@ use tracing::info;
 use crate::Node;
 
 /// The node pool starts one or more [Node] which then can be accessed
-/// in a round robbin fasion.
+/// in a round robbin fashion.
 pub struct NodePool<T> {
     next: AtomicUsize,
     nodes: Vec<T>,

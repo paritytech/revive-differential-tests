@@ -7,6 +7,7 @@ use std::{
     collections::HashMap,
     hash::Hash,
     path::{Path, PathBuf},
+    pin::Pin,
 };
 
 use alloy::json_abi::JsonAbi;
@@ -28,12 +29,32 @@ pub mod revive_resolc;
 pub mod solc;
 
 /// A common interface for all supported Solidity compilers.
+pub trait DynSolidityCompiler {
+    /// Returns the version of the compiler.
+    fn version(&self) -> &Version;
+
+    /// Returns the path of the compiler executable.
+    fn path(&self) -> &Path;
+
+    /// The low-level compiler interface.
+    fn build(&self, input: CompilerInput) -> Pin<Box<dyn Future<Output = Result<CompilerOutput>>>>;
+
+    /// Does the compiler support the provided mode and version settings.
+    fn supports_mode(
+        &self,
+        optimizer_setting: ModeOptimizerSetting,
+        pipeline: ModePipeline,
+    ) -> bool;
+}
+
+// TODO: Remove
+/// A common interface for all supported Solidity compilers.
 pub trait SolidityCompiler: Sized {
     /// Instantiates a new compiler object.
     ///
-    /// Based on the given [`Context`] and [`VersionOrRequirement`] this function instantiates a
-    /// new compiler object. Certain implementations of this trait might choose to cache cache the
-    /// compiler objects and return the same ones over and over again.
+    /// Based on the given context and [`VersionOrRequirement`] this function instantiates a
+    /// new compiler object. Certain implementations of this trait might choose to cache the
+    /// compiler objects and return the same compiler objects if given the same set of arguments.
     fn new(
         context: impl AsRef<SolcConfiguration>
         + AsRef<ResolcConfiguration>
@@ -74,7 +95,7 @@ pub struct CompilerInput {
 /// The generic compilation output configuration.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct CompilerOutput {
-    /// The compiled contracts. The bytecode of the contract is kept as a string incase linking is
+    /// The compiled contracts. The bytecode of the contract is kept as a string in case linking is
     /// required and the compiled source has placeholders.
     pub contracts: HashMap<PathBuf, HashMap<String, (String, JsonAbi)>>,
 }

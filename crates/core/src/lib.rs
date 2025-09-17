@@ -3,8 +3,9 @@
 //! This crate defines the testing configuration and
 //! provides a helper utility to execute tests.
 
-use revive_dt_compiler::{SolidityCompiler, revive_resolc, solc};
-use revive_dt_config::{PlatformIdentifier, TestingPlatform};
+use revive_dt_common::types::VersionOrRequirement;
+use revive_dt_compiler::{DynSolidityCompiler, SolidityCompiler, revive_resolc, solc};
+use revive_dt_config::*;
 use revive_dt_format::traits::ResolverApi;
 use revive_dt_node::{Node, geth, kitchensink::KitchensinkNode};
 use revive_dt_node_interaction::EthereumNode;
@@ -53,5 +54,28 @@ pub trait DynPlatform {
 
     /// Creates a new node for the platform by spawning a new thread, creating the node object,
     /// initializing it, spawning it, and waiting for it to start up.
-    fn new_node(&self) -> Box<dyn EthereumNode>;
+    fn new_node(
+        &self,
+        context: impl AsRef<WorkingDirectoryConfiguration>
+        + AsRef<ConcurrencyConfiguration>
+        + AsRef<GenesisConfiguration>
+        + AsRef<WalletConfiguration>
+        + AsRef<GethConfiguration>
+        + AsRef<KitchensinkConfiguration>
+        + AsRef<ReviveDevNodeConfiguration>
+        + AsRef<EthRpcConfiguration>
+        + Send
+        + Sync
+        + Clone
+        + 'static,
+    ) -> Box<dyn EthereumNode>;
+
+    /// Creates a new compiler for the provided platform
+    fn new_compiler(
+        &self,
+        context: impl AsRef<SolcConfiguration>
+        + AsRef<ResolcConfiguration>
+        + AsRef<WorkingDirectoryConfiguration>,
+        version: impl Into<Option<VersionOrRequirement>>,
+    ) -> Box<dyn DynSolidityCompiler>;
 }
