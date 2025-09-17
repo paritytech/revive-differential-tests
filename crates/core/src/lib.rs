@@ -12,7 +12,8 @@ use alloy::genesis::Genesis;
 use anyhow::Context as _;
 use revive_dt_common::types::*;
 use revive_dt_compiler::{
-    DynSolidityCompiler, SolidityCompiler, revive_resolc,
+    DynSolidityCompiler, SolidityCompiler,
+    revive_resolc::{self, Resolc},
     solc::{self, Solc},
 };
 use revive_dt_config::*;
@@ -155,6 +156,266 @@ impl DynPlatform for GethEvmPlatform {
         Ok(thread::spawn(move || {
             let node = GethNode::new(context);
             let node = spawn_node::<GethNode>(node, genesis)?;
+            Ok(Box::new(node) as Box<_>)
+        }))
+    }
+
+    fn new_compiler<'a>(
+        &self,
+        context: impl AsRef<SolcConfiguration>
+        + AsRef<ResolcConfiguration>
+        + AsRef<WorkingDirectoryConfiguration>
+        + 'a,
+        version: impl Into<Option<VersionOrRequirement>> + 'a,
+    ) -> Pin<Box<dyn Future<Output = anyhow::Result<Box<dyn DynSolidityCompiler>>> + 'a>> {
+        Box::pin(async move {
+            let compiler = Solc::new(context, version).await;
+            compiler.map(|compiler| Box::new(compiler) as Box<dyn DynSolidityCompiler>)
+        })
+    }
+}
+
+pub struct KitchensinkPolkavmResolc;
+
+impl DynPlatform for KitchensinkPolkavmResolc {
+    fn platform_identifier(&self) -> PlatformIdentifier {
+        PlatformIdentifier::KitchensinkPolkavmResolc
+    }
+
+    fn node_identifier(&self) -> NodeIdentifier {
+        NodeIdentifier::Kitchensink
+    }
+
+    fn vm_identifier(&self) -> VmIdentifier {
+        VmIdentifier::Polkavm
+    }
+
+    fn compiler_identifier(&self) -> CompilerIdentifier {
+        CompilerIdentifier::Resolc
+    }
+
+    fn new_node(
+        &self,
+        context: impl AsRef<WorkingDirectoryConfiguration>
+        + AsRef<ConcurrencyConfiguration>
+        + AsRef<GenesisConfiguration>
+        + AsRef<WalletConfiguration>
+        + AsRef<GethConfiguration>
+        + AsRef<KitchensinkConfiguration>
+        + AsRef<ReviveDevNodeConfiguration>
+        + AsRef<EthRpcConfiguration>
+        + Send
+        + Sync
+        + Clone
+        + 'static,
+    ) -> anyhow::Result<JoinHandle<anyhow::Result<Box<dyn EthereumNode + Send + Sync>>>> {
+        let genesis_configuration = AsRef::<GenesisConfiguration>::as_ref(&context);
+        let kitchensink_path = AsRef::<KitchensinkConfiguration>::as_ref(&context)
+            .path
+            .clone();
+        let genesis = genesis_configuration.genesis()?.clone();
+        Ok(thread::spawn(move || {
+            let node = SubstrateNode::new(
+                kitchensink_path,
+                SubstrateNode::KITCHENSINK_EXPORT_CHAINSPEC_COMMAND,
+                context,
+            );
+            let node = spawn_node(node, genesis)?;
+            Ok(Box::new(node) as Box<_>)
+        }))
+    }
+
+    fn new_compiler<'a>(
+        &self,
+        context: impl AsRef<SolcConfiguration>
+        + AsRef<ResolcConfiguration>
+        + AsRef<WorkingDirectoryConfiguration>
+        + 'a,
+        version: impl Into<Option<VersionOrRequirement>> + 'a,
+    ) -> Pin<Box<dyn Future<Output = anyhow::Result<Box<dyn DynSolidityCompiler>>> + 'a>> {
+        Box::pin(async move {
+            let compiler = Resolc::new(context, version).await;
+            compiler.map(|compiler| Box::new(compiler) as Box<dyn DynSolidityCompiler>)
+        })
+    }
+}
+
+pub struct KitchensinkRevmSolc;
+
+impl DynPlatform for KitchensinkRevmSolc {
+    fn platform_identifier(&self) -> PlatformIdentifier {
+        PlatformIdentifier::KitchensinkRevmSolc
+    }
+
+    fn node_identifier(&self) -> NodeIdentifier {
+        NodeIdentifier::Kitchensink
+    }
+
+    fn vm_identifier(&self) -> VmIdentifier {
+        VmIdentifier::Evm
+    }
+
+    fn compiler_identifier(&self) -> CompilerIdentifier {
+        CompilerIdentifier::Solc
+    }
+
+    fn new_node(
+        &self,
+        context: impl AsRef<WorkingDirectoryConfiguration>
+        + AsRef<ConcurrencyConfiguration>
+        + AsRef<GenesisConfiguration>
+        + AsRef<WalletConfiguration>
+        + AsRef<GethConfiguration>
+        + AsRef<KitchensinkConfiguration>
+        + AsRef<ReviveDevNodeConfiguration>
+        + AsRef<EthRpcConfiguration>
+        + Send
+        + Sync
+        + Clone
+        + 'static,
+    ) -> anyhow::Result<JoinHandle<anyhow::Result<Box<dyn EthereumNode + Send + Sync>>>> {
+        let genesis_configuration = AsRef::<GenesisConfiguration>::as_ref(&context);
+        let kitchensink_path = AsRef::<KitchensinkConfiguration>::as_ref(&context)
+            .path
+            .clone();
+        let genesis = genesis_configuration.genesis()?.clone();
+        Ok(thread::spawn(move || {
+            let node = SubstrateNode::new(
+                kitchensink_path,
+                SubstrateNode::KITCHENSINK_EXPORT_CHAINSPEC_COMMAND,
+                context,
+            );
+            let node = spawn_node(node, genesis)?;
+            Ok(Box::new(node) as Box<_>)
+        }))
+    }
+
+    fn new_compiler<'a>(
+        &self,
+        context: impl AsRef<SolcConfiguration>
+        + AsRef<ResolcConfiguration>
+        + AsRef<WorkingDirectoryConfiguration>
+        + 'a,
+        version: impl Into<Option<VersionOrRequirement>> + 'a,
+    ) -> Pin<Box<dyn Future<Output = anyhow::Result<Box<dyn DynSolidityCompiler>>> + 'a>> {
+        Box::pin(async move {
+            let compiler = Solc::new(context, version).await;
+            compiler.map(|compiler| Box::new(compiler) as Box<dyn DynSolidityCompiler>)
+        })
+    }
+}
+
+pub struct ReviveDevNodePolkavmResolc;
+
+impl DynPlatform for ReviveDevNodePolkavmResolc {
+    fn platform_identifier(&self) -> PlatformIdentifier {
+        PlatformIdentifier::ReviveDevNodePolkavmResolc
+    }
+
+    fn node_identifier(&self) -> NodeIdentifier {
+        NodeIdentifier::ReviveDevNode
+    }
+
+    fn vm_identifier(&self) -> VmIdentifier {
+        VmIdentifier::Polkavm
+    }
+
+    fn compiler_identifier(&self) -> CompilerIdentifier {
+        CompilerIdentifier::Resolc
+    }
+
+    fn new_node(
+        &self,
+        context: impl AsRef<WorkingDirectoryConfiguration>
+        + AsRef<ConcurrencyConfiguration>
+        + AsRef<GenesisConfiguration>
+        + AsRef<WalletConfiguration>
+        + AsRef<GethConfiguration>
+        + AsRef<ReviveDevNodeConfiguration>
+        + AsRef<ReviveDevNodeConfiguration>
+        + AsRef<EthRpcConfiguration>
+        + Send
+        + Sync
+        + Clone
+        + 'static,
+    ) -> anyhow::Result<JoinHandle<anyhow::Result<Box<dyn EthereumNode + Send + Sync>>>> {
+        let genesis_configuration = AsRef::<GenesisConfiguration>::as_ref(&context);
+        let revive_dev_node_path = AsRef::<ReviveDevNodeConfiguration>::as_ref(&context)
+            .path
+            .clone();
+        let genesis = genesis_configuration.genesis()?.clone();
+        Ok(thread::spawn(move || {
+            let node = SubstrateNode::new(
+                revive_dev_node_path,
+                SubstrateNode::REVIVE_DEV_NODE_EXPORT_CHAINSPEC_COMMAND,
+                context,
+            );
+            let node = spawn_node(node, genesis)?;
+            Ok(Box::new(node) as Box<_>)
+        }))
+    }
+
+    fn new_compiler<'a>(
+        &self,
+        context: impl AsRef<SolcConfiguration>
+        + AsRef<ResolcConfiguration>
+        + AsRef<WorkingDirectoryConfiguration>
+        + 'a,
+        version: impl Into<Option<VersionOrRequirement>> + 'a,
+    ) -> Pin<Box<dyn Future<Output = anyhow::Result<Box<dyn DynSolidityCompiler>>> + 'a>> {
+        Box::pin(async move {
+            let compiler = Resolc::new(context, version).await;
+            compiler.map(|compiler| Box::new(compiler) as Box<dyn DynSolidityCompiler>)
+        })
+    }
+}
+
+pub struct ReviveDevNodeRevmSolc;
+
+impl DynPlatform for ReviveDevNodeRevmSolc {
+    fn platform_identifier(&self) -> PlatformIdentifier {
+        PlatformIdentifier::ReviveDevNodeRevmSolc
+    }
+
+    fn node_identifier(&self) -> NodeIdentifier {
+        NodeIdentifier::ReviveDevNode
+    }
+
+    fn vm_identifier(&self) -> VmIdentifier {
+        VmIdentifier::Evm
+    }
+
+    fn compiler_identifier(&self) -> CompilerIdentifier {
+        CompilerIdentifier::Solc
+    }
+
+    fn new_node(
+        &self,
+        context: impl AsRef<WorkingDirectoryConfiguration>
+        + AsRef<ConcurrencyConfiguration>
+        + AsRef<GenesisConfiguration>
+        + AsRef<WalletConfiguration>
+        + AsRef<GethConfiguration>
+        + AsRef<ReviveDevNodeConfiguration>
+        + AsRef<ReviveDevNodeConfiguration>
+        + AsRef<EthRpcConfiguration>
+        + Send
+        + Sync
+        + Clone
+        + 'static,
+    ) -> anyhow::Result<JoinHandle<anyhow::Result<Box<dyn EthereumNode + Send + Sync>>>> {
+        let genesis_configuration = AsRef::<GenesisConfiguration>::as_ref(&context);
+        let revive_dev_node_path = AsRef::<ReviveDevNodeConfiguration>::as_ref(&context)
+            .path
+            .clone();
+        let genesis = genesis_configuration.genesis()?.clone();
+        Ok(thread::spawn(move || {
+            let node = SubstrateNode::new(
+                revive_dev_node_path,
+                SubstrateNode::REVIVE_DEV_NODE_EXPORT_CHAINSPEC_COMMAND,
+                context,
+            );
+            let node = spawn_node(node, genesis)?;
             Ok(Box::new(node) as Box<_>)
         }))
     }

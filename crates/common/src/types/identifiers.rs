@@ -28,11 +28,11 @@ pub enum PlatformIdentifier {
     /// The kitchensink node with the PolkaVM backend with the resolc compiler.
     KitchensinkPolkavmResolc,
     /// The kitchensink node with the REVM backend with the solc compiler.
-    KitchensinkREVMSolc,
+    KitchensinkRevmSolc,
     /// The revive dev node with the PolkaVM backend with the resolc compiler.
     ReviveDevNodePolkavmResolc,
     /// The revive dev node with the REVM backend with the solc compiler.
-    ReviveDevNodeREVMSolc,
+    ReviveDevNodeRevmSolc,
 }
 
 /// An enum of the platform identifiers of all of the platforms supported by this framework.
