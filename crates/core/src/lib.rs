@@ -20,7 +20,7 @@ use revive_dt_format::traits::ResolverApi;
 use revive_dt_node::{
     Node,
     geth::{self, GethNode},
-    kitchensink::KitchensinkNode,
+    substrate::SubstrateNode,
 };
 use revive_dt_node_interaction::EthereumNode;
 use tracing::info;
@@ -54,7 +54,7 @@ impl Platform for Geth {
 pub struct Kitchensink;
 
 impl Platform for Kitchensink {
-    type Blockchain = KitchensinkNode;
+    type Blockchain = SubstrateNode;
     type Compiler = revive_resolc::Resolc;
 
     fn config_id() -> &'static TestingPlatform {

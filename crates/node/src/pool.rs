@@ -12,7 +12,6 @@ use revive_dt_config::{
     KitchensinkConfiguration, ReviveDevNodeConfiguration, WalletConfiguration,
     WorkingDirectoryConfiguration,
 };
-use tracing::info;
 
 use crate::Node;
 
@@ -81,7 +80,7 @@ where
 }
 
 fn spawn_node<T: Node + Send>(
-    context: impl AsRef<WorkingDirectoryConfiguration>
+    _: impl AsRef<WorkingDirectoryConfiguration>
     + AsRef<ConcurrencyConfiguration>
     + AsRef<GenesisConfiguration>
     + AsRef<WalletConfiguration>
@@ -91,7 +90,7 @@ fn spawn_node<T: Node + Send>(
     + AsRef<EthRpcConfiguration>
     + Clone
     + 'static,
-    genesis: Genesis,
+    _: Genesis,
 ) -> anyhow::Result<T> {
     todo!("Remove");
 }

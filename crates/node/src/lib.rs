@@ -2,14 +2,13 @@
 
 use alloy::genesis::Genesis;
 use revive_common::EVMVersion;
-use revive_dt_config::*;
 use revive_dt_node_interaction::EthereumNode;
 
 pub mod common;
 pub mod constants;
 pub mod geth;
-pub mod kitchensink;
 pub mod pool;
+pub mod substrate;
 
 /// An abstract interface for testing nodes.
 pub trait Node: EthereumNode {
