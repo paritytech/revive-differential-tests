@@ -53,5 +53,5 @@ pub trait DynPlatform {
 
     /// Creates a new node for the platform by spawning a new thread, creating the node object,
     /// initializing it, spawning it, and waiting for it to start up.
-    fn new_node(&self) -> Box<dyn PlatformNode>;
+    fn new_node(&self) -> Box<dyn EthereumNode>;
 }

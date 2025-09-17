@@ -8,7 +8,7 @@ use alloy::consensus::EMPTY_ROOT_HASH;
 use alloy::hex;
 use alloy::json_abi::JsonAbi;
 use alloy::network::{Ethereum, TransactionBuilder};
-use alloy::primitives::U256;
+use alloy::primitives::{TxHash, U256};
 use alloy::rpc::types::TransactionReceipt;
 use alloy::rpc::types::trace::geth::{
     CallFrame, GethDebugBuiltInTracerType, GethDebugTracerConfig, GethDebugTracerType,
@@ -124,14 +124,14 @@ where
             .await
             .context("Failed during transaction execution phase of input handling")?;
         let tracing_result = self
-            .handle_input_call_frame_tracing(&execution_receipt, node)
+            .handle_input_call_frame_tracing(execution_receipt.transaction_hash, node)
             .await
             .context("Failed during callframe tracing phase of input handling")?;
         self.handle_input_variable_assignment(input, &tracing_result)
             .context("Failed to assign variables from callframe output")?;
         let (_, (geth_trace, diff_mode)) = try_join!(
             self.handle_input_expectations(input, &execution_receipt, node, &tracing_result),
-            self.handle_input_diff(&execution_receipt, node)
+            self.handle_input_diff(execution_receipt.transaction_hash, node)
         )
         .context("Failed while evaluating expectations and diffs in parallel")?;
         Ok((execution_receipt, geth_trace, diff_mode))
@@ -250,11 +250,11 @@ where
     #[instrument(level = "info", skip_all)]
     async fn handle_input_call_frame_tracing(
         &self,
-        execution_receipt: &TransactionReceipt,
+        tx_hash: TxHash,
         node: &T::Blockchain,
     ) -> anyhow::Result<CallFrame> {
         node.trace_transaction(
-            execution_receipt,
+            tx_hash,
             GethDebugTracingOptions {
                 tracer: Some(GethDebugTracerType::BuiltInTracer(
                     GethDebugBuiltInTracerType::CallTracer,
@@ -507,7 +507,7 @@ where
     #[instrument(level = "info", skip_all)]
     async fn handle_input_diff(
         &self,
-        execution_receipt: &TransactionReceipt,
+        tx_hash: TxHash,
         node: &T::Blockchain,
     ) -> anyhow::Result<(GethTrace, DiffMode)> {
         let trace_options = GethDebugTracingOptions::prestate_tracer(PreStateConfig {
@@ -517,11 +517,11 @@ where
         });
 
         let trace = node
-            .trace_transaction(execution_receipt, trace_options)
+            .trace_transaction(tx_hash, trace_options)
             .await
             .context("Failed to obtain geth prestate tracer output")?;
         let diff = node
-            .state_diff(execution_receipt)
+            .state_diff(tx_hash)
             .await
             .context("Failed to obtain state diff for transaction")?;
 

@@ -412,77 +412,95 @@ impl KitchensinkNode {
 }
 
 impl EthereumNode for KitchensinkNode {
-    async fn execute_transaction(
+    fn execute_transaction(
         &self,
         transaction: alloy::rpc::types::TransactionRequest,
-    ) -> anyhow::Result<TransactionReceipt> {
-        let receipt = self
-            .provider()
-            .await
-            .context("Failed to create provider for transaction submission")?
-            .send_transaction(transaction)
-            .await
-            .context("Failed to submit transaction to kitchensink proxy")?
-            .get_receipt()
-            .await
-            .context("Failed to fetch transaction receipt from kitchensink proxy")?;
-        Ok(receipt)
+    ) -> Pin<Box<dyn Future<Output = anyhow::Result<TransactionReceipt>> + '_>> {
+        Box::pin(async move {
+            let receipt = self
+                .provider()
+                .await
+                .context("Failed to create provider for transaction submission")?
+                .send_transaction(transaction)
+                .await
+                .context("Failed to submit transaction to kitchensink proxy")?
+                .get_receipt()
+                .await
+                .context("Failed to fetch transaction receipt from kitchensink proxy")?;
+            Ok(receipt)
+        })
     }
 
-    async fn trace_transaction(
+    fn trace_transaction(
         &self,
-        transaction: &TransactionReceipt,
+        tx_hash: TxHash,
         trace_options: GethDebugTracingOptions,
-    ) -> anyhow::Result<alloy::rpc::types::trace::geth::GethTrace> {
-        let tx_hash = transaction.transaction_hash;
-        self.provider()
-            .await
-            .context("Failed to create provider for debug tracing")?
-            .debug_trace_transaction(tx_hash, trace_options)
-            .await
-            .context("Failed to obtain debug trace from kitchensink proxy")
+    ) -> Pin<Box<dyn Future<Output = anyhow::Result<alloy::rpc::types::trace::geth::GethTrace>> + '_>>
+    {
+        Box::pin(async move {
+            self.provider()
+                .await
+                .context("Failed to create provider for debug tracing")?
+                .debug_trace_transaction(tx_hash, trace_options)
+                .await
+                .context("Failed to obtain debug trace from kitchensink proxy")
+        })
     }
 
-    async fn state_diff(&self, transaction: &TransactionReceipt) -> anyhow::Result<DiffMode> {
-        let trace_options = GethDebugTracingOptions::prestate_tracer(PreStateConfig {
-            diff_mode: Some(true),
-            disable_code: None,
-            disable_storage: None,
-        });
-        match self
-            .trace_transaction(transaction, trace_options)
-            .await?
-            .try_into_pre_state_frame()?
-        {
-            PreStateFrame::Diff(diff) => Ok(diff),
-            _ => anyhow::bail!("expected a diff mode trace"),
-        }
+    fn state_diff(
+        &self,
+        tx_hash: TxHash,
+    ) -> Pin<Box<dyn Future<Output = anyhow::Result<DiffMode>> + '_>> {
+        Box::pin(async move {
+            let trace_options = GethDebugTracingOptions::prestate_tracer(PreStateConfig {
+                diff_mode: Some(true),
+                disable_code: None,
+                disable_storage: None,
+            });
+            match self
+                .trace_transaction(tx_hash, trace_options)
+                .await?
+                .try_into_pre_state_frame()?
+            {
+                PreStateFrame::Diff(diff) => Ok(diff),
+                _ => anyhow::bail!("expected a diff mode trace"),
+            }
+        })
     }
 
-    async fn balance_of(&self, address: Address) -> anyhow::Result<U256> {
-        self.provider()
-            .await
-            .context("Failed to get the Kitchensink provider")?
-            .get_balance(address)
-            .await
-            .map_err(Into::into)
+    fn balance_of(
+        &self,
+        address: Address,
+    ) -> Pin<Box<dyn Future<Output = anyhow::Result<U256>> + '_>> {
+        Box::pin(async move {
+            self.provider()
+                .await
+                .context("Failed to get the Kitchensink provider")?
+                .get_balance(address)
+                .await
+                .map_err(Into::into)
+        })
     }
 
-    async fn latest_state_proof(
+    fn latest_state_proof(
         &self,
         address: Address,
         keys: Vec<StorageKey>,
-    ) -> anyhow::Result<EIP1186AccountProofResponse> {
-        self.provider()
-            .await
-            .context("Failed to get the Kitchensink provider")?
-            .get_proof(address, keys)
-            .latest()
-            .await
-            .map_err(Into::into)
+    ) -> Pin<Box<dyn Future<Output = anyhow::Result<EIP1186AccountProofResponse>> + '_>> {
+        Box::pin(async move {
+            self.provider()
+                .await
+                .context("Failed to get the Kitchensink provider")?
+                .get_proof(address, keys)
+                .latest()
+                .await
+                .map_err(Into::into)
+        })
     }
 
-    fn resolver(&self) -> impl Future<Output = anyhow::Result<Box<dyn ResolverApi + '_>>> {
+    fn resolver(
+        &self,
+    ) -> Pin<Box<dyn Future<Output = anyhow::Result<Box<dyn ResolverApi + '_>>> + '_>> {
         Box::pin(async move {
             let id = self.id;
             let provider = self.provider().await?;
