@@ -192,6 +192,10 @@ impl Compiler {
         compiler.build(self.input).await
     }
 
+    pub async fn dyn_try_build(self, compiler: &dyn DynSolidityCompiler) -> Result<CompilerOutput> {
+        compiler.build(self.input).await
+    }
+
     pub fn input(&self) -> &CompilerInput {
         &self.input
     }
