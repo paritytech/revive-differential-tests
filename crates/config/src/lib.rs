@@ -45,8 +45,98 @@ impl Context {
 impl AsRef<WorkingDirectoryConfiguration> for Context {
     fn as_ref(&self) -> &WorkingDirectoryConfiguration {
         match self {
-            Context::ExecuteTests(execution_context) => &execution_context.working_directory,
-            Context::ExportJsonSchema => unreachable!(),
+            Self::ExecuteTests(context) => context.as_ref().as_ref(),
+            Self::ExportJsonSchema => unreachable!(),
+        }
+    }
+}
+
+impl AsRef<SolcConfiguration> for Context {
+    fn as_ref(&self) -> &SolcConfiguration {
+        match self {
+            Self::ExecuteTests(context) => context.as_ref().as_ref(),
+            Self::ExportJsonSchema => unreachable!(),
+        }
+    }
+}
+
+impl AsRef<ResolcConfiguration> for Context {
+    fn as_ref(&self) -> &ResolcConfiguration {
+        match self {
+            Self::ExecuteTests(context) => context.as_ref().as_ref(),
+            Self::ExportJsonSchema => unreachable!(),
+        }
+    }
+}
+
+impl AsRef<GethConfiguration> for Context {
+    fn as_ref(&self) -> &GethConfiguration {
+        match self {
+            Self::ExecuteTests(context) => context.as_ref().as_ref(),
+            Self::ExportJsonSchema => unreachable!(),
+        }
+    }
+}
+
+impl AsRef<KitchensinkConfiguration> for Context {
+    fn as_ref(&self) -> &KitchensinkConfiguration {
+        match self {
+            Self::ExecuteTests(context) => context.as_ref().as_ref(),
+            Self::ExportJsonSchema => unreachable!(),
+        }
+    }
+}
+
+impl AsRef<ReviveDevNodeConfiguration> for Context {
+    fn as_ref(&self) -> &ReviveDevNodeConfiguration {
+        match self {
+            Self::ExecuteTests(context) => context.as_ref().as_ref(),
+            Self::ExportJsonSchema => unreachable!(),
+        }
+    }
+}
+
+impl AsRef<EthRpcConfiguration> for Context {
+    fn as_ref(&self) -> &EthRpcConfiguration {
+        match self {
+            Self::ExecuteTests(context) => context.as_ref().as_ref(),
+            Self::ExportJsonSchema => unreachable!(),
+        }
+    }
+}
+
+impl AsRef<GenesisConfiguration> for Context {
+    fn as_ref(&self) -> &GenesisConfiguration {
+        match self {
+            Self::ExecuteTests(context) => context.as_ref().as_ref(),
+            Self::ExportJsonSchema => unreachable!(),
+        }
+    }
+}
+
+impl AsRef<WalletConfiguration> for Context {
+    fn as_ref(&self) -> &WalletConfiguration {
+        match self {
+            Self::ExecuteTests(context) => context.as_ref().as_ref(),
+            Self::ExportJsonSchema => unreachable!(),
+        }
+    }
+}
+
+impl AsRef<ConcurrencyConfiguration> for Context {
+    fn as_ref(&self) -> &ConcurrencyConfiguration {
+        match self {
+            Self::ExecuteTests(context) => context.as_ref().as_ref(),
+            Self::ExportJsonSchema => unreachable!(),
+        }
+    }
+}
+
+impl AsRef<CompilationConfiguration> for Context {
+    fn as_ref(&self) -> &CompilationConfiguration {
+        match self {
+            Self::ExecuteTests(context) => context.as_ref().as_ref(),
+            Self::ExportJsonSchema => unreachable!(),
         }
     }
 }
@@ -54,8 +144,8 @@ impl AsRef<WorkingDirectoryConfiguration> for Context {
 impl AsRef<ReportConfiguration> for Context {
     fn as_ref(&self) -> &ReportConfiguration {
         match self {
-            Context::ExecuteTests(execution_context) => &execution_context.report_configuration,
-            Context::ExportJsonSchema => unreachable!(),
+            Self::ExecuteTests(context) => context.as_ref().as_ref(),
+            Self::ExportJsonSchema => unreachable!(),
         }
     }
 }
