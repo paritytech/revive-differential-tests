@@ -12,7 +12,10 @@ use revive_dt_common::types::VersionOrRequirement;
 use revive_dt_config::{ResolcConfiguration, SolcConfiguration, WorkingDirectoryConfiguration};
 use revive_dt_solc_binaries::download_solc;
 
-use crate::{CompilerInput, CompilerOutput, ModeOptimizerSetting, ModePipeline, SolidityCompiler};
+use crate::{
+    CompilerInput, CompilerOutput, DynSolidityCompiler, ModeOptimizerSetting, ModePipeline,
+    SolidityCompiler,
+};
 
 use anyhow::{Context as _, Result};
 use foundry_compilers_artifacts::{
@@ -34,6 +37,31 @@ struct SolcInner {
     solc_path: PathBuf,
     /// The version of the solidity compiler executable that this object uses.
     solc_version: Version,
+}
+
+impl DynSolidityCompiler for Solc {
+    fn version(&self) -> &Version {
+        SolidityCompiler::version(self)
+    }
+
+    fn path(&self) -> &std::path::Path {
+        SolidityCompiler::path(self)
+    }
+
+    fn build(
+        &self,
+        input: CompilerInput,
+    ) -> std::pin::Pin<Box<dyn Future<Output = Result<CompilerOutput>> + '_>> {
+        Box::pin(SolidityCompiler::build(self, input))
+    }
+
+    fn supports_mode(
+        &self,
+        optimizer_setting: ModeOptimizerSetting,
+        pipeline: ModePipeline,
+    ) -> bool {
+        SolidityCompiler::supports_mode(self, optimizer_setting, pipeline)
+    }
 }
 
 impl SolidityCompiler for Solc {
@@ -162,7 +190,8 @@ impl SolidityCompiler for Solc {
             },
         };
 
-        let mut command = AsyncCommand::new(self.path());
+        let path = &self.0.solc_path;
+        let mut command = AsyncCommand::new(path);
         command
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -183,7 +212,7 @@ impl SolidityCompiler for Solc {
         }
         let mut child = command
             .spawn()
-            .with_context(|| format!("Failed to spawn solc at {}", self.path().display()))?;
+            .with_context(|| format!("Failed to spawn solc at {}", path.display()))?;
 
         let stdin = child.stdin.as_mut().expect("should be piped");
         let serialized_input = serde_json::to_vec(&input)
@@ -278,6 +307,6 @@ impl SolidityCompiler for Solc {
 impl Solc {
     fn compiler_supports_yul(&self) -> bool {
         const SOLC_VERSION_SUPPORTING_VIA_YUL_IR: Version = Version::new(0, 8, 13);
-        self.version() >= &SOLC_VERSION_SUPPORTING_VIA_YUL_IR
+        DynSolidityCompiler::version(self) >= &SOLC_VERSION_SUPPORTING_VIA_YUL_IR
     }
 }

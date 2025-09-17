@@ -17,7 +17,8 @@ use revive_solc_json_interface::{
 };
 
 use crate::{
-    CompilerInput, CompilerOutput, ModeOptimizerSetting, ModePipeline, SolidityCompiler, solc::Solc,
+    CompilerInput, CompilerOutput, DynSolidityCompiler, ModeOptimizerSetting, ModePipeline,
+    SolidityCompiler, solc::Solc,
 };
 
 use alloy::json_abi::JsonAbi;
@@ -35,6 +36,31 @@ struct ResolcInner {
     solc: Solc,
     /// Path to the `resolc` executable
     resolc_path: PathBuf,
+}
+
+impl DynSolidityCompiler for Resolc {
+    fn version(&self) -> &Version {
+        SolidityCompiler::version(self)
+    }
+
+    fn path(&self) -> &std::path::Path {
+        SolidityCompiler::path(self)
+    }
+
+    fn build(
+        &self,
+        input: CompilerInput,
+    ) -> std::pin::Pin<Box<dyn Future<Output = Result<CompilerOutput>> + '_>> {
+        Box::pin(SolidityCompiler::build(self, input))
+    }
+
+    fn supports_mode(
+        &self,
+        optimizer_setting: ModeOptimizerSetting,
+        pipeline: ModePipeline,
+    ) -> bool {
+        SolidityCompiler::supports_mode(self, optimizer_setting, pipeline)
+    }
 }
 
 impl SolidityCompiler for Resolc {
@@ -69,7 +95,7 @@ impl SolidityCompiler for Resolc {
     fn version(&self) -> &Version {
         // We currently return the solc compiler version since we do not support multiple resolc
         // compiler versions.
-        self.0.solc.version()
+        DynSolidityCompiler::version(&self.0.solc)
     }
 
     fn path(&self) -> &std::path::Path {
@@ -138,7 +164,8 @@ impl SolidityCompiler for Resolc {
             },
         };
 
-        let mut command = AsyncCommand::new(self.path());
+        let path = &self.0.resolc_path;
+        let mut command = AsyncCommand::new(path);
         command
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -159,7 +186,7 @@ impl SolidityCompiler for Resolc {
         }
         let mut child = command
             .spawn()
-            .with_context(|| format!("Failed to spawn resolc at {}", self.path().display()))?;
+            .with_context(|| format!("Failed to spawn resolc at {}", path.display()))?;
 
         let stdin_pipe = child.stdin.as_mut().expect("stdin must be piped");
         let serialized_input = serde_json::to_vec(&input)
@@ -281,6 +308,7 @@ impl SolidityCompiler for Resolc {
         optimize_setting: ModeOptimizerSetting,
         pipeline: ModePipeline,
     ) -> bool {
-        pipeline == ModePipeline::ViaYulIR && self.0.solc.supports_mode(optimize_setting, pipeline)
+        pipeline == ModePipeline::ViaYulIR
+            && DynSolidityCompiler::supports_mode(&self.0.solc, optimize_setting, pipeline)
     }
 }

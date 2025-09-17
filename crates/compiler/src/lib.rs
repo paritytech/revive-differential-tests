@@ -37,7 +37,10 @@ pub trait DynSolidityCompiler {
     fn path(&self) -> &Path;
 
     /// The low-level compiler interface.
-    fn build(&self, input: CompilerInput) -> Pin<Box<dyn Future<Output = Result<CompilerOutput>>>>;
+    fn build(
+        &self,
+        input: CompilerInput,
+    ) -> Pin<Box<dyn Future<Output = Result<CompilerOutput>> + '_>>;
 
     /// Does the compiler support the provided mode and version settings.
     fn supports_mode(
