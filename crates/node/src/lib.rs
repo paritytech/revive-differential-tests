@@ -13,19 +13,6 @@ pub mod pool;
 
 /// An abstract interface for testing nodes.
 pub trait Node: EthereumNode {
-    /// Create a new uninitialized instance.
-    fn new(
-        context: impl AsRef<WorkingDirectoryConfiguration>
-        + AsRef<ConcurrencyConfiguration>
-        + AsRef<GenesisConfiguration>
-        + AsRef<WalletConfiguration>
-        + AsRef<GethConfiguration>
-        + AsRef<KitchensinkConfiguration>
-        + AsRef<ReviveDevNodeConfiguration>
-        + AsRef<EthRpcConfiguration>
-        + Clone,
-    ) -> Self;
-
     /// Returns the identifier of the node.
     fn id(&self) -> usize;
 

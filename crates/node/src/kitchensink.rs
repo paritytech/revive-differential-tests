@@ -93,6 +93,53 @@ impl KitchensinkNode {
     const PROXY_STDOUT_LOG_FILE_NAME: &str = "proxy_stdout.log";
     const PROXY_STDERR_LOG_FILE_NAME: &str = "proxy_stderr.log";
 
+    pub fn new(
+        context: impl AsRef<WorkingDirectoryConfiguration>
+        + AsRef<ConcurrencyConfiguration>
+        + AsRef<GenesisConfiguration>
+        + AsRef<WalletConfiguration>
+        + AsRef<GethConfiguration>
+        + AsRef<KitchensinkConfiguration>
+        + AsRef<ReviveDevNodeConfiguration>
+        + AsRef<EthRpcConfiguration>
+        + Clone,
+    ) -> Self {
+        let kitchensink_configuration = AsRef::<KitchensinkConfiguration>::as_ref(&context);
+        let dev_node_configuration = AsRef::<ReviveDevNodeConfiguration>::as_ref(&context);
+        let eth_rpc_configuration = AsRef::<EthRpcConfiguration>::as_ref(&context);
+        let working_directory_configuration =
+            AsRef::<WorkingDirectoryConfiguration>::as_ref(&context);
+        let wallet_configuration = AsRef::<WalletConfiguration>::as_ref(&context);
+
+        let kitchensink_directory = working_directory_configuration
+            .as_path()
+            .join(Self::BASE_DIRECTORY);
+        let id = NODE_COUNT.fetch_add(1, Ordering::SeqCst);
+        let base_directory = kitchensink_directory.join(id.to_string());
+        let logs_directory = base_directory.join(Self::LOGS_DIRECTORY);
+
+        let wallet = wallet_configuration.wallet();
+
+        Self {
+            id,
+            substrate_binary: kitchensink_configuration.path.clone(),
+            dev_node_binary: dev_node_configuration.path.clone(),
+            eth_proxy_binary: eth_rpc_configuration.path.clone(),
+            rpc_url: String::new(),
+            base_directory,
+            logs_directory,
+            process_substrate: None,
+            process_proxy: None,
+            wallet: wallet.clone(),
+            chain_id_filler: Default::default(),
+            nonce_manager: Default::default(),
+            use_kitchensink_not_dev_node: kitchensink_configuration.use_kitchensink,
+            // We know that we only need to be storing 4 files so we can specify that when creating
+            // the vector. It's the stdout and stderr of the substrate-node and the eth-rpc.
+            logs_file_to_flush: Vec::with_capacity(4),
+        }
+    }
+
     fn init(&mut self, mut genesis: Genesis) -> anyhow::Result<&mut Self> {
         let _ = clear_directory(&self.base_directory);
         let _ = clear_directory(&self.logs_directory);
@@ -784,53 +831,6 @@ impl ResolverApi for KitchensinkNode {
 }
 
 impl Node for KitchensinkNode {
-    fn new(
-        context: impl AsRef<WorkingDirectoryConfiguration>
-        + AsRef<ConcurrencyConfiguration>
-        + AsRef<GenesisConfiguration>
-        + AsRef<WalletConfiguration>
-        + AsRef<GethConfiguration>
-        + AsRef<KitchensinkConfiguration>
-        + AsRef<ReviveDevNodeConfiguration>
-        + AsRef<EthRpcConfiguration>
-        + Clone,
-    ) -> Self {
-        let kitchensink_configuration = AsRef::<KitchensinkConfiguration>::as_ref(&context);
-        let dev_node_configuration = AsRef::<ReviveDevNodeConfiguration>::as_ref(&context);
-        let eth_rpc_configuration = AsRef::<EthRpcConfiguration>::as_ref(&context);
-        let working_directory_configuration =
-            AsRef::<WorkingDirectoryConfiguration>::as_ref(&context);
-        let wallet_configuration = AsRef::<WalletConfiguration>::as_ref(&context);
-
-        let kitchensink_directory = working_directory_configuration
-            .as_path()
-            .join(Self::BASE_DIRECTORY);
-        let id = NODE_COUNT.fetch_add(1, Ordering::SeqCst);
-        let base_directory = kitchensink_directory.join(id.to_string());
-        let logs_directory = base_directory.join(Self::LOGS_DIRECTORY);
-
-        let wallet = wallet_configuration.wallet();
-
-        Self {
-            id,
-            substrate_binary: kitchensink_configuration.path.clone(),
-            dev_node_binary: dev_node_configuration.path.clone(),
-            eth_proxy_binary: eth_rpc_configuration.path.clone(),
-            rpc_url: String::new(),
-            base_directory,
-            logs_directory,
-            process_substrate: None,
-            process_proxy: None,
-            wallet: wallet.clone(),
-            chain_id_filler: Default::default(),
-            nonce_manager: Default::default(),
-            use_kitchensink_not_dev_node: kitchensink_configuration.use_kitchensink,
-            // We know that we only need to be storing 4 files so we can specify that when creating
-            // the vector. It's the stdout and stderr of the substrate-node and the eth-rpc.
-            logs_file_to_flush: Vec::with_capacity(4),
-        }
-    }
-
     fn id(&self) -> usize {
         self.id as _
     }

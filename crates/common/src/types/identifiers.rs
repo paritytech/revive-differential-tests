@@ -23,16 +23,16 @@ use strum::{AsRefStr, Display, EnumString, IntoStaticStr};
 #[serde(rename = "kebab-case")]
 #[strum(serialize_all = "kebab-case")]
 pub enum PlatformIdentifier {
-    /// The Go-ethereum reference full node EVM implementation.
-    GethEvm,
-    /// The kitchensink node with the PolkaVM backend.
-    KitchensinkPolkaVM,
-    /// The kitchensink node with the REVM backend.
-    KitchensinkREVM,
-    /// The revive dev node with the PolkaVM backend.
-    ReviveDevNodePolkaVM,
-    /// The revive dev node with the REVM backend.
-    ReviveDevNodeREVM,
+    /// The Go-ethereum reference full node EVM implementation with the solc compiler.
+    GethEvmSolc,
+    /// The kitchensink node with the PolkaVM backend with the resolc compiler.
+    KitchensinkPolkavmResolc,
+    /// The kitchensink node with the REVM backend with the solc compiler.
+    KitchensinkREVMSolc,
+    /// The revive dev node with the PolkaVM backend with the resolc compiler.
+    ReviveDevNodePolkavmResolc,
+    /// The revive dev node with the REVM backend with the solc compiler.
+    ReviveDevNodeREVMSolc,
 }
 
 /// An enum of the platform identifiers of all of the platforms supported by this framework.
@@ -115,5 +115,5 @@ pub enum VmIdentifier {
     /// The ethereum virtual machine.
     Evm,
     /// Polkadot's PolaVM Risc-v based virtual machine.
-    PolkaVm,
+    Polkavm,
 }

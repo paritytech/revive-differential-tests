@@ -64,6 +64,7 @@ impl DynSolidityCompiler for Solc {
     }
 }
 
+// TODO: Remove
 impl SolidityCompiler for Solc {
     async fn new(
         context: impl AsRef<SolcConfiguration>

@@ -93,6 +93,43 @@ impl GethNode {
     const RECEIPT_POLLING_DURATION: Duration = Duration::from_secs(5 * 60);
     const TRACE_POLLING_DURATION: Duration = Duration::from_secs(60);
 
+    pub fn new(
+        context: impl AsRef<WorkingDirectoryConfiguration>
+        + AsRef<WalletConfiguration>
+        + AsRef<GethConfiguration>
+        + Clone,
+    ) -> Self {
+        let working_directory_configuration =
+            AsRef::<WorkingDirectoryConfiguration>::as_ref(&context);
+        let wallet_configuration = AsRef::<WalletConfiguration>::as_ref(&context);
+        let geth_configuration = AsRef::<GethConfiguration>::as_ref(&context);
+
+        let geth_directory = working_directory_configuration
+            .as_path()
+            .join(Self::BASE_DIRECTORY);
+        let id = NODE_COUNT.fetch_add(1, Ordering::SeqCst);
+        let base_directory = geth_directory.join(id.to_string());
+
+        let wallet = wallet_configuration.wallet();
+
+        Self {
+            connection_string: base_directory.join(Self::IPC_FILE).display().to_string(),
+            data_directory: base_directory.join(Self::DATA_DIRECTORY),
+            logs_directory: base_directory.join(Self::LOGS_DIRECTORY),
+            base_directory,
+            geth: geth_configuration.path.clone(),
+            id,
+            handle: None,
+            start_timeout: geth_configuration.start_timeout_ms,
+            wallet: wallet.clone(),
+            chain_id_filler: Default::default(),
+            nonce_manager: Default::default(),
+            // We know that we only need to be storing 2 files so we can specify that when creating
+            // the vector. It's the stdout and stderr of the geth node.
+            logs_file_to_flush: Vec::with_capacity(2),
+        }
+    }
+
     /// Create the node directory and call `geth init` to configure the genesis.
     #[instrument(level = "info", skip_all, fields(geth_node_id = self.id))]
     fn init(&mut self, mut genesis: Genesis) -> anyhow::Result<&mut Self> {
@@ -751,48 +788,6 @@ impl ResolverApi for GethNode {
 }
 
 impl Node for GethNode {
-    fn new(
-        context: impl AsRef<WorkingDirectoryConfiguration>
-        + AsRef<ConcurrencyConfiguration>
-        + AsRef<GenesisConfiguration>
-        + AsRef<WalletConfiguration>
-        + AsRef<GethConfiguration>
-        + AsRef<KitchensinkConfiguration>
-        + AsRef<ReviveDevNodeConfiguration>
-        + AsRef<EthRpcConfiguration>
-        + Clone,
-    ) -> Self {
-        let working_directory_configuration =
-            AsRef::<WorkingDirectoryConfiguration>::as_ref(&context);
-        let wallet_configuration = AsRef::<WalletConfiguration>::as_ref(&context);
-        let geth_configuration = AsRef::<GethConfiguration>::as_ref(&context);
-
-        let geth_directory = working_directory_configuration
-            .as_path()
-            .join(Self::BASE_DIRECTORY);
-        let id = NODE_COUNT.fetch_add(1, Ordering::SeqCst);
-        let base_directory = geth_directory.join(id.to_string());
-
-        let wallet = wallet_configuration.wallet();
-
-        Self {
-            connection_string: base_directory.join(Self::IPC_FILE).display().to_string(),
-            data_directory: base_directory.join(Self::DATA_DIRECTORY),
-            logs_directory: base_directory.join(Self::LOGS_DIRECTORY),
-            base_directory,
-            geth: geth_configuration.path.clone(),
-            id,
-            handle: None,
-            start_timeout: geth_configuration.start_timeout_ms,
-            wallet: wallet.clone(),
-            chain_id_filler: Default::default(),
-            nonce_manager: Default::default(),
-            // We know that we only need to be storing 2 files so we can specify that when creating
-            // the vector. It's the stdout and stderr of the geth node.
-            logs_file_to_flush: Vec::with_capacity(2),
-        }
-    }
-
     #[instrument(level = "info", skip_all, fields(geth_node_id = self.id))]
     fn id(&self) -> usize {
         self.id as _

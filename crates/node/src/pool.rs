@@ -93,18 +93,5 @@ fn spawn_node<T: Node + Send>(
     + 'static,
     genesis: Genesis,
 ) -> anyhow::Result<T> {
-    let mut node = T::new(context);
-    info!(
-        id = node.id(),
-        connection_string = node.connection_string(),
-        "Spawning node"
-    );
-    node.spawn(genesis)
-        .context("Failed to spawn node process")?;
-    info!(
-        id = node.id(),
-        connection_string = node.connection_string(),
-        "Spawned node"
-    );
-    Ok(node)
+    todo!("Remove");
 }
