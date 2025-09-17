@@ -4468,10 +4468,12 @@ name = "revive-dt-common"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "clap",
  "moka",
  "once_cell",
  "semver 1.0.26",
  "serde",
+ "strum",
  "tokio",
 ]
 

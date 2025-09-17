@@ -564,34 +564,3 @@ pub enum TestingPlatform {
     /// The kitchensink runtime provides the PolkaVM (PVM) based node implementation.
     Kitchensink,
 }
-
-/// An enum of the platform identifiers of all of the platforms supported by this framework.
-#[derive(
-    Clone,
-    Copy,
-    Debug,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    Hash,
-    Serialize,
-    ValueEnum,
-    EnumString,
-    Display,
-    AsRefStr,
-    IntoStaticStr,
-)]
-#[strum(serialize_all = "kebab-case")]
-pub enum PlatformIdentifier {
-    /// The Go-ethereum reference full node EVM implementation.
-    GethEvm,
-    /// The kitchensink node with the PolkaVM backend.
-    KitchensinkPolkaVM,
-    /// The kitchensink node with the REVM backend.
-    KitchensinkREVM,
-    /// The revive dev node with the PolkaVM backend.
-    ReviveDevNodePolkaVM,
-    /// The revive dev node with the REVM backend.
-    ReviveDevNodeREVM,
-}
