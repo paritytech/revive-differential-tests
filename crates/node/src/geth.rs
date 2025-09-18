@@ -327,6 +327,14 @@ impl GethNode {
 }
 
 impl EthereumNode for GethNode {
+    fn id(&self) -> usize {
+        self.id as _
+    }
+
+    fn connection_string(&self) -> &str {
+        &self.connection_string
+    }
+
     #[instrument(
         level = "info",
         skip_all,
@@ -498,12 +506,16 @@ impl EthereumNode for GethNode {
     // #[instrument(level = "info", skip_all, fields(geth_node_id = self.id))]
     fn resolver(
         &self,
-    ) -> Pin<Box<dyn Future<Output = anyhow::Result<Box<dyn ResolverApi + '_>>> + '_>> {
+    ) -> Pin<Box<dyn Future<Output = anyhow::Result<Arc<dyn ResolverApi + '_>>> + '_>> {
         Box::pin(async move {
             let id = self.id;
             let provider = self.provider().await?;
-            Ok(Box::new(GethNodeResolver { id, provider }) as Box<dyn ResolverApi>)
+            Ok(Arc::new(GethNodeResolver { id, provider }) as Arc<dyn ResolverApi>)
         })
+    }
+
+    fn evm_version(&self) -> EVMVersion {
+        EVMVersion::Cancun
     }
 }
 
@@ -789,16 +801,6 @@ impl ResolverApi for GethNode {
 
 impl Node for GethNode {
     #[instrument(level = "info", skip_all, fields(geth_node_id = self.id))]
-    fn id(&self) -> usize {
-        self.id as _
-    }
-
-    #[instrument(level = "info", skip_all, fields(geth_node_id = self.id))]
-    fn connection_string(&self) -> String {
-        self.connection_string.clone()
-    }
-
-    #[instrument(level = "info", skip_all, fields(geth_node_id = self.id))]
     fn shutdown(&mut self) -> anyhow::Result<()> {
         // Terminate the processes in a graceful manner to allow for the output to be flushed.
         if let Some(mut child) = self.handle.take() {
@@ -839,17 +841,6 @@ impl Node for GethNode {
             .context("Failed to wait for geth --version output")?
             .stdout;
         Ok(String::from_utf8_lossy(&output).into())
-    }
-
-    fn matches_target(targets: Option<&[String]>) -> bool {
-        match targets {
-            None => true,
-            Some(targets) => targets.iter().any(|str| str.as_str() == "evm"),
-        }
-    }
-
-    fn evm_version() -> EVMVersion {
-        EVMVersion::Cancun
     }
 }
 

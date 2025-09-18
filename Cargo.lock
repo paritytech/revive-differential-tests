@@ -4471,6 +4471,7 @@ dependencies = [
  "clap",
  "moka",
  "once_cell",
+ "schemars 1.0.4",
  "semver 1.0.26",
  "serde",
  "strum",
@@ -4505,6 +4506,7 @@ dependencies = [
  "alloy",
  "anyhow",
  "clap",
+ "revive-dt-common",
  "semver 1.0.26",
  "serde",
  "serde_json",
@@ -4586,6 +4588,8 @@ version = "0.1.0"
 dependencies = [
  "alloy",
  "anyhow",
+ "revive-common",
+ "revive-dt-common",
  "revive-dt-format",
 ]
 

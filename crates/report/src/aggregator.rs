@@ -11,8 +11,9 @@ use std::{
 use alloy_primitives::Address;
 use anyhow::{Context as _, Result};
 use indexmap::IndexMap;
+use revive_dt_common::types::PlatformIdentifier;
 use revive_dt_compiler::{CompilerInput, CompilerOutput, Mode};
-use revive_dt_config::{Context, TestingPlatform};
+use revive_dt_config::Context;
 use revive_dt_format::{case::CaseIdx, corpus::Corpus, metadata::ContractInstance};
 use semver::Version;
 use serde::Serialize;
@@ -84,11 +85,8 @@ impl ReportAggregator {
                 RunnerEvent::TestIgnored(event) => {
                     self.handle_test_ignored_event(*event);
                 }
-                RunnerEvent::LeaderNodeAssigned(event) => {
-                    self.handle_leader_node_assigned_event(*event);
-                }
-                RunnerEvent::FollowerNodeAssigned(event) => {
-                    self.handle_follower_node_assigned_event(*event);
+                RunnerEvent::NodeAssigned(event) => {
+                    self.handle_node_assigned_event(*event);
                 }
                 RunnerEvent::PreLinkContractsCompilationSucceeded(event) => {
                     self.handle_pre_link_contracts_compilation_succeeded_event(*event)
@@ -257,28 +255,15 @@ impl ReportAggregator {
         let _ = self.listener_tx.send(event);
     }
 
-    fn handle_leader_node_assigned_event(&mut self, event: LeaderNodeAssignedEvent) {
+    fn handle_node_assigned_event(&mut self, event: NodeAssignedEvent) {
         let execution_information = self.execution_information(&ExecutionSpecifier {
             test_specifier: event.test_specifier,
             node_id: event.id,
-            node_designation: NodeDesignation::Leader,
+            platform_identifier: event.platform_identifier,
         });
         execution_information.node = Some(TestCaseNodeInformation {
             id: event.id,
-            platform: event.platform,
-            connection_string: event.connection_string,
-        });
-    }
-
-    fn handle_follower_node_assigned_event(&mut self, event: FollowerNodeAssignedEvent) {
-        let execution_information = self.execution_information(&ExecutionSpecifier {
-            test_specifier: event.test_specifier,
-            node_id: event.id,
-            node_designation: NodeDesignation::Follower,
-        });
-        execution_information.node = Some(TestCaseNodeInformation {
-            id: event.id,
-            platform: event.platform,
+            platform_identifier: event.platform_identifier,
             connection_string: event.connection_string,
         });
     }
@@ -413,14 +398,11 @@ impl ReportAggregator {
         specifier: &ExecutionSpecifier,
     ) -> &mut ExecutionInformation {
         let test_case_report = self.test_case_report(&specifier.test_specifier);
-        match specifier.node_designation {
-            NodeDesignation::Leader => test_case_report
-                .leader_execution_information
-                .get_or_insert_default(),
-            NodeDesignation::Follower => test_case_report
-                .follower_execution_information
-                .get_or_insert_default(),
-        }
+        test_case_report
+            .platform_execution
+            .entry(specifier.platform_identifier)
+            .or_default()
+            .get_or_insert_default()
     }
 }
 
@@ -455,12 +437,8 @@ pub struct TestCaseReport {
     /// Information on the status of the test case and whether it succeeded, failed, or was ignored.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub status: Option<TestCaseStatus>,
-    /// Information related to the execution on the leader.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub leader_execution_information: Option<ExecutionInformation>,
-    /// Information related to the execution on the follower.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub follower_execution_information: Option<ExecutionInformation>,
+    /// Information related to the execution on one of the platforms.
+    pub platform_execution: BTreeMap<PlatformIdentifier, Option<ExecutionInformation>>,
 }
 
 /// Information related to the status of the test. Could be that the test succeeded, failed, or that
@@ -494,7 +472,7 @@ pub struct TestCaseNodeInformation {
     /// The ID of the node that this case is being executed on.
     pub id: usize,
     /// The platform of the node.
-    pub platform: TestingPlatform,
+    pub platform_identifier: PlatformIdentifier,
     /// The connection string of the node.
     pub connection_string: String,
 }

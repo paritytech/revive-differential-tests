@@ -9,9 +9,9 @@ use std::{
 };
 
 use futures::FutureExt;
-use revive_dt_common::iterators::FilesWithExtensionIterator;
-use revive_dt_compiler::{Compiler, CompilerOutput, Mode, SolidityCompiler};
-use revive_dt_config::TestingPlatform;
+use revive_dt_common::{iterators::FilesWithExtensionIterator, types::CompilerIdentifier};
+use revive_dt_compiler::{Compiler, CompilerOutput, DynSolidityCompiler, Mode};
+use revive_dt_core::DynPlatform;
 use revive_dt_format::metadata::{ContractIdent, ContractInstance, Metadata};
 
 use alloy::{hex::ToHexExt, json_abi::JsonAbi, primitives::Address};
@@ -21,8 +21,6 @@ use semver::Version;
 use serde::{Deserialize, Serialize};
 use tokio::sync::{Mutex, RwLock};
 use tracing::{Instrument, debug, debug_span, instrument};
-
-use crate::Platform;
 
 pub struct CachedCompiler<'a> {
     /// The cache that stores the compiled contracts.
@@ -57,21 +55,22 @@ impl<'a> CachedCompiler<'a> {
         fields(
             metadata_file_path = %metadata_file_path.display(),
             %mode,
-            platform = P::config_id().to_string()
+            platform = %platform.platform_identifier()
         ),
         err
     )]
-    pub async fn compile_contracts<P: Platform>(
+    pub async fn compile_contracts(
         &self,
         metadata: &'a Metadata,
         metadata_file_path: &'a Path,
         mode: Cow<'a, Mode>,
         deployed_libraries: Option<&HashMap<ContractInstance, (ContractIdent, Address, JsonAbi)>>,
-        compiler: &P::Compiler,
+        compiler: &dyn DynSolidityCompiler,
+        platform: &dyn DynPlatform,
         reporter: &ExecutionSpecificReporter,
     ) -> Result<CompilerOutput> {
         let cache_key = CacheKey {
-            platform_key: P::config_id(),
+            compiler_identifier: platform.compiler_identifier(),
             compiler_version: compiler.version().clone(),
             metadata_file_path,
             solc_mode: mode.clone(),
@@ -79,7 +78,7 @@ impl<'a> CachedCompiler<'a> {
 
         let compilation_callback = || {
             async move {
-                compile_contracts::<P>(
+                compile_contracts(
                     metadata
                         .directory()
                         .context("Failed to get metadata directory while preparing compilation")?,
@@ -96,7 +95,7 @@ impl<'a> CachedCompiler<'a> {
             }
             .instrument(debug_span!(
                 "Running compilation for the cache key",
-                cache_key.platform_key = %cache_key.platform_key,
+                cache_key.compiler_identifier = %cache_key.compiler_identifier,
                 cache_key.compiler_version = %cache_key.compiler_version,
                 cache_key.metadata_file_path = %cache_key.metadata_file_path.display(),
                 cache_key.solc_mode = %cache_key.solc_mode,
@@ -179,12 +178,12 @@ impl<'a> CachedCompiler<'a> {
     }
 }
 
-async fn compile_contracts<P: Platform>(
+async fn compile_contracts(
     metadata_directory: impl AsRef<Path>,
     mut files_to_compile: impl Iterator<Item = PathBuf>,
     mode: &Mode,
     deployed_libraries: Option<&HashMap<ContractInstance, (ContractIdent, Address, JsonAbi)>>,
-    compiler: &P::Compiler,
+    compiler: &dyn DynSolidityCompiler,
     reporter: &ExecutionSpecificReporter,
 ) -> Result<CompilerOutput> {
     let all_sources_in_dir = FilesWithExtensionIterator::new(metadata_directory.as_ref())
@@ -218,7 +217,7 @@ async fn compile_contracts<P: Platform>(
         });
 
     let input = compilation.input().clone();
-    let output = compilation.try_build(compiler).await;
+    let output = compilation.dyn_try_build(compiler).await;
 
     match (output.as_ref(), deployed_libraries.is_some()) {
         (Ok(output), true) => {
@@ -332,9 +331,8 @@ impl ArtifactsCache {
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize)]
 struct CacheKey<'a> {
-    /// The platform name that this artifact was compiled for. For example, this could be EVM or
-    /// PVM.
-    platform_key: &'a TestingPlatform,
+    /// The identifier of the used compiler.
+    compiler_identifier: CompilerIdentifier,
 
     /// The version of the compiler that was used to compile the artifacts.
     compiler_version: Version,

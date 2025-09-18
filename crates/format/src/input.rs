@@ -308,7 +308,7 @@ impl Input {
 
     pub async fn encoded_input(
         &self,
-        resolver: &impl ResolverApi,
+        resolver: &(impl ResolverApi + ?Sized),
         context: ResolutionContext<'_>,
     ) -> anyhow::Result<Bytes> {
         match self.method {
@@ -377,7 +377,7 @@ impl Input {
     /// Parse this input into a legacy transaction.
     pub async fn legacy_transaction(
         &self,
-        resolver: &impl ResolverApi,
+        resolver: &(impl ResolverApi + ?Sized),
         context: ResolutionContext<'_>,
     ) -> anyhow::Result<TransactionRequest> {
         let input_data = self
@@ -466,7 +466,7 @@ impl Calldata {
 
     pub async fn calldata(
         &self,
-        resolver: &impl ResolverApi,
+        resolver: &(impl ResolverApi + ?Sized),
         context: ResolutionContext<'_>,
     ) -> anyhow::Result<Vec<u8>> {
         let mut buffer = Vec::<u8>::with_capacity(self.size_requirement());
@@ -478,7 +478,7 @@ impl Calldata {
     pub async fn calldata_into_slice(
         &self,
         buffer: &mut Vec<u8>,
-        resolver: &impl ResolverApi,
+        resolver: &(impl ResolverApi + ?Sized),
         context: ResolutionContext<'_>,
     ) -> anyhow::Result<()> {
         match self {
@@ -515,7 +515,7 @@ impl Calldata {
     pub async fn is_equivalent(
         &self,
         other: &[u8],
-        resolver: &impl ResolverApi,
+        resolver: &(impl ResolverApi + ?Sized),
         context: ResolutionContext<'_>,
     ) -> anyhow::Result<bool> {
         match self {
@@ -557,7 +557,7 @@ impl CalldataItem {
     #[instrument(level = "info", skip_all, err)]
     async fn resolve(
         &self,
-        resolver: &impl ResolverApi,
+        resolver: &(impl ResolverApi + ?Sized),
         context: ResolutionContext<'_>,
     ) -> anyhow::Result<U256> {
         let mut stack = Vec::<CalldataToken<U256>>::new();
@@ -662,7 +662,7 @@ impl<T: AsRef<str>> CalldataToken<T> {
     /// https://github.com/matter-labs/era-compiler-tester/blob/0ed598a27f6eceee7008deab3ff2311075a2ec69/compiler_tester/src/test/case/input/value.rs#L43-L146
     async fn resolve(
         self,
-        resolver: &impl ResolverApi,
+        resolver: &(impl ResolverApi + ?Sized),
         context: ResolutionContext<'_>,
     ) -> anyhow::Result<CalldataToken<U256>> {
         match self {
@@ -1010,7 +1010,7 @@ mod tests {
     async fn resolve_calldata_item(
         input: &str,
         deployed_contracts: &HashMap<ContractInstance, (ContractIdent, Address, JsonAbi)>,
-        resolver: &impl ResolverApi,
+        resolver: &(impl ResolverApi + ?Sized),
     ) -> anyhow::Result<U256> {
         let context = ResolutionContext::default().with_deployed_contracts(deployed_contracts);
         CalldataItem::new(input).resolve(resolver, context).await

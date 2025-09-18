@@ -432,6 +432,14 @@ impl SubstrateNode {
 }
 
 impl EthereumNode for SubstrateNode {
+    fn id(&self) -> usize {
+        self.id as _
+    }
+
+    fn connection_string(&self) -> &str {
+        &self.rpc_url
+    }
+
     fn execute_transaction(
         &self,
         transaction: alloy::rpc::types::TransactionRequest,
@@ -520,12 +528,16 @@ impl EthereumNode for SubstrateNode {
 
     fn resolver(
         &self,
-    ) -> Pin<Box<dyn Future<Output = anyhow::Result<Box<dyn ResolverApi + '_>>> + '_>> {
+    ) -> Pin<Box<dyn Future<Output = anyhow::Result<Arc<dyn ResolverApi + '_>>> + '_>> {
         Box::pin(async move {
             let id = self.id;
             let provider = self.provider().await?;
-            Ok(Box::new(SubstrateNodeResolver { id, provider }) as Box<dyn ResolverApi>)
+            Ok(Arc::new(SubstrateNodeResolver { id, provider }) as Arc<dyn ResolverApi>)
         })
+    }
+
+    fn evm_version(&self) -> EVMVersion {
+        EVMVersion::Cancun
     }
 }
 
@@ -803,14 +815,6 @@ impl ResolverApi for SubstrateNode {
 }
 
 impl Node for SubstrateNode {
-    fn id(&self) -> usize {
-        self.id as _
-    }
-
-    fn connection_string(&self) -> String {
-        self.rpc_url.clone()
-    }
-
     fn shutdown(&mut self) -> anyhow::Result<()> {
         // Terminate the processes in a graceful manner to allow for the output to be flushed.
         if let Some(mut child) = self.process_proxy.take() {
@@ -853,17 +857,6 @@ impl Node for SubstrateNode {
             .context("Failed to wait for kitchensink --version")?
             .stdout;
         Ok(String::from_utf8_lossy(&output).into())
-    }
-
-    fn matches_target(targets: Option<&[String]>) -> bool {
-        match targets {
-            None => true,
-            Some(targets) => targets.iter().any(|str| str.as_str() == "pvm"),
-        }
-    }
-
-    fn evm_version() -> EVMVersion {
-        EVMVersion::Cancun
     }
 }
 

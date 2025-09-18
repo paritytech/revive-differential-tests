@@ -6,8 +6,8 @@ use std::{collections::BTreeMap, path::PathBuf, sync::Arc};
 use alloy_primitives::Address;
 use anyhow::Context as _;
 use indexmap::IndexMap;
+use revive_dt_common::types::PlatformIdentifier;
 use revive_dt_compiler::{CompilerInput, CompilerOutput};
-use revive_dt_config::TestingPlatform;
 use revive_dt_format::metadata::Metadata;
 use revive_dt_format::{corpus::Corpus, metadata::ContractInstance};
 use semver::Version;
@@ -412,14 +412,14 @@ macro_rules! define_event {
                 pub fn execution_specific_reporter(
                     &self,
                     node_id: impl Into<usize>,
-                    node_designation: impl Into<$crate::common::NodeDesignation>
+                    platform_identifier: impl Into<PlatformIdentifier>
                 ) -> [< $ident ExecutionSpecificReporter >] {
                     [< $ident ExecutionSpecificReporter >] {
                         reporter: self.reporter.clone(),
                         execution_specifier: Arc::new($crate::common::ExecutionSpecifier {
                             test_specifier: self.test_specifier.clone(),
                             node_id: node_id.into(),
-                            node_designation: node_designation.into(),
+                            platform_identifier: platform_identifier.into(),
                         })
                     }
                 }
@@ -521,24 +521,13 @@ define_event! {
             reason: String,
         },
         /// An event emitted when the test case is assigned a leader node.
-        LeaderNodeAssigned {
+        NodeAssigned {
             /// A specifier for the test that the assignment is for.
             test_specifier: Arc<TestSpecifier>,
             /// The ID of the node that this case is being executed on.
             id: usize,
-            /// The platform of the node.
-            platform: TestingPlatform,
-            /// The connection string of the node.
-            connection_string: String,
-        },
-        /// An event emitted when the test case is assigned a follower node.
-        FollowerNodeAssigned {
-            /// A specifier for the test that the assignment is for.
-            test_specifier: Arc<TestSpecifier>,
-            /// The ID of the node that this case is being executed on.
-            id: usize,
-            /// The platform of the node.
-            platform: TestingPlatform,
+            /// The identifier of the platform used.
+            platform_identifier: PlatformIdentifier,
             /// The connection string of the node.
             connection_string: String,
         },

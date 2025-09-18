@@ -2,7 +2,7 @@
 
 use std::{path::PathBuf, sync::Arc};
 
-use revive_dt_common::define_wrapper_type;
+use revive_dt_common::{define_wrapper_type, types::PlatformIdentifier};
 use revive_dt_compiler::Mode;
 use revive_dt_format::{case::CaseIdx, input::StepIdx};
 use serde::{Deserialize, Serialize};
@@ -27,13 +27,7 @@ pub struct TestSpecifier {
 pub struct ExecutionSpecifier {
     pub test_specifier: Arc<TestSpecifier>,
     pub node_id: usize,
-    pub node_designation: NodeDesignation,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum NodeDesignation {
-    Leader,
-    Follower,
+    pub platform_identifier: PlatformIdentifier,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]

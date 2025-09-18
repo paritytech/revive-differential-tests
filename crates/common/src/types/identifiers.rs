@@ -1,4 +1,5 @@
 use clap::ValueEnum;
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use strum::{AsRefStr, Display, EnumString, IntoStaticStr};
 
@@ -19,6 +20,7 @@ use strum::{AsRefStr, Display, EnumString, IntoStaticStr};
     Display,
     AsRefStr,
     IntoStaticStr,
+    JsonSchema,
 )]
 #[serde(rename = "kebab-case")]
 #[strum(serialize_all = "kebab-case")]
@@ -52,9 +54,8 @@ pub enum PlatformIdentifier {
     Display,
     AsRefStr,
     IntoStaticStr,
+    JsonSchema,
 )]
-#[serde(rename = "kebab-case")]
-#[strum(serialize_all = "kebab-case")]
 pub enum CompilerIdentifier {
     /// The solc compiler.
     Solc,
@@ -79,9 +80,8 @@ pub enum CompilerIdentifier {
     Display,
     AsRefStr,
     IntoStaticStr,
+    JsonSchema,
 )]
-#[serde(rename = "kebab-case")]
-#[strum(serialize_all = "kebab-case")]
 pub enum NodeIdentifier {
     /// The go-ethereum node implementation.
     Geth,
@@ -108,12 +108,15 @@ pub enum NodeIdentifier {
     Display,
     AsRefStr,
     IntoStaticStr,
+    JsonSchema,
 )]
-#[serde(rename = "kebab-case")]
-#[strum(serialize_all = "kebab-case")]
+#[serde(rename = "lowercase")]
+#[strum(serialize_all = "lowercase")]
 pub enum VmIdentifier {
     /// The ethereum virtual machine.
     Evm,
+    /// The EraVM virtual machine.
+    EraVM,
     /// Polkadot's PolaVM Risc-v based virtual machine.
-    Polkavm,
+    PolkaVM,
 }

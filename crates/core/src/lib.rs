@@ -103,6 +103,7 @@ pub trait DynPlatform {
     ) -> Pin<Box<dyn Future<Output = anyhow::Result<Box<dyn DynSolidityCompiler>>>>>;
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Default, Hash)]
 pub struct GethEvmSolcPlatform;
 
 impl DynPlatform for GethEvmSolcPlatform {
@@ -147,6 +148,7 @@ impl DynPlatform for GethEvmSolcPlatform {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Default, Hash)]
 pub struct KitchensinkPolkavmResolcPlatform;
 
 impl DynPlatform for KitchensinkPolkavmResolcPlatform {
@@ -159,7 +161,7 @@ impl DynPlatform for KitchensinkPolkavmResolcPlatform {
     }
 
     fn vm_identifier(&self) -> VmIdentifier {
-        VmIdentifier::Polkavm
+        VmIdentifier::PolkaVM
     }
 
     fn compiler_identifier(&self) -> CompilerIdentifier {
@@ -198,6 +200,7 @@ impl DynPlatform for KitchensinkPolkavmResolcPlatform {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Default, Hash)]
 pub struct KitchensinkRevmSolcPlatform;
 
 impl DynPlatform for KitchensinkRevmSolcPlatform {
@@ -249,6 +252,7 @@ impl DynPlatform for KitchensinkRevmSolcPlatform {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Default, Hash)]
 pub struct ReviveDevNodePolkavmResolcPlatform;
 
 impl DynPlatform for ReviveDevNodePolkavmResolcPlatform {
@@ -261,7 +265,7 @@ impl DynPlatform for ReviveDevNodePolkavmResolcPlatform {
     }
 
     fn vm_identifier(&self) -> VmIdentifier {
-        VmIdentifier::Polkavm
+        VmIdentifier::PolkaVM
     }
 
     fn compiler_identifier(&self) -> CompilerIdentifier {
@@ -300,6 +304,7 @@ impl DynPlatform for ReviveDevNodePolkavmResolcPlatform {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Default, Hash)]
 pub struct ReviveDevNodeRevmSolcPlatform;
 
 impl DynPlatform for ReviveDevNodeRevmSolcPlatform {
@@ -366,6 +371,26 @@ impl From<PlatformIdentifier> for Box<dyn DynPlatform> {
             }
             PlatformIdentifier::ReviveDevNodeRevmSolc => {
                 Box::new(ReviveDevNodeRevmSolcPlatform) as Box<_>
+            }
+        }
+    }
+}
+
+impl From<PlatformIdentifier> for &dyn DynPlatform {
+    fn from(value: PlatformIdentifier) -> Self {
+        match value {
+            PlatformIdentifier::GethEvmSolc => &GethEvmSolcPlatform as &dyn DynPlatform,
+            PlatformIdentifier::KitchensinkPolkavmResolc => {
+                &KitchensinkPolkavmResolcPlatform as &dyn DynPlatform
+            }
+            PlatformIdentifier::KitchensinkRevmSolc => {
+                &KitchensinkRevmSolcPlatform as &dyn DynPlatform
+            }
+            PlatformIdentifier::ReviveDevNodePolkavmResolc => {
+                &ReviveDevNodePolkavmResolcPlatform as &dyn DynPlatform
+            }
+            PlatformIdentifier::ReviveDevNodeRevmSolc => {
+                &ReviveDevNodeRevmSolcPlatform as &dyn DynPlatform
             }
         }
     }

@@ -1,16 +1,24 @@
 //! This crate implements all node interactions.
 
 use std::pin::Pin;
+use std::sync::Arc;
 
 use alloy::primitives::{Address, StorageKey, TxHash, U256};
 use alloy::rpc::types::trace::geth::{DiffMode, GethDebugTracingOptions, GethTrace};
 use alloy::rpc::types::{EIP1186AccountProofResponse, TransactionReceipt, TransactionRequest};
 use anyhow::Result;
+
+use revive_common::EVMVersion;
 use revive_dt_format::traits::ResolverApi;
 
 /// An interface for all interactions with Ethereum compatible nodes.
 #[allow(clippy::type_complexity)]
 pub trait EthereumNode {
+    fn id(&self) -> usize;
+
+    /// Returns the nodes connection string.
+    fn connection_string(&self) -> &str;
+
     /// Execute the [TransactionRequest] and return a [TransactionReceipt].
     fn execute_transaction(
         &self,
@@ -38,5 +46,8 @@ pub trait EthereumNode {
     ) -> Pin<Box<dyn Future<Output = Result<EIP1186AccountProofResponse>> + '_>>;
 
     /// Returns the resolver that is to use with this ethereum node.
-    fn resolver(&self) -> Pin<Box<dyn Future<Output = Result<Box<dyn ResolverApi + '_>>> + '_>>;
+    fn resolver(&self) -> Pin<Box<dyn Future<Output = Result<Arc<dyn ResolverApi + '_>>> + '_>>;
+
+    /// Returns the EVM version of the node.
+    fn evm_version(&self) -> EVMVersion;
 }

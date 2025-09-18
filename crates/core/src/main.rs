@@ -1,8 +1,9 @@
 mod cached_compiler;
+mod pool;
 
 use std::{
     borrow::Cow,
-    collections::{BTreeMap, HashMap},
+    collections::{BTreeSet, HashMap},
     io::{BufWriter, Write, stderr},
     path::Path,
     sync::Arc,
@@ -20,20 +21,19 @@ use futures::{Stream, StreamExt};
 use indexmap::{IndexMap, indexmap};
 use revive_dt_node_interaction::EthereumNode;
 use revive_dt_report::{
-    NodeDesignation, ReportAggregator, Reporter, ReporterEvent, TestCaseStatus,
+    ExecutionSpecificReporter, ReportAggregator, Reporter, ReporterEvent, TestCaseStatus,
     TestSpecificReporter, TestSpecifier,
 };
 use schemars::schema_for;
 use serde_json::{Value, json};
-use tokio::try_join;
 use tracing::{debug, error, info, info_span, instrument};
 use tracing_subscriber::{EnvFilter, FmtSubscriber};
 
 use revive_dt_common::{iterators::EitherIter, types::Mode};
-use revive_dt_compiler::{CompilerOutput, SolidityCompiler};
+use revive_dt_compiler::DynSolidityCompiler;
 use revive_dt_config::{Context, *};
 use revive_dt_core::{
-    Geth, Kitchensink, Platform,
+    DynPlatform,
     driver::{CaseDriver, CaseState},
 };
 use revive_dt_format::{
@@ -43,9 +43,9 @@ use revive_dt_format::{
     metadata::{ContractPathAndIdent, Metadata, MetadataFile},
     mode::ParsedMode,
 };
-use revive_dt_node::{Node, pool::NodePool};
 
 use crate::cached_compiler::CachedCompiler;
+use crate::pool::NodePool;
 
 fn main() -> anyhow::Result<()> {
     let (writer, _guard) = tracing_appender::non_blocking::NonBlockingBuilder::default()
@@ -133,32 +133,28 @@ fn collect_corpora(
     Ok(corpora)
 }
 
-async fn run_driver<L, F>(
+async fn run_driver(
     context: ExecutionContext,
     metadata_files: &[MetadataFile],
     reporter: Reporter,
     report_aggregator_task: impl Future<Output = anyhow::Result<()>>,
-) -> anyhow::Result<()>
-where
-    L: Platform,
-    F: Platform,
-    L::Blockchain: revive_dt_node::Node + Send + Sync + 'static,
-    F::Blockchain: revive_dt_node::Node + Send + Sync + 'static,
-{
-    let leader_nodes = NodePool::<L::Blockchain>::new(context.clone())
-        .context("Failed to initialize leader node pool")?;
-    let follower_nodes = NodePool::<F::Blockchain>::new(context.clone())
-        .context("Failed to initialize follower node pool")?;
+    platforms: Vec<&dyn DynPlatform>,
+) -> anyhow::Result<()> {
+    let mut nodes = Vec::<(&dyn DynPlatform, NodePool)>::new();
+    for platform in platforms.into_iter() {
+        let pool = NodePool::new(Context::ExecuteTests(Box::new(context.clone())), platform)
+            .context("Failed to initialize follower node pool")?;
+        nodes.push((platform, pool));
+    }
 
     let tests_stream = tests_stream(
         &context,
         metadata_files.iter(),
-        &leader_nodes,
-        &follower_nodes,
+        nodes.as_slice(),
         reporter.clone(),
     )
     .await;
-    let driver_task = start_driver_task::<L, F>(&context, tests_stream)
+    let driver_task = start_driver_task(&context, tests_stream)
         .await
         .context("Failed to start driver task")?;
     let cli_reporting_task = start_cli_reporting_task(reporter);
@@ -169,19 +165,12 @@ where
     Ok(())
 }
 
-async fn tests_stream<'a, L, F>(
+async fn tests_stream<'a>(
     args: &ExecutionContext,
     metadata_files: impl IntoIterator<Item = &'a MetadataFile> + Clone,
-    leader_node_pool: &'a NodePool<L::Blockchain>,
-    follower_node_pool: &'a NodePool<F::Blockchain>,
+    nodes: &'a [(&dyn DynPlatform, NodePool)],
     reporter: Reporter,
-) -> impl Stream<Item = Test<'a, L, F>>
-where
-    L: Platform,
-    F: Platform,
-    L::Blockchain: revive_dt_node::Node + Send + Sync + 'static,
-    F::Blockchain: revive_dt_node::Node + Send + Sync + 'static,
-{
+) -> impl Stream<Item = Test<'a>> {
     let tests = metadata_files
         .into_iter()
         .flat_map(|metadata_file| {
@@ -231,35 +220,36 @@ where
     stream::iter(tests.into_iter())
         .filter_map(
             move |(metadata_file, case_idx, case, mode, reporter)| async move {
-                let leader_compiler = <L::Compiler as SolidityCompiler>::new(
-                    args,
-                    mode.version.clone().map(Into::into),
-                )
-                .await
-                .inspect_err(|err| error!(?err, "Failed to instantiate the leader compiler"))
-                .ok()?;
+                let mut platforms = Vec::new();
+                for (platform, node_pool) in nodes.iter() {
+                    let node = node_pool.round_robbin();
+                    let compiler = platform
+                        .new_compiler(
+                            Context::ExecuteTests(Box::new(args.clone())),
+                            mode.version.clone().map(Into::into),
+                        )
+                        .await
+                        .inspect_err(|err| {
+                            error!(
+                                ?err,
+                                platform_identifier = %platform.platform_identifier(),
+                                "Failed to instantiate the compiler"
+                            )
+                        })
+                        .ok()?;
 
-                let follower_compiler = <F::Compiler as SolidityCompiler>::new(
-                    args,
-                    mode.version.clone().map(Into::into),
-                )
-                .await
-                .inspect_err(|err| error!(?err, "Failed to instantiate the follower compiler"))
-                .ok()?;
+                    let reporter = reporter
+                        .execution_specific_reporter(node.id(), platform.platform_identifier());
+                    platforms.push((*platform, node, compiler, reporter));
+                }
 
-                let leader_node = leader_node_pool.round_robbin();
-                let follower_node = follower_node_pool.round_robbin();
-
-                Some(Test::<L, F> {
+                Some(Test {
                     metadata: metadata_file,
                     metadata_file_path: metadata_file.metadata_file_path.as_path(),
                     mode: mode.clone(),
                     case_idx: CaseIdx::new(case_idx),
                     case,
-                    leader_node,
-                    follower_node,
-                    leader_compiler,
-                    follower_compiler,
+                    platforms,
                     reporter,
                 })
             },
@@ -293,18 +283,10 @@ where
         })
 }
 
-async fn start_driver_task<'a, L, F>(
+async fn start_driver_task<'a>(
     context: &ExecutionContext,
-    tests: impl Stream<Item = Test<'a, L, F>>,
-) -> anyhow::Result<impl Future<Output = ()>>
-where
-    L: Platform,
-    F: Platform,
-    L::Blockchain: revive_dt_node::Node + Send + Sync + 'static,
-    F::Blockchain: revive_dt_node::Node + Send + Sync + 'static,
-    L::Compiler: 'a,
-    F::Compiler: 'a,
-{
+    tests: impl Stream<Item = Test<'a>>,
+) -> anyhow::Result<impl Future<Output = ()>> {
     info!("Starting driver task");
 
     let cached_compiler = Arc::new(
@@ -327,23 +309,18 @@ where
             let cached_compiler = cached_compiler.clone();
 
             async move {
-                test.reporter
-                    .report_leader_node_assigned_event(
-                        test.leader_node.id(),
-                        *L::config_id(),
-                        test.leader_node.connection_string(),
-                    )
-                    .expect("Can't fail");
-                test.reporter
-                    .report_follower_node_assigned_event(
-                        test.follower_node.id(),
-                        *F::config_id(),
-                        test.follower_node.connection_string(),
-                    )
-                    .expect("Can't fail");
+                for (platform, node, _, _) in test.platforms.iter() {
+                    test.reporter
+                        .report_node_assigned_event(
+                            node.id(),
+                            platform.platform_identifier(),
+                            node.connection_string(),
+                        )
+                        .expect("Can't fail");
+                }
 
                 let reporter = test.reporter.clone();
-                let result = handle_case_driver::<L, F>(test, cached_compiler).await;
+                let result = handle_case_driver(&test, cached_compiler).await;
 
                 match result {
                     Ok(steps_executed) => reporter
@@ -449,230 +426,174 @@ async fn start_cli_reporting_task(reporter: Reporter) {
         mode = %test.mode,
         case_idx = %test.case_idx,
         case_name = test.case.name.as_deref().unwrap_or("Unnamed Case"),
-        leader_node = test.leader_node.id(),
-        follower_node = test.follower_node.id(),
     )
 )]
-async fn handle_case_driver<'a, L, F>(
-    test: Test<'a, L, F>,
+async fn handle_case_driver<'a>(
+    test: &Test<'a>,
     cached_compiler: Arc<CachedCompiler<'a>>,
-) -> anyhow::Result<usize>
-where
-    L: Platform,
-    F: Platform,
-    L::Blockchain: revive_dt_node::Node + Send + Sync + 'static,
-    F::Blockchain: revive_dt_node::Node + Send + Sync + 'static,
-    L::Compiler: 'a,
-    F::Compiler: 'a,
-{
-    let leader_reporter = test
-        .reporter
-        .execution_specific_reporter(test.leader_node.id(), NodeDesignation::Leader);
-    let follower_reporter = test
-        .reporter
-        .execution_specific_reporter(test.follower_node.id(), NodeDesignation::Follower);
+) -> anyhow::Result<usize> {
+    let platform_state = stream::iter(test.platforms.iter())
+        // Compiling the pre-link contracts.
+        .filter_map(|(platform, node, compiler, reporter)| {
+            let cached_compiler = cached_compiler.clone();
 
-    let (
-        CompilerOutput {
-            contracts: leader_pre_link_contracts,
-        },
-        CompilerOutput {
-            contracts: follower_pre_link_contracts,
-        },
-    ) = try_join!(
-        cached_compiler.compile_contracts::<L>(
-            test.metadata,
-            test.metadata_file_path,
-            test.mode.clone(),
-            None,
-            &test.leader_compiler,
-            &leader_reporter,
-        ),
-        cached_compiler.compile_contracts::<F>(
-            test.metadata,
-            test.metadata_file_path,
-            test.mode.clone(),
-            None,
-            &test.follower_compiler,
-            &follower_reporter
-        )
-    )
-    .context("Failed to compile pre-link contracts for leader/follower in parallel")?;
-
-    let mut leader_deployed_libraries = None::<HashMap<_, _>>;
-    let mut follower_deployed_libraries = None::<HashMap<_, _>>;
-    let mut contract_sources = test
-        .metadata
-        .contract_sources()
-        .context("Failed to retrieve contract sources from metadata")?;
-    for library_instance in test
-        .metadata
-        .libraries
-        .iter()
-        .flatten()
-        .flat_map(|(_, map)| map.values())
-    {
-        debug!(%library_instance, "Deploying Library Instance");
-
-        let ContractPathAndIdent {
-            contract_source_path: library_source_path,
-            contract_ident: library_ident,
-        } = contract_sources
-            .remove(library_instance)
-            .context("Failed to find the contract source")?;
-
-        let (leader_code, leader_abi) = leader_pre_link_contracts
-            .get(&library_source_path)
-            .and_then(|contracts| contracts.get(library_ident.as_str()))
-            .context("Declared library was not compiled")?;
-        let (follower_code, follower_abi) = follower_pre_link_contracts
-            .get(&library_source_path)
-            .and_then(|contracts| contracts.get(library_ident.as_str()))
-            .context("Declared library was not compiled")?;
-
-        let leader_code = match alloy::hex::decode(leader_code) {
-            Ok(code) => code,
-            Err(error) => {
-                anyhow::bail!("Failed to hex-decode the byte code {}", error)
+            async move {
+                let compiler_output = cached_compiler
+                    .compile_contracts(
+                        test.metadata,
+                        test.metadata_file_path,
+                        test.mode.clone(),
+                        None,
+                        compiler.as_ref(),
+                        *platform,
+                        reporter,
+                    )
+                    .await
+                    .inspect_err(|err| {
+                        error!(
+                            %err,
+                            platform_identifier = %platform.platform_identifier(),
+                            "Pre-linking compilation failed"
+                        )
+                    })
+                    .ok()?;
+                Some((test, platform, node, compiler, reporter, compiler_output))
             }
-        };
-        let follower_code = match alloy::hex::decode(follower_code) {
-            Ok(code) => code,
-            Err(error) => {
-                anyhow::bail!("Failed to hex-decode the byte code {}", error)
-            }
-        };
+        })
+        // Deploying the libraries for the platform.
+        .filter_map(
+            |(test, platform, node, compiler, reporter, compiler_output)| async move {
+                let mut deployed_libraries = None::<HashMap<_, _>>;
+                let mut contract_sources = test
+                    .metadata
+                    .contract_sources()
+                    .inspect_err(|err| {
+                        error!(
+                            %err,
+                            platform_identifier = %platform.platform_identifier(),
+                            "Failed to retrieve contract sources from metadata"
+                        )
+                    })
+                    .ok()?;
+                for library_instance in test
+                    .metadata
+                    .libraries
+                    .iter()
+                    .flatten()
+                    .flat_map(|(_, map)| map.values())
+                {
+                    debug!(%library_instance, "Deploying Library Instance");
 
-        // Getting the deployer address from the cases themselves. This is to ensure that we're
-        // doing the deployments from different accounts and therefore we're not slowed down by
-        // the nonce.
-        let deployer_address = test
-            .case
-            .steps
-            .iter()
-            .filter_map(|step| match step {
-                Step::FunctionCall(input) => Some(input.caller),
-                Step::BalanceAssertion(..) => None,
-                Step::StorageEmptyAssertion(..) => None,
-            })
-            .next()
-            .unwrap_or(Input::default_caller());
-        let leader_tx = TransactionBuilder::<Ethereum>::with_deploy_code(
-            TransactionRequest::default().from(deployer_address),
-            leader_code,
-        );
-        let follower_tx = TransactionBuilder::<Ethereum>::with_deploy_code(
-            TransactionRequest::default().from(deployer_address),
-            follower_code,
-        );
+                    let ContractPathAndIdent {
+                        contract_source_path: library_source_path,
+                        contract_ident: library_ident,
+                    } = contract_sources.remove(library_instance)?;
 
-        let (leader_receipt, follower_receipt) = try_join!(
-            test.leader_node.execute_transaction(leader_tx),
-            test.follower_node.execute_transaction(follower_tx)
-        )?;
+                    let (code, leader_abi) = compiler_output
+                        .contracts
+                        .get(&library_source_path)
+                        .and_then(|contracts| contracts.get(library_ident.as_str()))?;
 
-        debug!(
-            ?library_instance,
-            library_address = ?leader_receipt.contract_address,
-            "Deployed library to leader"
-        );
-        debug!(
-            ?library_instance,
-            library_address = ?follower_receipt.contract_address,
-            "Deployed library to follower"
-        );
+                    let code = alloy::hex::decode(code).ok()?;
 
-        let leader_library_address = leader_receipt
-            .contract_address
-            .context("Contract deployment didn't return an address")?;
-        let follower_library_address = follower_receipt
-            .contract_address
-            .context("Contract deployment didn't return an address")?;
+                    // Getting the deployer address from the cases themselves. This is to ensure
+                    // that we're doing the deployments from different accounts and therefore we're
+                    // not slowed down by the nonce.
+                    let deployer_address = test
+                        .case
+                        .steps
+                        .iter()
+                        .filter_map(|step| match step {
+                            Step::FunctionCall(input) => Some(input.caller),
+                            Step::BalanceAssertion(..) => None,
+                            Step::StorageEmptyAssertion(..) => None,
+                        })
+                        .next()
+                        .unwrap_or(Input::default_caller());
+                    let tx = TransactionBuilder::<Ethereum>::with_deploy_code(
+                        TransactionRequest::default().from(deployer_address),
+                        code,
+                    );
+                    let receipt = node
+                        .execute_transaction(tx)
+                        .await
+                        .inspect_err(|err| {
+                            error!(
+                                %err,
+                                %library_instance,
+                                platform_identifier = %platform.platform_identifier(),
+                                "Failed to deploy the library"
+                            )
+                        })
+                        .ok()?;
 
-        leader_deployed_libraries.get_or_insert_default().insert(
-            library_instance.clone(),
-            (
-                library_ident.clone(),
-                leader_library_address,
-                leader_abi.clone(),
-            ),
-        );
-        follower_deployed_libraries.get_or_insert_default().insert(
-            library_instance.clone(),
-            (
-                library_ident,
-                follower_library_address,
-                follower_abi.clone(),
-            ),
-        );
-    }
-    if let Some(ref leader_deployed_libraries) = leader_deployed_libraries {
-        leader_reporter.report_libraries_deployed_event(
-            leader_deployed_libraries
-                .clone()
-                .into_iter()
-                .map(|(key, (_, address, _))| (key, address))
-                .collect::<BTreeMap<_, _>>(),
-        )?;
-    }
-    if let Some(ref follower_deployed_libraries) = follower_deployed_libraries {
-        follower_reporter.report_libraries_deployed_event(
-            follower_deployed_libraries
-                .clone()
-                .into_iter()
-                .map(|(key, (_, address, _))| (key, address))
-                .collect::<BTreeMap<_, _>>(),
-        )?;
-    }
+                    debug!(
+                        ?library_instance,
+                        platform_identifier = %platform.platform_identifier(),
+                        "Deployed library"
+                    );
 
-    let (
-        CompilerOutput {
-            contracts: leader_post_link_contracts,
-        },
-        CompilerOutput {
-            contracts: follower_post_link_contracts,
-        },
-    ) = try_join!(
-        cached_compiler.compile_contracts::<L>(
-            test.metadata,
-            test.metadata_file_path,
-            test.mode.clone(),
-            leader_deployed_libraries.as_ref(),
-            &test.leader_compiler,
-            &leader_reporter,
-        ),
-        cached_compiler.compile_contracts::<F>(
-            test.metadata,
-            test.metadata_file_path,
-            test.mode.clone(),
-            follower_deployed_libraries.as_ref(),
-            &test.follower_compiler,
-            &follower_reporter
+                    let library_address = receipt.contract_address?;
+
+                    deployed_libraries.get_or_insert_default().insert(
+                        library_instance.clone(),
+                        (library_ident.clone(), library_address, leader_abi.clone()),
+                    );
+                }
+
+                Some((
+                    test,
+                    platform,
+                    node,
+                    compiler,
+                    reporter,
+                    compiler_output,
+                    deployed_libraries,
+                ))
+            },
         )
-    )
-    .context("Failed to compile post-link contracts for leader/follower in parallel")?;
+        // Compiling the post-link contracts.
+        .filter_map(
+            |(test, platform, node, compiler, reporter, _, deployed_libraries)| {
+                let cached_compiler = cached_compiler.clone();
 
-    let leader_state = CaseState::<L>::new(
-        test.leader_compiler.version().clone(),
-        leader_post_link_contracts,
-        leader_deployed_libraries.unwrap_or_default(),
-        leader_reporter,
-    );
-    let follower_state = CaseState::<F>::new(
-        test.follower_compiler.version().clone(),
-        follower_post_link_contracts,
-        follower_deployed_libraries.unwrap_or_default(),
-        follower_reporter,
-    );
+                async move {
+                    let compiler_output = cached_compiler
+                        .compile_contracts(
+                            test.metadata,
+                            test.metadata_file_path,
+                            test.mode.clone(),
+                            deployed_libraries.as_ref(),
+                            compiler.as_ref(),
+                            *platform,
+                            reporter,
+                        )
+                        .await
+                        .inspect_err(|err| {
+                            error!(
+                                %err,
+                                platform_identifier = %platform.platform_identifier(),
+                                "Pre-linking compilation failed"
+                            )
+                        })
+                        .ok()?;
 
-    let mut driver = CaseDriver::<L, F>::new(
-        test.metadata,
-        test.case,
-        test.leader_node,
-        test.follower_node,
-        leader_state,
-        follower_state,
-    );
+                    let case_state = CaseState::new(
+                        compiler.version().clone(),
+                        compiler_output.contracts,
+                        deployed_libraries.unwrap_or_default(),
+                        reporter.clone(),
+                    );
+
+                    Some((*node, platform.platform_identifier(), case_state))
+                }
+            },
+        )
+        // Collect
+        .collect::<Vec<_>>()
+        .await;
+
+    let mut driver = CaseDriver::new(test.metadata, test.case, platform_state);
     driver
         .execute()
         .await
@@ -685,36 +606,38 @@ async fn execute_corpus(
     reporter: Reporter,
     report_aggregator_task: impl Future<Output = anyhow::Result<()>>,
 ) -> anyhow::Result<()> {
-    match (&context.leader, &context.follower) {
-        (TestingPlatform::Geth, TestingPlatform::Kitchensink) => {
-            run_driver::<Geth, Kitchensink>(context, tests, reporter, report_aggregator_task)
-                .await?
-        }
-        (TestingPlatform::Geth, TestingPlatform::Geth) => {
-            run_driver::<Geth, Geth>(context, tests, reporter, report_aggregator_task).await?
-        }
-        _ => unimplemented!(),
-    }
+    let platforms = context
+        .platforms
+        .iter()
+        .copied()
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .map(Into::<&dyn DynPlatform>::into)
+        .collect::<Vec<_>>();
+
+    run_driver(context, tests, reporter, report_aggregator_task, platforms).await?;
 
     Ok(())
 }
 
 /// this represents a single "test"; a mode, path and collection of cases.
-#[derive(Clone)]
-struct Test<'a, L: Platform, F: Platform> {
+#[allow(clippy::type_complexity)]
+struct Test<'a> {
     metadata: &'a MetadataFile,
     metadata_file_path: &'a Path,
     mode: Cow<'a, Mode>,
     case_idx: CaseIdx,
     case: &'a Case,
-    leader_node: &'a <L as Platform>::Blockchain,
-    follower_node: &'a <F as Platform>::Blockchain,
-    leader_compiler: L::Compiler,
-    follower_compiler: F::Compiler,
+    platforms: Vec<(
+        &'a dyn DynPlatform,
+        &'a dyn EthereumNode,
+        Box<dyn DynSolidityCompiler>,
+        ExecutionSpecificReporter,
+    )>,
     reporter: TestSpecificReporter,
 }
 
-impl<'a, L: Platform, F: Platform> Test<'a, L, F> {
+impl<'a> Test<'a> {
     /// Checks if this test can be ran with the current configuration.
     pub fn check_compatibility(&self) -> TestCheckFunctionResult {
         self.check_metadata_file_ignored()?;
@@ -743,24 +666,39 @@ impl<'a, L: Platform, F: Platform> Test<'a, L, F> {
         }
     }
 
-    /// Checks if the leader and the follower both support the desired targets in the metadata file.
+    /// Checks if the platforms all support the desired targets in the metadata file.
     fn check_target_compatibility(&self) -> TestCheckFunctionResult {
-        let leader_support =
-            <L::Blockchain as Node>::matches_target(self.metadata.targets.as_deref());
-        let follower_support =
-            <F::Blockchain as Node>::matches_target(self.metadata.targets.as_deref());
-        let is_allowed = leader_support && follower_support;
+        let mut error_map = indexmap! {
+            "test_desired_targets" => json!(self.metadata.targets.as_ref()),
+        };
+        let mut is_allowed = true;
+        for (platform, ..) in self.platforms.iter() {
+            let is_allowed_for_platform = match self.metadata.targets.as_ref() {
+                None => true,
+                Some(targets) => {
+                    let mut target_matches = false;
+                    for target in targets.iter() {
+                        if &platform.vm_identifier() == target {
+                            target_matches = true;
+                            break;
+                        }
+                    }
+                    target_matches
+                }
+            };
+            is_allowed &= is_allowed_for_platform;
+            error_map.insert(
+                platform.platform_identifier().into(),
+                json!(is_allowed_for_platform),
+            );
+        }
 
         if is_allowed {
             Ok(())
         } else {
             Err((
-                "Either the leader or the follower do not support the target desired by the test.",
-                indexmap! {
-                    "test_desired_targets" => json!(self.metadata.targets.as_ref()),
-                    "leader_support" => json!(leader_support),
-                    "follower_support" => json!(follower_support),
-                },
+                "One of the platforms do do not support the targets allowed by the test.",
+                error_map,
             ))
         }
     }
@@ -771,46 +709,51 @@ impl<'a, L: Platform, F: Platform> Test<'a, L, F> {
             return Ok(());
         };
 
-        let leader_support = evm_version_requirement
-            .matches(&<L::Blockchain as revive_dt_node::Node>::evm_version());
-        let follower_support = evm_version_requirement
-            .matches(&<F::Blockchain as revive_dt_node::Node>::evm_version());
-        let is_allowed = leader_support && follower_support;
+        let mut error_map = indexmap! {
+            "test_desired_evm_version" => json!(self.metadata.required_evm_version),
+        };
+        let mut is_allowed = true;
+        for (platform, node, ..) in self.platforms.iter() {
+            let is_allowed_for_platform = evm_version_requirement.matches(&node.evm_version());
+            is_allowed &= is_allowed_for_platform;
+            error_map.insert(
+                platform.platform_identifier().into(),
+                json!(is_allowed_for_platform),
+            );
+        }
 
         if is_allowed {
             Ok(())
         } else {
             Err((
-                "EVM version is incompatible with either the leader or the follower.",
-                indexmap! {
-                    "test_desired_evm_version" => json!(self.metadata.required_evm_version),
-                    "leader_support" => json!(leader_support),
-                    "follower_support" => json!(follower_support),
-                },
+                "EVM version is incompatible for the platforms specified",
+                error_map,
             ))
         }
     }
 
     /// Checks if the leader and follower compilers support the mode that the test is for.
     fn check_compiler_compatibility(&self) -> TestCheckFunctionResult {
-        let leader_support = self
-            .leader_compiler
-            .supports_mode(self.mode.optimize_setting, self.mode.pipeline);
-        let follower_support = self
-            .follower_compiler
-            .supports_mode(self.mode.optimize_setting, self.mode.pipeline);
-        let is_allowed = leader_support && follower_support;
+        let mut error_map = indexmap! {
+            "test_desired_evm_version" => json!(self.metadata.required_evm_version),
+        };
+        let mut is_allowed = true;
+        for (platform, _, compiler, ..) in self.platforms.iter() {
+            let is_allowed_for_platform =
+                compiler.supports_mode(self.mode.optimize_setting, self.mode.pipeline);
+            is_allowed &= is_allowed_for_platform;
+            error_map.insert(
+                platform.platform_identifier().into(),
+                json!(is_allowed_for_platform),
+            );
+        }
 
         if is_allowed {
             Ok(())
         } else {
             Err((
-                "Compilers do not support this mode either for the leader or for the follower.",
-                indexmap! {
-                    "mode" => json!(self.mode),
-                    "leader_support" => json!(leader_support),
-                    "follower_support" => json!(follower_support),
-                },
+                "Compilers do not support this mode either for the provided platforms.",
+                error_map,
             ))
         }
     }
