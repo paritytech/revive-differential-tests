@@ -22,7 +22,7 @@ pub struct TestSpecifier {
 }
 
 /// An absolute path for a test that also includes information about the node that it's assigned to
-/// and whether it's the leader or follower.
+/// and what platform it belongs to.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct ExecutionSpecifier {
     pub test_specifier: Arc<TestSpecifier>,

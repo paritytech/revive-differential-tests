@@ -1300,13 +1300,13 @@ mod tests {
     use super::*;
     use crate::Node;
 
-    fn test_config() -> ExecutionContext {
-        let mut context = ExecutionContext::default();
+    fn test_config() -> TestExecutionContext {
+        let mut context = TestExecutionContext::default();
         context.kitchensink_configuration.use_kitchensink = true;
         context
     }
 
-    fn new_node() -> (ExecutionContext, SubstrateNode) {
+    fn new_node() -> (TestExecutionContext, SubstrateNode) {
         // Note: When we run the tests in the CI we found that if they're all
         // run in parallel then the CI is unable to start all of the nodes in
         // time and their start up times-out. Therefore, we want all of the
@@ -1340,7 +1340,7 @@ mod tests {
 
     /// A shared node that multiple tests can use. It starts up once.
     fn shared_node() -> &'static SubstrateNode {
-        static NODE: LazyLock<(ExecutionContext, SubstrateNode)> = LazyLock::new(|| {
+        static NODE: LazyLock<(TestExecutionContext, SubstrateNode)> = LazyLock::new(|| {
             let (context, node) = new_node();
             (context, node)
         });

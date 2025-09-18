@@ -434,7 +434,7 @@ macro_rules! define_event {
             }
 
             /// A reporter that's tied to a specific execution of the test case such as execution on
-            /// a specific node like the leader or follower.
+            /// a specific node from a specific platform.
             #[derive(Clone, Debug)]
             pub struct [< $ident ExecutionSpecificReporter >] {
                 $vis reporter: [< $ident Reporter >],
@@ -520,7 +520,7 @@ define_event! {
             /// A reason for the failure of the test.
             reason: String,
         },
-        /// An event emitted when the test case is assigned a leader node.
+        /// An event emitted when the test case is assigned a platform node.
         NodeAssigned {
             /// A specifier for the test that the assignment is for.
             test_specifier: Arc<TestSpecifier>,

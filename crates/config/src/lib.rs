@@ -27,8 +27,8 @@ use temp_dir::TempDir;
 #[derive(Clone, Debug, Parser, Serialize)]
 #[command(name = "retester")]
 pub enum Context {
-    /// Executes tests in the MatterLabs format differentially against a leader and a follower.
-    ExecuteTests(Box<ExecutionContext>),
+    /// Executes tests in the MatterLabs format differentially on multiple targets concurrently.
+    ExecuteTests(Box<TestExecutionContext>),
     /// Exports the JSON schema of the MatterLabs test format used by the tool.
     ExportJsonSchema,
 }
@@ -152,7 +152,7 @@ impl AsRef<ReportConfiguration> for Context {
 }
 
 #[derive(Clone, Debug, Parser, Serialize)]
-pub struct ExecutionContext {
+pub struct TestExecutionContext {
     /// The working directory that the program will use for all of the temporary artifacts needed at
     /// runtime.
     ///
@@ -219,79 +219,79 @@ pub struct ExecutionContext {
     pub report_configuration: ReportConfiguration,
 }
 
-impl Default for ExecutionContext {
+impl Default for TestExecutionContext {
     fn default() -> Self {
         Self::parse_from(["execution-context"])
     }
 }
 
-impl AsRef<WorkingDirectoryConfiguration> for ExecutionContext {
+impl AsRef<WorkingDirectoryConfiguration> for TestExecutionContext {
     fn as_ref(&self) -> &WorkingDirectoryConfiguration {
         &self.working_directory
     }
 }
 
-impl AsRef<SolcConfiguration> for ExecutionContext {
+impl AsRef<SolcConfiguration> for TestExecutionContext {
     fn as_ref(&self) -> &SolcConfiguration {
         &self.solc_configuration
     }
 }
 
-impl AsRef<ResolcConfiguration> for ExecutionContext {
+impl AsRef<ResolcConfiguration> for TestExecutionContext {
     fn as_ref(&self) -> &ResolcConfiguration {
         &self.resolc_configuration
     }
 }
 
-impl AsRef<GethConfiguration> for ExecutionContext {
+impl AsRef<GethConfiguration> for TestExecutionContext {
     fn as_ref(&self) -> &GethConfiguration {
         &self.geth_configuration
     }
 }
 
-impl AsRef<KitchensinkConfiguration> for ExecutionContext {
+impl AsRef<KitchensinkConfiguration> for TestExecutionContext {
     fn as_ref(&self) -> &KitchensinkConfiguration {
         &self.kitchensink_configuration
     }
 }
 
-impl AsRef<ReviveDevNodeConfiguration> for ExecutionContext {
+impl AsRef<ReviveDevNodeConfiguration> for TestExecutionContext {
     fn as_ref(&self) -> &ReviveDevNodeConfiguration {
         &self.revive_dev_node_configuration
     }
 }
 
-impl AsRef<EthRpcConfiguration> for ExecutionContext {
+impl AsRef<EthRpcConfiguration> for TestExecutionContext {
     fn as_ref(&self) -> &EthRpcConfiguration {
         &self.eth_rpc_configuration
     }
 }
 
-impl AsRef<GenesisConfiguration> for ExecutionContext {
+impl AsRef<GenesisConfiguration> for TestExecutionContext {
     fn as_ref(&self) -> &GenesisConfiguration {
         &self.genesis_configuration
     }
 }
 
-impl AsRef<WalletConfiguration> for ExecutionContext {
+impl AsRef<WalletConfiguration> for TestExecutionContext {
     fn as_ref(&self) -> &WalletConfiguration {
         &self.wallet_configuration
     }
 }
 
-impl AsRef<ConcurrencyConfiguration> for ExecutionContext {
+impl AsRef<ConcurrencyConfiguration> for TestExecutionContext {
     fn as_ref(&self) -> &ConcurrencyConfiguration {
         &self.concurrency_configuration
     }
 }
 
-impl AsRef<CompilationConfiguration> for ExecutionContext {
+impl AsRef<CompilationConfiguration> for TestExecutionContext {
     fn as_ref(&self) -> &CompilationConfiguration {
         &self.compilation_configuration
     }
 }
 
-impl AsRef<ReportConfiguration> for ExecutionContext {
+impl AsRef<ReportConfiguration> for TestExecutionContext {
     fn as_ref(&self) -> &ReportConfiguration {
         &self.report_configuration
     }

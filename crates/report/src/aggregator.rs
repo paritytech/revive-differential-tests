@@ -466,7 +466,7 @@ pub enum TestCaseStatus {
     },
 }
 
-/// Information related to the leader or follower node that's being used to execute the step.
+/// Information related to the platform node that's being used to execute the step.
 #[derive(Clone, Debug, Serialize)]
 pub struct TestCaseNodeInformation {
     /// The ID of the node that this case is being executed on.
@@ -477,7 +477,7 @@ pub struct TestCaseNodeInformation {
     pub connection_string: String,
 }
 
-/// Execution information tied to the leader or the follower.
+/// Execution information tied to the platform.
 #[derive(Clone, Debug, Default, Serialize)]
 pub struct ExecutionInformation {
     /// Information related to the node assigned to this test case.

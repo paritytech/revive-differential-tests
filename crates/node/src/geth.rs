@@ -855,11 +855,11 @@ impl Drop for GethNode {
 mod tests {
     use super::*;
 
-    fn test_config() -> ExecutionContext {
-        ExecutionContext::default()
+    fn test_config() -> TestExecutionContext {
+        TestExecutionContext::default()
     }
 
-    fn new_node() -> (ExecutionContext, GethNode) {
+    fn new_node() -> (TestExecutionContext, GethNode) {
         let context = test_config();
         let mut node = GethNode::new(&context);
         node.init(context.genesis_configuration.genesis().unwrap().clone())

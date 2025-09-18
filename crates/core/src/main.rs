@@ -112,7 +112,7 @@ fn main() -> anyhow::Result<()> {
 
 #[instrument(level = "debug", name = "Collecting Corpora", skip_all)]
 fn collect_corpora(
-    context: &ExecutionContext,
+    context: &TestExecutionContext,
 ) -> anyhow::Result<HashMap<Corpus, Vec<MetadataFile>>> {
     let mut corpora = HashMap::new();
 
@@ -134,7 +134,7 @@ fn collect_corpora(
 }
 
 async fn run_driver(
-    context: ExecutionContext,
+    context: TestExecutionContext,
     metadata_files: &[MetadataFile],
     reporter: Reporter,
     report_aggregator_task: impl Future<Output = anyhow::Result<()>>,
@@ -143,7 +143,14 @@ async fn run_driver(
     let mut nodes = Vec::<(&dyn DynPlatform, NodePool)>::new();
     for platform in platforms.into_iter() {
         let pool = NodePool::new(Context::ExecuteTests(Box::new(context.clone())), platform)
-            .context("Failed to initialize follower node pool")?;
+            .inspect_err(|err| {
+                error!(
+                    %err,
+                    platform_identifier = %platform.platform_identifier(),
+                    "Failed to initialize the node pool for the platform."
+                )
+            })
+            .context("Failed to initialize the node pool")?;
         nodes.push((platform, pool));
     }
 
@@ -166,7 +173,7 @@ async fn run_driver(
 }
 
 async fn tests_stream<'a>(
-    args: &ExecutionContext,
+    args: &TestExecutionContext,
     metadata_files: impl IntoIterator<Item = &'a MetadataFile> + Clone,
     nodes: &'a [(&dyn DynPlatform, NodePool)],
     reporter: Reporter,
@@ -284,7 +291,7 @@ async fn tests_stream<'a>(
 }
 
 async fn start_driver_task<'a>(
-    context: &ExecutionContext,
+    context: &TestExecutionContext,
     tests: impl Stream<Item = Test<'a>>,
 ) -> anyhow::Result<impl Future<Output = ()>> {
     info!("Starting driver task");
@@ -489,7 +496,7 @@ async fn handle_case_driver<'a>(
                         contract_ident: library_ident,
                     } = contract_sources.remove(library_instance)?;
 
-                    let (code, leader_abi) = compiler_output
+                    let (code, abi) = compiler_output
                         .contracts
                         .get(&library_source_path)
                         .and_then(|contracts| contracts.get(library_ident.as_str()))?;
@@ -537,7 +544,7 @@ async fn handle_case_driver<'a>(
 
                     deployed_libraries.get_or_insert_default().insert(
                         library_instance.clone(),
-                        (library_ident.clone(), library_address, leader_abi.clone()),
+                        (library_ident.clone(), library_address, abi.clone()),
                     );
                 }
 
@@ -601,7 +608,7 @@ async fn handle_case_driver<'a>(
 }
 
 async fn execute_corpus(
-    context: ExecutionContext,
+    context: TestExecutionContext,
     tests: &[MetadataFile],
     reporter: Reporter,
     report_aggregator_task: impl Future<Output = anyhow::Result<()>>,
@@ -703,7 +710,7 @@ impl<'a> Test<'a> {
         }
     }
 
-    // Checks for the compatibility of the EVM version with the leader and follower nodes.
+    // Checks for the compatibility of the EVM version with the platforms specified.
     fn check_evm_version_compatibility(&self) -> TestCheckFunctionResult {
         let Some(evm_version_requirement) = self.metadata.required_evm_version else {
             return Ok(());
@@ -732,7 +739,7 @@ impl<'a> Test<'a> {
         }
     }
 
-    /// Checks if the leader and follower compilers support the mode that the test is for.
+    /// Checks if the platforms compilers support the mode that the test is for.
     fn check_compiler_compatibility(&self) -> TestCheckFunctionResult {
         let mut error_map = indexmap! {
             "test_desired_evm_version" => json!(self.metadata.required_evm_version),
