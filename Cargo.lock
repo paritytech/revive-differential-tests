@@ -4589,7 +4589,6 @@ dependencies = [
  "alloy",
  "anyhow",
  "revive-common",
- "revive-dt-common",
  "revive-dt-format",
 ]
 

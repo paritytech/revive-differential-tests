@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use revive_dt_common::types::VersionOrRequirement;
-use revive_dt_compiler::{Compiler, SolidityCompiler, revive_resolc::Resolc, solc::Solc};
+use revive_dt_compiler::{Compiler, revive_resolc::Resolc, solc::Solc};
 use revive_dt_config::TestExecutionContext;
 use semver::Version;
 
