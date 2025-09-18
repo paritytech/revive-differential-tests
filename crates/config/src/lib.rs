@@ -167,7 +167,11 @@ pub struct TestExecutionContext {
     pub working_directory: WorkingDirectoryConfiguration,
 
     /// The set of platforms that the differential tests should run on.
-    #[arg(short = 'p', long = "platform")]
+    #[arg(
+        short = 'p',
+        long = "platform",
+        default_value = "geth-evm-solc,revive-dev-node-polkavm-resolc"
+    )]
     pub platforms: Vec<PlatformIdentifier>,
 
     /// A list of test corpus JSON files to be tested.
