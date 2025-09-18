@@ -4,7 +4,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use anyhow::Context as _;
 use revive_dt_config::*;
-use revive_dt_core::DynPlatform;
+use revive_dt_core::Platform;
 use revive_dt_node_interaction::EthereumNode;
 
 /// The node pool starts one or more [Node] which then can be accessed
@@ -16,7 +16,7 @@ pub struct NodePool {
 
 impl NodePool {
     /// Create a new Pool. This will start as many nodes as there are workers in `config`.
-    pub fn new(context: Context, platform: &dyn DynPlatform) -> anyhow::Result<Self> {
+    pub fn new(context: Context, platform: &dyn Platform) -> anyhow::Result<Self> {
         let concurrency_configuration = AsRef::<ConcurrencyConfiguration>::as_ref(&context);
         let nodes = concurrency_configuration.number_of_nodes;
 

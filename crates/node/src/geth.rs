@@ -647,158 +647,6 @@ impl<F: TxFiller<Ethereum>, P: Provider<Ethereum>> ResolverApi for GethNodeResol
     }
 }
 
-// TODO: Remove
-impl ResolverApi for GethNode {
-    #[instrument(level = "info", skip_all, fields(geth_node_id = self.id))]
-    fn chain_id(
-        &self,
-    ) -> Pin<Box<dyn Future<Output = anyhow::Result<alloy::primitives::ChainId>> + '_>> {
-        Box::pin(async move {
-            self.provider()
-                .await
-                .context("Failed to get the Geth provider")?
-                .get_chain_id()
-                .await
-                .map_err(Into::into)
-        })
-    }
-
-    #[instrument(level = "info", skip_all, fields(geth_node_id = self.id))]
-    fn transaction_gas_price(
-        &self,
-        tx_hash: TxHash,
-    ) -> Pin<Box<dyn Future<Output = anyhow::Result<u128>> + '_>> {
-        Box::pin(async move {
-            self.provider()
-                .await
-                .context("Failed to get the Geth provider")?
-                .get_transaction_receipt(tx_hash)
-                .await?
-                .context("Failed to get the transaction receipt")
-                .map(|receipt| receipt.effective_gas_price)
-        })
-    }
-
-    #[instrument(level = "info", skip_all, fields(geth_node_id = self.id))]
-    fn block_gas_limit(
-        &self,
-        number: BlockNumberOrTag,
-    ) -> Pin<Box<dyn Future<Output = anyhow::Result<u128>> + '_>> {
-        Box::pin(async move {
-            self.provider()
-                .await
-                .context("Failed to get the Geth provider")?
-                .get_block_by_number(number)
-                .await
-                .context("Failed to get the geth block")?
-                .context("Failed to get the Geth block, perhaps there are no blocks?")
-                .map(|block| block.header.gas_limit as _)
-        })
-    }
-
-    #[instrument(level = "info", skip_all, fields(geth_node_id = self.id))]
-    fn block_coinbase(
-        &self,
-        number: BlockNumberOrTag,
-    ) -> Pin<Box<dyn Future<Output = anyhow::Result<Address>> + '_>> {
-        Box::pin(async move {
-            self.provider()
-                .await
-                .context("Failed to get the Geth provider")?
-                .get_block_by_number(number)
-                .await
-                .context("Failed to get the geth block")?
-                .context("Failed to get the Geth block, perhaps there are no blocks?")
-                .map(|block| block.header.beneficiary)
-        })
-    }
-
-    #[instrument(level = "info", skip_all, fields(geth_node_id = self.id))]
-    fn block_difficulty(
-        &self,
-        number: BlockNumberOrTag,
-    ) -> Pin<Box<dyn Future<Output = anyhow::Result<U256>> + '_>> {
-        Box::pin(async move {
-            self.provider()
-                .await
-                .context("Failed to get the Geth provider")?
-                .get_block_by_number(number)
-                .await
-                .context("Failed to get the geth block")?
-                .context("Failed to get the Geth block, perhaps there are no blocks?")
-                .map(|block| U256::from_be_bytes(block.header.mix_hash.0))
-        })
-    }
-
-    #[instrument(level = "info", skip_all, fields(geth_node_id = self.id))]
-    fn block_base_fee(
-        &self,
-        number: BlockNumberOrTag,
-    ) -> Pin<Box<dyn Future<Output = anyhow::Result<u64>> + '_>> {
-        Box::pin(async move {
-            self.provider()
-                .await
-                .context("Failed to get the Geth provider")?
-                .get_block_by_number(number)
-                .await
-                .context("Failed to get the geth block")?
-                .context("Failed to get the Geth block, perhaps there are no blocks?")
-                .and_then(|block| {
-                    block
-                        .header
-                        .base_fee_per_gas
-                        .context("Failed to get the base fee per gas")
-                })
-        })
-    }
-
-    #[instrument(level = "info", skip_all, fields(geth_node_id = self.id))]
-    fn block_hash(
-        &self,
-        number: BlockNumberOrTag,
-    ) -> Pin<Box<dyn Future<Output = anyhow::Result<BlockHash>> + '_>> {
-        Box::pin(async move {
-            self.provider()
-                .await
-                .context("Failed to get the Geth provider")?
-                .get_block_by_number(number)
-                .await
-                .context("Failed to get the geth block")?
-                .context("Failed to get the Geth block, perhaps there are no blocks?")
-                .map(|block| block.header.hash)
-        })
-    }
-
-    #[instrument(level = "info", skip_all, fields(geth_node_id = self.id))]
-    fn block_timestamp(
-        &self,
-        number: BlockNumberOrTag,
-    ) -> Pin<Box<dyn Future<Output = anyhow::Result<BlockTimestamp>> + '_>> {
-        Box::pin(async move {
-            self.provider()
-                .await
-                .context("Failed to get the Geth provider")?
-                .get_block_by_number(number)
-                .await
-                .context("Failed to get the geth block")?
-                .context("Failed to get the Geth block, perhaps there are no blocks?")
-                .map(|block| block.header.timestamp)
-        })
-    }
-
-    #[instrument(level = "info", skip_all, fields(geth_node_id = self.id))]
-    fn last_block_number(&self) -> Pin<Box<dyn Future<Output = anyhow::Result<BlockNumber>> + '_>> {
-        Box::pin(async move {
-            self.provider()
-                .await
-                .context("Failed to get the Geth provider")?
-                .get_block_number()
-                .await
-                .map_err(Into::into)
-        })
-    }
-}
-
 impl Node for GethNode {
     #[instrument(level = "info", skip_all, fields(geth_node_id = self.id))]
     fn shutdown(&mut self) -> anyhow::Result<()> {
@@ -884,7 +732,7 @@ mod tests {
         let (_context, node) = new_node();
 
         // Act
-        let chain_id = node.chain_id().await;
+        let chain_id = node.resolver().await.unwrap().chain_id().await;
 
         // Assert
         let chain_id = chain_id.expect("Failed to get the chain id");
@@ -897,7 +745,12 @@ mod tests {
         let (_context, node) = new_node();
 
         // Act
-        let gas_limit = node.block_gas_limit(BlockNumberOrTag::Latest).await;
+        let gas_limit = node
+            .resolver()
+            .await
+            .unwrap()
+            .block_gas_limit(BlockNumberOrTag::Latest)
+            .await;
 
         // Assert
         let gas_limit = gas_limit.expect("Failed to get the gas limit");
@@ -910,7 +763,12 @@ mod tests {
         let (_context, node) = new_node();
 
         // Act
-        let coinbase = node.block_coinbase(BlockNumberOrTag::Latest).await;
+        let coinbase = node
+            .resolver()
+            .await
+            .unwrap()
+            .block_coinbase(BlockNumberOrTag::Latest)
+            .await;
 
         // Assert
         let coinbase = coinbase.expect("Failed to get the coinbase");
@@ -923,7 +781,12 @@ mod tests {
         let (_context, node) = new_node();
 
         // Act
-        let block_difficulty = node.block_difficulty(BlockNumberOrTag::Latest).await;
+        let block_difficulty = node
+            .resolver()
+            .await
+            .unwrap()
+            .block_difficulty(BlockNumberOrTag::Latest)
+            .await;
 
         // Assert
         let block_difficulty = block_difficulty.expect("Failed to get the block difficulty");
@@ -936,7 +799,12 @@ mod tests {
         let (_context, node) = new_node();
 
         // Act
-        let block_hash = node.block_hash(BlockNumberOrTag::Latest).await;
+        let block_hash = node
+            .resolver()
+            .await
+            .unwrap()
+            .block_hash(BlockNumberOrTag::Latest)
+            .await;
 
         // Assert
         let _ = block_hash.expect("Failed to get the block hash");
@@ -948,7 +816,12 @@ mod tests {
         let (_context, node) = new_node();
 
         // Act
-        let block_timestamp = node.block_timestamp(BlockNumberOrTag::Latest).await;
+        let block_timestamp = node
+            .resolver()
+            .await
+            .unwrap()
+            .block_timestamp(BlockNumberOrTag::Latest)
+            .await;
 
         // Assert
         let _ = block_timestamp.expect("Failed to get the block timestamp");
@@ -960,7 +833,7 @@ mod tests {
         let (_context, node) = new_node();
 
         // Act
-        let block_number = node.last_block_number().await;
+        let block_number = node.resolver().await.unwrap().last_block_number().await;
 
         // Assert
         let block_number = block_number.expect("Failed to get the block number");

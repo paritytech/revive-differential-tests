@@ -10,8 +10,8 @@ use std::{
 
 use futures::FutureExt;
 use revive_dt_common::{iterators::FilesWithExtensionIterator, types::CompilerIdentifier};
-use revive_dt_compiler::{Compiler, CompilerOutput, DynSolidityCompiler, Mode};
-use revive_dt_core::DynPlatform;
+use revive_dt_compiler::{Compiler, CompilerOutput, Mode, SolidityCompiler};
+use revive_dt_core::Platform;
 use revive_dt_format::metadata::{ContractIdent, ContractInstance, Metadata};
 
 use alloy::{hex::ToHexExt, json_abi::JsonAbi, primitives::Address};
@@ -65,8 +65,8 @@ impl<'a> CachedCompiler<'a> {
         metadata_file_path: &'a Path,
         mode: Cow<'a, Mode>,
         deployed_libraries: Option<&HashMap<ContractInstance, (ContractIdent, Address, JsonAbi)>>,
-        compiler: &dyn DynSolidityCompiler,
-        platform: &dyn DynPlatform,
+        compiler: &dyn SolidityCompiler,
+        platform: &dyn Platform,
         reporter: &ExecutionSpecificReporter,
     ) -> Result<CompilerOutput> {
         let cache_key = CacheKey {
@@ -183,7 +183,7 @@ async fn compile_contracts(
     mut files_to_compile: impl Iterator<Item = PathBuf>,
     mode: &Mode,
     deployed_libraries: Option<&HashMap<ContractInstance, (ContractIdent, Address, JsonAbi)>>,
-    compiler: &dyn DynSolidityCompiler,
+    compiler: &dyn SolidityCompiler,
     reporter: &ExecutionSpecificReporter,
 ) -> Result<CompilerOutput> {
     let all_sources_in_dir = FilesWithExtensionIterator::new(metadata_directory.as_ref())
@@ -217,7 +217,7 @@ async fn compile_contracts(
         });
 
     let input = compilation.input().clone();
-    let output = compilation.dyn_try_build(compiler).await;
+    let output = compilation.try_build(compiler).await;
 
     match (output.as_ref(), deployed_libraries.is_some()) {
         (Ok(output), true) => {

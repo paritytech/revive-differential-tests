@@ -30,10 +30,10 @@ use tracing::{debug, error, info, info_span, instrument};
 use tracing_subscriber::{EnvFilter, FmtSubscriber};
 
 use revive_dt_common::{iterators::EitherIter, types::Mode};
-use revive_dt_compiler::DynSolidityCompiler;
+use revive_dt_compiler::SolidityCompiler;
 use revive_dt_config::{Context, *};
 use revive_dt_core::{
-    DynPlatform,
+    Platform,
     driver::{CaseDriver, CaseState},
 };
 use revive_dt_format::{
@@ -138,9 +138,9 @@ async fn run_driver(
     metadata_files: &[MetadataFile],
     reporter: Reporter,
     report_aggregator_task: impl Future<Output = anyhow::Result<()>>,
-    platforms: Vec<&dyn DynPlatform>,
+    platforms: Vec<&dyn Platform>,
 ) -> anyhow::Result<()> {
-    let mut nodes = Vec::<(&dyn DynPlatform, NodePool)>::new();
+    let mut nodes = Vec::<(&dyn Platform, NodePool)>::new();
     for platform in platforms.into_iter() {
         let pool = NodePool::new(Context::ExecuteTests(Box::new(context.clone())), platform)
             .inspect_err(|err| {
@@ -175,7 +175,7 @@ async fn run_driver(
 async fn tests_stream<'a>(
     args: &TestExecutionContext,
     metadata_files: impl IntoIterator<Item = &'a MetadataFile> + Clone,
-    nodes: &'a [(&dyn DynPlatform, NodePool)],
+    nodes: &'a [(&dyn Platform, NodePool)],
     reporter: Reporter,
 ) -> impl Stream<Item = Test<'a>> {
     let tests = metadata_files
@@ -619,7 +619,7 @@ async fn execute_corpus(
         .copied()
         .collect::<BTreeSet<_>>()
         .into_iter()
-        .map(Into::<&dyn DynPlatform>::into)
+        .map(Into::<&dyn Platform>::into)
         .collect::<Vec<_>>();
 
     run_driver(context, tests, reporter, report_aggregator_task, platforms).await?;
@@ -636,9 +636,9 @@ struct Test<'a> {
     case_idx: CaseIdx,
     case: &'a Case,
     platforms: Vec<(
-        &'a dyn DynPlatform,
+        &'a dyn Platform,
         &'a dyn EthereumNode,
-        Box<dyn DynSolidityCompiler>,
+        Box<dyn SolidityCompiler>,
         ExecutionSpecificReporter,
     )>,
     reporter: TestSpecificReporter,

@@ -11,61 +11,17 @@ use std::{
 use alloy::genesis::Genesis;
 use anyhow::Context as _;
 use revive_dt_common::types::*;
-use revive_dt_compiler::{
-    DynSolidityCompiler, SolidityCompiler,
-    revive_resolc::{self, Resolc},
-    solc::{self, Solc},
-};
+use revive_dt_compiler::{SolidityCompiler, revive_resolc::Resolc, solc::Solc};
 use revive_dt_config::*;
-use revive_dt_format::traits::ResolverApi;
-use revive_dt_node::{
-    Node,
-    geth::{self, GethNode},
-    substrate::SubstrateNode,
-};
+use revive_dt_node::{Node, geth::GethNode, substrate::SubstrateNode};
 use revive_dt_node_interaction::EthereumNode;
 use tracing::info;
 
 pub mod driver;
 
-/// One platform can be tested differentially against another.
-///
-/// For this we need a blockchain node implementation and a compiler.
-pub trait Platform {
-    type Blockchain: EthereumNode + Node + ResolverApi;
-    type Compiler: SolidityCompiler;
-
-    /// Returns the matching [TestingPlatform] of the [revive_dt_config::Arguments].
-    fn config_id() -> &'static TestingPlatform;
-}
-
-#[derive(Default)]
-pub struct Geth;
-
-impl Platform for Geth {
-    type Blockchain = geth::GethNode;
-    type Compiler = solc::Solc;
-
-    fn config_id() -> &'static TestingPlatform {
-        &TestingPlatform::Geth
-    }
-}
-
-#[derive(Default)]
-pub struct Kitchensink;
-
-impl Platform for Kitchensink {
-    type Blockchain = SubstrateNode;
-    type Compiler = revive_resolc::Resolc;
-
-    fn config_id() -> &'static TestingPlatform {
-        &TestingPlatform::Kitchensink
-    }
-}
-
 /// A trait that describes the interface for the platforms that are supported by the tool.
 #[allow(clippy::type_complexity)]
-pub trait DynPlatform {
+pub trait Platform {
     /// Returns the identifier of this platform. This is a combination of the node and the compiler
     /// used.
     fn platform_identifier(&self) -> PlatformIdentifier;
@@ -100,13 +56,13 @@ pub trait DynPlatform {
         &self,
         context: Context,
         version: Option<VersionOrRequirement>,
-    ) -> Pin<Box<dyn Future<Output = anyhow::Result<Box<dyn DynSolidityCompiler>>>>>;
+    ) -> Pin<Box<dyn Future<Output = anyhow::Result<Box<dyn SolidityCompiler>>>>>;
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Default, Hash)]
 pub struct GethEvmSolcPlatform;
 
-impl DynPlatform for GethEvmSolcPlatform {
+impl Platform for GethEvmSolcPlatform {
     fn platform_identifier(&self) -> PlatformIdentifier {
         PlatformIdentifier::GethEvmSolc
     }
@@ -140,10 +96,10 @@ impl DynPlatform for GethEvmSolcPlatform {
         &self,
         context: Context,
         version: Option<VersionOrRequirement>,
-    ) -> Pin<Box<dyn Future<Output = anyhow::Result<Box<dyn DynSolidityCompiler>>>>> {
+    ) -> Pin<Box<dyn Future<Output = anyhow::Result<Box<dyn SolidityCompiler>>>>> {
         Box::pin(async move {
             let compiler = Solc::new(context, version).await;
-            compiler.map(|compiler| Box::new(compiler) as Box<dyn DynSolidityCompiler>)
+            compiler.map(|compiler| Box::new(compiler) as Box<dyn SolidityCompiler>)
         })
     }
 }
@@ -151,7 +107,7 @@ impl DynPlatform for GethEvmSolcPlatform {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Default, Hash)]
 pub struct KitchensinkPolkavmResolcPlatform;
 
-impl DynPlatform for KitchensinkPolkavmResolcPlatform {
+impl Platform for KitchensinkPolkavmResolcPlatform {
     fn platform_identifier(&self) -> PlatformIdentifier {
         PlatformIdentifier::KitchensinkPolkavmResolc
     }
@@ -192,10 +148,10 @@ impl DynPlatform for KitchensinkPolkavmResolcPlatform {
         &self,
         context: Context,
         version: Option<VersionOrRequirement>,
-    ) -> Pin<Box<dyn Future<Output = anyhow::Result<Box<dyn DynSolidityCompiler>>>>> {
+    ) -> Pin<Box<dyn Future<Output = anyhow::Result<Box<dyn SolidityCompiler>>>>> {
         Box::pin(async move {
             let compiler = Resolc::new(context, version).await;
-            compiler.map(|compiler| Box::new(compiler) as Box<dyn DynSolidityCompiler>)
+            compiler.map(|compiler| Box::new(compiler) as Box<dyn SolidityCompiler>)
         })
     }
 }
@@ -203,7 +159,7 @@ impl DynPlatform for KitchensinkPolkavmResolcPlatform {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Default, Hash)]
 pub struct KitchensinkRevmSolcPlatform;
 
-impl DynPlatform for KitchensinkRevmSolcPlatform {
+impl Platform for KitchensinkRevmSolcPlatform {
     fn platform_identifier(&self) -> PlatformIdentifier {
         PlatformIdentifier::KitchensinkRevmSolc
     }
@@ -244,10 +200,10 @@ impl DynPlatform for KitchensinkRevmSolcPlatform {
         &self,
         context: Context,
         version: Option<VersionOrRequirement>,
-    ) -> Pin<Box<dyn Future<Output = anyhow::Result<Box<dyn DynSolidityCompiler>>>>> {
+    ) -> Pin<Box<dyn Future<Output = anyhow::Result<Box<dyn SolidityCompiler>>>>> {
         Box::pin(async move {
             let compiler = Solc::new(context, version).await;
-            compiler.map(|compiler| Box::new(compiler) as Box<dyn DynSolidityCompiler>)
+            compiler.map(|compiler| Box::new(compiler) as Box<dyn SolidityCompiler>)
         })
     }
 }
@@ -255,7 +211,7 @@ impl DynPlatform for KitchensinkRevmSolcPlatform {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Default, Hash)]
 pub struct ReviveDevNodePolkavmResolcPlatform;
 
-impl DynPlatform for ReviveDevNodePolkavmResolcPlatform {
+impl Platform for ReviveDevNodePolkavmResolcPlatform {
     fn platform_identifier(&self) -> PlatformIdentifier {
         PlatformIdentifier::ReviveDevNodePolkavmResolc
     }
@@ -296,10 +252,10 @@ impl DynPlatform for ReviveDevNodePolkavmResolcPlatform {
         &self,
         context: Context,
         version: Option<VersionOrRequirement>,
-    ) -> Pin<Box<dyn Future<Output = anyhow::Result<Box<dyn DynSolidityCompiler>>>>> {
+    ) -> Pin<Box<dyn Future<Output = anyhow::Result<Box<dyn SolidityCompiler>>>>> {
         Box::pin(async move {
             let compiler = Resolc::new(context, version).await;
-            compiler.map(|compiler| Box::new(compiler) as Box<dyn DynSolidityCompiler>)
+            compiler.map(|compiler| Box::new(compiler) as Box<dyn SolidityCompiler>)
         })
     }
 }
@@ -307,7 +263,7 @@ impl DynPlatform for ReviveDevNodePolkavmResolcPlatform {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Default, Hash)]
 pub struct ReviveDevNodeRevmSolcPlatform;
 
-impl DynPlatform for ReviveDevNodeRevmSolcPlatform {
+impl Platform for ReviveDevNodeRevmSolcPlatform {
     fn platform_identifier(&self) -> PlatformIdentifier {
         PlatformIdentifier::ReviveDevNodeRevmSolc
     }
@@ -348,15 +304,15 @@ impl DynPlatform for ReviveDevNodeRevmSolcPlatform {
         &self,
         context: Context,
         version: Option<VersionOrRequirement>,
-    ) -> Pin<Box<dyn Future<Output = anyhow::Result<Box<dyn DynSolidityCompiler>>>>> {
+    ) -> Pin<Box<dyn Future<Output = anyhow::Result<Box<dyn SolidityCompiler>>>>> {
         Box::pin(async move {
             let compiler = Solc::new(context, version).await;
-            compiler.map(|compiler| Box::new(compiler) as Box<dyn DynSolidityCompiler>)
+            compiler.map(|compiler| Box::new(compiler) as Box<dyn SolidityCompiler>)
         })
     }
 }
 
-impl From<PlatformIdentifier> for Box<dyn DynPlatform> {
+impl From<PlatformIdentifier> for Box<dyn Platform> {
     fn from(value: PlatformIdentifier) -> Self {
         match value {
             PlatformIdentifier::GethEvmSolc => Box::new(GethEvmSolcPlatform) as Box<_>,
@@ -376,21 +332,21 @@ impl From<PlatformIdentifier> for Box<dyn DynPlatform> {
     }
 }
 
-impl From<PlatformIdentifier> for &dyn DynPlatform {
+impl From<PlatformIdentifier> for &dyn Platform {
     fn from(value: PlatformIdentifier) -> Self {
         match value {
-            PlatformIdentifier::GethEvmSolc => &GethEvmSolcPlatform as &dyn DynPlatform,
+            PlatformIdentifier::GethEvmSolc => &GethEvmSolcPlatform as &dyn Platform,
             PlatformIdentifier::KitchensinkPolkavmResolc => {
-                &KitchensinkPolkavmResolcPlatform as &dyn DynPlatform
+                &KitchensinkPolkavmResolcPlatform as &dyn Platform
             }
             PlatformIdentifier::KitchensinkRevmSolc => {
-                &KitchensinkRevmSolcPlatform as &dyn DynPlatform
+                &KitchensinkRevmSolcPlatform as &dyn Platform
             }
             PlatformIdentifier::ReviveDevNodePolkavmResolc => {
-                &ReviveDevNodePolkavmResolcPlatform as &dyn DynPlatform
+                &ReviveDevNodePolkavmResolcPlatform as &dyn Platform
             }
             PlatformIdentifier::ReviveDevNodeRevmSolc => {
-                &ReviveDevNodeRevmSolcPlatform as &dyn DynPlatform
+                &ReviveDevNodeRevmSolcPlatform as &dyn Platform
             }
         }
     }

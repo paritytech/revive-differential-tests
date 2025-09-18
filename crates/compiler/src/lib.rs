@@ -18,8 +18,6 @@ use serde::{Deserialize, Serialize};
 
 use revive_common::EVMVersion;
 use revive_dt_common::cached_fs::read_to_string;
-use revive_dt_common::types::VersionOrRequirement;
-use revive_dt_config::{ResolcConfiguration, SolcConfiguration, WorkingDirectoryConfiguration};
 
 // Re-export this as it's a part of the compiler interface.
 pub use revive_dt_common::types::{Mode, ModeOptimizerSetting, ModePipeline};
@@ -29,7 +27,7 @@ pub mod revive_resolc;
 pub mod solc;
 
 /// A common interface for all supported Solidity compilers.
-pub trait DynSolidityCompiler {
+pub trait SolidityCompiler {
     /// Returns the version of the compiler.
     fn version(&self) -> &Version;
 
@@ -41,38 +39,6 @@ pub trait DynSolidityCompiler {
         &self,
         input: CompilerInput,
     ) -> Pin<Box<dyn Future<Output = Result<CompilerOutput>> + '_>>;
-
-    /// Does the compiler support the provided mode and version settings.
-    fn supports_mode(
-        &self,
-        optimizer_setting: ModeOptimizerSetting,
-        pipeline: ModePipeline,
-    ) -> bool;
-}
-
-// TODO: Remove
-/// A common interface for all supported Solidity compilers.
-pub trait SolidityCompiler: Sized {
-    /// Instantiates a new compiler object.
-    ///
-    /// Based on the given context and [`VersionOrRequirement`] this function instantiates a
-    /// new compiler object. Certain implementations of this trait might choose to cache the
-    /// compiler objects and return the same compiler objects if given the same set of arguments.
-    fn new(
-        context: impl AsRef<SolcConfiguration>
-        + AsRef<ResolcConfiguration>
-        + AsRef<WorkingDirectoryConfiguration>,
-        version: impl Into<Option<VersionOrRequirement>>,
-    ) -> impl Future<Output = Result<Self>>;
-
-    /// Returns the version of the compiler.
-    fn version(&self) -> &Version;
-
-    /// Returns the path of the compiler executable.
-    fn path(&self) -> &Path;
-
-    /// The low-level compiler interface.
-    fn build(&self, input: CompilerInput) -> impl Future<Output = Result<CompilerOutput>>;
 
     /// Does the compiler support the provided mode and version settings.
     fn supports_mode(
@@ -188,11 +154,7 @@ impl Compiler {
         callback(self)
     }
 
-    pub async fn try_build(self, compiler: &impl SolidityCompiler) -> Result<CompilerOutput> {
-        compiler.build(self.input).await
-    }
-
-    pub async fn dyn_try_build(self, compiler: &dyn DynSolidityCompiler) -> Result<CompilerOutput> {
+    pub async fn try_build(self, compiler: &dyn SolidityCompiler) -> Result<CompilerOutput> {
         compiler.build(self.input).await
     }
 
