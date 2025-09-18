@@ -145,7 +145,7 @@ async fn run_driver(
         let pool = NodePool::new(Context::ExecuteTests(Box::new(context.clone())), platform)
             .inspect_err(|err| {
                 error!(
-                    %err,
+                    ?err,
                     platform_identifier = %platform.platform_identifier(),
                     "Failed to initialize the node pool for the platform."
                 )
@@ -458,7 +458,7 @@ async fn handle_case_driver<'a>(
                     .await
                     .inspect_err(|err| {
                         error!(
-                            %err,
+                            ?err,
                             platform_identifier = %platform.platform_identifier(),
                             "Pre-linking compilation failed"
                         )
@@ -476,7 +476,7 @@ async fn handle_case_driver<'a>(
                     .contract_sources()
                     .inspect_err(|err| {
                         error!(
-                            %err,
+                            ?err,
                             platform_identifier = %platform.platform_identifier(),
                             "Failed to retrieve contract sources from metadata"
                         )
@@ -526,7 +526,7 @@ async fn handle_case_driver<'a>(
                         .await
                         .inspect_err(|err| {
                             error!(
-                                %err,
+                                ?err,
                                 %library_instance,
                                 platform_identifier = %platform.platform_identifier(),
                                 "Failed to deploy the library"
@@ -578,7 +578,7 @@ async fn handle_case_driver<'a>(
                         .await
                         .inspect_err(|err| {
                             error!(
-                                %err,
+                                ?err,
                                 platform_identifier = %platform.platform_identifier(),
                                 "Pre-linking compilation failed"
                             )

@@ -24,7 +24,7 @@ use strum::{AsRefStr, Display, EnumString, IntoStaticStr};
     IntoStaticStr,
     JsonSchema,
 )]
-#[serde(rename = "kebab-case")]
+#[serde(rename_all = "kebab-case")]
 #[strum(serialize_all = "kebab-case")]
 pub enum PlatformIdentifier {
     /// The Go-ethereum reference full node EVM implementation with the solc compiler.
@@ -112,7 +112,7 @@ pub enum NodeIdentifier {
     IntoStaticStr,
     JsonSchema,
 )]
-#[serde(rename = "lowercase")]
+#[serde(rename_all = "lowercase")]
 #[strum(serialize_all = "lowercase")]
 pub enum VmIdentifier {
     /// The ethereum virtual machine.

@@ -21,7 +21,7 @@ pub trait ResolverApi {
         tx_hash: TxHash,
     ) -> Pin<Box<dyn Future<Output = Result<u128>> + '_>>;
 
-    // TODO: This is currently a u128 due to Kitchensink needing more than 64 bits for its gas limit
+    // TODO: This is currently a u128 due to substrate needing more than 64 bits for its gas limit
     // when we implement the changes to the gas we need to adjust this to be a u64.
     /// Returns the gas limit of the specified block.
     fn block_gas_limit(
