@@ -1378,7 +1378,7 @@ mod tests {
         let version = node.version().unwrap();
 
         assert!(
-            version.starts_with("Substrate-node"),
+            version.starts_with("substrate-node"),
             "Expected Substrate-node version string, got: {version}"
         );
     }
