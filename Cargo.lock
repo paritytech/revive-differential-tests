@@ -4468,10 +4468,13 @@ name = "revive-dt-common"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "clap",
  "moka",
  "once_cell",
+ "schemars 1.0.4",
  "semver 1.0.26",
  "serde",
+ "strum",
  "tokio",
 ]
 
@@ -4503,6 +4506,7 @@ dependencies = [
  "alloy",
  "anyhow",
  "clap",
+ "revive-dt-common",
  "semver 1.0.26",
  "serde",
  "serde_json",
@@ -4584,6 +4588,8 @@ version = "0.1.0"
 dependencies = [
  "alloy",
  "anyhow",
+ "revive-common",
+ "revive-dt-format",
 ]
 
 [[package]]

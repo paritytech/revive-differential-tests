@@ -1,14 +1,13 @@
 //! The test driver handles the compilation and execution of the test cases.
 
 use std::collections::HashMap;
-use std::marker::PhantomData;
 use std::path::PathBuf;
 
 use alloy::consensus::EMPTY_ROOT_HASH;
 use alloy::hex;
 use alloy::json_abi::JsonAbi;
 use alloy::network::{Ethereum, TransactionBuilder};
-use alloy::primitives::U256;
+use alloy::primitives::{TxHash, U256};
 use alloy::rpc::types::TransactionReceipt;
 use alloy::rpc::types::trace::geth::{
     CallFrame, GethDebugBuiltInTracerType, GethDebugTracerConfig, GethDebugTracerType,
@@ -19,8 +18,9 @@ use alloy::{
     rpc::types::{TransactionRequest, trace::geth::DiffMode},
 };
 use anyhow::Context as _;
-use futures::TryStreamExt;
+use futures::{TryStreamExt, future::try_join_all};
 use indexmap::IndexMap;
+use revive_dt_common::types::PlatformIdentifier;
 use revive_dt_format::traits::{ResolutionContext, ResolverApi};
 use revive_dt_report::ExecutionSpecificReporter;
 use semver::Version;
@@ -36,9 +36,7 @@ use revive_dt_node_interaction::EthereumNode;
 use tokio::try_join;
 use tracing::{Instrument, info, info_span, instrument};
 
-use crate::Platform;
-
-pub struct CaseState<T: Platform> {
+pub struct CaseState {
     /// A map of all of the compiled contracts for the given metadata file.
     compiled_contracts: HashMap<PathBuf, HashMap<String, (String, JsonAbi)>>,
 
@@ -54,14 +52,9 @@ pub struct CaseState<T: Platform> {
 
     /// The execution reporter.
     execution_reporter: ExecutionSpecificReporter,
-
-    phantom: PhantomData<T>,
 }
 
-impl<T> CaseState<T>
-where
-    T: Platform,
-{
+impl CaseState {
     pub fn new(
         compiler_version: Version,
         compiled_contracts: HashMap<PathBuf, HashMap<String, (String, JsonAbi)>>,
@@ -74,7 +67,6 @@ where
             variables: Default::default(),
             compiler_version,
             execution_reporter,
-            phantom: PhantomData,
         }
     }
 
@@ -82,7 +74,7 @@ where
         &mut self,
         metadata: &Metadata,
         step: &Step,
-        node: &T::Blockchain,
+        node: &dyn EthereumNode,
     ) -> anyhow::Result<StepOutput> {
         match step {
             Step::FunctionCall(input) => {
@@ -113,8 +105,10 @@ where
         &mut self,
         metadata: &Metadata,
         input: &Input,
-        node: &T::Blockchain,
+        node: &dyn EthereumNode,
     ) -> anyhow::Result<(TransactionReceipt, GethTrace, DiffMode)> {
+        let resolver = node.resolver().await?;
+
         let deployment_receipts = self
             .handle_input_contract_deployment(metadata, input, node)
             .await
@@ -124,14 +118,19 @@ where
             .await
             .context("Failed during transaction execution phase of input handling")?;
         let tracing_result = self
-            .handle_input_call_frame_tracing(&execution_receipt, node)
+            .handle_input_call_frame_tracing(execution_receipt.transaction_hash, node)
             .await
             .context("Failed during callframe tracing phase of input handling")?;
         self.handle_input_variable_assignment(input, &tracing_result)
             .context("Failed to assign variables from callframe output")?;
         let (_, (geth_trace, diff_mode)) = try_join!(
-            self.handle_input_expectations(input, &execution_receipt, node, &tracing_result),
-            self.handle_input_diff(&execution_receipt, node)
+            self.handle_input_expectations(
+                input,
+                &execution_receipt,
+                resolver.as_ref(),
+                &tracing_result
+            ),
+            self.handle_input_diff(execution_receipt.transaction_hash, node)
         )
         .context("Failed while evaluating expectations and diffs in parallel")?;
         Ok((execution_receipt, geth_trace, diff_mode))
@@ -142,7 +141,7 @@ where
         &mut self,
         metadata: &Metadata,
         balance_assertion: &BalanceAssertion,
-        node: &T::Blockchain,
+        node: &dyn EthereumNode,
     ) -> anyhow::Result<()> {
         self.handle_balance_assertion_contract_deployment(metadata, balance_assertion, node)
             .await
@@ -158,7 +157,7 @@ where
         &mut self,
         metadata: &Metadata,
         storage_empty: &StorageEmptyAssertion,
-        node: &T::Blockchain,
+        node: &dyn EthereumNode,
     ) -> anyhow::Result<()> {
         self.handle_storage_empty_assertion_contract_deployment(metadata, storage_empty, node)
             .await
@@ -175,7 +174,7 @@ where
         &mut self,
         metadata: &Metadata,
         input: &Input,
-        node: &T::Blockchain,
+        node: &dyn EthereumNode,
     ) -> anyhow::Result<HashMap<ContractInstance, TransactionReceipt>> {
         let mut instances_we_must_deploy = IndexMap::<ContractInstance, bool>::new();
         for instance in input.find_all_contract_instances().into_iter() {
@@ -220,7 +219,7 @@ where
         &mut self,
         input: &Input,
         mut deployment_receipts: HashMap<ContractInstance, TransactionReceipt>,
-        node: &T::Blockchain,
+        node: &dyn EthereumNode,
     ) -> anyhow::Result<TransactionReceipt> {
         match input.method {
             // This input was already executed when `handle_input` was called. We just need to
@@ -229,8 +228,9 @@ where
                 .remove(&input.instance)
                 .context("Failed to find deployment receipt for constructor call"),
             Method::Fallback | Method::FunctionName(_) => {
+                let resolver = node.resolver().await?;
                 let tx = match input
-                    .legacy_transaction(node, self.default_resolution_context())
+                    .legacy_transaction(resolver.as_ref(), self.default_resolution_context())
                     .await
                 {
                     Ok(tx) => tx,
@@ -250,11 +250,11 @@ where
     #[instrument(level = "info", skip_all)]
     async fn handle_input_call_frame_tracing(
         &self,
-        execution_receipt: &TransactionReceipt,
-        node: &T::Blockchain,
+        tx_hash: TxHash,
+        node: &dyn EthereumNode,
     ) -> anyhow::Result<CallFrame> {
         node.trace_transaction(
-            execution_receipt,
+            tx_hash,
             GethDebugTracingOptions {
                 tracer: Some(GethDebugTracerType::BuiltInTracer(
                     GethDebugBuiltInTracerType::CallTracer,
@@ -314,7 +314,7 @@ where
         &self,
         input: &Input,
         execution_receipt: &TransactionReceipt,
-        resolver: &impl ResolverApi,
+        resolver: &(impl ResolverApi + ?Sized),
         tracing_result: &CallFrame,
     ) -> anyhow::Result<()> {
         // Resolving the `input.expected` into a series of expectations that we can then assert on.
@@ -362,7 +362,7 @@ where
     async fn handle_input_expectation_item(
         &self,
         execution_receipt: &TransactionReceipt,
-        resolver: &impl ResolverApi,
+        resolver: &(impl ResolverApi + ?Sized),
         expectation: ExpectedOutput,
         tracing_result: &CallFrame,
     ) -> anyhow::Result<()> {
@@ -507,8 +507,8 @@ where
     #[instrument(level = "info", skip_all)]
     async fn handle_input_diff(
         &self,
-        execution_receipt: &TransactionReceipt,
-        node: &T::Blockchain,
+        tx_hash: TxHash,
+        node: &dyn EthereumNode,
     ) -> anyhow::Result<(GethTrace, DiffMode)> {
         let trace_options = GethDebugTracingOptions::prestate_tracer(PreStateConfig {
             diff_mode: Some(true),
@@ -517,11 +517,11 @@ where
         });
 
         let trace = node
-            .trace_transaction(execution_receipt, trace_options)
+            .trace_transaction(tx_hash, trace_options)
             .await
             .context("Failed to obtain geth prestate tracer output")?;
         let diff = node
-            .state_diff(execution_receipt)
+            .state_diff(tx_hash)
             .await
             .context("Failed to obtain state diff for transaction")?;
 
@@ -533,7 +533,7 @@ where
         &mut self,
         metadata: &Metadata,
         balance_assertion: &BalanceAssertion,
-        node: &T::Blockchain,
+        node: &dyn EthereumNode,
     ) -> anyhow::Result<()> {
         let Some(instance) = balance_assertion
             .address
@@ -562,11 +562,12 @@ where
             expected_balance: amount,
             ..
         }: &BalanceAssertion,
-        node: &T::Blockchain,
+        node: &dyn EthereumNode,
     ) -> anyhow::Result<()> {
+        let resolver = node.resolver().await?;
         let address = Address::from_slice(
             Calldata::new_compound([address_string])
-                .calldata(node, self.default_resolution_context())
+                .calldata(resolver.as_ref(), self.default_resolution_context())
                 .await?
                 .get(12..32)
                 .expect("Can't fail"),
@@ -595,7 +596,7 @@ where
         &mut self,
         metadata: &Metadata,
         storage_empty_assertion: &StorageEmptyAssertion,
-        node: &T::Blockchain,
+        node: &dyn EthereumNode,
     ) -> anyhow::Result<()> {
         let Some(instance) = storage_empty_assertion
             .address
@@ -624,11 +625,12 @@ where
             is_storage_empty,
             ..
         }: &StorageEmptyAssertion,
-        node: &T::Blockchain,
+        node: &dyn EthereumNode,
     ) -> anyhow::Result<()> {
+        let resolver = node.resolver().await?;
         let address = Address::from_slice(
             Calldata::new_compound([address_string])
-                .calldata(node, self.default_resolution_context())
+                .calldata(resolver.as_ref(), self.default_resolution_context())
                 .await?
                 .get(12..32)
                 .expect("Can't fail"),
@@ -667,7 +669,7 @@ where
         deployer: Address,
         calldata: Option<&Calldata>,
         value: Option<EtherValue>,
-        node: &T::Blockchain,
+        node: &dyn EthereumNode,
     ) -> anyhow::Result<(Address, JsonAbi, Option<TransactionReceipt>)> {
         if let Some((_, address, abi)) = self.deployed_contracts.get(contract_instance) {
             return Ok((*address, abi.clone(), None));
@@ -710,8 +712,9 @@ where
         };
 
         if let Some(calldata) = calldata {
+            let resolver = node.resolver().await?;
             let calldata = calldata
-                .calldata(node, self.default_resolution_context())
+                .calldata(resolver.as_ref(), self.default_resolution_context())
                 .await?;
             code.extend(calldata);
         }
@@ -728,11 +731,7 @@ where
         let receipt = match node.execute_transaction(tx).await {
             Ok(receipt) => receipt,
             Err(error) => {
-                tracing::error!(
-                    node = std::any::type_name::<T>(),
-                    ?error,
-                    "Contract deployment transaction failed."
-                );
+                tracing::error!(?error, "Contract deployment transaction failed.");
                 return Err(error);
             }
         };
@@ -763,36 +762,23 @@ where
     }
 }
 
-pub struct CaseDriver<'a, Leader: Platform, Follower: Platform> {
+pub struct CaseDriver<'a> {
     metadata: &'a Metadata,
     case: &'a Case,
-    leader_node: &'a Leader::Blockchain,
-    follower_node: &'a Follower::Blockchain,
-    leader_state: CaseState<Leader>,
-    follower_state: CaseState<Follower>,
+    platform_state: Vec<(&'a dyn EthereumNode, PlatformIdentifier, CaseState)>,
 }
 
-impl<'a, L, F> CaseDriver<'a, L, F>
-where
-    L: Platform,
-    F: Platform,
-{
+impl<'a> CaseDriver<'a> {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         metadata: &'a Metadata,
         case: &'a Case,
-        leader_node: &'a L::Blockchain,
-        follower_node: &'a F::Blockchain,
-        leader_state: CaseState<L>,
-        follower_state: CaseState<F>,
-    ) -> CaseDriver<'a, L, F> {
+        platform_state: Vec<(&'a dyn EthereumNode, PlatformIdentifier, CaseState)>,
+    ) -> CaseDriver<'a> {
         Self {
             metadata,
             case,
-            leader_node,
-            follower_node,
-            leader_state,
-            follower_state,
+            platform_state,
         }
     }
 
@@ -805,42 +791,44 @@ where
             .enumerate()
             .map(|(idx, v)| (StepIdx::new(idx), v))
         {
-            let (leader_step_output, follower_step_output) = try_join!(
-                self.leader_state
-                    .handle_step(self.metadata, &step, self.leader_node)
-                    .instrument(info_span!(
-                        "Handling Step",
-                        %step_idx,
-                        target = "Leader",
-                    )),
-                self.follower_state
-                    .handle_step(self.metadata, &step, self.follower_node)
-                    .instrument(info_span!(
-                        "Handling Step",
-                        %step_idx,
-                        target = "Follower",
-                    ))
-            )?;
+            // Run this step concurrently across all platforms; short-circuit on first failure
+            let metadata = self.metadata;
+            let step_futs =
+                self.platform_state
+                    .iter_mut()
+                    .map(|(node, platform_id, case_state)| {
+                        let platform_id = *platform_id;
+                        let node_ref = *node;
+                        let step_clone = step.clone();
+                        let span = info_span!(
+                            "Handling Step",
+                            %step_idx,
+                            platform = %platform_id,
+                        );
+                        async move {
+                            case_state
+                                .handle_step(metadata, &step_clone, node_ref)
+                                .await
+                                .map_err(|e| (platform_id, e))
+                        }
+                        .instrument(span)
+                    });
 
-            match (leader_step_output, follower_step_output) {
-                (StepOutput::FunctionCall(..), StepOutput::FunctionCall(..)) => {
-                    // TODO: We need to actually work out how/if we will compare the diff between
-                    // the leader and the follower. The diffs are almost guaranteed to be different
-                    // from leader and follower and therefore without an actual strategy for this
-                    // we have something that's guaranteed to fail. Even a simple call to some
-                    // contract will produce two non-equal diffs because on the leader the contract
-                    // has address X and on the follower it has address Y. On the leader contract X
-                    // contains address A in the state and on the follower it contains address B. So
-                    // this isn't exactly a straightforward thing to do and I'm not even sure that
-                    // it's possible to do. Once we have an actual strategy for doing the diffs we
-                    // will implement it here. Until then, this remains empty.
+            match try_join_all(step_futs).await {
+                Ok(_outputs) => {
+                    // All platforms succeeded for this step
+                    steps_executed += 1;
                 }
-                (StepOutput::BalanceAssertion, StepOutput::BalanceAssertion) => {}
-                (StepOutput::StorageEmptyAssertion, StepOutput::StorageEmptyAssertion) => {}
-                _ => unreachable!("The two step outputs can not be of a different kind"),
+                Err((platform_id, error)) => {
+                    tracing::error!(
+                        %step_idx,
+                        platform = %platform_id,
+                        ?error,
+                        "Step failed on platform",
+                    );
+                    return Err(error);
+                }
             }
-
-            steps_executed += 1;
         }
 
         Ok(steps_executed)

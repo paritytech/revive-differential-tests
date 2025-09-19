@@ -308,7 +308,7 @@ impl Input {
 
     pub async fn encoded_input(
         &self,
-        resolver: &impl ResolverApi,
+        resolver: &(impl ResolverApi + ?Sized),
         context: ResolutionContext<'_>,
     ) -> anyhow::Result<Bytes> {
         match self.method {
@@ -377,7 +377,7 @@ impl Input {
     /// Parse this input into a legacy transaction.
     pub async fn legacy_transaction(
         &self,
-        resolver: &impl ResolverApi,
+        resolver: &(impl ResolverApi + ?Sized),
         context: ResolutionContext<'_>,
     ) -> anyhow::Result<TransactionRequest> {
         let input_data = self
@@ -466,7 +466,7 @@ impl Calldata {
 
     pub async fn calldata(
         &self,
-        resolver: &impl ResolverApi,
+        resolver: &(impl ResolverApi + ?Sized),
         context: ResolutionContext<'_>,
     ) -> anyhow::Result<Vec<u8>> {
         let mut buffer = Vec::<u8>::with_capacity(self.size_requirement());
@@ -478,7 +478,7 @@ impl Calldata {
     pub async fn calldata_into_slice(
         &self,
         buffer: &mut Vec<u8>,
-        resolver: &impl ResolverApi,
+        resolver: &(impl ResolverApi + ?Sized),
         context: ResolutionContext<'_>,
     ) -> anyhow::Result<()> {
         match self {
@@ -515,7 +515,7 @@ impl Calldata {
     pub async fn is_equivalent(
         &self,
         other: &[u8],
-        resolver: &impl ResolverApi,
+        resolver: &(impl ResolverApi + ?Sized),
         context: ResolutionContext<'_>,
     ) -> anyhow::Result<bool> {
         match self {
@@ -557,7 +557,7 @@ impl CalldataItem {
     #[instrument(level = "info", skip_all, err)]
     async fn resolve(
         &self,
-        resolver: &impl ResolverApi,
+        resolver: &(impl ResolverApi + ?Sized),
         context: ResolutionContext<'_>,
     ) -> anyhow::Result<U256> {
         let mut stack = Vec::<CalldataToken<U256>>::new();
@@ -662,7 +662,7 @@ impl<T: AsRef<str>> CalldataToken<T> {
     /// https://github.com/matter-labs/era-compiler-tester/blob/0ed598a27f6eceee7008deab3ff2311075a2ec69/compiler_tester/src/test/case/input/value.rs#L43-L146
     async fn resolve(
         self,
-        resolver: &impl ResolverApi,
+        resolver: &(impl ResolverApi + ?Sized),
         context: ResolutionContext<'_>,
     ) -> anyhow::Result<CalldataToken<U256>> {
         match self {
@@ -695,7 +695,7 @@ impl<T: AsRef<str>> CalldataToken<T> {
                     context
                         .transaction_hash()
                         .context("No transaction hash provided to get the transaction gas price")
-                        .map(|tx_hash| resolver.transaction_gas_price(tx_hash))?
+                        .map(|tx_hash| resolver.transaction_gas_price(*tx_hash))?
                         .await
                         .map(U256::from)
                 } else if item == Self::GAS_LIMIT_VARIABLE {
@@ -799,7 +799,7 @@ mod tests {
     use alloy::{eips::BlockNumberOrTag, json_abi::JsonAbi};
     use alloy_primitives::{BlockHash, BlockNumber, BlockTimestamp, ChainId, TxHash, address};
     use alloy_sol_types::SolValue;
-    use std::collections::HashMap;
+    use std::{collections::HashMap, pin::Pin};
 
     use super::*;
     use crate::metadata::ContractIdent;
@@ -807,40 +807,63 @@ mod tests {
     struct MockResolver;
 
     impl ResolverApi for MockResolver {
-        async fn chain_id(&self) -> anyhow::Result<ChainId> {
-            Ok(0x123)
+        fn chain_id(&self) -> Pin<Box<dyn Future<Output = anyhow::Result<ChainId>> + '_>> {
+            Box::pin(async move { Ok(0x123) })
         }
 
-        async fn block_gas_limit(&self, _: BlockNumberOrTag) -> anyhow::Result<u128> {
-            Ok(0x1234)
+        fn block_gas_limit(
+            &self,
+            _: BlockNumberOrTag,
+        ) -> Pin<Box<dyn Future<Output = anyhow::Result<u128>> + '_>> {
+            Box::pin(async move { Ok(0x1234) })
         }
 
-        async fn block_coinbase(&self, _: BlockNumberOrTag) -> anyhow::Result<Address> {
-            Ok(Address::ZERO)
+        fn block_coinbase(
+            &self,
+            _: BlockNumberOrTag,
+        ) -> Pin<Box<dyn Future<Output = anyhow::Result<Address>> + '_>> {
+            Box::pin(async move { Ok(Address::ZERO) })
         }
 
-        async fn block_difficulty(&self, _: BlockNumberOrTag) -> anyhow::Result<U256> {
-            Ok(U256::from(0x12345u128))
+        fn block_difficulty(
+            &self,
+            _: BlockNumberOrTag,
+        ) -> Pin<Box<dyn Future<Output = anyhow::Result<U256>> + '_>> {
+            Box::pin(async move { Ok(U256::from(0x12345u128)) })
         }
 
-        async fn block_base_fee(&self, _: BlockNumberOrTag) -> anyhow::Result<u64> {
-            Ok(0x100)
+        fn block_base_fee(
+            &self,
+            _: BlockNumberOrTag,
+        ) -> Pin<Box<dyn Future<Output = anyhow::Result<u64>> + '_>> {
+            Box::pin(async move { Ok(0x100) })
         }
 
-        async fn block_hash(&self, _: BlockNumberOrTag) -> anyhow::Result<BlockHash> {
-            Ok([0xEE; 32].into())
+        fn block_hash(
+            &self,
+            _: BlockNumberOrTag,
+        ) -> Pin<Box<dyn Future<Output = anyhow::Result<BlockHash>> + '_>> {
+            Box::pin(async move { Ok([0xEE; 32].into()) })
         }
 
-        async fn block_timestamp(&self, _: BlockNumberOrTag) -> anyhow::Result<BlockTimestamp> {
-            Ok(0x123456)
+        fn block_timestamp(
+            &self,
+            _: BlockNumberOrTag,
+        ) -> Pin<Box<dyn Future<Output = anyhow::Result<BlockTimestamp>> + '_>> {
+            Box::pin(async move { Ok(0x123456) })
         }
 
-        async fn last_block_number(&self) -> anyhow::Result<BlockNumber> {
-            Ok(0x1234567)
+        fn last_block_number(
+            &self,
+        ) -> Pin<Box<dyn Future<Output = anyhow::Result<BlockNumber>> + '_>> {
+            Box::pin(async move { Ok(0x1234567) })
         }
 
-        async fn transaction_gas_price(&self, _: &TxHash) -> anyhow::Result<u128> {
-            Ok(0x200)
+        fn transaction_gas_price(
+            &self,
+            _: TxHash,
+        ) -> Pin<Box<dyn Future<Output = anyhow::Result<u128>> + '_>> {
+            Box::pin(async move { Ok(0x200) })
         }
     }
 
@@ -987,7 +1010,7 @@ mod tests {
     async fn resolve_calldata_item(
         input: &str,
         deployed_contracts: &HashMap<ContractInstance, (ContractIdent, Address, JsonAbi)>,
-        resolver: &impl ResolverApi,
+        resolver: &(impl ResolverApi + ?Sized),
     ) -> anyhow::Result<U256> {
         let context = ResolutionContext::default().with_deployed_contracts(deployed_contracts);
         CalldataItem::new(input).resolve(resolver, context).await

@@ -2,7 +2,7 @@
 
 use std::{path::PathBuf, sync::Arc};
 
-use revive_dt_common::define_wrapper_type;
+use revive_dt_common::{define_wrapper_type, types::PlatformIdentifier};
 use revive_dt_compiler::Mode;
 use revive_dt_format::{case::CaseIdx, input::StepIdx};
 use serde::{Deserialize, Serialize};
@@ -22,18 +22,12 @@ pub struct TestSpecifier {
 }
 
 /// An absolute path for a test that also includes information about the node that it's assigned to
-/// and whether it's the leader or follower.
+/// and what platform it belongs to.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct ExecutionSpecifier {
     pub test_specifier: Arc<TestSpecifier>,
     pub node_id: usize,
-    pub node_designation: NodeDesignation,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum NodeDesignation {
-    Leader,
-    Follower,
+    pub platform_identifier: PlatformIdentifier,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]

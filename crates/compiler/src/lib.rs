@@ -7,6 +7,7 @@ use std::{
     collections::HashMap,
     hash::Hash,
     path::{Path, PathBuf},
+    pin::Pin,
 };
 
 use alloy::json_abi::JsonAbi;
@@ -17,8 +18,6 @@ use serde::{Deserialize, Serialize};
 
 use revive_common::EVMVersion;
 use revive_dt_common::cached_fs::read_to_string;
-use revive_dt_common::types::VersionOrRequirement;
-use revive_dt_config::{ResolcConfiguration, SolcConfiguration, WorkingDirectoryConfiguration};
 
 // Re-export this as it's a part of the compiler interface.
 pub use revive_dt_common::types::{Mode, ModeOptimizerSetting, ModePipeline};
@@ -28,19 +27,7 @@ pub mod revive_resolc;
 pub mod solc;
 
 /// A common interface for all supported Solidity compilers.
-pub trait SolidityCompiler: Sized {
-    /// Instantiates a new compiler object.
-    ///
-    /// Based on the given [`Context`] and [`VersionOrRequirement`] this function instantiates a
-    /// new compiler object. Certain implementations of this trait might choose to cache cache the
-    /// compiler objects and return the same ones over and over again.
-    fn new(
-        context: impl AsRef<SolcConfiguration>
-        + AsRef<ResolcConfiguration>
-        + AsRef<WorkingDirectoryConfiguration>,
-        version: impl Into<Option<VersionOrRequirement>>,
-    ) -> impl Future<Output = Result<Self>>;
-
+pub trait SolidityCompiler {
     /// Returns the version of the compiler.
     fn version(&self) -> &Version;
 
@@ -48,7 +35,10 @@ pub trait SolidityCompiler: Sized {
     fn path(&self) -> &Path;
 
     /// The low-level compiler interface.
-    fn build(&self, input: CompilerInput) -> impl Future<Output = Result<CompilerOutput>>;
+    fn build(
+        &self,
+        input: CompilerInput,
+    ) -> Pin<Box<dyn Future<Output = Result<CompilerOutput>> + '_>>;
 
     /// Does the compiler support the provided mode and version settings.
     fn supports_mode(
@@ -74,7 +64,7 @@ pub struct CompilerInput {
 /// The generic compilation output configuration.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct CompilerOutput {
-    /// The compiled contracts. The bytecode of the contract is kept as a string incase linking is
+    /// The compiled contracts. The bytecode of the contract is kept as a string in case linking is
     /// required and the compiled source has placeholders.
     pub contracts: HashMap<PathBuf, HashMap<String, (String, JsonAbi)>>,
 }
@@ -164,7 +154,7 @@ impl Compiler {
         callback(self)
     }
 
-    pub async fn try_build(self, compiler: &impl SolidityCompiler) -> Result<CompilerOutput> {
+    pub async fn try_build(self, compiler: &dyn SolidityCompiler) -> Result<CompilerOutput> {
         compiler.build(self.input).await
     }
 

@@ -52,122 +52,152 @@ All of the above need to be installed and available in the path in order for the
 This tool is being updated quite frequently. Therefore, it's recommended that you don't install the tool and then run it, but rather that you run it from the root of the directory using `cargo run --release`. The help command of the tool gives you all of the information you need to know about each of the options and flags that the tool offers.
 
 ```bash
-$ cargo run --release -- --help
-Usage: retester [OPTIONS]
+$ cargo run --release -- execute-tests --help
+Error: Executes tests in the MatterLabs format differentially on multiple targets concurrently
+
+Usage: retester execute-tests [OPTIONS]
 
 Options:
-  -s, --solc <SOLC>
-          The `solc` version to use if the test didn't specify it explicitly
+  -w, --working-directory <WORKING_DIRECTORY>
+          The working directory that the program will use for all of the temporary artifacts needed at runtime.
 
-          [default: 0.8.29]
+          If not specified, then a temporary directory will be created and used by the program for all temporary artifacts.
 
-      --wasm
-          Use the Wasm compiler versions
+          [default: ]
 
-  -r, --resolc <RESOLC>
-          The path to the `resolc` executable to be tested.
+  -p, --platform <PLATFORMS>
+          The set of platforms that the differential tests should run on
 
-          By default it uses the `resolc` binary found in `$PATH`.
+          [default: geth-evm-solc,revive-dev-node-polkavm-resolc]
 
-          If `--wasm` is set, this should point to the resolc Wasm ile.
-
-          [default: resolc]
+          Possible values:
+          - geth-evm-solc:                  The Go-ethereum reference full node EVM implementation with the solc compiler
+          - kitchensink-polkavm-resolc:     The kitchensink node with the PolkaVM backend with the resolc compiler
+          - kitchensink-revm-solc:          The kitchensink node with the REVM backend with the solc compiler
+          - revive-dev-node-polkavm-resolc: The revive dev node with the PolkaVM backend with the resolc compiler
+          - revive-dev-node-revm-solc:      The revive dev node with the REVM backend with the solc compiler
 
   -c, --corpus <CORPUS>
           A list of test corpus JSON files to be tested
 
-  -w, --workdir <WORKING_DIRECTORY>
-          A place to store temporary artifacts during test execution.
+  -h, --help
+          Print help (see a summary with '-h')
 
-          Creates a temporary dir if not specified.
+Solc Configuration:
+      --solc.version <VERSION>
+          Specifies the default version of the Solc compiler that should be used if there is no override specified by one of the test cases
 
-  -g, --geth <GETH>
-          The path to the `geth` executable.
+          [default: 0.8.29]
 
-          By default it uses `geth` binary found in `$PATH`.
+Resolc Configuration:
+      --resolc.path <resolc.path>
+          Specifies the path of the resolc compiler to be used by the tool.
+
+          If this is not specified, then the tool assumes that it should use the resolc binary that's provided in the user's $PATH.
+
+          [default: resolc]
+
+Geth Configuration:
+      --geth.path <geth.path>
+          Specifies the path of the geth node to be used by the tool.
+
+          If this is not specified, then the tool assumes that it should use the geth binary that's provided in the user's $PATH.
 
           [default: geth]
 
-      --geth-start-timeout <GETH_START_TIMEOUT>
-          The maximum time in milliseconds to wait for geth to start
+      --geth.start-timeout-ms <geth.start-timeout-ms>
+          The amount of time to wait upon startup before considering that the node timed out
 
           [default: 5000]
 
-      --genesis <GENESIS_FILE>
-          Configure nodes according to this genesis.json file
+Kitchensink Configuration:
+      --kitchensink.path <kitchensink.path>
+          Specifies the path of the kitchensink node to be used by the tool.
 
-          [default: genesis.json]
+          If this is not specified, then the tool assumes that it should use the kitchensink binary that's provided in the user's $PATH.
 
-  -a, --account <ACCOUNT>
-          The signing account private key
+          [default: substrate-node]
+
+      --kitchensink.start-timeout-ms <kitchensink.start-timeout-ms>
+          The amount of time to wait upon startup before considering that the node timed out
+
+          [default: 5000]
+
+      --kitchensink.dont-use-dev-node
+          This configures the tool to use Kitchensink instead of using the revive-dev-node
+
+Revive Dev Node Configuration:
+      --revive-dev-node.path <revive-dev-node.path>
+          Specifies the path of the revive dev node to be used by the tool.
+
+          If this is not specified, then the tool assumes that it should use the revive dev node binary that's provided in the user's $PATH.
+
+          [default: revive-dev-node]
+
+      --revive-dev-node.start-timeout-ms <revive-dev-node.start-timeout-ms>
+          The amount of time to wait upon startup before considering that the node timed out
+
+          [default: 5000]
+
+Eth RPC Configuration:
+      --eth-rpc.path <eth-rpc.path>
+          Specifies the path of the ETH RPC to be used by the tool.
+
+          If this is not specified, then the tool assumes that it should use the ETH RPC binary that's provided in the user's $PATH.
+
+          [default: eth-rpc]
+
+      --eth-rpc.start-timeout-ms <eth-rpc.start-timeout-ms>
+          The amount of time to wait upon startup before considering that the node timed out
+
+          [default: 5000]
+
+Genesis Configuration:
+      --genesis.path <genesis.path>
+          Specifies the path of the genesis file to use for the nodes that are started.
+
+          This is expected to be the path of a JSON geth genesis file.
+
+Wallet Configuration:
+      --wallet.default-private-key <DEFAULT_KEY>
+          The private key of the default signer
 
           [default: 0x4f3edf983ac636a65a842ce7c78d9aa706d3b113bce9c46f30d7d21715b23b1d]
 
-      --private-keys-count <PRIVATE_KEYS_TO_ADD>
+      --wallet.additional-keys <ADDITIONAL_KEYS>
           This argument controls which private keys the nodes should have access to and be added to its wallet signers. With a value of N, private keys (0, N] will be added to the signer set of the node
 
           [default: 100000]
 
-  -l, --leader <LEADER>
-          The differential testing leader node implementation
-
-          [default: geth]
-
-          Possible values:
-          - geth:        The go-ethereum reference full node EVM implementation
-          - kitchensink: The kitchensink runtime provides the PolkaVM (PVM) based node implentation
-
-  -f, --follower <FOLLOWER>
-          The differential testing follower node implementation
-
-          [default: kitchensink]
-
-          Possible values:
-          - geth:        The go-ethereum reference full node EVM implementation
-          - kitchensink: The kitchensink runtime provides the PolkaVM (PVM) based node implentation
-
-      --compile-only <COMPILE_ONLY>
-          Only compile against this testing platform (doesn't execute the tests)
-
-          Possible values:
-          - geth:        The go-ethereum reference full node EVM implementation
-          - kitchensink: The kitchensink runtime provides the PolkaVM (PVM) based node implentation
-
-      --number-of-nodes <NUMBER_OF_NODES>
+Concurrency Configuration:
+      --concurrency.number-of-nodes <NUMBER_OF_NODES>
           Determines the amount of nodes that will be spawned for each chain
 
-          [default: 1]
+          [default: 5]
 
-      --number-of-threads <NUMBER_OF_THREADS>
+      --concurrency.number-of-threads <NUMBER_OF_THREADS>
           Determines the amount of tokio worker threads that will will be used
 
           [default: 16]
 
-      --number-concurrent-tasks <NUMBER_CONCURRENT_TASKS>
-          Determines the amount of concurrent tasks that will be spawned to run tests. Defaults to 10 x the number of nodes
+      --concurrency.number-of-concurrent-tasks <NUMBER_CONCURRENT_TASKS>
+          Determines the amount of concurrent tasks that will be spawned to run tests.
 
-  -e, --extract-problems
-          Extract problems back to the test corpus
+          Defaults to 10 x the number of nodes.
 
-  -k, --kitchensink <KITCHENSINK>
-          The path to the `kitchensink` executable.
+      --concurrency.ignore-concurrency-limit
+          Determines if the concurrency limit should be ignored or not
 
-          By default it uses `substrate-node` binary found in `$PATH`.
-
-          [default: substrate-node]
-
-  -p, --eth_proxy <ETH_PROXY>
-          The path to the `eth_proxy` executable.
-
-          By default it uses `eth-rpc` binary found in `$PATH`.
-
-          [default: eth-rpc]
-
-  -i, --invalidate-compilation-cache
+Compilation Configuration:
+      --compilation.invalidate-cache
           Controls if the compilation cache should be invalidated or not
 
-  -h, --help
-          Print help (see a summary with '-h')
+Report Configuration:
+      --report.include-compiler-input
+          Controls if the compiler input is included in the final report
+
+      --report.include-compiler-output
+          Controls if the compiler output is included in the final report
 ```
 
 To run tests with this tool you need a corpus JSON file that defines the tests included in the corpus. The simplest corpus file looks like the following:
@@ -188,10 +218,11 @@ The simplest command to run this tool is the following:
 
 ```bash
 RUST_LOG="info" cargo run --release -- execute-tests \
-    --follower geth \
-    --corpus path_to_your_corpus_file.json \
-    --working-directory path_to_a_temporary_directory_to_cache_things_in \
+    --platform geth-evm-solc \
+    --corpus corp.json \
+    --working-directory workdir \
     --concurrency.number-of-nodes 5 \
+    --concurrency.ignore-concurrency-limit \
     > logs.log \
     2> output.log
 ```

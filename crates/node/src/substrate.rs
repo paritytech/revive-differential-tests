@@ -2,6 +2,7 @@ use std::{
     fs::{File, OpenOptions, create_dir_all, remove_dir_all},
     io::{BufRead, Write},
     path::{Path, PathBuf},
+    pin::Pin,
     process::{Child, Command, Stdio},
     sync::{
         Arc,
@@ -44,17 +45,21 @@ use sp_runtime::AccountId32;
 
 use revive_dt_config::*;
 use revive_dt_node_interaction::EthereumNode;
+use tracing::instrument;
 
 use crate::{Node, common::FallbackGasFiller, constants::INITIAL_BALANCE};
 
 static NODE_COUNT: AtomicU32 = AtomicU32::new(0);
 
+/// A node implementation for Substrate based chains. Currently, this supports either substrate
+/// or the revive-dev-node which is done by changing the path and some of the other arguments passed
+/// to the command.
 #[derive(Debug)]
-pub struct KitchensinkNode {
+pub struct SubstrateNode {
     id: u32,
-    substrate_binary: PathBuf,
-    dev_node_binary: PathBuf,
+    node_binary: PathBuf,
     eth_proxy_binary: PathBuf,
+    export_chainspec_command: String,
     rpc_url: String,
     base_directory: PathBuf,
     logs_directory: PathBuf,
@@ -63,16 +68,11 @@ pub struct KitchensinkNode {
     wallet: Arc<EthereumWallet>,
     nonce_manager: CachedNonceManager,
     chain_id_filler: ChainIdFiller,
-    use_kitchensink_not_dev_node: bool,
-    /// This vector stores [`File`] objects that we use for logging which we want to flush when the
-    /// node object is dropped. We do not store them in a structured fashion at the moment (in
-    /// separate fields) as the logic that we need to apply to them is all the same regardless of
-    /// what it belongs to, we just want to flush them on [`Drop`] of the node.
     logs_file_to_flush: Vec<File>,
 }
 
-impl KitchensinkNode {
-    const BASE_DIRECTORY: &str = "kitchensink";
+impl SubstrateNode {
+    const BASE_DIRECTORY: &str = "Substrate";
     const LOGS_DIRECTORY: &str = "logs";
     const DATA_DIRECTORY: &str = "chains";
 
@@ -85,52 +85,82 @@ impl KitchensinkNode {
     const SUBSTRATE_LOG_ENV: &str = "error,evm=debug,sc_rpc_server=info,runtime::revive=debug";
     const PROXY_LOG_ENV: &str = "info,eth-rpc=debug";
 
-    const KITCHENSINK_STDOUT_LOG_FILE_NAME: &str = "node_stdout.log";
-    const KITCHENSINK_STDERR_LOG_FILE_NAME: &str = "node_stderr.log";
+    const SUBSTRATE_STDOUT_LOG_FILE_NAME: &str = "node_stdout.log";
+    const SUBSTRATE_STDERR_LOG_FILE_NAME: &str = "node_stderr.log";
 
     const PROXY_STDOUT_LOG_FILE_NAME: &str = "proxy_stdout.log";
     const PROXY_STDERR_LOG_FILE_NAME: &str = "proxy_stderr.log";
+
+    pub const KITCHENSINK_EXPORT_CHAINSPEC_COMMAND: &str = "export-chain-spec";
+    pub const REVIVE_DEV_NODE_EXPORT_CHAINSPEC_COMMAND: &str = "build-spec";
+
+    pub fn new(
+        node_path: PathBuf,
+        export_chainspec_command: &str,
+        context: impl AsRef<WorkingDirectoryConfiguration>
+        + AsRef<EthRpcConfiguration>
+        + AsRef<WalletConfiguration>,
+    ) -> Self {
+        let working_directory_path =
+            AsRef::<WorkingDirectoryConfiguration>::as_ref(&context).as_path();
+        let eth_rpc_path = AsRef::<EthRpcConfiguration>::as_ref(&context)
+            .path
+            .as_path();
+        let wallet = AsRef::<WalletConfiguration>::as_ref(&context).wallet();
+
+        let substrate_directory = working_directory_path.join(Self::BASE_DIRECTORY);
+        let id = NODE_COUNT.fetch_add(1, Ordering::SeqCst);
+        let base_directory = substrate_directory.join(id.to_string());
+        let logs_directory = base_directory.join(Self::LOGS_DIRECTORY);
+
+        Self {
+            id,
+            node_binary: node_path,
+            eth_proxy_binary: eth_rpc_path.to_path_buf(),
+            export_chainspec_command: export_chainspec_command.to_string(),
+            rpc_url: String::new(),
+            base_directory,
+            logs_directory,
+            process_substrate: None,
+            process_proxy: None,
+            wallet: wallet.clone(),
+            chain_id_filler: Default::default(),
+            nonce_manager: Default::default(),
+            logs_file_to_flush: Vec::with_capacity(4),
+        }
+    }
 
     fn init(&mut self, mut genesis: Genesis) -> anyhow::Result<&mut Self> {
         let _ = clear_directory(&self.base_directory);
         let _ = clear_directory(&self.logs_directory);
 
         create_dir_all(&self.base_directory)
-            .context("Failed to create base directory for kitchensink node")?;
+            .context("Failed to create base directory for substrate node")?;
         create_dir_all(&self.logs_directory)
-            .context("Failed to create logs directory for kitchensink node")?;
+            .context("Failed to create logs directory for substrate node")?;
 
         let template_chainspec_path = self.base_directory.join(Self::CHAIN_SPEC_JSON_FILE);
 
         // Note: we do not pipe the logs of this process to a separate file since this is just a
         // once-off export of the default chain spec and not part of the long-running node process.
-        let output = if self.use_kitchensink_not_dev_node {
-            Command::new(&self.substrate_binary)
-                .arg("export-chain-spec")
-                .arg("--chain")
-                .arg("dev")
-                .output()
-                .context("Failed to export the chain-spec")?
-        } else {
-            Command::new(&self.dev_node_binary)
-                .arg("build-spec")
-                .arg("--chain")
-                .arg("dev")
-                .output()
-                .context("Failed to export the chain-spec")?
-        };
+        let output = Command::new(&self.node_binary)
+            .arg(self.export_chainspec_command.as_str())
+            .arg("--chain")
+            .arg("dev")
+            .output()
+            .context("Failed to export the chain-spec")?;
 
         if !output.status.success() {
             anyhow::bail!(
-                "substrate-node export-chain-spec failed: {}",
+                "Substrate-node export-chain-spec failed: {}",
                 String::from_utf8_lossy(&output.stderr)
             );
         }
 
         let content = String::from_utf8(output.stdout)
-            .context("Failed to decode substrate export-chain-spec output as UTF-8")?;
+            .context("Failed to decode Substrate export-chain-spec output as UTF-8")?;
         let mut chainspec_json: JsonValue =
-            serde_json::from_str(&content).context("Failed to parse substrate chain spec JSON")?;
+            serde_json::from_str(&content).context("Failed to parse Substrate chain spec JSON")?;
 
         let existing_chainspec_balances =
             chainspec_json["genesis"]["runtimeGenesis"]["patch"]["balances"]["balances"]
@@ -172,10 +202,10 @@ impl KitchensinkNode {
 
         serde_json::to_writer_pretty(
             std::fs::File::create(&template_chainspec_path)
-                .context("Failed to create kitchensink template chainspec file")?,
+                .context("Failed to create substrate template chainspec file")?,
             &chainspec_json,
         )
-        .context("Failed to write kitchensink template chainspec JSON")?;
+        .context("Failed to write substrate template chainspec JSON")?;
         Ok(self)
     }
 
@@ -199,19 +229,15 @@ impl KitchensinkNode {
         };
 
         // Start Substrate node
-        let kitchensink_stdout_logs_file = open_options
+        let substrate_stdout_logs_file = open_options
             .clone()
-            .open(self.kitchensink_stdout_log_file_path())
-            .context("Failed to open kitchensink stdout logs file")?;
-        let kitchensink_stderr_logs_file = open_options
+            .open(self.substrate_stdout_log_file_path())
+            .context("Failed to open substrate stdout logs file")?;
+        let substrate_stderr_logs_file = open_options
             .clone()
-            .open(self.kitchensink_stderr_log_file_path())
-            .context("Failed to open kitchensink stderr logs file")?;
-        let node_binary_path = if self.use_kitchensink_not_dev_node {
-            self.substrate_binary.as_path()
-        } else {
-            self.dev_node_binary.as_path()
-        };
+            .open(self.substrate_stderr_log_file_path())
+            .context("Failed to open substrate stderr logs file")?;
+        let node_binary_path = self.node_binary.as_path();
         self.process_substrate = Command::new(node_binary_path)
             .arg("--dev")
             .arg("--chain")
@@ -221,7 +247,7 @@ impl KitchensinkNode {
             .arg("--rpc-port")
             .arg(substrate_rpc_port.to_string())
             .arg("--name")
-            .arg(format!("revive-kitchensink-{}", self.id))
+            .arg(format!("revive-substrate-{}", self.id))
             .arg("--force-authoring")
             .arg("--rpc-methods")
             .arg("Unsafe")
@@ -231,27 +257,27 @@ impl KitchensinkNode {
             .arg(u32::MAX.to_string())
             .env("RUST_LOG", Self::SUBSTRATE_LOG_ENV)
             .stdout(
-                kitchensink_stdout_logs_file
+                substrate_stdout_logs_file
                     .try_clone()
-                    .context("Failed to clone kitchensink stdout log file handle")?,
+                    .context("Failed to clone substrate stdout log file handle")?,
             )
             .stderr(
-                kitchensink_stderr_logs_file
+                substrate_stderr_logs_file
                     .try_clone()
-                    .context("Failed to clone kitchensink stderr log file handle")?,
+                    .context("Failed to clone substrate stderr log file handle")?,
             )
             .spawn()
-            .context("Failed to spawn substrate node process")?
+            .context("Failed to spawn Substrate node process")?
             .into();
 
         // Give the node a moment to boot
         if let Err(error) = Self::wait_ready(
-            self.kitchensink_stderr_log_file_path().as_path(),
+            self.substrate_stderr_log_file_path().as_path(),
             Self::SUBSTRATE_READY_MARKER,
             Duration::from_secs(60),
         ) {
             self.shutdown()
-                .context("Failed to gracefully shutdown after substrate start error")?;
+                .context("Failed to gracefully shutdown after Substrate start error")?;
             return Err(error);
         };
 
@@ -296,8 +322,8 @@ impl KitchensinkNode {
         };
 
         self.logs_file_to_flush.extend([
-            kitchensink_stdout_logs_file,
-            kitchensink_stderr_logs_file,
+            substrate_stdout_logs_file,
+            substrate_stderr_logs_file,
             eth_proxy_stdout_logs_file,
             eth_proxy_stderr_logs_file,
         ]);
@@ -365,14 +391,14 @@ impl KitchensinkNode {
         Ok(String::from_utf8_lossy(&output).trim().to_string())
     }
 
-    fn kitchensink_stdout_log_file_path(&self) -> PathBuf {
+    fn substrate_stdout_log_file_path(&self) -> PathBuf {
         self.logs_directory
-            .join(Self::KITCHENSINK_STDOUT_LOG_FILE_NAME)
+            .join(Self::SUBSTRATE_STDOUT_LOG_FILE_NAME)
     }
 
-    fn kitchensink_stderr_log_file_path(&self) -> PathBuf {
+    fn substrate_stderr_log_file_path(&self) -> PathBuf {
         self.logs_directory
-            .join(Self::KITCHENSINK_STDERR_LOG_FILE_NAME)
+            .join(Self::SUBSTRATE_STDERR_LOG_FILE_NAME)
     }
 
     fn proxy_stdout_log_file_path(&self) -> PathBuf {
@@ -386,15 +412,11 @@ impl KitchensinkNode {
     async fn provider(
         &self,
     ) -> anyhow::Result<
-        FillProvider<
-            impl TxFiller<KitchenSinkNetwork>,
-            impl Provider<KitchenSinkNetwork>,
-            KitchenSinkNetwork,
-        >,
+        FillProvider<impl TxFiller<ReviveNetwork>, impl Provider<ReviveNetwork>, ReviveNetwork>,
     > {
         ProviderBuilder::new()
             .disable_recommended_fillers()
-            .network::<KitchenSinkNetwork>()
+            .network::<ReviveNetwork>()
             .filler(FallbackGasFiller::new(
                 25_000_000,
                 1_000_000_000,
@@ -409,235 +431,247 @@ impl KitchensinkNode {
     }
 }
 
-impl EthereumNode for KitchensinkNode {
-    async fn execute_transaction(
-        &self,
-        transaction: alloy::rpc::types::TransactionRequest,
-    ) -> anyhow::Result<TransactionReceipt> {
-        let receipt = self
-            .provider()
-            .await
-            .context("Failed to create provider for transaction submission")?
-            .send_transaction(transaction)
-            .await
-            .context("Failed to submit transaction to kitchensink proxy")?
-            .get_receipt()
-            .await
-            .context("Failed to fetch transaction receipt from kitchensink proxy")?;
-        Ok(receipt)
-    }
-
-    async fn trace_transaction(
-        &self,
-        transaction: &TransactionReceipt,
-        trace_options: GethDebugTracingOptions,
-    ) -> anyhow::Result<alloy::rpc::types::trace::geth::GethTrace> {
-        let tx_hash = transaction.transaction_hash;
-        self.provider()
-            .await
-            .context("Failed to create provider for debug tracing")?
-            .debug_trace_transaction(tx_hash, trace_options)
-            .await
-            .context("Failed to obtain debug trace from kitchensink proxy")
-    }
-
-    async fn state_diff(&self, transaction: &TransactionReceipt) -> anyhow::Result<DiffMode> {
-        let trace_options = GethDebugTracingOptions::prestate_tracer(PreStateConfig {
-            diff_mode: Some(true),
-            disable_code: None,
-            disable_storage: None,
-        });
-        match self
-            .trace_transaction(transaction, trace_options)
-            .await?
-            .try_into_pre_state_frame()?
-        {
-            PreStateFrame::Diff(diff) => Ok(diff),
-            _ => anyhow::bail!("expected a diff mode trace"),
-        }
-    }
-
-    async fn balance_of(&self, address: Address) -> anyhow::Result<U256> {
-        self.provider()
-            .await
-            .context("Failed to get the Kitchensink provider")?
-            .get_balance(address)
-            .await
-            .map_err(Into::into)
-    }
-
-    async fn latest_state_proof(
-        &self,
-        address: Address,
-        keys: Vec<StorageKey>,
-    ) -> anyhow::Result<EIP1186AccountProofResponse> {
-        self.provider()
-            .await
-            .context("Failed to get the Kitchensink provider")?
-            .get_proof(address, keys)
-            .latest()
-            .await
-            .map_err(Into::into)
-    }
-}
-
-impl ResolverApi for KitchensinkNode {
-    async fn chain_id(&self) -> anyhow::Result<alloy::primitives::ChainId> {
-        self.provider()
-            .await
-            .context("Failed to get the Kitchensink provider")?
-            .get_chain_id()
-            .await
-            .map_err(Into::into)
-    }
-
-    async fn transaction_gas_price(&self, tx_hash: &TxHash) -> anyhow::Result<u128> {
-        self.provider()
-            .await
-            .context("Failed to get the Kitchensink provider")?
-            .get_transaction_receipt(*tx_hash)
-            .await?
-            .context("Failed to get the transaction receipt")
-            .map(|receipt| receipt.effective_gas_price)
-    }
-
-    async fn block_gas_limit(&self, number: BlockNumberOrTag) -> anyhow::Result<u128> {
-        self.provider()
-            .await
-            .context("Failed to get the Kitchensink provider")?
-            .get_block_by_number(number)
-            .await
-            .context("Failed to get the kitchensink block")?
-            .context("Failed to get the Kitchensink block, perhaps the chain has no blocks?")
-            .map(|block| block.header.gas_limit as _)
-    }
-
-    async fn block_coinbase(&self, number: BlockNumberOrTag) -> anyhow::Result<Address> {
-        self.provider()
-            .await
-            .context("Failed to get the Kitchensink provider")?
-            .get_block_by_number(number)
-            .await
-            .context("Failed to get the kitchensink block")?
-            .context("Failed to get the Kitchensink block, perhaps the chain has no blocks?")
-            .map(|block| block.header.beneficiary)
-    }
-
-    async fn block_difficulty(&self, number: BlockNumberOrTag) -> anyhow::Result<U256> {
-        self.provider()
-            .await
-            .context("Failed to get the Kitchensink provider")?
-            .get_block_by_number(number)
-            .await
-            .context("Failed to get the kitchensink block")?
-            .context("Failed to get the Kitchensink block, perhaps the chain has no blocks?")
-            .map(|block| U256::from_be_bytes(block.header.mix_hash.0))
-    }
-
-    async fn block_base_fee(&self, number: BlockNumberOrTag) -> anyhow::Result<u64> {
-        self.provider()
-            .await
-            .context("Failed to get the Kitchensink provider")?
-            .get_block_by_number(number)
-            .await
-            .context("Failed to get the kitchensink block")?
-            .context("Failed to get the Kitchensink block, perhaps the chain has no blocks?")
-            .and_then(|block| {
-                block
-                    .header
-                    .base_fee_per_gas
-                    .context("Failed to get the base fee per gas")
-            })
-    }
-
-    async fn block_hash(&self, number: BlockNumberOrTag) -> anyhow::Result<BlockHash> {
-        self.provider()
-            .await
-            .context("Failed to get the Kitchensink provider")?
-            .get_block_by_number(number)
-            .await
-            .context("Failed to get the kitchensink block")?
-            .context("Failed to get the Kitchensink block, perhaps the chain has no blocks?")
-            .map(|block| block.header.hash)
-    }
-
-    async fn block_timestamp(&self, number: BlockNumberOrTag) -> anyhow::Result<BlockTimestamp> {
-        self.provider()
-            .await
-            .context("Failed to get the Kitchensink provider")?
-            .get_block_by_number(number)
-            .await
-            .context("Failed to get the kitchensink block")?
-            .context("Failed to get the Kitchensink block, perhaps the chain has no blocks?")
-            .map(|block| block.header.timestamp)
-    }
-
-    async fn last_block_number(&self) -> anyhow::Result<BlockNumber> {
-        self.provider()
-            .await
-            .context("Failed to get the Kitchensink provider")?
-            .get_block_number()
-            .await
-            .map_err(Into::into)
-    }
-}
-
-impl Node for KitchensinkNode {
-    fn new(
-        context: impl AsRef<WorkingDirectoryConfiguration>
-        + AsRef<ConcurrencyConfiguration>
-        + AsRef<GenesisConfiguration>
-        + AsRef<WalletConfiguration>
-        + AsRef<GethConfiguration>
-        + AsRef<KitchensinkConfiguration>
-        + AsRef<ReviveDevNodeConfiguration>
-        + AsRef<EthRpcConfiguration>
-        + Clone,
-    ) -> Self {
-        let kitchensink_configuration = AsRef::<KitchensinkConfiguration>::as_ref(&context);
-        let dev_node_configuration = AsRef::<ReviveDevNodeConfiguration>::as_ref(&context);
-        let eth_rpc_configuration = AsRef::<EthRpcConfiguration>::as_ref(&context);
-        let working_directory_configuration =
-            AsRef::<WorkingDirectoryConfiguration>::as_ref(&context);
-        let wallet_configuration = AsRef::<WalletConfiguration>::as_ref(&context);
-
-        let kitchensink_directory = working_directory_configuration
-            .as_path()
-            .join(Self::BASE_DIRECTORY);
-        let id = NODE_COUNT.fetch_add(1, Ordering::SeqCst);
-        let base_directory = kitchensink_directory.join(id.to_string());
-        let logs_directory = base_directory.join(Self::LOGS_DIRECTORY);
-
-        let wallet = wallet_configuration.wallet();
-
-        Self {
-            id,
-            substrate_binary: kitchensink_configuration.path.clone(),
-            dev_node_binary: dev_node_configuration.path.clone(),
-            eth_proxy_binary: eth_rpc_configuration.path.clone(),
-            rpc_url: String::new(),
-            base_directory,
-            logs_directory,
-            process_substrate: None,
-            process_proxy: None,
-            wallet: wallet.clone(),
-            chain_id_filler: Default::default(),
-            nonce_manager: Default::default(),
-            use_kitchensink_not_dev_node: kitchensink_configuration.use_kitchensink,
-            // We know that we only need to be storing 4 files so we can specify that when creating
-            // the vector. It's the stdout and stderr of the substrate-node and the eth-rpc.
-            logs_file_to_flush: Vec::with_capacity(4),
-        }
-    }
-
+impl EthereumNode for SubstrateNode {
     fn id(&self) -> usize {
         self.id as _
     }
 
-    fn connection_string(&self) -> String {
-        self.rpc_url.clone()
+    fn connection_string(&self) -> &str {
+        &self.rpc_url
     }
 
+    fn execute_transaction(
+        &self,
+        transaction: alloy::rpc::types::TransactionRequest,
+    ) -> Pin<Box<dyn Future<Output = anyhow::Result<TransactionReceipt>> + '_>> {
+        Box::pin(async move {
+            let receipt = self
+                .provider()
+                .await
+                .context("Failed to create provider for transaction submission")?
+                .send_transaction(transaction)
+                .await
+                .context("Failed to submit transaction to substrate proxy")?
+                .get_receipt()
+                .await
+                .context("Failed to fetch transaction receipt from substrate proxy")?;
+            Ok(receipt)
+        })
+    }
+
+    fn trace_transaction(
+        &self,
+        tx_hash: TxHash,
+        trace_options: GethDebugTracingOptions,
+    ) -> Pin<Box<dyn Future<Output = anyhow::Result<alloy::rpc::types::trace::geth::GethTrace>> + '_>>
+    {
+        Box::pin(async move {
+            self.provider()
+                .await
+                .context("Failed to create provider for debug tracing")?
+                .debug_trace_transaction(tx_hash, trace_options)
+                .await
+                .context("Failed to obtain debug trace from substrate proxy")
+        })
+    }
+
+    fn state_diff(
+        &self,
+        tx_hash: TxHash,
+    ) -> Pin<Box<dyn Future<Output = anyhow::Result<DiffMode>> + '_>> {
+        Box::pin(async move {
+            let trace_options = GethDebugTracingOptions::prestate_tracer(PreStateConfig {
+                diff_mode: Some(true),
+                disable_code: None,
+                disable_storage: None,
+            });
+            match self
+                .trace_transaction(tx_hash, trace_options)
+                .await?
+                .try_into_pre_state_frame()?
+            {
+                PreStateFrame::Diff(diff) => Ok(diff),
+                _ => anyhow::bail!("expected a diff mode trace"),
+            }
+        })
+    }
+
+    fn balance_of(
+        &self,
+        address: Address,
+    ) -> Pin<Box<dyn Future<Output = anyhow::Result<U256>> + '_>> {
+        Box::pin(async move {
+            self.provider()
+                .await
+                .context("Failed to get the substrate provider")?
+                .get_balance(address)
+                .await
+                .map_err(Into::into)
+        })
+    }
+
+    fn latest_state_proof(
+        &self,
+        address: Address,
+        keys: Vec<StorageKey>,
+    ) -> Pin<Box<dyn Future<Output = anyhow::Result<EIP1186AccountProofResponse>> + '_>> {
+        Box::pin(async move {
+            self.provider()
+                .await
+                .context("Failed to get the substrate provider")?
+                .get_proof(address, keys)
+                .latest()
+                .await
+                .map_err(Into::into)
+        })
+    }
+
+    fn resolver(
+        &self,
+    ) -> Pin<Box<dyn Future<Output = anyhow::Result<Arc<dyn ResolverApi + '_>>> + '_>> {
+        Box::pin(async move {
+            let id = self.id;
+            let provider = self.provider().await?;
+            Ok(Arc::new(SubstrateNodeResolver { id, provider }) as Arc<dyn ResolverApi>)
+        })
+    }
+
+    fn evm_version(&self) -> EVMVersion {
+        EVMVersion::Cancun
+    }
+}
+
+pub struct SubstrateNodeResolver<F: TxFiller<ReviveNetwork>, P: Provider<ReviveNetwork>> {
+    id: u32,
+    provider: FillProvider<F, P, ReviveNetwork>,
+}
+
+impl<F: TxFiller<ReviveNetwork>, P: Provider<ReviveNetwork>> ResolverApi
+    for SubstrateNodeResolver<F, P>
+{
+    #[instrument(level = "info", skip_all, fields(substrate_node_id = self.id))]
+    fn chain_id(
+        &self,
+    ) -> Pin<Box<dyn Future<Output = anyhow::Result<alloy::primitives::ChainId>> + '_>> {
+        Box::pin(async move { self.provider.get_chain_id().await.map_err(Into::into) })
+    }
+
+    #[instrument(level = "info", skip_all, fields(substrate_node_id = self.id))]
+    fn transaction_gas_price(
+        &self,
+        tx_hash: TxHash,
+    ) -> Pin<Box<dyn Future<Output = anyhow::Result<u128>> + '_>> {
+        Box::pin(async move {
+            self.provider
+                .get_transaction_receipt(tx_hash)
+                .await?
+                .context("Failed to get the transaction receipt")
+                .map(|receipt| receipt.effective_gas_price)
+        })
+    }
+
+    #[instrument(level = "info", skip_all, fields(substrate_node_id = self.id))]
+    fn block_gas_limit(
+        &self,
+        number: BlockNumberOrTag,
+    ) -> Pin<Box<dyn Future<Output = anyhow::Result<u128>> + '_>> {
+        Box::pin(async move {
+            self.provider
+                .get_block_by_number(number)
+                .await
+                .context("Failed to get the substrate block")?
+                .context("Failed to get the substrate block, perhaps the chain has no blocks?")
+                .map(|block| block.header.gas_limit as _)
+        })
+    }
+
+    #[instrument(level = "info", skip_all, fields(substrate_node_id = self.id))]
+    fn block_coinbase(
+        &self,
+        number: BlockNumberOrTag,
+    ) -> Pin<Box<dyn Future<Output = anyhow::Result<Address>> + '_>> {
+        Box::pin(async move {
+            self.provider
+                .get_block_by_number(number)
+                .await
+                .context("Failed to get the substrate block")?
+                .context("Failed to get the substrate block, perhaps the chain has no blocks?")
+                .map(|block| block.header.beneficiary)
+        })
+    }
+
+    #[instrument(level = "info", skip_all, fields(substrate_node_id = self.id))]
+    fn block_difficulty(
+        &self,
+        number: BlockNumberOrTag,
+    ) -> Pin<Box<dyn Future<Output = anyhow::Result<U256>> + '_>> {
+        Box::pin(async move {
+            self.provider
+                .get_block_by_number(number)
+                .await
+                .context("Failed to get the substrate block")?
+                .context("Failed to get the substrate block, perhaps the chain has no blocks?")
+                .map(|block| U256::from_be_bytes(block.header.mix_hash.0))
+        })
+    }
+
+    #[instrument(level = "info", skip_all, fields(substrate_node_id = self.id))]
+    fn block_base_fee(
+        &self,
+        number: BlockNumberOrTag,
+    ) -> Pin<Box<dyn Future<Output = anyhow::Result<u64>> + '_>> {
+        Box::pin(async move {
+            self.provider
+                .get_block_by_number(number)
+                .await
+                .context("Failed to get the substrate block")?
+                .context("Failed to get the substrate block, perhaps the chain has no blocks?")
+                .and_then(|block| {
+                    block
+                        .header
+                        .base_fee_per_gas
+                        .context("Failed to get the base fee per gas")
+                })
+        })
+    }
+
+    #[instrument(level = "info", skip_all, fields(substrate_node_id = self.id))]
+    fn block_hash(
+        &self,
+        number: BlockNumberOrTag,
+    ) -> Pin<Box<dyn Future<Output = anyhow::Result<BlockHash>> + '_>> {
+        Box::pin(async move {
+            self.provider
+                .get_block_by_number(number)
+                .await
+                .context("Failed to get the substrate block")?
+                .context("Failed to get the substrate block, perhaps the chain has no blocks?")
+                .map(|block| block.header.hash)
+        })
+    }
+
+    #[instrument(level = "info", skip_all, fields(substrate_node_id = self.id))]
+    fn block_timestamp(
+        &self,
+        number: BlockNumberOrTag,
+    ) -> Pin<Box<dyn Future<Output = anyhow::Result<BlockTimestamp>> + '_>> {
+        Box::pin(async move {
+            self.provider
+                .get_block_by_number(number)
+                .await
+                .context("Failed to get the substrate block")?
+                .context("Failed to get the substrate block, perhaps the chain has no blocks?")
+                .map(|block| block.header.timestamp)
+        })
+    }
+
+    #[instrument(level = "info", skip_all, fields(substrate_node_id = self.id))]
+    fn last_block_number(&self) -> Pin<Box<dyn Future<Output = anyhow::Result<BlockNumber>> + '_>> {
+        Box::pin(async move { self.provider.get_block_number().await.map_err(Into::into) })
+    }
+}
+
+impl Node for SubstrateNode {
     fn shutdown(&mut self) -> anyhow::Result<()> {
         // Terminate the processes in a graceful manner to allow for the output to be flushed.
         if let Some(mut child) = self.process_proxy.take() {
@@ -647,7 +681,7 @@ impl Node for KitchensinkNode {
         }
         if let Some(mut child) = self.process_substrate.take() {
             child.kill().map_err(|error| {
-                anyhow::anyhow!("Failed to kill the substrate process: {error:?}")
+                anyhow::anyhow!("Failed to kill the Substrate process: {error:?}")
             })?;
         }
 
@@ -669,41 +703,30 @@ impl Node for KitchensinkNode {
     }
 
     fn version(&self) -> anyhow::Result<String> {
-        let output = Command::new(&self.substrate_binary)
+        let output = Command::new(&self.node_binary)
             .arg("--version")
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
             .spawn()
-            .context("Failed to spawn kitchensink --version")?
+            .context("Failed to spawn substrate --version")?
             .wait_with_output()
-            .context("Failed to wait for kitchensink --version")?
+            .context("Failed to wait for substrate --version")?
             .stdout;
         Ok(String::from_utf8_lossy(&output).into())
     }
-
-    fn matches_target(targets: Option<&[String]>) -> bool {
-        match targets {
-            None => true,
-            Some(targets) => targets.iter().any(|str| str.as_str() == "pvm"),
-        }
-    }
-
-    fn evm_version() -> EVMVersion {
-        EVMVersion::Cancun
-    }
 }
 
-impl Drop for KitchensinkNode {
+impl Drop for SubstrateNode {
     fn drop(&mut self) {
         self.shutdown().expect("Failed to shutdown")
     }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-struct KitchenSinkNetwork;
+pub struct ReviveNetwork;
 
-impl Network for KitchenSinkNetwork {
+impl Network for ReviveNetwork {
     type TxType = <Ethereum as Network>::TxType;
 
     type TxEnvelope = <Ethereum as Network>::TxEnvelope;
@@ -712,7 +735,7 @@ impl Network for KitchenSinkNetwork {
 
     type ReceiptEnvelope = <Ethereum as Network>::ReceiptEnvelope;
 
-    type Header = KitchenSinkHeader;
+    type Header = ReviveHeader;
 
     type TransactionRequest = <Ethereum as Network>::TransactionRequest;
 
@@ -720,12 +743,12 @@ impl Network for KitchenSinkNetwork {
 
     type ReceiptResponse = <Ethereum as Network>::ReceiptResponse;
 
-    type HeaderResponse = Header<KitchenSinkHeader>;
+    type HeaderResponse = Header<ReviveHeader>;
 
-    type BlockResponse = Block<Transaction<TxEnvelope>, Header<KitchenSinkHeader>>;
+    type BlockResponse = Block<Transaction<TxEnvelope>, Header<ReviveHeader>>;
 }
 
-impl TransactionBuilder<KitchenSinkNetwork> for <Ethereum as Network>::TransactionRequest {
+impl TransactionBuilder<ReviveNetwork> for <Ethereum as Network>::TransactionRequest {
     fn chain_id(&self) -> Option<alloy::primitives::ChainId> {
         <<Ethereum as Network>::TransactionRequest as TransactionBuilder<Ethereum>>::chain_id(self)
     }
@@ -857,7 +880,7 @@ impl TransactionBuilder<KitchenSinkNetwork> for <Ethereum as Network>::Transacti
 
     fn complete_type(
         &self,
-        ty: <KitchenSinkNetwork as Network>::TxType,
+        ty: <ReviveNetwork as Network>::TxType,
     ) -> Result<(), Vec<&'static str>> {
         <<Ethereum as Network>::TransactionRequest as TransactionBuilder<Ethereum>>::complete_type(
             self, ty,
@@ -874,13 +897,13 @@ impl TransactionBuilder<KitchenSinkNetwork> for <Ethereum as Network>::Transacti
         <<Ethereum as Network>::TransactionRequest as TransactionBuilder<Ethereum>>::can_build(self)
     }
 
-    fn output_tx_type(&self) -> <KitchenSinkNetwork as Network>::TxType {
+    fn output_tx_type(&self) -> <ReviveNetwork as Network>::TxType {
         <<Ethereum as Network>::TransactionRequest as TransactionBuilder<Ethereum>>::output_tx_type(
             self,
         )
     }
 
-    fn output_tx_type_checked(&self) -> Option<<KitchenSinkNetwork as Network>::TxType> {
+    fn output_tx_type_checked(&self) -> Option<<ReviveNetwork as Network>::TxType> {
         <<Ethereum as Network>::TransactionRequest as TransactionBuilder<Ethereum>>::output_tx_type_checked(
             self,
         )
@@ -894,15 +917,14 @@ impl TransactionBuilder<KitchenSinkNetwork> for <Ethereum as Network>::Transacti
 
     fn build_unsigned(
         self,
-    ) -> alloy::network::BuildResult<<KitchenSinkNetwork as Network>::UnsignedTx, KitchenSinkNetwork>
-    {
+    ) -> alloy::network::BuildResult<<ReviveNetwork as Network>::UnsignedTx, ReviveNetwork> {
         let result = <<Ethereum as Network>::TransactionRequest as TransactionBuilder<Ethereum>>::build_unsigned(
             self,
         );
         match result {
             Ok(unsigned_tx) => Ok(unsigned_tx),
             Err(UnbuiltTransactionError { request, error }) => {
-                Err(UnbuiltTransactionError::<KitchenSinkNetwork> {
+                Err(UnbuiltTransactionError::<ReviveNetwork> {
                     request,
                     error: match error {
                         TransactionBuilderError::InvalidTransactionRequest(tx_type, items) => {
@@ -923,20 +945,18 @@ impl TransactionBuilder<KitchenSinkNetwork> for <Ethereum as Network>::Transacti
         }
     }
 
-    async fn build<W: alloy::network::NetworkWallet<KitchenSinkNetwork>>(
+    async fn build<W: alloy::network::NetworkWallet<ReviveNetwork>>(
         self,
         wallet: &W,
-    ) -> Result<
-        <KitchenSinkNetwork as Network>::TxEnvelope,
-        TransactionBuilderError<KitchenSinkNetwork>,
-    > {
+    ) -> Result<<ReviveNetwork as Network>::TxEnvelope, TransactionBuilderError<ReviveNetwork>>
+    {
         Ok(wallet.sign_request(self).await?)
     }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct KitchenSinkHeader {
+pub struct ReviveHeader {
     /// The Keccak 256-bit hash of the parent
     /// block’s header, in its entirety; formally Hp.
     pub parent_hash: B256,
@@ -1039,7 +1059,7 @@ pub struct KitchenSinkHeader {
     pub requests_hash: Option<B256>,
 }
 
-impl BlockHeader for KitchenSinkHeader {
+impl BlockHeader for ReviveHeader {
     fn parent_hash(&self) -> B256 {
         self.parent_hash
     }
@@ -1137,13 +1157,13 @@ mod tests {
     use super::*;
     use crate::Node;
 
-    fn test_config() -> ExecutionContext {
-        let mut context = ExecutionContext::default();
+    fn test_config() -> TestExecutionContext {
+        let mut context = TestExecutionContext::default();
         context.kitchensink_configuration.use_kitchensink = true;
         context
     }
 
-    fn new_node() -> (ExecutionContext, KitchensinkNode) {
+    fn new_node() -> (TestExecutionContext, SubstrateNode) {
         // Note: When we run the tests in the CI we found that if they're all
         // run in parallel then the CI is unable to start all of the nodes in
         // time and their start up times-out. Therefore, we want all of the
@@ -1163,7 +1183,11 @@ mod tests {
         let _guard = NODE_START_MUTEX.lock().unwrap();
 
         let context = test_config();
-        let mut node = KitchensinkNode::new(&context);
+        let mut node = SubstrateNode::new(
+            context.kitchensink_configuration.path.clone(),
+            SubstrateNode::KITCHENSINK_EXPORT_CHAINSPEC_COMMAND,
+            &context,
+        );
         node.init(context.genesis_configuration.genesis().unwrap().clone())
             .expect("Failed to initialize the node")
             .spawn_process()
@@ -1172,8 +1196,8 @@ mod tests {
     }
 
     /// A shared node that multiple tests can use. It starts up once.
-    fn shared_node() -> &'static KitchensinkNode {
-        static NODE: LazyLock<(ExecutionContext, KitchensinkNode)> = LazyLock::new(|| {
+    fn shared_node() -> &'static SubstrateNode {
+        static NODE: LazyLock<(TestExecutionContext, SubstrateNode)> = LazyLock::new(|| {
             let (context, node) = new_node();
             (context, node)
         });
@@ -1222,7 +1246,12 @@ mod tests {
         }
         "#;
 
-        let mut dummy_node = KitchensinkNode::new(&test_config());
+        let context = test_config();
+        let mut dummy_node = SubstrateNode::new(
+            context.kitchensink_configuration.path.clone(),
+            SubstrateNode::KITCHENSINK_EXPORT_CHAINSPEC_COMMAND,
+            &context,
+        );
 
         // Call `init()`
         dummy_node
@@ -1232,16 +1261,16 @@ mod tests {
         // Check that the patched chainspec file was generated
         let final_chainspec_path = dummy_node
             .base_directory
-            .join(KitchensinkNode::CHAIN_SPEC_JSON_FILE);
+            .join(SubstrateNode::CHAIN_SPEC_JSON_FILE);
         assert!(final_chainspec_path.exists(), "Chainspec file should exist");
 
         let contents = fs::read_to_string(&final_chainspec_path).expect("Failed to read chainspec");
 
         // Validate that the Substrate addresses derived from the Ethereum addresses are in the file
-        let first_eth_addr = KitchensinkNode::eth_to_substrate_address(
+        let first_eth_addr = SubstrateNode::eth_to_substrate_address(
             &"90F8bf6A479f320ead074411a4B0e7944Ea8c9C1".parse().unwrap(),
         );
-        let second_eth_addr = KitchensinkNode::eth_to_substrate_address(
+        let second_eth_addr = SubstrateNode::eth_to_substrate_address(
             &"Ab8483F64d9C6d1EcF9b849Ae677dD3315835cb2".parse().unwrap(),
         );
 
@@ -1268,7 +1297,12 @@ mod tests {
         }
         "#;
 
-        let node = KitchensinkNode::new(&test_config());
+        let context = test_config();
+        let node = SubstrateNode::new(
+            context.kitchensink_configuration.path.clone(),
+            SubstrateNode::KITCHENSINK_EXPORT_CHAINSPEC_COMMAND,
+            &context,
+        );
 
         let result = node
             .extract_balance_from_genesis_file(&serde_json::from_str(genesis_json).unwrap())
@@ -1301,7 +1335,7 @@ mod tests {
         ];
 
         for eth_addr in eth_addresses {
-            let ss58 = KitchensinkNode::eth_to_substrate_address(&eth_addr.parse().unwrap());
+            let ss58 = SubstrateNode::eth_to_substrate_address(&eth_addr.parse().unwrap());
 
             println!("Ethereum: {eth_addr} -> Substrate SS58: {ss58}");
         }
@@ -1329,7 +1363,7 @@ mod tests {
         ];
 
         for (eth_addr, expected_ss58) in cases {
-            let result = KitchensinkNode::eth_to_substrate_address(&eth_addr.parse().unwrap());
+            let result = SubstrateNode::eth_to_substrate_address(&eth_addr.parse().unwrap());
             assert_eq!(
                 result, expected_ss58,
                 "Mismatch for Ethereum address {eth_addr}"
@@ -1345,7 +1379,7 @@ mod tests {
 
         assert!(
             version.starts_with("substrate-node"),
-            "Expected substrate-node version string, got: {version}"
+            "Expected Substrate-node version string, got: {version}"
         );
     }
 
@@ -1367,7 +1401,7 @@ mod tests {
         let node = shared_node();
 
         // Act
-        let chain_id = node.chain_id().await;
+        let chain_id = node.resolver().await.unwrap().chain_id().await;
 
         // Assert
         let chain_id = chain_id.expect("Failed to get the chain id");
@@ -1380,7 +1414,12 @@ mod tests {
         let node = shared_node();
 
         // Act
-        let gas_limit = node.block_gas_limit(BlockNumberOrTag::Latest).await;
+        let gas_limit = node
+            .resolver()
+            .await
+            .unwrap()
+            .block_gas_limit(BlockNumberOrTag::Latest)
+            .await;
 
         // Assert
         let _ = gas_limit.expect("Failed to get the gas limit");
@@ -1392,7 +1431,12 @@ mod tests {
         let node = shared_node();
 
         // Act
-        let coinbase = node.block_coinbase(BlockNumberOrTag::Latest).await;
+        let coinbase = node
+            .resolver()
+            .await
+            .unwrap()
+            .block_coinbase(BlockNumberOrTag::Latest)
+            .await;
 
         // Assert
         let _ = coinbase.expect("Failed to get the coinbase");
@@ -1404,7 +1448,12 @@ mod tests {
         let node = shared_node();
 
         // Act
-        let block_difficulty = node.block_difficulty(BlockNumberOrTag::Latest).await;
+        let block_difficulty = node
+            .resolver()
+            .await
+            .unwrap()
+            .block_difficulty(BlockNumberOrTag::Latest)
+            .await;
 
         // Assert
         let _ = block_difficulty.expect("Failed to get the block difficulty");
@@ -1416,7 +1465,12 @@ mod tests {
         let node = shared_node();
 
         // Act
-        let block_hash = node.block_hash(BlockNumberOrTag::Latest).await;
+        let block_hash = node
+            .resolver()
+            .await
+            .unwrap()
+            .block_hash(BlockNumberOrTag::Latest)
+            .await;
 
         // Assert
         let _ = block_hash.expect("Failed to get the block hash");
@@ -1428,7 +1482,12 @@ mod tests {
         let node = shared_node();
 
         // Act
-        let block_timestamp = node.block_timestamp(BlockNumberOrTag::Latest).await;
+        let block_timestamp = node
+            .resolver()
+            .await
+            .unwrap()
+            .block_timestamp(BlockNumberOrTag::Latest)
+            .await;
 
         // Assert
         let _ = block_timestamp.expect("Failed to get the block timestamp");
@@ -1440,7 +1499,7 @@ mod tests {
         let node = shared_node();
 
         // Act
-        let block_number = node.last_block_number().await;
+        let block_number = node.resolver().await.unwrap().last_block_number().await;
 
         // Assert
         let _ = block_number.expect("Failed to get the block number");

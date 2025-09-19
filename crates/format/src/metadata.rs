@@ -13,8 +13,10 @@ use serde::{Deserialize, Serialize};
 
 use revive_common::EVMVersion;
 use revive_dt_common::{
-    cached_fs::read_to_string, iterators::FilesWithExtensionIterator, macros::define_wrapper_type,
-    types::Mode,
+    cached_fs::read_to_string,
+    iterators::FilesWithExtensionIterator,
+    macros::define_wrapper_type,
+    types::{Mode, VmIdentifier},
 };
 use tracing::error;
 
@@ -81,7 +83,7 @@ pub struct Metadata {
     /// example, if we wish for the metadata file's cases to only be run on PolkaVM then we'd
     /// specify a target of "PolkaVM" in here.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub targets: Option<Vec<String>>,
+    pub targets: Option<Vec<VmIdentifier>>,
 
     /// A vector of the test cases and workloads contained within the metadata file. This is their
     /// primary description.

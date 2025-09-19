@@ -18,6 +18,7 @@ use alloy::{
     signers::local::PrivateKeySigner,
 };
 use clap::{Parser, ValueEnum, ValueHint};
+use revive_dt_common::types::PlatformIdentifier;
 use semver::Version;
 use serde::{Serialize, Serializer};
 use strum::{AsRefStr, Display, EnumString, IntoStaticStr};
@@ -26,8 +27,8 @@ use temp_dir::TempDir;
 #[derive(Clone, Debug, Parser, Serialize)]
 #[command(name = "retester")]
 pub enum Context {
-    /// Executes tests in the MatterLabs format differentially against a leader and a follower.
-    ExecuteTests(Box<ExecutionContext>),
+    /// Executes tests in the MatterLabs format differentially on multiple targets concurrently.
+    ExecuteTests(Box<TestExecutionContext>),
     /// Exports the JSON schema of the MatterLabs test format used by the tool.
     ExportJsonSchema,
 }
@@ -45,8 +46,98 @@ impl Context {
 impl AsRef<WorkingDirectoryConfiguration> for Context {
     fn as_ref(&self) -> &WorkingDirectoryConfiguration {
         match self {
-            Context::ExecuteTests(execution_context) => &execution_context.working_directory,
-            Context::ExportJsonSchema => unreachable!(),
+            Self::ExecuteTests(context) => context.as_ref().as_ref(),
+            Self::ExportJsonSchema => unreachable!(),
+        }
+    }
+}
+
+impl AsRef<SolcConfiguration> for Context {
+    fn as_ref(&self) -> &SolcConfiguration {
+        match self {
+            Self::ExecuteTests(context) => context.as_ref().as_ref(),
+            Self::ExportJsonSchema => unreachable!(),
+        }
+    }
+}
+
+impl AsRef<ResolcConfiguration> for Context {
+    fn as_ref(&self) -> &ResolcConfiguration {
+        match self {
+            Self::ExecuteTests(context) => context.as_ref().as_ref(),
+            Self::ExportJsonSchema => unreachable!(),
+        }
+    }
+}
+
+impl AsRef<GethConfiguration> for Context {
+    fn as_ref(&self) -> &GethConfiguration {
+        match self {
+            Self::ExecuteTests(context) => context.as_ref().as_ref(),
+            Self::ExportJsonSchema => unreachable!(),
+        }
+    }
+}
+
+impl AsRef<KitchensinkConfiguration> for Context {
+    fn as_ref(&self) -> &KitchensinkConfiguration {
+        match self {
+            Self::ExecuteTests(context) => context.as_ref().as_ref(),
+            Self::ExportJsonSchema => unreachable!(),
+        }
+    }
+}
+
+impl AsRef<ReviveDevNodeConfiguration> for Context {
+    fn as_ref(&self) -> &ReviveDevNodeConfiguration {
+        match self {
+            Self::ExecuteTests(context) => context.as_ref().as_ref(),
+            Self::ExportJsonSchema => unreachable!(),
+        }
+    }
+}
+
+impl AsRef<EthRpcConfiguration> for Context {
+    fn as_ref(&self) -> &EthRpcConfiguration {
+        match self {
+            Self::ExecuteTests(context) => context.as_ref().as_ref(),
+            Self::ExportJsonSchema => unreachable!(),
+        }
+    }
+}
+
+impl AsRef<GenesisConfiguration> for Context {
+    fn as_ref(&self) -> &GenesisConfiguration {
+        match self {
+            Self::ExecuteTests(context) => context.as_ref().as_ref(),
+            Self::ExportJsonSchema => unreachable!(),
+        }
+    }
+}
+
+impl AsRef<WalletConfiguration> for Context {
+    fn as_ref(&self) -> &WalletConfiguration {
+        match self {
+            Self::ExecuteTests(context) => context.as_ref().as_ref(),
+            Self::ExportJsonSchema => unreachable!(),
+        }
+    }
+}
+
+impl AsRef<ConcurrencyConfiguration> for Context {
+    fn as_ref(&self) -> &ConcurrencyConfiguration {
+        match self {
+            Self::ExecuteTests(context) => context.as_ref().as_ref(),
+            Self::ExportJsonSchema => unreachable!(),
+        }
+    }
+}
+
+impl AsRef<CompilationConfiguration> for Context {
+    fn as_ref(&self) -> &CompilationConfiguration {
+        match self {
+            Self::ExecuteTests(context) => context.as_ref().as_ref(),
+            Self::ExportJsonSchema => unreachable!(),
         }
     }
 }
@@ -54,14 +145,14 @@ impl AsRef<WorkingDirectoryConfiguration> for Context {
 impl AsRef<ReportConfiguration> for Context {
     fn as_ref(&self) -> &ReportConfiguration {
         match self {
-            Context::ExecuteTests(execution_context) => &execution_context.report_configuration,
-            Context::ExportJsonSchema => unreachable!(),
+            Self::ExecuteTests(context) => context.as_ref().as_ref(),
+            Self::ExportJsonSchema => unreachable!(),
         }
     }
 }
 
 #[derive(Clone, Debug, Parser, Serialize)]
-pub struct ExecutionContext {
+pub struct TestExecutionContext {
     /// The working directory that the program will use for all of the temporary artifacts needed at
     /// runtime.
     ///
@@ -75,13 +166,13 @@ pub struct ExecutionContext {
     )]
     pub working_directory: WorkingDirectoryConfiguration,
 
-    /// The differential testing leader node implementation.
-    #[arg(short, long = "leader", default_value_t = TestingPlatform::Geth)]
-    pub leader: TestingPlatform,
-
-    /// The differential testing follower node implementation.
-    #[arg(short, long = "follower", default_value_t = TestingPlatform::Kitchensink)]
-    pub follower: TestingPlatform,
+    /// The set of platforms that the differential tests should run on.
+    #[arg(
+        short = 'p',
+        long = "platform",
+        default_values = ["geth-evm-solc", "revive-dev-node-polkavm-resolc"]
+    )]
+    pub platforms: Vec<PlatformIdentifier>,
 
     /// A list of test corpus JSON files to be tested.
     #[arg(long = "corpus", short)]
@@ -132,79 +223,79 @@ pub struct ExecutionContext {
     pub report_configuration: ReportConfiguration,
 }
 
-impl Default for ExecutionContext {
+impl Default for TestExecutionContext {
     fn default() -> Self {
         Self::parse_from(["execution-context"])
     }
 }
 
-impl AsRef<WorkingDirectoryConfiguration> for ExecutionContext {
+impl AsRef<WorkingDirectoryConfiguration> for TestExecutionContext {
     fn as_ref(&self) -> &WorkingDirectoryConfiguration {
         &self.working_directory
     }
 }
 
-impl AsRef<SolcConfiguration> for ExecutionContext {
+impl AsRef<SolcConfiguration> for TestExecutionContext {
     fn as_ref(&self) -> &SolcConfiguration {
         &self.solc_configuration
     }
 }
 
-impl AsRef<ResolcConfiguration> for ExecutionContext {
+impl AsRef<ResolcConfiguration> for TestExecutionContext {
     fn as_ref(&self) -> &ResolcConfiguration {
         &self.resolc_configuration
     }
 }
 
-impl AsRef<GethConfiguration> for ExecutionContext {
+impl AsRef<GethConfiguration> for TestExecutionContext {
     fn as_ref(&self) -> &GethConfiguration {
         &self.geth_configuration
     }
 }
 
-impl AsRef<KitchensinkConfiguration> for ExecutionContext {
+impl AsRef<KitchensinkConfiguration> for TestExecutionContext {
     fn as_ref(&self) -> &KitchensinkConfiguration {
         &self.kitchensink_configuration
     }
 }
 
-impl AsRef<ReviveDevNodeConfiguration> for ExecutionContext {
+impl AsRef<ReviveDevNodeConfiguration> for TestExecutionContext {
     fn as_ref(&self) -> &ReviveDevNodeConfiguration {
         &self.revive_dev_node_configuration
     }
 }
 
-impl AsRef<EthRpcConfiguration> for ExecutionContext {
+impl AsRef<EthRpcConfiguration> for TestExecutionContext {
     fn as_ref(&self) -> &EthRpcConfiguration {
         &self.eth_rpc_configuration
     }
 }
 
-impl AsRef<GenesisConfiguration> for ExecutionContext {
+impl AsRef<GenesisConfiguration> for TestExecutionContext {
     fn as_ref(&self) -> &GenesisConfiguration {
         &self.genesis_configuration
     }
 }
 
-impl AsRef<WalletConfiguration> for ExecutionContext {
+impl AsRef<WalletConfiguration> for TestExecutionContext {
     fn as_ref(&self) -> &WalletConfiguration {
         &self.wallet_configuration
     }
 }
 
-impl AsRef<ConcurrencyConfiguration> for ExecutionContext {
+impl AsRef<ConcurrencyConfiguration> for TestExecutionContext {
     fn as_ref(&self) -> &ConcurrencyConfiguration {
         &self.concurrency_configuration
     }
 }
 
-impl AsRef<CompilationConfiguration> for ExecutionContext {
+impl AsRef<CompilationConfiguration> for TestExecutionContext {
     fn as_ref(&self) -> &CompilationConfiguration {
         &self.compilation_configuration
     }
 }
 
-impl AsRef<ReportConfiguration> for ExecutionContext {
+impl AsRef<ReportConfiguration> for TestExecutionContext {
     fn as_ref(&self) -> &ReportConfiguration {
         &self.report_configuration
     }

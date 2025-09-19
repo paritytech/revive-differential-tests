@@ -9,6 +9,10 @@ repository.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+revive-common = { workspace = true }
+
+revive-dt-format = { workspace = true }
+
 alloy = { workspace = true }
 anyhow = { workspace = true }
 
