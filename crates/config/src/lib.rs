@@ -170,7 +170,7 @@ pub struct TestExecutionContext {
     #[arg(
         short = 'p',
         long = "platform",
-        default_value = "geth-evm-solc,revive-dev-node-polkavm-resolc"
+        default_values = ["geth-evm-solc", "revive-dev-node-polkavm-resolc"]
     )]
     pub platforms: Vec<PlatformIdentifier>,
 
