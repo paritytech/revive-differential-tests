@@ -39,7 +39,7 @@ use revive_dt_core::{
 use revive_dt_format::{
     case::{Case, CaseIdx},
     corpus::Corpus,
-    input::{Input, Step},
+    input::{FunctionCallStep, Step},
     metadata::{ContractPathAndIdent, Metadata, MetadataFile},
     mode::ParsedMode,
 };
@@ -514,9 +514,10 @@ async fn handle_case_driver<'a>(
                             Step::FunctionCall(input) => Some(input.caller),
                             Step::BalanceAssertion(..) => None,
                             Step::StorageEmptyAssertion(..) => None,
+                            Step::Repeat(..) => None,
                         })
                         .next()
-                        .unwrap_or(Input::default_caller());
+                        .unwrap_or(FunctionCallStep::default_caller());
                     let tx = TransactionBuilder::<Ethereum>::with_deploy_code(
                         TransactionRequest::default().from(deployer_address),
                         code,

@@ -27,8 +27,8 @@ use semver::Version;
 
 use revive_dt_format::case::Case;
 use revive_dt_format::input::{
-    BalanceAssertion, Calldata, EtherValue, Expected, ExpectedOutput, Input, Method, StepIdx,
-    StorageEmptyAssertion,
+    BalanceAssertionStep, Calldata, EtherValue, Expected, ExpectedOutput, FunctionCallStep, Method,
+    StepIdx, StorageEmptyAssertionStep,
 };
 use revive_dt_format::metadata::{ContractIdent, ContractInstance, ContractPathAndIdent};
 use revive_dt_format::{input::Step, metadata::Metadata};
@@ -36,6 +36,7 @@ use revive_dt_node_interaction::EthereumNode;
 use tokio::try_join;
 use tracing::{Instrument, info, info_span, instrument};
 
+#[derive(Clone)]
 pub struct CaseState {
     /// A map of all of the compiled contracts for the given metadata file.
     compiled_contracts: HashMap<PathBuf, HashMap<String, (String, JsonAbi)>>,
@@ -96,6 +97,17 @@ impl CaseState {
                     .context("Failed to handle storage empty assertion step")?;
                 Ok(StepOutput::StorageEmptyAssertion)
             }
+            Step::Repeat(repetition_step) => {
+                self.handle_repeat(
+                    metadata,
+                    repetition_step.repeat,
+                    &repetition_step.steps,
+                    node,
+                )
+                .await
+                .context("Failed to handle the repetition step")?;
+                Ok(StepOutput::Repetition)
+            }
         }
         .inspect(|_| info!("Step Succeeded"))
     }
@@ -104,7 +116,7 @@ impl CaseState {
     pub async fn handle_input(
         &mut self,
         metadata: &Metadata,
-        input: &Input,
+        input: &FunctionCallStep,
         node: &dyn EthereumNode,
     ) -> anyhow::Result<(TransactionReceipt, GethTrace, DiffMode)> {
         let resolver = node.resolver().await?;
@@ -140,7 +152,7 @@ impl CaseState {
     pub async fn handle_balance_assertion(
         &mut self,
         metadata: &Metadata,
-        balance_assertion: &BalanceAssertion,
+        balance_assertion: &BalanceAssertionStep,
         node: &dyn EthereumNode,
     ) -> anyhow::Result<()> {
         self.handle_balance_assertion_contract_deployment(metadata, balance_assertion, node)
@@ -156,7 +168,7 @@ impl CaseState {
     pub async fn handle_storage_empty(
         &mut self,
         metadata: &Metadata,
-        storage_empty: &StorageEmptyAssertion,
+        storage_empty: &StorageEmptyAssertionStep,
         node: &dyn EthereumNode,
     ) -> anyhow::Result<()> {
         self.handle_storage_empty_assertion_contract_deployment(metadata, storage_empty, node)
@@ -168,12 +180,33 @@ impl CaseState {
         Ok(())
     }
 
+    #[instrument(level = "info", name = "Handling Repetition", skip_all)]
+    pub async fn handle_repeat(
+        &mut self,
+        metadata: &Metadata,
+        repetitions: usize,
+        steps: &[Step],
+        node: &dyn EthereumNode,
+    ) -> anyhow::Result<()> {
+        let tasks = (0..repetitions).map(|_| {
+            let mut state = self.clone();
+            async move {
+                for step in steps {
+                    state.handle_step(metadata, step, node).await?;
+                }
+                Ok::<(), anyhow::Error>(())
+            }
+        });
+        try_join_all(tasks).await?;
+        Ok(())
+    }
+
     /// Handles the contract deployment for a given input performing it if it needs to be performed.
     #[instrument(level = "info", skip_all)]
     async fn handle_input_contract_deployment(
         &mut self,
         metadata: &Metadata,
-        input: &Input,
+        input: &FunctionCallStep,
         node: &dyn EthereumNode,
     ) -> anyhow::Result<HashMap<ContractInstance, TransactionReceipt>> {
         let mut instances_we_must_deploy = IndexMap::<ContractInstance, bool>::new();
@@ -217,7 +250,7 @@ impl CaseState {
     #[instrument(level = "info", skip_all)]
     async fn handle_input_execution(
         &mut self,
-        input: &Input,
+        input: &FunctionCallStep,
         mut deployment_receipts: HashMap<ContractInstance, TransactionReceipt>,
         node: &dyn EthereumNode,
     ) -> anyhow::Result<TransactionReceipt> {
@@ -281,7 +314,7 @@ impl CaseState {
     #[instrument(level = "info", skip_all)]
     fn handle_input_variable_assignment(
         &mut self,
-        input: &Input,
+        input: &FunctionCallStep,
         tracing_result: &CallFrame,
     ) -> anyhow::Result<()> {
         let Some(ref assignments) = input.variable_assignments else {
@@ -312,26 +345,26 @@ impl CaseState {
     #[instrument(level = "info", skip_all)]
     async fn handle_input_expectations(
         &self,
-        input: &Input,
+        input: &FunctionCallStep,
         execution_receipt: &TransactionReceipt,
         resolver: &(impl ResolverApi + ?Sized),
         tracing_result: &CallFrame,
     ) -> anyhow::Result<()> {
         // Resolving the `input.expected` into a series of expectations that we can then assert on.
         let mut expectations = match input {
-            Input {
+            FunctionCallStep {
                 expected: Some(Expected::Calldata(calldata)),
                 ..
             } => vec![ExpectedOutput::new().with_calldata(calldata.clone())],
-            Input {
+            FunctionCallStep {
                 expected: Some(Expected::Expected(expected)),
                 ..
             } => vec![expected.clone()],
-            Input {
+            FunctionCallStep {
                 expected: Some(Expected::ExpectedMany(expected)),
                 ..
             } => expected.clone(),
-            Input { expected: None, .. } => vec![ExpectedOutput::new().with_success()],
+            FunctionCallStep { expected: None, .. } => vec![ExpectedOutput::new().with_success()],
         };
 
         // This is a bit of a special case and we have to support it separately on it's own. If it's
@@ -532,7 +565,7 @@ impl CaseState {
     pub async fn handle_balance_assertion_contract_deployment(
         &mut self,
         metadata: &Metadata,
-        balance_assertion: &BalanceAssertion,
+        balance_assertion: &BalanceAssertionStep,
         node: &dyn EthereumNode,
     ) -> anyhow::Result<()> {
         let Some(instance) = balance_assertion
@@ -545,7 +578,7 @@ impl CaseState {
         self.get_or_deploy_contract_instance(
             &instance,
             metadata,
-            Input::default_caller(),
+            FunctionCallStep::default_caller(),
             None,
             None,
             node,
@@ -557,11 +590,11 @@ impl CaseState {
     #[instrument(level = "info", skip_all)]
     pub async fn handle_balance_assertion_execution(
         &mut self,
-        BalanceAssertion {
+        BalanceAssertionStep {
             address: address_string,
             expected_balance: amount,
             ..
-        }: &BalanceAssertion,
+        }: &BalanceAssertionStep,
         node: &dyn EthereumNode,
     ) -> anyhow::Result<()> {
         let resolver = node.resolver().await?;
@@ -595,7 +628,7 @@ impl CaseState {
     pub async fn handle_storage_empty_assertion_contract_deployment(
         &mut self,
         metadata: &Metadata,
-        storage_empty_assertion: &StorageEmptyAssertion,
+        storage_empty_assertion: &StorageEmptyAssertionStep,
         node: &dyn EthereumNode,
     ) -> anyhow::Result<()> {
         let Some(instance) = storage_empty_assertion
@@ -608,7 +641,7 @@ impl CaseState {
         self.get_or_deploy_contract_instance(
             &instance,
             metadata,
-            Input::default_caller(),
+            FunctionCallStep::default_caller(),
             None,
             None,
             node,
@@ -620,11 +653,11 @@ impl CaseState {
     #[instrument(level = "info", skip_all)]
     pub async fn handle_storage_empty_assertion_execution(
         &mut self,
-        StorageEmptyAssertion {
+        StorageEmptyAssertionStep {
             address: address_string,
             is_storage_empty,
             ..
-        }: &StorageEmptyAssertion,
+        }: &StorageEmptyAssertionStep,
         node: &dyn EthereumNode,
     ) -> anyhow::Result<()> {
         let resolver = node.resolver().await?;
@@ -841,4 +874,5 @@ pub enum StepOutput {
     FunctionCall(TransactionReceipt, GethTrace, DiffMode),
     BalanceAssertion,
     StorageEmptyAssertion,
+    Repetition,
 }

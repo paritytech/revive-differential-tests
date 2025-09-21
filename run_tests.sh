@@ -95,7 +95,6 @@ RUST_LOG="info" cargo run --release -- execute-tests \
     --corpus "$CORPUS_FILE" \
     --working-directory "$WORKDIR" \
     --concurrency.number-of-nodes 5 \
-    --concurrency.ignore-concurrency-limit \
     --kitchensink.path "$SUBSTRATE_NODE_BIN" \
     --revive-dev-node.path "$REVIVE_DEV_NODE_BIN" \
     --eth-rpc.path "$ETH_RPC_BIN" \

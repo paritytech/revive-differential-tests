@@ -28,11 +28,13 @@ use crate::{metadata::ContractInstance, traits::ResolutionContext};
 #[serde(untagged)]
 pub enum Step {
     /// A function call or an invocation to some function on some smart contract.
-    FunctionCall(Box<Input>),
+    FunctionCall(Box<FunctionCallStep>),
     /// A step for performing a balance assertion on some account or contract.
-    BalanceAssertion(Box<BalanceAssertion>),
+    BalanceAssertion(Box<BalanceAssertionStep>),
     /// A step for asserting that the storage of some contract or account is empty.
-    StorageEmptyAssertion(Box<StorageEmptyAssertion>),
+    StorageEmptyAssertion(Box<StorageEmptyAssertionStep>),
+    /// A special step for repeating a bunch of steps a certain number of times.
+    Repeat(Box<RepeatStep>),
 }
 
 define_wrapper_type!(
@@ -43,9 +45,9 @@ define_wrapper_type!(
 /// This is an input step which is a transaction description that the framework translates into a
 /// transaction and executes on the nodes.
 #[derive(Clone, Debug, Default, Serialize, Deserialize, Eq, PartialEq, JsonSchema)]
-pub struct Input {
+pub struct FunctionCallStep {
     /// The address of the account performing the call and paying the fees for it.
-    #[serde(default = "Input::default_caller")]
+    #[serde(default = "FunctionCallStep::default_caller")]
     #[schemars(with = "String")]
     pub caller: Address,
 
@@ -54,7 +56,7 @@ pub struct Input {
     pub comment: Option<String>,
 
     /// The contract instance that's being called in this transaction step.
-    #[serde(default = "Input::default_instance")]
+    #[serde(default = "FunctionCallStep::default_instance")]
     pub instance: ContractInstance,
 
     /// The method that's being called in this step.
@@ -85,7 +87,7 @@ pub struct Input {
 /// This represents a balance assertion step where the framework needs to query the balance of some
 /// account or contract and assert that it's some amount.
 #[derive(Clone, Debug, Default, Serialize, Deserialize, Eq, PartialEq, JsonSchema)]
-pub struct BalanceAssertion {
+pub struct BalanceAssertionStep {
     /// An optional comment on the balance assertion.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub comment: Option<String>,
@@ -104,8 +106,10 @@ pub struct BalanceAssertion {
     pub expected_balance: U256,
 }
 
+/// This represents an assertion for the storage of some contract or account and whether it's empty
+/// or not.
 #[derive(Clone, Debug, Default, Serialize, Deserialize, Eq, PartialEq, JsonSchema)]
-pub struct StorageEmptyAssertion {
+pub struct StorageEmptyAssertionStep {
     /// An optional comment on the storage empty assertion.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub comment: Option<String>,
@@ -120,6 +124,17 @@ pub struct StorageEmptyAssertion {
 
     /// A boolean of whether the storage of the address is empty or not.
     pub is_storage_empty: bool,
+}
+
+/// This represents a repetition step which is a special step type that allows for a sequence of
+/// steps to be repeated (on different drivers) a certain number of times.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, Eq, PartialEq, JsonSchema)]
+pub struct RepeatStep {
+    /// The number of repetitions that the steps should be repeated for.
+    pub repeat: usize,
+
+    /// The sequence of steps to repeat for the above defined number of repetitions.
+    pub steps: Vec<Step>,
 }
 
 /// A set of expectations and assertions to make about the transaction after it ran.
@@ -295,7 +310,7 @@ pub struct VariableAssignments {
     pub return_data: Vec<String>,
 }
 
-impl Input {
+impl FunctionCallStep {
     pub const fn default_caller() -> Address {
         Address(FixedBytes(alloy::hex!(
             "0x90F8bf6A479f320ead074411a4B0e7944Ea8c9C1"
@@ -890,7 +905,7 @@ mod tests {
             .selector()
             .0;
 
-        let input = Input {
+        let input = FunctionCallStep {
             instance: ContractInstance::new("Contract"),
             method: Method::FunctionName("store".to_owned()),
             calldata: Calldata::new_compound(["42"]),
@@ -934,7 +949,7 @@ mod tests {
             .selector()
             .0;
 
-        let input: Input = Input {
+        let input: FunctionCallStep = FunctionCallStep {
             instance: "Contract".to_owned().into(),
             method: Method::FunctionName("send(address)".to_owned()),
             calldata: Calldata::new_compound(["0x1000000000000000000000000000000000000001"]),
@@ -981,7 +996,7 @@ mod tests {
             .selector()
             .0;
 
-        let input: Input = Input {
+        let input: FunctionCallStep = FunctionCallStep {
             instance: ContractInstance::new("Contract"),
             method: Method::FunctionName("send".to_owned()),
             calldata: Calldata::new_compound(["0x1000000000000000000000000000000000000001"]),
