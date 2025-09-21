@@ -4,8 +4,8 @@ use serde::{Deserialize, Serialize};
 use revive_dt_common::{macros::define_wrapper_type, types::Mode};
 
 use crate::{
-    input::{Expected, Step},
     mode::ParsedMode,
+    steps::{Expected, Step},
 };
 
 #[derive(Debug, Default, Serialize, Deserialize, Clone, Eq, PartialEq, JsonSchema)]

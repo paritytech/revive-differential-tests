@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, fmt::Display};
 
 use alloy::{
     eips::BlockNumberOrTag,
@@ -29,12 +29,19 @@ use crate::{metadata::ContractInstance, traits::ResolutionContext};
 pub enum Step {
     /// A function call or an invocation to some function on some smart contract.
     FunctionCall(Box<FunctionCallStep>),
+
     /// A step for performing a balance assertion on some account or contract.
     BalanceAssertion(Box<BalanceAssertionStep>),
+
     /// A step for asserting that the storage of some contract or account is empty.
     StorageEmptyAssertion(Box<StorageEmptyAssertionStep>),
+
     /// A special step for repeating a bunch of steps a certain number of times.
     Repeat(Box<RepeatStep>),
+
+    /// A step type that allows for a new account address to be allocated and to later on be used
+    /// as the caller in another step.
+    AllocateAccount(Box<AllocateAccountStep>),
 }
 
 define_wrapper_type!(
@@ -49,7 +56,7 @@ pub struct FunctionCallStep {
     /// The address of the account performing the call and paying the fees for it.
     #[serde(default = "FunctionCallStep::default_caller")]
     #[schemars(with = "String")]
-    pub caller: Address,
+    pub caller: StepAddress,
 
     /// An optional comment on the step which has no impact on the execution in any way.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -86,7 +93,7 @@ pub struct FunctionCallStep {
 
 /// This represents a balance assertion step where the framework needs to query the balance of some
 /// account or contract and assert that it's some amount.
-#[derive(Clone, Debug, Default, Serialize, Deserialize, Eq, PartialEq, JsonSchema)]
+#[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq, JsonSchema)]
 pub struct BalanceAssertionStep {
     /// An optional comment on the balance assertion.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -98,7 +105,7 @@ pub struct BalanceAssertionStep {
     /// this could be a normal hex address, a variable such as `Test.address`, or perhaps even a
     /// full on variable like `$VARIABLE:Uniswap`. It follows the same resolution rules that are
     /// followed in the calldata.
-    pub address: String,
+    pub address: StepAddress,
 
     /// The amount of balance to assert that the account or contract has. This is a 256 bit string
     /// that's serialized and deserialized into a decimal string.
@@ -108,7 +115,7 @@ pub struct BalanceAssertionStep {
 
 /// This represents an assertion for the storage of some contract or account and whether it's empty
 /// or not.
-#[derive(Clone, Debug, Default, Serialize, Deserialize, Eq, PartialEq, JsonSchema)]
+#[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq, JsonSchema)]
 pub struct StorageEmptyAssertionStep {
     /// An optional comment on the storage empty assertion.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -120,7 +127,7 @@ pub struct StorageEmptyAssertionStep {
     /// this could be a normal hex address, a variable such as `Test.address`, or perhaps even a
     /// full on variable like `$VARIABLE:Uniswap`. It follows the same resolution rules that are
     /// followed in the calldata.
-    pub address: String,
+    pub address: StepAddress,
 
     /// A boolean of whether the storage of the address is empty or not.
     pub is_storage_empty: bool,
@@ -130,11 +137,28 @@ pub struct StorageEmptyAssertionStep {
 /// steps to be repeated (on different drivers) a certain number of times.
 #[derive(Clone, Debug, Default, Serialize, Deserialize, Eq, PartialEq, JsonSchema)]
 pub struct RepeatStep {
+    /// An optional comment on the repetition step.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub comment: Option<String>,
+
     /// The number of repetitions that the steps should be repeated for.
     pub repeat: usize,
 
     /// The sequence of steps to repeat for the above defined number of repetitions.
     pub steps: Vec<Step>,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize, Eq, PartialEq, JsonSchema)]
+pub struct AllocateAccountStep {
+    /// An optional comment on the account allocation step.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub comment: Option<String>,
+
+    /// An instruction to allocate a new account with the value being the variable name of that
+    /// account. This must start with `$VARIABLE:` and then be followed by the variable name of the
+    /// account.
+    #[serde(rename = "allocate_account")]
+    pub variable_name: String,
 }
 
 /// A set of expectations and assertions to make about the transaction after it ran.
@@ -177,7 +201,7 @@ pub struct ExpectedOutput {
 pub struct Event {
     /// An optional field of the address of the emitter of the event.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub address: Option<String>,
+    pub address: Option<StepAddress>,
 
     /// The set of topics to expect the event to have.
     pub topics: Vec<String>,
@@ -310,11 +334,72 @@ pub struct VariableAssignments {
     pub return_data: Vec<String>,
 }
 
+/// An address type that might either be an address literal or a resolvable address.
+#[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq, JsonSchema)]
+#[schemars(with = "String")]
+#[serde(untagged)]
+pub enum StepAddress {
+    Address(Address),
+    ResolvableAddress(String),
+}
+
+impl Default for StepAddress {
+    fn default() -> Self {
+        Self::Address(Default::default())
+    }
+}
+
+impl Display for StepAddress {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            StepAddress::Address(address) => Display::fmt(address, f),
+            StepAddress::ResolvableAddress(address) => Display::fmt(address, f),
+        }
+    }
+}
+
+impl StepAddress {
+    pub fn as_address(&self) -> Option<&Address> {
+        match self {
+            StepAddress::Address(address) => Some(address),
+            StepAddress::ResolvableAddress(_) => None,
+        }
+    }
+
+    pub fn as_resolvable_address(&self) -> Option<&str> {
+        match self {
+            StepAddress::ResolvableAddress(address) => Some(address),
+            StepAddress::Address(..) => None,
+        }
+    }
+
+    pub async fn resolve_address(
+        &self,
+        resolver: &(impl ResolverApi + ?Sized),
+        context: ResolutionContext<'_>,
+    ) -> anyhow::Result<Address> {
+        match self {
+            StepAddress::Address(address) => Ok(*address),
+            StepAddress::ResolvableAddress(address) => Ok(Address::from_slice(
+                Calldata::new_compound([address])
+                    .calldata(resolver, context)
+                    .await?
+                    .get(12..32)
+                    .expect("Can't fail"),
+            )),
+        }
+    }
+}
+
 impl FunctionCallStep {
-    pub const fn default_caller() -> Address {
+    pub const fn default_caller_address() -> Address {
         Address(FixedBytes(alloy::hex!(
             "0x90F8bf6A479f320ead074411a4B0e7944Ea8c9C1"
         )))
+    }
+
+    pub const fn default_caller() -> StepAddress {
+        StepAddress::Address(Self::default_caller_address())
     }
 
     fn default_instance() -> ContractInstance {
@@ -399,7 +484,8 @@ impl FunctionCallStep {
             .encoded_input(resolver, context)
             .await
             .context("Failed to encode input bytes for transaction request")?;
-        let transaction_request = TransactionRequest::default().from(self.caller).value(
+        let caller = self.caller.resolve_address(resolver, context).await?;
+        let transaction_request = TransactionRequest::default().from(caller).value(
             self.value
                 .map(|value| value.into_inner())
                 .unwrap_or_default(),

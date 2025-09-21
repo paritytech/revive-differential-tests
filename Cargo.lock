@@ -4467,6 +4467,8 @@ dependencies = [
 name = "revive-dt-common"
 version = "0.1.0"
 dependencies = [
+ "alloy",
+ "alloy-primitives",
  "anyhow",
  "clap",
  "moka",

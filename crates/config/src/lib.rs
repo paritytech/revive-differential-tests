@@ -490,6 +490,10 @@ impl WalletConfiguration {
             })
             .clone()
     }
+
+    pub fn highest_private_key_exclusive(&self) -> U256 {
+        U256::try_from(self.additional_keys).unwrap()
+    }
 }
 
 fn serialize_private_key<S>(value: &PrivateKeySigner, serializer: S) -> Result<S::Ok, S::Error>
