@@ -30,7 +30,7 @@ use revive_dt_format::case::Case;
 use revive_dt_format::metadata::{ContractIdent, ContractInstance, ContractPathAndIdent};
 use revive_dt_format::steps::{
     BalanceAssertionStep, Calldata, EtherValue, Expected, ExpectedOutput, FunctionCallStep, Method,
-    StepIdx, StorageEmptyAssertionStep,
+    StepIdx, StepPath, StorageEmptyAssertionStep,
 };
 use revive_dt_format::{metadata::Metadata, steps::Step};
 use revive_dt_node_interaction::EthereumNode;
@@ -83,6 +83,7 @@ impl CaseState {
         &mut self,
         metadata: &Metadata,
         step: &Step,
+        step_path: &StepPath,
         node: &dyn EthereumNode,
     ) -> anyhow::Result<StepOutput> {
         match step {
@@ -110,6 +111,7 @@ impl CaseState {
                     metadata,
                     repetition_step.repeat,
                     &repetition_step.steps,
+                    step_path,
                     node,
                 )
                 .await
@@ -200,13 +202,15 @@ impl CaseState {
         metadata: &Metadata,
         repetitions: usize,
         steps: &[Step],
+        step_path: &StepPath,
         node: &dyn EthereumNode,
     ) -> anyhow::Result<()> {
         let tasks = (0..repetitions).map(|_| {
             let mut state = self.clone();
             async move {
-                for step in steps {
-                    state.handle_step(metadata, step, node).await?;
+                for (step_idx, step) in steps.iter().enumerate() {
+                    let step_path = step_path.append(step_idx);
+                    state.handle_step(metadata, step, &step_path, node).await?;
                 }
                 Ok::<(), anyhow::Error>(())
             }
@@ -842,32 +846,31 @@ impl<'a> CaseDriver<'a> {
             .enumerate()
             .map(|(idx, v)| (StepIdx::new(idx), v))
         {
-            // Run this step concurrently across all platforms; short-circuit on first failure
             let metadata = self.metadata;
-            let step_futs =
+            let step_futures =
                 self.platform_state
                     .iter_mut()
                     .map(|(node, platform_id, case_state)| {
                         let platform_id = *platform_id;
                         let node_ref = *node;
-                        let step_clone = step.clone();
+                        let step = step.clone();
                         let span = info_span!(
                             "Handling Step",
                             %step_idx,
                             platform = %platform_id,
                         );
                         async move {
+                            let step_path = StepPath::from_iterator([step_idx]);
                             case_state
-                                .handle_step(metadata, &step_clone, node_ref)
+                                .handle_step(metadata, &step, &step_path, node_ref)
                                 .await
                                 .map_err(|e| (platform_id, e))
                         }
                         .instrument(span)
                     });
 
-            match try_join_all(step_futs).await {
+            match try_join_all(step_futures).await {
                 Ok(_outputs) => {
-                    // All platforms succeeded for this step
                     steps_executed += 1;
                 }
                 Err((platform_id, error)) => {

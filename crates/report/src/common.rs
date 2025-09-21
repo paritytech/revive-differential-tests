@@ -4,7 +4,7 @@ use std::{path::PathBuf, sync::Arc};
 
 use revive_dt_common::{define_wrapper_type, types::PlatformIdentifier};
 use revive_dt_compiler::Mode;
-use revive_dt_format::{case::CaseIdx, steps::StepIdx};
+use revive_dt_format::{case::CaseIdx, steps::StepPath};
 use serde::{Deserialize, Serialize};
 
 define_wrapper_type!(
@@ -33,5 +33,5 @@ pub struct ExecutionSpecifier {
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct StepExecutionSpecifier {
     pub execution_specifier: Arc<ExecutionSpecifier>,
-    pub step_idx: StepIdx,
+    pub step_idx: StepPath,
 }

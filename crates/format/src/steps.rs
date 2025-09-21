@@ -1,4 +1,4 @@
-use std::{collections::HashMap, fmt::Display};
+use std::{collections::HashMap, fmt::Display, str::FromStr};
 
 use alloy::{
     eips::BlockNumberOrTag,
@@ -46,8 +46,70 @@ pub enum Step {
 
 define_wrapper_type!(
     #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
-    pub struct StepIdx(usize) impl Display;
+    pub struct StepIdx(usize) impl Display, FromStr;
 );
+
+define_wrapper_type!(
+    #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+    #[serde(try_from = "String", into = "String")]
+    pub struct StepPath(Vec<StepIdx>);
+);
+
+impl StepPath {
+    pub fn from_iterator(path: impl IntoIterator<Item = impl Into<StepIdx>>) -> Self {
+        Self(path.into_iter().map(|value| value.into()).collect())
+    }
+
+    pub fn increment(&self) -> Self {
+        let mut this = self.clone();
+        if let Some(last) = this.last_mut() {
+            last.0 += 1
+        }
+        this
+    }
+
+    pub fn append(&self, step_idx: impl Into<StepIdx>) -> Self {
+        let mut this = self.clone();
+        this.0.push(step_idx.into());
+        this
+    }
+}
+
+impl Display for StepPath {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0
+            .iter()
+            .map(|idx| idx.to_string())
+            .collect::<Vec<_>>()
+            .join(".")
+            .fmt(f)
+    }
+}
+
+impl FromStr for StepPath {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        s.split(".")
+            .map(StepIdx::from_str)
+            .collect::<anyhow::Result<Vec<_>>>()
+            .map(Self)
+    }
+}
+
+impl From<StepPath> for String {
+    fn from(value: StepPath) -> Self {
+        value.to_string()
+    }
+}
+
+impl TryFrom<String> for StepPath {
+    type Error = anyhow::Error;
+
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        value.parse()
+    }
+}
 
 /// This is an input step which is a transaction description that the framework translates into a
 /// transaction and executes on the nodes.
