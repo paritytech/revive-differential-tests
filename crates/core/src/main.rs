@@ -26,10 +26,14 @@ use revive_dt_report::{
 };
 use schemars::schema_for;
 use serde_json::{Value, json};
+use tokio::sync::Mutex;
 use tracing::{debug, error, info, info_span, instrument};
 use tracing_subscriber::{EnvFilter, FmtSubscriber};
 
-use revive_dt_common::{iterators::EitherIter, types::Mode};
+use revive_dt_common::{
+    iterators::EitherIter,
+    types::{Mode, PrivateKeyAllocator},
+};
 use revive_dt_compiler::SolidityCompiler;
 use revive_dt_config::{Context, *};
 use revive_dt_core::{
@@ -39,9 +43,9 @@ use revive_dt_core::{
 use revive_dt_format::{
     case::{Case, CaseIdx},
     corpus::Corpus,
-    input::{FunctionCallStep, Step},
     metadata::{ContractPathAndIdent, Metadata, MetadataFile},
     mode::ParsedMode,
+    steps::{FunctionCallStep, Step},
 };
 
 use crate::cached_compiler::CachedCompiler;
@@ -326,8 +330,13 @@ async fn start_driver_task<'a>(
                         .expect("Can't fail");
                 }
 
+                let private_key_allocator = Arc::new(Mutex::new(PrivateKeyAllocator::new(
+                    context.wallet_configuration.highest_private_key_exclusive(),
+                )));
+
                 let reporter = test.reporter.clone();
-                let result = handle_case_driver(&test, cached_compiler).await;
+                let result =
+                    handle_case_driver(&test, cached_compiler, private_key_allocator).await;
 
                 match result {
                     Ok(steps_executed) => reporter
@@ -438,6 +447,7 @@ async fn start_cli_reporting_task(reporter: Reporter) {
 async fn handle_case_driver<'a>(
     test: &Test<'a>,
     cached_compiler: Arc<CachedCompiler<'a>>,
+    private_key_allocator: Arc<Mutex<PrivateKeyAllocator>>,
 ) -> anyhow::Result<usize> {
     let platform_state = stream::iter(test.platforms.iter())
         // Compiling the pre-link contracts.
@@ -511,13 +521,14 @@ async fn handle_case_driver<'a>(
                         .steps
                         .iter()
                         .filter_map(|step| match step {
-                            Step::FunctionCall(input) => Some(input.caller),
+                            Step::FunctionCall(input) => input.caller.as_address().copied(),
                             Step::BalanceAssertion(..) => None,
                             Step::StorageEmptyAssertion(..) => None,
                             Step::Repeat(..) => None,
+                            Step::AllocateAccount(..) => None,
                         })
                         .next()
-                        .unwrap_or(FunctionCallStep::default_caller());
+                        .unwrap_or(FunctionCallStep::default_caller_address());
                     let tx = TransactionBuilder::<Ethereum>::with_deploy_code(
                         TransactionRequest::default().from(deployer_address),
                         code,
@@ -564,6 +575,7 @@ async fn handle_case_driver<'a>(
         .filter_map(
             |(test, platform, node, compiler, reporter, _, deployed_libraries)| {
                 let cached_compiler = cached_compiler.clone();
+                let private_key_allocator = private_key_allocator.clone();
 
                 async move {
                     let compiler_output = cached_compiler
@@ -591,6 +603,7 @@ async fn handle_case_driver<'a>(
                         compiler_output.contracts,
                         deployed_libraries.unwrap_or_default(),
                         reporter.clone(),
+                        private_key_allocator,
                     );
 
                     Some((*node, platform.platform_identifier(), case_state))

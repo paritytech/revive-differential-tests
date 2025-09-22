@@ -201,6 +201,10 @@
         {
           "description": "A special step for repeating a bunch of steps a certain number of times.",
           "$ref": "#/$defs/RepeatStep"
+        },
+        {
+          "description": "A step type that allows for a new account address to be allocated and to later on be used\nas the caller in another step.",
+          "$ref": "#/$defs/AllocateAccountStep"
         }
       ]
     },
@@ -377,9 +381,13 @@
       "properties": {
         "address": {
           "description": "An optional field of the address of the emitter of the event.",
-          "type": [
-            "string",
-            "null"
+          "anyOf": [
+            {
+              "$ref": "#/$defs/StepAddress"
+            },
+            {
+              "type": "null"
+            }
           ]
         },
         "topics": {
@@ -398,6 +406,10 @@
         "topics",
         "values"
       ]
+    },
+    "StepAddress": {
+      "description": "An address type that might either be an address literal or a resolvable address.",
+      "type": "string"
     },
     "EtherValue": {
       "description": "Defines an Ether value.\n\nThis is an unsigned 256 bit integer that's followed by some denomination which can either be\neth, ether, gwei, or wei.",
@@ -431,7 +443,7 @@
         },
         "address": {
           "description": "The address that the balance assertion should be done on.\n\nThis is a string which will be resolved into an address when being processed. Therefore,\nthis could be a normal hex address, a variable such as `Test.address`, or perhaps even a\nfull on variable like `$VARIABLE:Uniswap`. It follows the same resolution rules that are\nfollowed in the calldata.",
-          "type": "string"
+          "$ref": "#/$defs/StepAddress"
         },
         "expected_balance": {
           "description": "The amount of balance to assert that the account or contract has. This is a 256 bit string\nthat's serialized and deserialized into a decimal string.",
@@ -456,7 +468,7 @@
         },
         "address": {
           "description": "The address that the balance assertion should be done on.\n\nThis is a string which will be resolved into an address when being processed. Therefore,\nthis could be a normal hex address, a variable such as `Test.address`, or perhaps even a\nfull on variable like `$VARIABLE:Uniswap`. It follows the same resolution rules that are\nfollowed in the calldata.",
-          "type": "string"
+          "$ref": "#/$defs/StepAddress"
         },
         "is_storage_empty": {
           "description": "A boolean of whether the storage of the address is empty or not.",
@@ -472,6 +484,13 @@
       "description": "This represents a repetition step which is a special step type that allows for a sequence of\nsteps to be repeated (on different drivers) a certain number of times.",
       "type": "object",
       "properties": {
+        "comment": {
+          "description": "An optional comment on the repetition step.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "repeat": {
           "description": "The number of repetitions that the steps should be repeated for.",
           "type": "integer",
@@ -489,6 +508,25 @@
       "required": [
         "repeat",
         "steps"
+      ]
+    },
+    "AllocateAccountStep": {
+      "type": "object",
+      "properties": {
+        "comment": {
+          "description": "An optional comment on the account allocation step.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "allocate_account": {
+          "description": "An instruction to allocate a new account with the value being the variable name of that\naccount. This must start with `$VARIABLE:` and then be followed by the variable name of the\naccount.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "allocate_account"
       ]
     },
     "ContractPathAndIdent": {
