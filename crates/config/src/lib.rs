@@ -431,7 +431,7 @@ pub struct GenesisConfiguration {
 impl GenesisConfiguration {
     pub fn genesis(&self) -> anyhow::Result<&Genesis> {
         static DEFAULT_GENESIS: LazyLock<Genesis> = LazyLock::new(|| {
-            let genesis = include_str!("../../../genesis.json");
+            let genesis = include_str!("../../../dev-genesis.json");
             serde_json::from_str(genesis).unwrap()
         });
 

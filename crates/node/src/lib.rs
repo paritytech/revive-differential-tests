@@ -6,6 +6,7 @@ use revive_dt_node_interaction::EthereumNode;
 pub mod common;
 pub mod constants;
 pub mod geth;
+pub mod process;
 pub mod substrate;
 
 /// An abstract interface for testing nodes.
