@@ -25,6 +25,7 @@ serde_json = { workspace = true }
 
 sp-core = { workspace = true }
 sp-runtime = { workspace = true }
+zombienet-sdk = { workspace = true }
 
 [dev-dependencies]
 temp-dir = { workspace = true }
