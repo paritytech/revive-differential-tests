@@ -25,7 +25,7 @@
         "null"
       ],
       "items": {
-        "type": "string"
+        "$ref": "#/$defs/VmIdentifier"
       }
     },
     "cases": {
@@ -95,6 +95,26 @@
     "cases"
   ],
   "$defs": {
+    "VmIdentifier": {
+      "description": "An enum representing the identifiers of the supported VMs.",
+      "oneOf": [
+        {
+          "description": "The ethereum virtual machine.",
+          "type": "string",
+          "const": "evm"
+        },
+        {
+          "description": "The EraVM virtual machine.",
+          "type": "string",
+          "const": "eravm"
+        },
+        {
+          "description": "Polkadot's PolaVM Risc-v based virtual machine.",
+          "type": "string",
+          "const": "polkavm"
+        }
+      ]
+    },
     "Case": {
       "type": "object",
       "properties": {
@@ -168,19 +188,23 @@
       "anyOf": [
         {
           "description": "A function call or an invocation to some function on some smart contract.",
-          "$ref": "#/$defs/Input"
+          "$ref": "#/$defs/FunctionCallStep"
         },
         {
           "description": "A step for performing a balance assertion on some account or contract.",
-          "$ref": "#/$defs/BalanceAssertion"
+          "$ref": "#/$defs/BalanceAssertionStep"
         },
         {
           "description": "A step for asserting that the storage of some contract or account is empty.",
-          "$ref": "#/$defs/StorageEmptyAssertion"
+          "$ref": "#/$defs/StorageEmptyAssertionStep"
+        },
+        {
+          "description": "A special step for repeating a bunch of steps a certain number of times.",
+          "$ref": "#/$defs/RepeatStep"
         }
       ]
     },
-    "Input": {
+    "FunctionCallStep": {
       "description": "This is an input step which is a transaction description that the framework translates into a\ntransaction and executes on the nodes.",
       "type": "object",
       "properties": {
@@ -394,7 +418,7 @@
         "return_data"
       ]
     },
-    "BalanceAssertion": {
+    "BalanceAssertionStep": {
       "description": "This represents a balance assertion step where the framework needs to query the balance of some\naccount or contract and assert that it's some amount.",
       "type": "object",
       "properties": {
@@ -419,7 +443,8 @@
         "expected_balance"
       ]
     },
-    "StorageEmptyAssertion": {
+    "StorageEmptyAssertionStep": {
+      "description": "This represents an assertion for the storage of some contract or account and whether it's empty\nor not.",
       "type": "object",
       "properties": {
         "comment": {
@@ -441,6 +466,29 @@
       "required": [
         "address",
         "is_storage_empty"
+      ]
+    },
+    "RepeatStep": {
+      "description": "This represents a repetition step which is a special step type that allows for a sequence of\nsteps to be repeated (on different drivers) a certain number of times.",
+      "type": "object",
+      "properties": {
+        "repeat": {
+          "description": "The number of repetitions that the steps should be repeated for.",
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0
+        },
+        "steps": {
+          "description": "The sequence of steps to repeat for the above defined number of repetitions.",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Step"
+          }
+        }
+      },
+      "required": [
+        "repeat",
+        "steps"
       ]
     },
     "ContractPathAndIdent": {
