@@ -5,7 +5,7 @@ use revive_dt_common::{macros::define_wrapper_type, types::Mode};
 
 use crate::{
     mode::ParsedMode,
-    steps::{Expected, Step},
+    steps::{Expected, RepeatStep, Step},
 };
 
 #[derive(Debug, Default, Serialize, Deserialize, Clone, Eq, PartialEq, JsonSchema)]
@@ -55,7 +55,6 @@ pub struct Case {
 }
 
 impl Case {
-    #[allow(irrefutable_let_patterns)]
     pub fn steps_iterator(&self) -> impl Iterator<Item = Step> {
         let steps_len = self.steps.len();
         self.steps
@@ -82,6 +81,24 @@ impl Case {
                     step
                 }
             })
+    }
+
+    pub fn steps_iterator_for_benchmarks(
+        &self,
+        default_repeat_count: usize,
+    ) -> Box<dyn Iterator<Item = Step> + '_> {
+        let contains_repeat = self
+            .steps_iterator()
+            .any(|step| matches!(&step, Step::Repeat(..)));
+        if contains_repeat {
+            Box::new(self.steps_iterator()) as Box<_>
+        } else {
+            Box::new(std::iter::once(Step::Repeat(Box::new(RepeatStep {
+                comment: None,
+                repeat: default_repeat_count,
+                steps: self.steps_iterator().collect(),
+            })))) as Box<_>
+        }
     }
 
     pub fn solc_modes(&self) -> Vec<Mode> {
