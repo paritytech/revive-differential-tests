@@ -1,26 +1,21 @@
 use std::{
-    fs::{File, OpenOptions, create_dir_all, remove_dir_all},
-    io::{BufRead, Write},
-    path::{Path, PathBuf},
+    fs::{File, create_dir_all},
+    path::PathBuf,
     pin::Pin,
-    process::{Child, Command, Stdio},
+    process::Child,
     sync::{
         Arc,
         atomic::{AtomicU32, Ordering},
     },
-    time::Duration,
 };
 
 use alloy::{
-    consensus::{BlockHeader, TxEnvelope},
-    eips::BlockNumberOrTag,
-    genesis::{Genesis, GenesisAccount},
+    genesis::Genesis,
     network::{
-        self, Ethereum, EthereumWallet, Network, NetworkWallet, TransactionBuilder,
-        TransactionBuilderError, UnbuiltTransactionError,
+        EthereumWallet, TransactionBuilder,
     },
     primitives::{
-        Address, B64, B256, BlockHash, BlockNumber, BlockTimestamp, Bloom, Bytes, StorageKey,
+        Address, StorageKey,
         TxHash, U256,
     },
     providers::{
@@ -30,29 +25,22 @@ use alloy::{
     },
     rpc::types::{
         EIP1186AccountProofResponse, TransactionReceipt,
-        eth::{Block, Header, Transaction},
-        trace::geth::{DiffMode, GethDebugTracingOptions, PreStateConfig, PreStateFrame},
+        trace::geth::{DiffMode, GethDebugTracingOptions},
     },
 };
 use anyhow::Context as _;
 use revive_common::EVMVersion;
 use revive_dt_common::fs::clear_directory;
 use revive_dt_format::traits::ResolverApi;
-use serde::{Deserialize, Serialize, de};
-use serde_json::{Value as JsonValue, json};
-use sp_core::crypto::Ss58Codec;
-use sp_runtime::AccountId32;
 
 use revive_dt_config::*;
 use revive_dt_node_interaction::EthereumNode;
-use tracing::instrument;
 use zombienet_sdk::{
-    LocalFileSystem, NetworkConfigBuilder, NetworkConfigExt, Orchestrator, OrchestratorError,
-    subxt::{client::OnlineClient, config, tx::TxClient},
+    LocalFileSystem, NetworkConfigBuilder, NetworkConfigExt,
 };
 
 use crate::{
-    Node, common::FallbackGasFiller, constants::INITIAL_BALANCE, substrate::ReviveNetwork,
+    common::FallbackGasFiller, substrate::ReviveNetwork,
 };
 
 static NODE_COUNT: AtomicU32 = AtomicU32::new(0);
@@ -111,7 +99,7 @@ impl ZombieNode {
         }
     }
 
-    fn init(&mut self, mut genesis: Genesis) -> anyhow::Result<&mut Self> {
+    fn init(&mut self, genesis: Genesis) -> anyhow::Result<&mut Self> {
         let _ = clear_directory(&self.base_directory);
         let _ = clear_directory(&self.logs_directory);
 
