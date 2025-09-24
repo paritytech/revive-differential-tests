@@ -466,8 +466,8 @@ impl EthereumNode for SubstrateNode {
 }
 
 pub struct SubstrateNodeResolver<F: TxFiller<ReviveNetwork>, P: Provider<ReviveNetwork>> {
-    id: u32,
-    provider: FillProvider<F, P, ReviveNetwork>,
+    pub(crate) id: u32,
+    pub(crate) provider: FillProvider<F, P, ReviveNetwork>,
 }
 
 impl<F: TxFiller<ReviveNetwork>, P: Provider<ReviveNetwork>> ResolverApi
