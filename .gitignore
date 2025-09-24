@@ -13,3 +13,4 @@ resolc-compiler-tests
 workdir
 
 !/schema.json
+!/dev-genesis.json
