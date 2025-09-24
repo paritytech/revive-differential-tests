@@ -127,6 +127,7 @@ impl SubstrateNode {
     }
 
     fn init(&mut self, mut genesis: Genesis) -> anyhow::Result<&mut Self> {
+        let _ = remove_dir_all(self.base_directory.as_path());
         let _ = clear_directory(&self.base_directory);
         let _ = clear_directory(&self.logs_directory);
 
@@ -1104,19 +1105,19 @@ mod tests {
         (context, node)
     }
 
-    /// A shared node that multiple tests can use. It starts up once.
+    fn shared_state() -> &'static (TestExecutionContext, SubstrateNode) {
+        static STATE: LazyLock<(TestExecutionContext, SubstrateNode)> = LazyLock::new(new_node);
+        &STATE
+    }
+
     fn shared_node() -> &'static SubstrateNode {
-        static NODE: LazyLock<(TestExecutionContext, SubstrateNode)> = LazyLock::new(|| {
-            let (context, node) = new_node();
-            (context, node)
-        });
-        &NODE.1
+        &shared_state().1
     }
 
     #[tokio::test]
     async fn node_mines_simple_transfer_transaction_and_returns_receipt() {
         // Arrange
-        let (context, node) = new_node();
+        let (context, node) = shared_state();
 
         let provider = node.provider().await.expect("Failed to create provider");
 
