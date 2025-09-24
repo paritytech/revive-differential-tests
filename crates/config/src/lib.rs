@@ -79,6 +79,15 @@ impl AsRef<GethConfiguration> for Context {
     }
 }
 
+impl AsRef<LighthouseConfiguration> for Context {
+    fn as_ref(&self) -> &LighthouseConfiguration {
+        match self {
+            Self::ExecuteTests(context) => context.as_ref().as_ref(),
+            Self::ExportJsonSchema => unreachable!(),
+        }
+    }
+}
+
 impl AsRef<KitchensinkConfiguration> for Context {
     fn as_ref(&self) -> &KitchensinkConfiguration {
         match self {
@@ -190,6 +199,10 @@ pub struct TestExecutionContext {
     #[clap(flatten, next_help_heading = "Geth Configuration")]
     pub geth_configuration: GethConfiguration,
 
+    /// Configuration parameters for the lighthouse node.
+    #[clap(flatten, next_help_heading = "Lighthouse Configuration")]
+    pub lighthouse_configuration: LighthouseConfiguration,
+
     /// Configuration parameters for the Kitchensink.
     #[clap(flatten, next_help_heading = "Kitchensink Configuration")]
     pub kitchensink_configuration: KitchensinkConfiguration,
@@ -250,6 +263,12 @@ impl AsRef<ResolcConfiguration> for TestExecutionContext {
 impl AsRef<GethConfiguration> for TestExecutionContext {
     fn as_ref(&self) -> &GethConfiguration {
         &self.geth_configuration
+    }
+}
+
+impl AsRef<LighthouseConfiguration> for TestExecutionContext {
+    fn as_ref(&self) -> &LighthouseConfiguration {
+        &self.lighthouse_configuration
     }
 }
 
@@ -335,7 +354,31 @@ pub struct GethConfiguration {
     #[clap(
         id = "geth.start-timeout-ms",
         long = "geth.start-timeout-ms",
-        default_value = "5000",
+        default_value = "30000",
+        value_parser = parse_duration
+    )]
+    pub start_timeout_ms: Duration,
+}
+
+/// A set of configuration parameters for lighthouse.
+#[derive(Clone, Debug, Parser, Serialize)]
+pub struct LighthouseConfiguration {
+    /// Specifies the path of the lighthouse node to be used by the tool.
+    ///
+    /// If this is not specified, then the tool assumes that it should use the lighthouse binary that's
+    /// provided in the user's $PATH.
+    #[clap(
+        id = "lighthouse.path",
+        long = "lighthouse.path",
+        default_value = "lighthouse"
+    )]
+    pub path: PathBuf,
+
+    /// The amount of time to wait upon startup before considering that the node timed out.
+    #[clap(
+        id = "lighthouse.start-timeout-ms",
+        long = "lighthouse.start-timeout-ms",
+        default_value = "30000",
         value_parser = parse_duration
     )]
     pub start_timeout_ms: Duration,
@@ -359,7 +402,7 @@ pub struct KitchensinkConfiguration {
     #[clap(
         id = "kitchensink.start-timeout-ms",
         long = "kitchensink.start-timeout-ms",
-        default_value = "5000",
+        default_value = "30000",
         value_parser = parse_duration
     )]
     pub start_timeout_ms: Duration,
@@ -387,7 +430,7 @@ pub struct ReviveDevNodeConfiguration {
     #[clap(
         id = "revive-dev-node.start-timeout-ms",
         long = "revive-dev-node.start-timeout-ms",
-        default_value = "5000",
+        default_value = "30000",
         value_parser = parse_duration
     )]
     pub start_timeout_ms: Duration,
@@ -407,7 +450,7 @@ pub struct EthRpcConfiguration {
     #[clap(
         id = "eth-rpc.start-timeout-ms",
         long = "eth-rpc.start-timeout-ms",
-        default_value = "5000",
+        default_value = "30000",
         value_parser = parse_duration
     )]
     pub start_timeout_ms: Duration,
@@ -431,7 +474,7 @@ pub struct GenesisConfiguration {
 impl GenesisConfiguration {
     pub fn genesis(&self) -> anyhow::Result<&Genesis> {
         static DEFAULT_GENESIS: LazyLock<Genesis> = LazyLock::new(|| {
-            let genesis = include_str!("../../../dev-genesis.json");
+            let genesis = include_str!("../../../assets/dev-genesis.json");
             serde_json::from_str(genesis).unwrap()
         });
 
@@ -595,6 +638,7 @@ impl AsRef<Path> for WorkingDirectoryConfiguration {
 impl Default for WorkingDirectoryConfiguration {
     fn default() -> Self {
         TempDir::new()
+            .map(|tempdir| dbg!(tempdir.dont_delete_on_drop()))
             .map(Arc::new)
             .map(Self::TemporaryDirectory)
             .expect("Failed to create the temporary directory")

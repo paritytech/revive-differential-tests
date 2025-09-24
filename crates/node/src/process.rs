@@ -93,9 +93,21 @@ impl Process {
                 let mut stdout_lines = BufReader::new(stdout_logs_file).lines();
                 let mut stderr_lines = BufReader::new(stderr_logs_file).lines();
 
+                let mut stdout = String::new();
+                let mut stderr = String::new();
+
                 loop {
                     let stdout_line = stdout_lines.next().and_then(Result::ok);
                     let stderr_line = stderr_lines.next().and_then(Result::ok);
+
+                    if let Some(stdout_line) = stdout_line.as_ref() {
+                        stdout.push_str(stdout_line);
+                        stdout.push('\n');
+                    }
+                    if let Some(stderr_line) = stderr_line.as_ref() {
+                        stderr.push_str(stderr_line);
+                        stdout.push('\n');
+                    }
 
                     let check_result =
                         check_function(stdout_line.as_deref(), stderr_line.as_deref())
@@ -106,7 +118,9 @@ impl Process {
                     }
 
                     if Instant::now().duration_since(spawn_time) > max_wait_duration {
-                        bail!("Waited for the process to start but it failed to start in time")
+                        bail!(
+                            "Waited for the process to start but it failed to start in time. stderr {stderr} - stdout {stdout}"
+                        )
                     }
                 }
             }
