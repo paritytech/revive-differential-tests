@@ -355,7 +355,7 @@ pub struct ZombieNetConfiguration {
     #[clap(
         id = "zombienet.path",
         long = "zombienet.path",
-        default_value = "zombie-cli"
+        default_value = "substrate-node"
     )]
     pub path: PathBuf,
 
