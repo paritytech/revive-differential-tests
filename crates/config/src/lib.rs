@@ -355,7 +355,7 @@ pub struct ZombieNetConfiguration {
     #[clap(
         id = "zombienet.path",
         long = "zombienet.path",
-        default_value = "substrate-node"
+        default_value = "polkadot-parachain"
     )]
     pub path: PathBuf,
 
