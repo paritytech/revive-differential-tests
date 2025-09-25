@@ -1,5 +1,5 @@
 use std::{
-    fs::{ create_dir_all, remove_dir_all},
+    fs::{create_dir_all, remove_dir_all},
     path::PathBuf,
     pin::Pin,
     process::{Command, Stdio},
@@ -10,17 +10,10 @@ use std::{
 };
 
 use alloy::{
-    
     eips::BlockNumberOrTag,
-    genesis::{Genesis},
-    network::{
-        EthereumWallet, 
-        
-    },
-    primitives::{
-        Address, BlockHash, BlockNumber, BlockTimestamp,  StorageKey,
-        TxHash, U256,
-    },
+    genesis::Genesis,
+    network::EthereumWallet,
+    primitives::{Address, BlockHash, BlockNumber, BlockTimestamp, StorageKey, TxHash, U256},
     providers::{
         Provider, ProviderBuilder,
         ext::DebugApi,
@@ -38,14 +31,10 @@ use revive_dt_format::traits::ResolverApi;
 
 use revive_dt_config::*;
 use revive_dt_node_interaction::EthereumNode;
-use tracing::{  instrument};
+use tracing::instrument;
 use zombienet_sdk::{LocalFileSystem, NetworkConfigBuilder, NetworkConfigExt};
 
-use crate::{
-    Node,
-    common::FallbackGasFiller,
-    substrate::{ReviveNetwork},
-};
+use crate::{Node, common::FallbackGasFiller, substrate::ReviveNetwork};
 
 static NODE_COUNT: AtomicU32 = AtomicU32::new(0);
 
@@ -61,6 +50,7 @@ pub struct ZombieNode {
     chain_id_filler: ChainIdFiller,
     network_config: Option<zombienet_sdk::NetworkConfig>,
     network: Option<zombienet_sdk::Network<LocalFileSystem>>,
+    eth_rpc_process: Option<std::process::Child>,
 }
 
 impl ZombieNode {
@@ -118,7 +108,7 @@ impl ZombieNode {
                 p.with_id(Self::PARACHAIN_ID).with_collator(|n| {
                     n.with_name("collator")
                         .with_command(node_binary)
-                        .with_ws_port(Self::BASE_RPC_PORT + self.id as u16)
+                        .with_rpc_port(Self::BASE_RPC_PORT + self.id as u16)
                 })
             })
             .build()
@@ -143,15 +133,20 @@ impl ZombieNode {
 
         tracing::info!("Zombienet network is up");
 
-        let ws_uri = network
-            .parachain(Self::PARACHAIN_ID)
-            .context("Failed to get parachain from zombienet network")?
-            .collators()
-            .first()
-            .context("No collators found in zombienet parachain")?
-            .ws_uri();
-        let ws_uri = ws_uri.replace("ws", "http");
-        self.connection_string = ws_uri.to_string();
+        let log_file =
+            std::fs::File::create("eth-rpc.log").context("Failed to create eth-rpc log file")?;
+        let mut child = Command::new("eth-rpc")
+            .stdout(Stdio::from(log_file.try_clone()?))
+            .stderr(Stdio::from(log_file))
+            .spawn()
+            .context("Failed to spawn eth-rpc --dev process")?;
+
+        // Give eth-rpc some time to start
+        std::thread::sleep(std::time::Duration::from_secs(25));
+        tracing::info!("eth-rpc is up");
+
+        self.connection_string = "http://localhost:8545".to_string();
+        self.eth_rpc_process = Some(child);
         self.network = Some(network);
 
         Ok(())
@@ -166,7 +161,7 @@ impl ZombieNode {
             anyhow::bail!("Node not initialized, call spawn() first");
         };
 
-    ProviderBuilder::new()
+        ProviderBuilder::new()
             .disable_recommended_fillers()
             .network::<ReviveNetwork>()
             .filler(FallbackGasFiller::new(
