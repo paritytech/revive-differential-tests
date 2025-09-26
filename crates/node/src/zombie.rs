@@ -1,6 +1,33 @@
+//! # ZombieNode Implementation
+//! 
+//! ## Required Binaries
+//! This module requires the following binaries to be compiled and available in your PATH:
+//! 
+//! 1. **polkadot-parachain**: 
+//!    ```bash
+//!    git clone https://github.com/paritytech/polkadot-sdk.git
+//!    cd polkadot-sdk
+//!    cargo build --release --locked -p polkadot-parachain-bin --bin polkadot-parachain
+//!    ```
+//! 
+//! 2. **eth-rpc** (Revive EVM RPC server):
+//!    ```bash
+//!    git clone https://github.com/paritytech/polkadot-sdk.git
+//!    cd polkadot-sdk
+//!    cargo build --locked --profile production -p pallet-revive-eth-rpc --bin eth-rpc
+//!    ```
+//! 
+//! 3. **polkadot** (for the relay chain):
+//!    ```bash
+//!    # In polkadot-sdk directory
+//!    cargo build --release -p polkadot
+//!    ```
+//! 
+//! Make sure to add the build output directories to your PATH or provide 
+//! the full paths in your configuration.
+
 use std::{
     fs::{create_dir_all, remove_dir_all},
-    net::TcpListener,
     path::PathBuf,
     pin::Pin,
     process::{Command, Stdio},
@@ -20,12 +47,9 @@ use alloy::{
         ext::DebugApi,
         fillers::{CachedNonceManager, ChainIdFiller, FillProvider, NonceFiller, TxFiller},
     },
-    rpc::{
-        self,
-        types::{
-            EIP1186AccountProofResponse, TransactionReceipt,
-            trace::geth::{DiffMode, GethDebugTracingOptions, PreStateConfig, PreStateFrame},
-        },
+    rpc::types::{
+        EIP1186AccountProofResponse, TransactionReceipt,
+        trace::geth::{DiffMode, GethDebugTracingOptions, PreStateConfig, PreStateFrame},
     },
 };
 
@@ -47,6 +71,9 @@ use crate::{
 
 static NODE_COUNT: AtomicU32 = AtomicU32::new(0);
 
+/// A Zombienet network where collator is `polkadot-parachain` node with `eth-rpc`
+/// [`ZombieNode`] abstracts away the details of managing the zombienet network and provides
+/// an interface to interact with the parachain's Ethereum RPC.
 #[derive(Debug, Default)]
 pub struct ZombieNode {
     id: u32,
@@ -61,7 +88,6 @@ pub struct ZombieNode {
     network_config: Option<zombienet_sdk::NetworkConfig>,
     network: Option<zombienet_sdk::Network<LocalFileSystem>>,
     eth_rpc_process: Option<std::process::Child>,
-    rpc_port: Option<u16>,
 }
 
 impl ZombieNode {
@@ -106,7 +132,6 @@ impl ZombieNode {
             network: None,
             eth_rpc_process: None,
             connection_string: String::new(),
-            rpc_port: None,
         }
     }
 
@@ -121,7 +146,10 @@ impl ZombieNode {
 
         let template_chainspec_path = self.base_directory.join(Self::CHAIN_SPEC_JSON_FILE);
         self.prepare_chainspec(template_chainspec_path.clone(), genesis)?;
-        let node_binary = self.node_binary.to_str().unwrap_or_default();
+        let node_binary = self
+            .node_binary
+            .to_str()
+            .context("Invalid node binary path")?;
 
         let network_config = NetworkConfigBuilder::new()
             .with_relaychain(|r| {
@@ -251,10 +279,10 @@ impl ZombieNode {
             json!(merged_balances);
 
         let writer = std::fs::File::create(&template_chainspec_path)
-            .context("Failed to create substrate template chainspec file")?;
+            .context("Failed to create template chainspec file")?;
 
         serde_json::to_writer_pretty(writer, &chainspec_json)
-            .context("Failed to write substrate template chainspec JSON")?;
+            .context("Failed to write template chainspec JSON")?;
 
         Ok(())
     }
@@ -267,14 +295,14 @@ impl ZombieNode {
             .alloc
             .iter()
             .try_fold(Vec::new(), |mut vec, (address, acc)| {
-                let substrate_address = Self::eth_to_substrate_address(address);
+                let polkadot_address = Self::eth_to_polkadot_address(address);
                 let balance = acc.balance.try_into()?;
-                vec.push((substrate_address, balance));
+                vec.push((polkadot_address, balance));
                 Ok(vec)
             })
     }
 
-    fn eth_to_substrate_address(address: &Address) -> String {
+    fn eth_to_polkadot_address(address: &Address) -> String {
         let eth_bytes = address.0.0;
 
         let mut padded = [0xEEu8; 32];
@@ -448,7 +476,7 @@ impl<F: TxFiller<ReviveNetwork>, P: Provider<ReviveNetwork>> ResolverApi
         Box::pin(async move { self.provider.get_chain_id().await.map_err(Into::into) })
     }
 
-    #[instrument(level = "info", skip_all, fields(substrate_node_id = self.id))]
+    #[instrument(level = "info", skip_all, fields(zombie_node_id = self.id))]
     fn transaction_gas_price(
         &self,
         tx_hash: TxHash,
@@ -462,7 +490,7 @@ impl<F: TxFiller<ReviveNetwork>, P: Provider<ReviveNetwork>> ResolverApi
         })
     }
 
-    #[instrument(level = "info", skip_all, fields(substrate_node_id = self.id))]
+    #[instrument(level = "info", skip_all, fields(zombie_node_id = self.id))]
     fn block_gas_limit(
         &self,
         number: BlockNumberOrTag,
@@ -565,20 +593,29 @@ impl<F: TxFiller<ReviveNetwork>, P: Provider<ReviveNetwork>> ResolverApi
 
 impl Node for ZombieNode {
     fn shutdown(&mut self) -> anyhow::Result<()> {
-        // TODO: destroy the zombienet network properly
-
-        let base_directory = self.base_directory.clone();
-        let data_directory = PathBuf::from(Self::DATA_DIRECTORY);
-
-        // Take the process handle
-        let eth_rpc_process = self.eth_rpc_process.take();
         // Kill the eth_rpc process
-        let _ = eth_rpc_process.map(|mut child| child.kill());
+        if let Some(mut child) = self.eth_rpc_process.take() {
+            child.kill().context("Failed to kill eth-rpc process")?;
+        }
+
+        // Destroy the network
+        if let Some(network) = self.network.take() {
+            // Handle network cleanup here
+            tokio::task::spawn_blocking(move || {
+                let rt = tokio::runtime::Runtime::new().unwrap();
+                rt.block_on(async {
+                    if let Err(e) = network.destroy().await {
+                        tracing::warn!("Failed to destroy zombienet network: {e:?}");
+                    }
+                })
+            });
+        }
 
         // Remove the database directory
-        let _ = remove_dir_all(base_directory.join(data_directory));
+        if let Err(e) = remove_dir_all(self.base_directory.join(Self::DATA_DIRECTORY)) {
+            tracing::warn!("Failed to remove database directory: {e:?}");
+        }
 
-        // Return immediately
         Ok(())
     }
 
@@ -610,37 +647,42 @@ impl Drop for ZombieNode {
 #[cfg(test)]
 mod tests {
     use alloy::rpc::types::TransactionRequest;
-    use std::sync::Mutex;
 
     use super::*;
-    use crate::Node;
 
-    fn test_config() -> TestExecutionContext {
-        let mut context = TestExecutionContext::default();
-        context.zombienet_configuration.use_zombienet = true;
-        context
+    mod utils {
+        use super::*;
+        use std::sync::Mutex;
+
+        pub fn test_config() -> TestExecutionContext {
+            let mut context = TestExecutionContext::default();
+            context.zombienet_configuration.use_zombienet = true;
+            context
+        }
+
+        pub async fn new_node() -> (TestExecutionContext, ZombieNode) {
+            // Workaround - check substrate.rs for explanation
+            static NODE_START_MUTEX: Mutex<()> = Mutex::new(());
+            let _guard = NODE_START_MUTEX.lock().unwrap();
+
+            let context = test_config();
+            let mut node = ZombieNode::new(context.zombienet_configuration.path.clone(), &context);
+            let genesis = context.genesis_configuration.genesis().unwrap().clone();
+            node.init(genesis).unwrap();
+
+            // Run spawn_process in a blocking thread
+            let node = tokio::task::spawn_blocking(move || {
+                node.spawn_process().unwrap();
+                node
+            })
+            .await
+            .expect("Failed to spawn process");
+
+            (context, node)
+        }
     }
 
-    async fn new_node() -> (TestExecutionContext, ZombieNode) {
-        // Workaround - check substrate.rs for explanation
-        static NODE_START_MUTEX: Mutex<()> = Mutex::new(());
-        let _guard = NODE_START_MUTEX.lock().unwrap();
-
-        let context = test_config();
-        let mut node = ZombieNode::new(context.zombienet_configuration.path.clone(), &context);
-        let genesis = context.genesis_configuration.genesis().unwrap().clone();
-        node.init(genesis).unwrap();
-
-        // Run spawn_process in a blocking thread
-        let node = tokio::task::spawn_blocking(move || {
-            node.spawn_process().unwrap();
-            node
-        })
-        .await
-        .expect("Failed to spawn process");
-
-        (context, node)
-    }
+    use utils::{new_node, test_config};
 
     #[test]
     fn test_init_generates_chainspec_with_balances() {
@@ -675,21 +717,21 @@ mod tests {
         let contents =
             std::fs::read_to_string(&final_chainspec_path).expect("Failed to read chainspec");
 
-        // Validate that the Substrate addresses derived from the Ethereum addresses are in the file
-        let first_eth_addr = ZombieNode::eth_to_substrate_address(
+        // Validate that the Polkadot addresses derived from the Ethereum addresses are in the file
+        let first_eth_addr = ZombieNode::eth_to_polkadot_address(
             &"90F8bf6A479f320ead074411a4B0e7944Ea8c9C1".parse().unwrap(),
         );
-        let second_eth_addr = ZombieNode::eth_to_substrate_address(
+        let second_eth_addr = ZombieNode::eth_to_polkadot_address(
             &"Ab8483F64d9C6d1EcF9b849Ae677dD3315835cb2".parse().unwrap(),
         );
 
         assert!(
             contents.contains(&first_eth_addr),
-            "Chainspec should contain Substrate address for first Ethereum account"
+            "Chainspec should contain Polkadot address for first Ethereum account"
         );
         assert!(
             contents.contains(&second_eth_addr),
-            "Chainspec should contain Substrate address for second Ethereum account"
+            "Chainspec should contain Polkadot address for second Ethereum account"
         );
     }
 
@@ -740,14 +782,14 @@ mod tests {
         ];
 
         for eth_addr in eth_addresses {
-            let ss58 = ZombieNode::eth_to_substrate_address(&eth_addr.parse().unwrap());
+            let ss58 = ZombieNode::eth_to_polkadot_address(&eth_addr.parse().unwrap());
 
-            println!("Ethereum: {eth_addr} -> Substrate SS58: {ss58}");
+            println!("Ethereum: {eth_addr} -> Polkadot SS58: {ss58}");
         }
     }
 
     #[test]
-    fn test_eth_to_substrate_address() {
+    fn test_eth_to_polkadot_address() {
         let cases = vec![
             (
                 "0x90F8bf6A479f320ead074411a4B0e7944Ea8c9C1",
@@ -768,7 +810,7 @@ mod tests {
         ];
 
         for (eth_addr, expected_ss58) in cases {
-            let result = ZombieNode::eth_to_substrate_address(&eth_addr.parse().unwrap());
+            let result = ZombieNode::eth_to_polkadot_address(&eth_addr.parse().unwrap());
             assert_eq!(
                 result, expected_ss58,
                 "Mismatch for Ethereum address {eth_addr}"
