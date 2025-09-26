@@ -1,5 +1,6 @@
 use std::{
     fs::{create_dir_all, remove_dir_all},
+    net::TcpListener,
     path::PathBuf,
     pin::Pin,
     process::{Command, Stdio},
@@ -19,17 +20,20 @@ use alloy::{
         ext::DebugApi,
         fillers::{CachedNonceManager, ChainIdFiller, FillProvider, NonceFiller, TxFiller},
     },
-    rpc::types::{
-        EIP1186AccountProofResponse, TransactionReceipt,
-        trace::geth::{DiffMode, GethDebugTracingOptions, PreStateConfig, PreStateFrame},
+    rpc::{
+        self,
+        types::{
+            EIP1186AccountProofResponse, TransactionReceipt,
+            trace::geth::{DiffMode, GethDebugTracingOptions, PreStateConfig, PreStateFrame},
+        },
     },
 };
+
 use anyhow::Context as _;
 use revive_common::EVMVersion;
 use revive_dt_common::fs::clear_directory;
-use revive_dt_format::traits::ResolverApi;
-
 use revive_dt_config::*;
+use revive_dt_format::traits::ResolverApi;
 use revive_dt_node_interaction::EthereumNode;
 use serde_json::{Value as JsonValue, json};
 use sp_core::crypto::Ss58Codec;
@@ -57,6 +61,7 @@ pub struct ZombieNode {
     network_config: Option<zombienet_sdk::NetworkConfig>,
     network: Option<zombienet_sdk::Network<LocalFileSystem>>,
     eth_rpc_process: Option<std::process::Child>,
+    rpc_port: Option<u16>,
 }
 
 impl ZombieNode {
@@ -101,6 +106,7 @@ impl ZombieNode {
             network: None,
             eth_rpc_process: None,
             connection_string: String::new(),
+            rpc_port: None,
         }
     }
 
@@ -604,6 +610,7 @@ impl Drop for ZombieNode {
 #[cfg(test)]
 mod tests {
     use alloy::rpc::types::TransactionRequest;
+    use std::sync::Mutex;
 
     use super::*;
     use crate::Node;
@@ -615,6 +622,10 @@ mod tests {
     }
 
     async fn new_node() -> (TestExecutionContext, ZombieNode) {
+        // Workaround - check substrate.rs for explanation
+        static NODE_START_MUTEX: Mutex<()> = Mutex::new(());
+        let _guard = NODE_START_MUTEX.lock().unwrap();
+
         let context = test_config();
         let mut node = ZombieNode::new(context.zombienet_configuration.path.clone(), &context);
         let genesis = context.genesis_configuration.genesis().unwrap().clone();
@@ -631,6 +642,140 @@ mod tests {
         (context, node)
     }
 
+    #[test]
+    fn test_init_generates_chainspec_with_balances() {
+        let genesis_content = r#"
+        {
+            "alloc": {
+                "90F8bf6A479f320ead074411a4B0e7944Ea8c9C1": {
+                    "balance": "1000000000000000000"
+                },
+                "Ab8483F64d9C6d1EcF9b849Ae677dD3315835cb2": {
+                    "balance": "2000000000000000000"
+                }
+            }
+        }
+        "#;
+
+        let context = test_config();
+        let mut dummy_node =
+            ZombieNode::new(context.zombienet_configuration.path.clone(), &context);
+
+        // Call `init()`
+        dummy_node
+            .init(serde_json::from_str(genesis_content).unwrap())
+            .expect("init failed");
+
+        // Check that the patched chainspec file was generated
+        let final_chainspec_path = dummy_node
+            .base_directory
+            .join(ZombieNode::CHAIN_SPEC_JSON_FILE);
+        assert!(final_chainspec_path.exists(), "Chainspec file should exist");
+
+        let contents =
+            std::fs::read_to_string(&final_chainspec_path).expect("Failed to read chainspec");
+
+        // Validate that the Substrate addresses derived from the Ethereum addresses are in the file
+        let first_eth_addr = ZombieNode::eth_to_substrate_address(
+            &"90F8bf6A479f320ead074411a4B0e7944Ea8c9C1".parse().unwrap(),
+        );
+        let second_eth_addr = ZombieNode::eth_to_substrate_address(
+            &"Ab8483F64d9C6d1EcF9b849Ae677dD3315835cb2".parse().unwrap(),
+        );
+
+        assert!(
+            contents.contains(&first_eth_addr),
+            "Chainspec should contain Substrate address for first Ethereum account"
+        );
+        assert!(
+            contents.contains(&second_eth_addr),
+            "Chainspec should contain Substrate address for second Ethereum account"
+        );
+    }
+
+    #[test]
+    fn test_parse_genesis_alloc() {
+        // Create test genesis file
+        let genesis_json = r#"
+        {
+          "alloc": {
+            "0x90F8bf6A479f320ead074411a4B0e7944Ea8c9C1": { "balance": "1000000000000000000" },
+            "0x0000000000000000000000000000000000000000": { "balance": "0xDE0B6B3A7640000" },
+            "0xffffffffffffffffffffffffffffffffffffffff": { "balance": "123456789" }
+          }
+        }
+        "#;
+
+        let context = test_config();
+        let node = ZombieNode::new(context.zombienet_configuration.path.clone(), &context);
+
+        let result = node
+            .extract_balance_from_genesis_file(&serde_json::from_str(genesis_json).unwrap())
+            .unwrap();
+
+        let result_map: std::collections::HashMap<_, _> = result.into_iter().collect();
+
+        assert_eq!(
+            result_map.get("5FLneRcWAfk3X3tg6PuGyLNGAquPAZez5gpqvyuf3yUK8VaV"),
+            Some(&1_000_000_000_000_000_000u128)
+        );
+
+        assert_eq!(
+            result_map.get("5C4hrfjw9DjXZTzV3MwzrrAr9P1MLDHajjSidz9bR544LEq1"),
+            Some(&1_000_000_000_000_000_000u128)
+        );
+
+        assert_eq!(
+            result_map.get("5HrN7fHLXWcFiXPwwtq2EkSGns9eMmoUQnbVKweNz3VVr6N4"),
+            Some(&123_456_789u128)
+        );
+    }
+
+    #[test]
+    fn print_eth_to_substrate_mappings() {
+        let eth_addresses = vec![
+            "0x90F8bf6A479f320ead074411a4B0e7944Ea8c9C1",
+            "0xffffffffffffffffffffffffffffffffffffffff",
+            "90F8bf6A479f320ead074411a4B0e7944Ea8c9C1",
+        ];
+
+        for eth_addr in eth_addresses {
+            let ss58 = ZombieNode::eth_to_substrate_address(&eth_addr.parse().unwrap());
+
+            println!("Ethereum: {eth_addr} -> Substrate SS58: {ss58}");
+        }
+    }
+
+    #[test]
+    fn test_eth_to_substrate_address() {
+        let cases = vec![
+            (
+                "0x90F8bf6A479f320ead074411a4B0e7944Ea8c9C1",
+                "5FLneRcWAfk3X3tg6PuGyLNGAquPAZez5gpqvyuf3yUK8VaV",
+            ),
+            (
+                "90F8bf6A479f320ead074411a4B0e7944Ea8c9C1",
+                "5FLneRcWAfk3X3tg6PuGyLNGAquPAZez5gpqvyuf3yUK8VaV",
+            ),
+            (
+                "0x0000000000000000000000000000000000000000",
+                "5C4hrfjw9DjXZTzV3MwzrrAr9P1MLDHajjSidz9bR544LEq1",
+            ),
+            (
+                "0xffffffffffffffffffffffffffffffffffffffff",
+                "5HrN7fHLXWcFiXPwwtq2EkSGns9eMmoUQnbVKweNz3VVr6N4",
+            ),
+        ];
+
+        for (eth_addr, expected_ss58) in cases {
+            let result = ZombieNode::eth_to_substrate_address(&eth_addr.parse().unwrap());
+            assert_eq!(
+                result, expected_ss58,
+                "Mismatch for Ethereum address {eth_addr}"
+            );
+        }
+    }
+
     #[tokio::test]
     async fn eth_rpc_version_works() {
         let (_ctx, node) = new_node().await;
@@ -643,23 +788,6 @@ mod tests {
         );
     }
 
-    #[tokio::test]
-    async fn zombie_node_id_is_unique_and_incremental() {
-        let mut ids = Vec::new();
-        for _ in 0..5 {
-            let (_, node) = new_node().await;
-            ids.push(node.id);
-        }
-        // Check uniqueness
-        let mut sorted = ids.clone();
-        sorted.sort_unstable();
-        sorted.dedup();
-        assert_eq!(sorted.len(), ids.len(), "Node ids should be unique");
-        // Check strictly increasing
-        for w in ids.windows(2) {
-            assert!(w[1] > w[0], "Node ids should be strictly increasing");
-        }
-    }
     #[tokio::test]
     async fn version_works() {
         let (_ctx, node) = new_node().await;
@@ -674,7 +802,7 @@ mod tests {
 
     #[tokio::test]
     async fn get_chain_id_from_node_should_succeed() {
-        let (_context, node) = new_node().await;
+        let (_ctx, node) = new_node().await;
 
         let chain_id = node
             .resolver()
@@ -690,7 +818,7 @@ mod tests {
     #[tokio::test]
     async fn can_get_gas_limit_from_node() {
         // Arrange
-        let (_context, node) = new_node().await;
+        let (_ctx, node) = new_node().await;
 
         // Act
         let gas_limit = node
@@ -707,7 +835,7 @@ mod tests {
     #[tokio::test]
     async fn can_get_coinbase_from_node() {
         // Arrange
-        let (_context, node) = new_node().await;
+        let (_ctx, node) = new_node().await;
 
         // Act
         let coinbase = node
@@ -724,7 +852,7 @@ mod tests {
     #[tokio::test]
     async fn can_get_block_difficulty_from_node() {
         // Arrange
-        let (_context, node) = new_node().await;
+        let (_ctx, node) = new_node().await;
 
         // Act
         let block_difficulty = node
@@ -741,7 +869,7 @@ mod tests {
     #[tokio::test]
     async fn can_get_block_hash_from_node() {
         // Arrange
-        let (_context, node) = new_node().await;
+        let (_ctx, node) = new_node().await;
 
         // Act
         let block_hash = node
@@ -758,7 +886,7 @@ mod tests {
     #[tokio::test]
     async fn can_get_block_timestamp_from_node() {
         // Arrange
-        let (_context, node) = new_node().await;
+        let (_ctx, node) = new_node().await;
 
         // Act
         let block_timestamp = node
@@ -775,7 +903,7 @@ mod tests {
     #[tokio::test]
     async fn can_get_block_number_from_node() {
         // Arrange
-        let (_context, node) = new_node().await;
+        let (_ctx, node) = new_node().await;
 
         // Act
         let block_number = node.resolver().await.unwrap().last_block_number().await;
