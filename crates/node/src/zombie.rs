@@ -11,8 +11,8 @@ use std::{
 
 use alloy::{
     eips::BlockNumberOrTag,
-    genesis::Genesis,
-    network::EthereumWallet,
+    genesis::{Genesis, GenesisAccount},
+    network::{Ethereum, EthereumWallet, NetworkWallet},
     primitives::{Address, BlockHash, BlockNumber, BlockTimestamp, StorageKey, TxHash, U256},
     providers::{
         Provider, ProviderBuilder,
@@ -31,10 +31,15 @@ use revive_dt_format::traits::ResolverApi;
 
 use revive_dt_config::*;
 use revive_dt_node_interaction::EthereumNode;
+use serde_json::{Value as JsonValue, json};
+use sp_core::crypto::Ss58Codec;
+use sp_runtime::AccountId32;
 use tracing::instrument;
 use zombienet_sdk::{LocalFileSystem, NetworkConfigBuilder, NetworkConfigExt};
 
-use crate::{Node, common::FallbackGasFiller, substrate::ReviveNetwork};
+use crate::{
+    Node, common::FallbackGasFiller, constants::INITIAL_BALANCE, substrate::ReviveNetwork,
+};
 
 static NODE_COUNT: AtomicU32 = AtomicU32::new(0);
 
@@ -45,6 +50,7 @@ pub struct ZombieNode {
     connection_string: String,
     base_directory: PathBuf,
     logs_directory: PathBuf,
+    eth_proxy_binary: PathBuf,
     wallet: Arc<EthereumWallet>,
     nonce_manager: CachedNonceManager,
     chain_id_filler: ChainIdFiller,
@@ -61,12 +67,18 @@ impl ZombieNode {
     const BASE_RPC_PORT: u16 = 9944;
     const PARACHAIN_ID: u32 = 100;
 
+    const EXPORT_CHAINSPEC_COMMAND: &str = "build-spec";
+    const CHAIN_SPEC_JSON_FILE: &str = "template_chainspec.json";
+
     pub fn new(
         node_path: PathBuf,
         context: impl AsRef<WorkingDirectoryConfiguration>
         + AsRef<EthRpcConfiguration>
         + AsRef<WalletConfiguration>,
     ) -> Self {
+        let eth_proxy_binary = AsRef::<EthRpcConfiguration>::as_ref(&context)
+            .path
+            .to_owned();
         let working_directory_path = AsRef::<WorkingDirectoryConfiguration>::as_ref(&context);
         let id = NODE_COUNT.fetch_add(1, Ordering::SeqCst);
         let base_directory = working_directory_path
@@ -82,11 +94,17 @@ impl ZombieNode {
             logs_directory,
             wallet,
             node_binary: node_path,
-            ..Default::default()
+            eth_proxy_binary,
+            nonce_manager: CachedNonceManager::default(),
+            chain_id_filler: ChainIdFiller::default(),
+            network_config: None,
+            network: None,
+            eth_rpc_process: None,
+            connection_string: String::new(),
         }
     }
 
-    fn init(&mut self, _genesis: Genesis) -> anyhow::Result<&mut Self> {
+    fn init(&mut self, genesis: Genesis) -> anyhow::Result<&mut Self> {
         let _ = clear_directory(&self.base_directory);
         let _ = clear_directory(&self.logs_directory);
 
@@ -95,6 +113,8 @@ impl ZombieNode {
         create_dir_all(&self.logs_directory)
             .context("Failed to create logs directory for zombie node")?;
 
+        let template_chainspec_path = self.base_directory.join(Self::CHAIN_SPEC_JSON_FILE);
+        self.prepare_chainspec(template_chainspec_path.clone(), genesis)?;
         let node_binary = self.node_binary.to_str().unwrap_or_default();
 
         let network_config = NetworkConfigBuilder::new()
@@ -105,11 +125,14 @@ impl ZombieNode {
             })
             .with_global_settings(|g| g.with_base_dir(&self.base_directory))
             .with_parachain(|p| {
-                p.with_id(Self::PARACHAIN_ID).with_collator(|n| {
-                    n.with_name("collator")
-                        .with_command(node_binary)
-                        .with_rpc_port(Self::BASE_RPC_PORT + self.id as u16)
-                })
+                p.with_id(Self::PARACHAIN_ID)
+                    .with_chain_spec_path(template_chainspec_path.to_str().unwrap())
+                    .with_chain("asset-hub-westend-local")
+                    .with_collator(|n| {
+                        n.with_name("Collator")
+                            .with_command(node_binary)
+                            .with_rpc_port(Self::BASE_RPC_PORT + self.id as u16)
+                    })
             })
             .build()
             .map_err(|e| anyhow::anyhow!("Failed to build zombienet network config: {e:?}"))?;
@@ -135,14 +158,19 @@ impl ZombieNode {
 
         let log_file =
             std::fs::File::create("eth-rpc.log").context("Failed to create eth-rpc log file")?;
-        let mut child = Command::new("eth-rpc")
+        let child = Command::new("eth-rpc")
+            .arg("--rpc-cors")
+            .arg("all")
+            .arg("--rpc-methods")
+            .arg("Unsafe")
+            .arg("--rpc-max-connections")
+            .arg(u32::MAX.to_string())
             .stdout(Stdio::from(log_file.try_clone()?))
             .stderr(Stdio::from(log_file))
             .spawn()
-            .context("Failed to spawn eth-rpc --dev process")?;
+            .context("Failed to spawn eth-rpc process")?;
 
-        // Give eth-rpc some time to start
-        std::thread::sleep(std::time::Duration::from_secs(25));
+        std::thread::sleep(std::time::Duration::from_secs(5));
         tracing::info!("eth-rpc is up");
 
         self.connection_string = "http://localhost:8545".to_string();
@@ -150,6 +178,117 @@ impl ZombieNode {
         self.network = Some(network);
 
         Ok(())
+    }
+
+    fn prepare_chainspec(
+        &mut self,
+        template_chainspec_path: PathBuf,
+        mut genesis: Genesis,
+    ) -> anyhow::Result<()> {
+        let output = std::process::Command::new(&self.node_binary)
+            .arg(Self::EXPORT_CHAINSPEC_COMMAND)
+            .arg("--chain")
+            .arg("asset-hub-westend-local")
+            .output()
+            .context("Failed to export the chain-spec")?;
+
+        if !output.status.success() {
+            anyhow::bail!(
+                "Build chain-spec failed: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+
+        let content = String::from_utf8(output.stdout)
+            .context("Failed to decode collators chain-spec output as UTF-8")?;
+        let mut chainspec_json: JsonValue =
+            serde_json::from_str(&content).context("Failed to parse collators chain spec JSON")?;
+
+        let existing_chainspec_balances =
+            chainspec_json["genesis"]["runtimeGenesis"]["patch"]["balances"]["balances"]
+                .as_array()
+                .cloned()
+                .unwrap_or_default();
+
+        let mut merged_balances: Vec<(String, u128)> = existing_chainspec_balances
+            .into_iter()
+            .filter_map(|val| {
+                if let Some(arr) = val.as_array() {
+                    if arr.len() == 2 {
+                        let account = arr[0].as_str()?.to_string();
+                        let balance = arr[1].as_f64()? as u128;
+                        return Some((account, balance));
+                    }
+                }
+                None
+            })
+            .collect();
+
+        let mut eth_balances = {
+            for signer_address in
+                <EthereumWallet as NetworkWallet<Ethereum>>::signer_addresses(&self.wallet)
+            {
+                // Note, the use of the entry API here means that we only modify the entries for any
+                // account that is not in the `alloc` field of the genesis state.
+                genesis
+                    .alloc
+                    .entry(signer_address)
+                    .or_insert(GenesisAccount::default().with_balance(U256::from(INITIAL_BALANCE)));
+            }
+            self.extract_balance_from_genesis_file(&genesis)
+                .context("Failed to extract balances from EVM genesis JSON")?
+        };
+
+        merged_balances.append(&mut eth_balances);
+
+        chainspec_json["genesis"]["runtimeGenesis"]["patch"]["balances"]["balances"] =
+            json!(merged_balances);
+
+        let writer = std::fs::File::create(&template_chainspec_path)
+            .context("Failed to create substrate template chainspec file")?;
+
+        serde_json::to_writer_pretty(writer, &chainspec_json)
+            .context("Failed to write substrate template chainspec JSON")?;
+
+        Ok(())
+    }
+
+    fn extract_balance_from_genesis_file(
+        &self,
+        genesis: &Genesis,
+    ) -> anyhow::Result<Vec<(String, u128)>> {
+        genesis
+            .alloc
+            .iter()
+            .try_fold(Vec::new(), |mut vec, (address, acc)| {
+                let substrate_address = Self::eth_to_substrate_address(address);
+                let balance = acc.balance.try_into()?;
+                vec.push((substrate_address, balance));
+                Ok(vec)
+            })
+    }
+
+    fn eth_to_substrate_address(address: &Address) -> String {
+        let eth_bytes = address.0.0;
+
+        let mut padded = [0xEEu8; 32];
+        padded[..20].copy_from_slice(&eth_bytes);
+
+        let account_id = AccountId32::from(padded);
+        account_id.to_ss58check()
+    }
+
+    pub fn eth_rpc_version(&self) -> anyhow::Result<String> {
+        let output = Command::new(&self.eth_proxy_binary)
+            .arg("--version")
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()?
+            .wait_with_output()?
+            .stdout;
+
+        Ok(String::from_utf8_lossy(&output).trim().to_string())
     }
 
     async fn provider(
@@ -420,21 +559,20 @@ impl<F: TxFiller<ReviveNetwork>, P: Provider<ReviveNetwork>> ResolverApi
 
 impl Node for ZombieNode {
     fn shutdown(&mut self) -> anyhow::Result<()> {
-        // Destroy the network
-        if let Some(network) = self.network.take() {
-            let rt = tokio::runtime::Runtime::new().unwrap();
-            rt.block_on(async {
-                network.destroy().await.map_err(|e| {
-                    anyhow::anyhow!("Failed to terminate zombienet network processes: {e:?}")
-                })
-            })?;
-        }
+        // TODO: destroy the zombienet network properly
 
-        // Remove the node's database so that subsequent runs do not run on the same database. We
-        // ignore the error just in case the directory didn't exist in the first place and therefore
-        // there's nothing to be deleted.
-        let _ = remove_dir_all(self.base_directory.join(Self::DATA_DIRECTORY));
+        let base_directory = self.base_directory.clone();
+        let data_directory = PathBuf::from(Self::DATA_DIRECTORY);
 
+        // Take the process handle
+        let eth_rpc_process = self.eth_rpc_process.take();
+        // Kill the eth_rpc process
+        let _ = eth_rpc_process.map(|mut child| child.kill());
+
+        // Remove the database directory
+        let _ = remove_dir_all(base_directory.join(data_directory));
+
+        // Return immediately
         Ok(())
     }
 
@@ -456,10 +594,16 @@ impl Node for ZombieNode {
         Ok(String::from_utf8_lossy(&output).into())
     }
 }
+
+impl Drop for ZombieNode {
+    fn drop(&mut self) {
+        let _ = self.shutdown();
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use alloy::rpc::types::TransactionRequest;
-    use std::{fs, sync};
 
     use super::*;
     use crate::Node;
@@ -472,7 +616,7 @@ mod tests {
 
     async fn new_node() -> (TestExecutionContext, ZombieNode) {
         let context = test_config();
-        let mut node = ZombieNode::new("polkadot-parachain".into(), &context);
+        let mut node = ZombieNode::new(context.zombienet_configuration.path.clone(), &context);
         let genesis = context.genesis_configuration.genesis().unwrap().clone();
         node.init(genesis).unwrap();
 
@@ -485,6 +629,18 @@ mod tests {
         .expect("Failed to spawn process");
 
         (context, node)
+    }
+
+    #[tokio::test]
+    async fn eth_rpc_version_works() {
+        let (_ctx, node) = new_node().await;
+
+        let version = node.eth_rpc_version().unwrap();
+
+        assert!(
+            version.starts_with("pallet-revive-eth-rpc"),
+            "Expected eth-rpc version string, got: {version}"
+        );
     }
 
     #[tokio::test]
@@ -504,16 +660,16 @@ mod tests {
             assert!(w[1] > w[0], "Node ids should be strictly increasing");
         }
     }
-
     #[tokio::test]
-    async fn zombie_node_spawn() {
-        let (context, mut node) = new_node().await;
-        let genesis = context.genesis_configuration.genesis().unwrap().clone();
-        let network = node.init(genesis).unwrap();
+    async fn version_works() {
+        let (_ctx, node) = new_node().await;
 
-        let result = network.spawn_process();
+        let version = node.version().unwrap();
 
-        assert!(result.is_ok(), "Zombienet should spawn successfully");
+        assert!(
+            version.starts_with("polkadot-parachain"),
+            "Expected Polkadot-parachain version string, got: {version}"
+        );
     }
 
     #[tokio::test]
@@ -528,22 +684,109 @@ mod tests {
             .await
             .expect("Failed to get chain id");
 
-        assert_eq!(chain_id, 420_420_420, "Chain id should be 420_420_420");
+        assert_eq!(chain_id, 420_420_421, "Chain id should be 420_420_421");
+    }
+
+    #[tokio::test]
+    async fn can_get_gas_limit_from_node() {
+        // Arrange
+        let (_context, node) = new_node().await;
+
+        // Act
+        let gas_limit = node
+            .resolver()
+            .await
+            .unwrap()
+            .block_gas_limit(BlockNumberOrTag::Latest)
+            .await;
+        println!("Gas limit: {:?}", gas_limit);
+        // Assert
+        let _ = gas_limit.expect("Failed to get the gas limit");
+    }
+
+    #[tokio::test]
+    async fn can_get_coinbase_from_node() {
+        // Arrange
+        let (_context, node) = new_node().await;
+
+        // Act
+        let coinbase = node
+            .resolver()
+            .await
+            .unwrap()
+            .block_coinbase(BlockNumberOrTag::Latest)
+            .await;
+
+        // Assert
+        let _ = coinbase.expect("Failed to get the coinbase");
+    }
+
+    #[tokio::test]
+    async fn can_get_block_difficulty_from_node() {
+        // Arrange
+        let (_context, node) = new_node().await;
+
+        // Act
+        let block_difficulty = node
+            .resolver()
+            .await
+            .unwrap()
+            .block_difficulty(BlockNumberOrTag::Latest)
+            .await;
+
+        // Assert
+        let _ = block_difficulty.expect("Failed to get the block difficulty");
+    }
+
+    #[tokio::test]
+    async fn can_get_block_hash_from_node() {
+        // Arrange
+        let (_context, node) = new_node().await;
+
+        // Act
+        let block_hash = node
+            .resolver()
+            .await
+            .unwrap()
+            .block_hash(BlockNumberOrTag::Latest)
+            .await;
+
+        // Assert
+        let _ = block_hash.expect("Failed to get the block hash");
+    }
+
+    #[tokio::test]
+    async fn can_get_block_timestamp_from_node() {
+        // Arrange
+        let (_context, node) = new_node().await;
+
+        // Act
+        let block_timestamp = node
+            .resolver()
+            .await
+            .unwrap()
+            .block_timestamp(BlockNumberOrTag::Latest)
+            .await;
+
+        // Assert
+        let _ = block_timestamp.expect("Failed to get the block timestamp");
+    }
+
+    #[tokio::test]
+    async fn can_get_block_number_from_node() {
+        // Arrange
+        let (_context, node) = new_node().await;
+
+        // Act
+        let block_number = node.resolver().await.unwrap().last_block_number().await;
+
+        // Assert
+        let _ = block_number.expect("Failed to get the block number");
     }
 
     #[tokio::test]
     async fn test_transfer_transaction_should_return_receipt() {
-        use tracing_subscriber::filter::LevelFilter;
-        use tracing_subscriber::{EnvFilter, FmtSubscriber};
-        tracing_subscriber::fmt()
-            .with_env_filter(
-                EnvFilter::builder()
-                    .with_default_directive(LevelFilter::TRACE.into())
-                    .from_env_lossy(),
-            )
-            .init();
-
-        let (context, mut node) = new_node().await;
+        let (context, node) = new_node().await;
 
         let provider = node.provider().await.expect("Failed to create provider");
         let account_address = context

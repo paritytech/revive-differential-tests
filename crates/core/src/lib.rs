@@ -359,6 +359,102 @@ impl Platform for ReviveDevNodeRevmSolcPlatform {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Default, Hash)]
+pub struct ZombieNetPolkavmResolcPlatform;
+
+impl Platform for ZombieNetPolkavmResolcPlatform {
+    fn platform_identifier(&self) -> PlatformIdentifier {
+        PlatformIdentifier::ZombieNetPolkavmResolc
+    }
+
+    fn node_identifier(&self) -> NodeIdentifier {
+        NodeIdentifier::ZombieNet
+    }
+
+    fn vm_identifier(&self) -> VmIdentifier {
+        VmIdentifier::PolkaVM
+    }
+
+    fn compiler_identifier(&self) -> CompilerIdentifier {
+        CompilerIdentifier::Resolc
+    }
+
+    fn new_node(
+        &self,
+        context: Context,
+    ) -> anyhow::Result<JoinHandle<anyhow::Result<Box<dyn EthereumNode + Send + Sync>>>> {
+        let genesis_configuration = AsRef::<GenesisConfiguration>::as_ref(&context);
+        let zombie_net_path = AsRef::<ZombieNetConfiguration>::as_ref(&context)
+            .path
+            .clone();
+        let genesis = genesis_configuration.genesis()?.clone();
+        Ok(thread::spawn(move || {
+            let node = ZombieNode::new(zombie_net_path, context);
+            let node = spawn_node(node, genesis)?;
+            Ok(Box::new(node) as Box<_>)
+        }))
+    }
+
+    fn new_compiler(
+        &self,
+        context: Context,
+        version: Option<VersionOrRequirement>,
+    ) -> Pin<Box<dyn Future<Output = anyhow::Result<Box<dyn SolidityCompiler>>>>> {
+        Box::pin(async move {
+            let compiler = Solc::new(context, version).await;
+            compiler.map(|compiler| Box::new(compiler) as Box<dyn SolidityCompiler>)
+        })
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Default, Hash)]
+pub struct ZombieNetRevmSolcPlatform;
+
+impl Platform for ZombieNetRevmSolcPlatform {
+    fn platform_identifier(&self) -> PlatformIdentifier {
+        PlatformIdentifier::ZombieNetRevmSolc
+    }
+
+    fn node_identifier(&self) -> NodeIdentifier {
+        NodeIdentifier::ZombieNet
+    }
+
+    fn vm_identifier(&self) -> VmIdentifier {
+        VmIdentifier::Evm
+    }
+
+    fn compiler_identifier(&self) -> CompilerIdentifier {
+        CompilerIdentifier::Solc
+    }
+
+    fn new_node(
+        &self,
+        context: Context,
+    ) -> anyhow::Result<JoinHandle<anyhow::Result<Box<dyn EthereumNode + Send + Sync>>>> {
+        let genesis_configuration = AsRef::<GenesisConfiguration>::as_ref(&context);
+        let zombie_net_path = AsRef::<ZombieNetConfiguration>::as_ref(&context)
+            .path
+            .clone();
+        let genesis = genesis_configuration.genesis()?.clone();
+        Ok(thread::spawn(move || {
+            let node = ZombieNode::new(zombie_net_path, context);
+            let node = spawn_node(node, genesis)?;
+            Ok(Box::new(node) as Box<_>)
+        }))
+    }
+
+    fn new_compiler(
+        &self,
+        context: Context,
+        version: Option<VersionOrRequirement>,
+    ) -> Pin<Box<dyn Future<Output = anyhow::Result<Box<dyn SolidityCompiler>>>>> {
+        Box::pin(async move {
+            let compiler = Solc::new(context, version).await;
+            compiler.map(|compiler| Box::new(compiler) as Box<dyn SolidityCompiler>)
+        })
+    }
+}
+
 impl From<PlatformIdentifier> for Box<dyn Platform> {
     fn from(value: PlatformIdentifier) -> Self {
         match value {
@@ -378,6 +474,10 @@ impl From<PlatformIdentifier> for Box<dyn Platform> {
             PlatformIdentifier::ReviveDevNodeRevmSolc => {
                 Box::new(ReviveDevNodeRevmSolcPlatform) as Box<_>
             }
+            PlatformIdentifier::ZombieNetPolkavmResolc => {
+                Box::new(ZombieNetPolkavmResolcPlatform) as Box<_>
+            }
+            PlatformIdentifier::ZombieNetRevmSolc => Box::new(ZombieNetRevmSolcPlatform) as Box<_>,
         }
     }
 }
@@ -401,6 +501,10 @@ impl From<PlatformIdentifier> for &dyn Platform {
             PlatformIdentifier::ReviveDevNodeRevmSolc => {
                 &ReviveDevNodeRevmSolcPlatform as &dyn Platform
             }
+            PlatformIdentifier::ZombieNetPolkavmResolc => {
+                &ZombieNetPolkavmResolcPlatform as &dyn Platform
+            }
+            PlatformIdentifier::ZombieNetRevmSolc => &ZombieNetRevmSolcPlatform as &dyn Platform,
         }
     }
 }
