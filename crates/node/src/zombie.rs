@@ -1,29 +1,29 @@
 //! # ZombieNode Implementation
-//! 
+//!
 //! ## Required Binaries
 //! This module requires the following binaries to be compiled and available in your PATH:
-//! 
-//! 1. **polkadot-parachain**: 
+//!
+//! 1. **polkadot-parachain**:
 //!    ```bash
 //!    git clone https://github.com/paritytech/polkadot-sdk.git
 //!    cd polkadot-sdk
 //!    cargo build --release --locked -p polkadot-parachain-bin --bin polkadot-parachain
 //!    ```
-//! 
+//!
 //! 2. **eth-rpc** (Revive EVM RPC server):
 //!    ```bash
 //!    git clone https://github.com/paritytech/polkadot-sdk.git
 //!    cd polkadot-sdk
 //!    cargo build --locked --profile production -p pallet-revive-eth-rpc --bin eth-rpc
 //!    ```
-//! 
+//!
 //! 3. **polkadot** (for the relay chain):
 //!    ```bash
 //!    # In polkadot-sdk directory
 //!    cargo build --release -p polkadot
 //!    ```
-//! 
-//! Make sure to add the build output directories to your PATH or provide 
+//!
+//! Make sure to add the build output directories to your PATH or provide
 //! the full paths in your configuration.
 
 use std::{
