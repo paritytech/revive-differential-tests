@@ -2,9 +2,15 @@
 //! used as the execution engine and doesn't perform any kind of consensus, which now happens on the
 //! beacon chain and between the beacon nodes. We're using lighthouse as the consensus node in this
 //! case with 12 second block slots which is identical to Ethereum mainnet.
+//!
+//! Ths implementation uses the Kurtosis tool to spawn the various nodes that are needed which means
+//! that this tool is now a requirement that needs to be installed in order for this target to be
+//! used. Additionally, the Kurtosis tool uses Docker and therefore docker is a another dependency
+//! that the tool has.
 
 use std::{
-    fs::{File, create_dir_all, remove_dir_all},
+    collections::BTreeMap,
+    fs::{File, create_dir_all},
     io::Read,
     ops::ControlFlow,
     path::PathBuf,
@@ -14,15 +20,16 @@ use std::{
         Arc,
         atomic::{AtomicU32, Ordering},
     },
-    time::Duration,
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 use alloy::{
     eips::BlockNumberOrTag,
     genesis::{Genesis, GenesisAccount},
-    hex,
     network::{Ethereum, EthereumWallet, NetworkWallet},
-    primitives::{Address, BlockHash, BlockNumber, BlockTimestamp, StorageKey, TxHash, U256},
+    primitives::{
+        Address, BlockHash, BlockNumber, BlockTimestamp, StorageKey, TxHash, U256, address,
+    },
     providers::{
         Provider, ProviderBuilder,
         ext::DebugApi,
@@ -35,6 +42,8 @@ use alloy::{
 };
 use anyhow::Context as _;
 use revive_common::EVMVersion;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use serde_with::serde_as;
 use tracing::{Instrument, instrument};
 
 use revive_dt_common::{
@@ -67,39 +76,20 @@ pub struct LighthouseGethNode {
     /* Node Identifier */
     id: u32,
     connection_string: String,
-
-    /* Ports */
-    execution_layer_auth_rpc_port: u16,
-    beacon_node_listening_port: u16,
-    beacon_node_http_port: u16,
-    validator_node_http_port: u16,
+    enclave_name: String,
 
     /* Directory Paths */
     base_directory: PathBuf,
     logs_directory: PathBuf,
-    execution_layer_data_directory: PathBuf,
 
     /* File Paths */
-    shared_secret_file_path: PathBuf,
-    execution_layer_genesis_json_file_path: PathBuf,
-    consensus_layer_genesis_json_file_path: PathBuf,
-    mnemonic_text_file_path: PathBuf,
-    mnemonic_yaml_file_path: PathBuf,
-    consensus_layer_config_file_path: PathBuf,
-    deposit_contract_block_file_path: PathBuf,
-    validator_api_token_file_path: PathBuf,
-    validators_json_file_path: PathBuf,
+    config_file_path: PathBuf,
 
     /* Binary Paths & Timeouts */
-    geth_binary_path: PathBuf,
-    geth_binary_start_timeout: Duration,
-    lighthouse_binary_path: PathBuf,
-    lighthouse_binary_start_timeout: Duration,
+    kurtosis_binary_path: PathBuf,
 
     /* Spawned Processes */
-    geth_execution_layer_process: Option<Process>,
-    lighthouse_beacon_node_process: Option<Process>,
-    lighthouse_validator_node_process: Option<Process>,
+    process: Option<Process>,
 
     /* Provider Related Fields */
     wallet: Arc<EthereumWallet>,
@@ -109,23 +99,10 @@ pub struct LighthouseGethNode {
 
 impl LighthouseGethNode {
     const BASE_DIRECTORY: &str = "lighthouse";
-    const EXECUTION_LAYER_DATA_DIRECTORY: &str = "el_data";
     const LOGS_DIRECTORY: &str = "logs";
 
     const IPC_FILE_NAME: &str = "geth.ipc";
-    const SHARED_SECRET_FILE_NAME: &str = "jwt.hex";
-    const EXECUTION_LAYER_GENESIS_JSON_FILE_NAME: &str = "genesis.json";
-    const CONSENSUS_LAYER_GENESIS_JSON_FILE_NAME: &str = "genesis.ssz";
-    const MNEMONIC_YAML_FILE_NAME: &str = "mnemonic.yaml";
-    const MNEMONIC_TEXT_FILE_NAME: &str = "mnemonic.txt";
-    const CONSENSUS_LAYER_CONFIGURATION_FILE_NAME: &str = "config.yaml";
-    const DEPOSIT_CONTRACT_BLOCK_FILE_NAME: &str = "deposit_contract_block.txt";
-    const VALIDATORS_JSON_FILE_NAME: &str = "validators.json";
-    const VALIDATOR_API_TOKEN_FILE_NAME: &str = "api-token.txt";
-
-    const GETH_READY_MARKER: &str = "IPC endpoint opened";
-    const LIGHTHOUSE_BEACON_NODE_READY_MARKER: &str = "HTTP server started";
-    const ERROR_MARKER: &str = "Fatal:";
+    const CONFIG_FILE_NAME: &str = "config.yaml";
 
     const TRANSACTION_INDEXING_ERROR: &str = "transaction indexing is in progress";
     const TRANSACTION_TRACING_ERROR: &str = "historical state not available in path scheme yet";
@@ -133,33 +110,24 @@ impl LighthouseGethNode {
     const RECEIPT_POLLING_DURATION: Duration = Duration::from_secs(5 * 60);
     const TRACE_POLLING_DURATION: Duration = Duration::from_secs(60);
 
-    /// A shared secret key used for communication between the execution layer and the consensus layer.
-    const SHARED_SECRET_KEY: [u8; 32] =
-        hex!("fa0d813b5c3e9684f41ec77662c85eeaebbdde3b1d22d4f64439d9fdde3f517e");
-
-    /// The mnemonic phrase of the validator node that will be spawned.
-    const MNEMONIC_PHRASE: &str = "test test test test test test test test test test test junk";
+    const VALIDATOR_MNEMONIC: &str = "giant issue aisle success illegal bike spike question tent bar rely arctic volcano long crawl hungry vocal artwork sniff fantasy very lucky have athlete";
 
     pub fn new(
         context: impl AsRef<WorkingDirectoryConfiguration>
         + AsRef<WalletConfiguration>
-        + AsRef<GethConfiguration>
-        + AsRef<LighthouseConfiguration>
+        + AsRef<KurtosisConfiguration>
         + Clone,
     ) -> Self {
         let working_directory_configuration =
             AsRef::<WorkingDirectoryConfiguration>::as_ref(&context);
         let wallet_configuration = AsRef::<WalletConfiguration>::as_ref(&context);
-        let geth_configuration = AsRef::<GethConfiguration>::as_ref(&context);
-        let lighthouse_configuration = AsRef::<LighthouseConfiguration>::as_ref(&context);
+        let kurtosis_configuration = AsRef::<KurtosisConfiguration>::as_ref(&context);
 
         let geth_directory = working_directory_configuration
             .as_path()
             .join(Self::BASE_DIRECTORY);
         let id = NODE_COUNT.fetch_add(1, Ordering::SeqCst);
         let base_directory = geth_directory.join(id.to_string());
-
-        let shared_secret_file_path = base_directory.join(Self::SHARED_SECRET_FILE_NAME);
 
         let wallet = wallet_configuration.wallet();
 
@@ -170,44 +138,27 @@ impl LighthouseGethNode {
                 .join(Self::IPC_FILE_NAME)
                 .display()
                 .to_string(),
-
-            /* Ports */
-            execution_layer_auth_rpc_port: 8551u16 + id as u16,
-            beacon_node_listening_port: 9000u16 + id as u16,
-            beacon_node_http_port: 5052u16 + id as u16,
-            validator_node_http_port: 5062u16 + id as u16,
+            enclave_name: format!(
+                "enclave-{}-{}",
+                SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .expect("Must not fail")
+                    .as_nanos(),
+                id
+            ),
 
             /* File Paths */
-            shared_secret_file_path,
-            execution_layer_genesis_json_file_path: base_directory
-                .join(Self::EXECUTION_LAYER_GENESIS_JSON_FILE_NAME),
-            consensus_layer_genesis_json_file_path: base_directory
-                .join(Self::CONSENSUS_LAYER_GENESIS_JSON_FILE_NAME),
-            mnemonic_text_file_path: base_directory.join(Self::MNEMONIC_TEXT_FILE_NAME),
-            mnemonic_yaml_file_path: base_directory.join(Self::MNEMONIC_YAML_FILE_NAME),
-            consensus_layer_config_file_path: base_directory
-                .join(Self::CONSENSUS_LAYER_CONFIGURATION_FILE_NAME),
-            deposit_contract_block_file_path: base_directory
-                .join(Self::DEPOSIT_CONTRACT_BLOCK_FILE_NAME),
-            validators_json_file_path: base_directory.join(Self::VALIDATORS_JSON_FILE_NAME),
-            validator_api_token_file_path: base_directory.join(Self::VALIDATOR_API_TOKEN_FILE_NAME),
+            config_file_path: base_directory.join(Self::CONFIG_FILE_NAME),
 
             /* Directory Paths */
-            execution_layer_data_directory: base_directory
-                .join(Self::EXECUTION_LAYER_DATA_DIRECTORY),
             logs_directory: base_directory.join(Self::LOGS_DIRECTORY),
             base_directory,
 
             /* Binary Paths & Timeouts */
-            geth_binary_path: geth_configuration.path.clone(),
-            geth_binary_start_timeout: geth_configuration.start_timeout_ms,
-            lighthouse_binary_path: lighthouse_configuration.path.clone(),
-            lighthouse_binary_start_timeout: lighthouse_configuration.start_timeout_ms,
+            kurtosis_binary_path: kurtosis_configuration.path.clone(),
 
             /* Spawned Processes */
-            geth_execution_layer_process: None,
-            lighthouse_beacon_node_process: None,
-            lighthouse_validator_node_process: None,
+            process: None,
 
             /* Provider Related Fields */
             wallet: wallet.clone(),
@@ -218,30 +169,16 @@ impl LighthouseGethNode {
 
     /// Create the node directory and call `geth init` to configure the genesis.
     #[instrument(level = "info", skip_all, fields(geth_node_id = self.id))]
-    fn init(&mut self, genesis: Genesis) -> anyhow::Result<&mut Self> {
+    fn init(&mut self, _: Genesis) -> anyhow::Result<&mut Self> {
         self.init_directories()
             .context("Failed to initialize the directories of the Lighthouse Geth node.")?;
-        self.init_execution_layer_genesis(genesis)
-            .context("Failed to initialize the genesis of the Geth lighthouse node")?;
-        self.init_execution_layer_data_directory()
-            .context("Failed to initialize the data directory of the execution layer")?;
-        self.init_execution_layer_consensus_layer_shared_secret()
-            .context("Failed to initialize the shared secret")?;
-        self.init_mnemonic()
-            .context("Failed to initialize the mnemonic files of the consensus layer")?;
-        self.init_consensus_layer_configuration()
-            .context("Failed to initialize the consensus layer configuration file")?;
-        self.init_consensus_layer_genesis()
-            .context("Failed to initialize the consensus layer genesis")?;
-        self.init_deposit_contract_block_file()
-            .context("Failed to initialize the deposit contract block file")?;
-        self.init_lighthouse_validation_creation()
-            .context("Failed to create the consensus layer validator")?;
+        self.init_kurtosis_config_file()
+            .context("Failed to write the config file to the FS")?;
 
         Ok(self)
     }
 
-    fn init_directories(&mut self) -> anyhow::Result<()> {
+    fn init_directories(&self) -> anyhow::Result<()> {
         let _ = clear_directory(&self.base_directory);
         let _ = clear_directory(&self.logs_directory);
 
@@ -253,179 +190,72 @@ impl LighthouseGethNode {
         Ok(())
     }
 
-    fn init_execution_layer_genesis(&mut self, mut genesis: Genesis) -> anyhow::Result<()> {
-        for signer_address in NetworkWallet::<Ethereum>::signer_addresses(&self.wallet) {
-            // Note, the use of the entry API here means that we only modify the entries for any
-            // account that is not in the `alloc` field of the genesis state.
-            genesis
-                .alloc
-                .entry(signer_address)
-                .or_insert(GenesisAccount::default().with_balance(U256::from(INITIAL_BALANCE)));
-        }
+    fn init_kurtosis_config_file(&self) -> anyhow::Result<()> {
+        let config = KurtosisNetworkConfig {
+            participants: vec![ParticipantParameters {
+                execution_layer_type: ExecutionLayerType::Geth,
+                consensus_layer_type: ConsensusLayerType::Lighthouse,
+                execution_layer_extra_parameters: vec![
+                    "--nodiscover".to_string(),
+                    "--cache=4096".to_string(),
+                    "--txpool.globalslots=100000".to_string(),
+                    "--txpool.globalqueue=100000".to_string(),
+                    "--txpool.accountslots=128".to_string(),
+                    "--txpool.accountqueue=1024".to_string(),
+                    "--http.api=admin,engine,net,eth,web3,debug,txpool".to_string(),
+                    "--http.addr=0.0.0.0".to_string(),
+                    "--ws".to_string(),
+                    "--ws.addr=0.0.0.0".to_string(),
+                    "--ws.port=8546".to_string(),
+                    "--ws.api=eth,net,web3,txpool,engine".to_string(),
+                    "--ws.origins=*".to_string(),
+                ],
+                consensus_layer_extra_parameters: vec![
+                    "--disable-deposit-contract-sync".to_string(),
+                ],
+            }],
+            network_parameters: NetworkParameters {
+                preset: NetworkPreset::Mainnet,
+                seconds_per_slot: 12,
+                network_id: 420420420,
+                deposit_contract_address: address!("0x00000000219ab540356cBB839Cbe05303d7705Fa"),
+                altair_fork_epoch: 0,
+                bellatrix_fork_epoch: 0,
+                capella_fork_epoch: 0,
+                deneb_fork_epoch: 0,
+                electra_fork_epoch: 0,
+                preregistered_validator_keys_mnemonic: Self::VALIDATOR_MNEMONIC.to_string(),
+                num_validator_keys_per_node: 64,
+                genesis_delay: 10,
+                prefunded_accounts: {
+                    let map = NetworkWallet::<Ethereum>::signer_addresses(&self.wallet)
+                        .map(|address| {
+                            (
+                                address,
+                                GenesisAccount::default()
+                                    .with_balance(INITIAL_BALANCE.try_into().unwrap()),
+                            )
+                        })
+                        .collect::<BTreeMap<_, _>>();
+                    serde_json::to_string(&map).unwrap()
+                },
+            },
+            wait_for_finalization: false,
+            port_publisher: Some(PortPublisherParameters {
+                execution_layer_port_publisher_parameters: Some(
+                    PortPublisherSingleItemParameters {
+                        enabled: Some(true),
+                        public_port_start: None,
+                    },
+                ),
+                consensus_layer_port_publisher_parameters: Default::default(),
+            }),
+        };
 
-        let file = File::create(self.execution_layer_genesis_json_file_path.as_path())
-            .context("Failed to create the Geth genesis file")?;
-        serde_json::to_writer(file, &genesis)
-            .context("Failed to serialize geth genesis JSON to file")?;
-
-        Ok(())
-    }
-
-    fn init_execution_layer_data_directory(&mut self) -> anyhow::Result<()> {
-        let mut child = Command::new(&self.geth_binary_path)
-            .arg("--state.scheme")
-            .arg("hash")
-            .arg("init")
-            .arg("--datadir")
-            .arg(&self.execution_layer_data_directory)
-            .arg(self.execution_layer_genesis_json_file_path.as_path())
-            .stderr(Stdio::piped())
-            .stdout(Stdio::null())
-            .spawn()
-            .context("Failed to spawn geth --init process")?;
-
-        let mut stderr = String::new();
-        child
-            .stderr
-            .take()
-            .expect("should be piped")
-            .read_to_string(&mut stderr)
-            .context("Failed to read geth --init stderr")?;
-
-        if !child
-            .wait()
-            .context("Failed waiting for geth --init process to finish")?
-            .success()
-        {
-            anyhow::bail!("failed to initialize geth node #{:?}: {stderr}", &self.id);
-        }
-
-        Ok(())
-    }
-
-    fn init_execution_layer_consensus_layer_shared_secret(&mut self) -> anyhow::Result<()> {
-        std::fs::write(
-            self.shared_secret_file_path.as_path(),
-            hex::encode(Self::SHARED_SECRET_KEY),
-        )
-        .context("Failed to write shared secret key to the appropriate file.")?;
-
-        Ok(())
-    }
-
-    fn init_mnemonic(&mut self) -> anyhow::Result<()> {
-        // Write the mnemonic text file.
-        std::fs::write(
-            self.mnemonic_text_file_path.as_path(),
-            Self::MNEMONIC_PHRASE,
-        )
-        .context("Failed to write the mnemonic text file")?;
-
-        // Write the mnemonic YAML file.
-        std::fs::write(
-            self.mnemonic_yaml_file_path.as_path(),
-            format!("- mnemonic: \"{}\"\n  count: 1", Self::MNEMONIC_PHRASE),
-        )
-        .context("Failed to write the mnemonic text file")?;
-
-        Ok(())
-    }
-
-    fn init_consensus_layer_configuration(&mut self) -> anyhow::Result<()> {
-        const DEFAULT_CONFIGURATION: &str = include_str!("../../../assets/config.yaml");
-
-        std::fs::write(
-            self.consensus_layer_config_file_path.as_path(),
-            DEFAULT_CONFIGURATION,
-        )
-        .context("Failed to write the consensus layer configuration file")?;
-
-        Ok(())
-    }
-
-    fn init_consensus_layer_genesis(&mut self) -> anyhow::Result<()> {
-        // TODO: should the path of this be configurable?
-        let mut child = Command::new("eth2-testnet-genesis")
-            .arg("electra")
-            .arg("--config")
-            .arg(self.consensus_layer_config_file_path.as_path())
-            .arg("--eth1-config")
-            .arg(self.execution_layer_genesis_json_file_path.as_path())
-            .arg("--mnemonics")
-            .arg(self.mnemonic_yaml_file_path.as_path())
-            .arg("--state-output")
-            .arg(self.consensus_layer_genesis_json_file_path.as_path())
-            .arg("--tranches-dir")
-            .arg(self.base_directory.join("tranches"))
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .context("Failed to spawn the eth2-testnet-genesis command")?;
-
-        let mut stderr = String::new();
-        child
-            .stderr
-            .take()
-            .expect("should be piped")
-            .read_to_string(&mut stderr)
-            .context("Failed to read the eth2-testnet-genesis stderr")?;
-
-        if !child
-            .wait()
-            .context("Failed waiting for eth2-testnet-genesis process to finish")?
-            .success()
-        {
-            anyhow::bail!("Failed when calling 'eth2-testnet-genesis': {stderr}");
-        }
-
-        Ok(())
-    }
-
-    fn init_deposit_contract_block_file(&mut self) -> anyhow::Result<()> {
-        std::fs::write(
-            self.deposit_contract_block_file_path.as_path(),
-            "0x0000000000000000000000000000000000000000",
-        )?;
-        Ok(())
-    }
-
-    fn init_lighthouse_validation_creation(&mut self) -> anyhow::Result<()> {
-        // TODO: should the path of this be configurable?
-        let mut child = Command::new(self.lighthouse_binary_path.as_path())
-            .arg("validator_manager")
-            .arg("create")
-            .arg("--mnemonic-path")
-            .arg(self.mnemonic_text_file_path.as_path())
-            .arg("--count")
-            .arg("1")
-            .arg("--suggested-fee-recipient")
-            .arg("0x0000000000000000000000000000000000000000")
-            .arg("--eth1-withdrawal-address")
-            .arg("0x0000000000000000000000000000000000000000")
-            .arg("--testnet-dir")
-            .arg(self.base_directory.as_path())
-            .arg("--output-path")
-            .arg(self.base_directory.as_path())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .context("Failed to spawn the lighthouse validator_manager create command")?;
-
-        let mut stderr = String::new();
-        child
-            .stderr
-            .take()
-            .expect("should be piped")
-            .read_to_string(&mut stderr)
-            .context("Failed to read the lighthouse validator_manager create stderr")?;
-
-        if !child
-            .wait()
-            .context("Failed waiting for lighthouse validator_manager create process to finish")?
-            .success()
-        {
-            anyhow::bail!("Failed when calling 'lighthouse validator_manager create': {stderr}");
-        }
+        let file = File::create(self.config_file_path.as_path())
+            .context("Failed to open the config yaml file")?;
+        serde_yaml_ng::to_writer(file, &config)
+            .context("Failed to write the config to the yaml file")?;
 
         Ok(())
     }
@@ -433,226 +263,73 @@ impl LighthouseGethNode {
     /// Spawn the go-ethereum node child process.
     #[instrument(level = "info", skip_all, fields(geth_node_id = self.id))]
     fn spawn_process(&mut self) -> anyhow::Result<&mut Self> {
-        self.geth_execution_layer_process = self
-            .spawn_geth_process()
-            .context("Failed to spawn geth process")
-            .inspect_err(|err| {
-                tracing::error!(?err, "Failed to start the geth process");
-                self.shutdown()
-                    .expect("Failed to shutdown the lighthouse geth node");
-            })
-            .map(Into::into)?;
-        self.lighthouse_beacon_node_process = self
-            .spawn_lighthouse_beacon_node_process()
-            .context("Failed to spawn the lighthouse beacon node")
-            .inspect_err(|err| {
-                tracing::error!(?err, "Failed to start the light house beacon process");
-                self.shutdown()
-                    .expect("Failed to shutdown the lighthouse light house beacon node");
-            })
-            .map(Into::into)?;
-        self.lighthouse_validator_node_process = self
-            .spawn_lighthouse_validator_node_process()
-            .context("Failed to spawn the lighthouse validator node")
-            .inspect_err(|err| {
-                tracing::error!(?err, "Failed to start the light house validator process");
-                self.shutdown()
-                    .expect("Failed to shutdown the lighthouse light house validator node");
-            })
-            .map(Into::into)?;
-
-        self.import_validator_keys().inspect_err(|err| {
-            tracing::error!(?err, "Failed to import the validator keys");
-            self.shutdown()
-                .expect("Failed to shutdown the lighthouse light house validator node");
+        let process = Process::new(
+            None,
+            self.logs_directory.as_path(),
+            self.kurtosis_binary_path.as_path(),
+            |command, stdout, stderr| {
+                command
+                    .arg("run")
+                    .arg("--enclave")
+                    .arg(self.enclave_name.as_str())
+                    .arg("github.com/ethpandaops/ethereum-package")
+                    .arg("--args-file")
+                    .arg(self.config_file_path.as_path())
+                    .stdout(stdout)
+                    .stderr(stderr);
+            },
+            ProcessReadinessWaitBehavior::TimeBoundedWaitFunction {
+                max_wait_duration: Duration::from_secs(5 * 60),
+                check_function: Box::new(|stdout, stderr| {
+                    for line in [stdout, stderr]
+                        .iter()
+                        .flatten()
+                        .map(|line| line.to_lowercase())
+                    {
+                        if line.contains("error encountered") {
+                            anyhow::bail!("Encountered an error when starting Kurtosis")
+                        } else if line.contains("status") && line.contains("running") {
+                            return Ok(true);
+                        }
+                    }
+                    Ok(false)
+                }),
+            },
+        )
+        .inspect_err(|err| {
+            tracing::error!(?err, "Failed to spawn Kurtosis");
+            self.shutdown().expect("Failed to shutdown kurtosis");
         })?;
+        self.process = Some(process);
+
+        let child = Command::new(self.kurtosis_binary_path.as_path())
+            .arg("enclave")
+            .arg("inspect")
+            .arg(self.enclave_name.as_str())
+            .stdout(Stdio::piped())
+            .spawn()
+            .context("Failed to spawn the kurtosis enclave inspect process")?;
+
+        let stdout = {
+            let mut stdout = String::default();
+            child
+                .stdout
+                .expect("Should be piped")
+                .read_to_string(&mut stdout)
+                .context("Failed to read stdout of kurtosis inspect to string")?;
+            stdout
+        };
+
+        self.connection_string = stdout
+            .split("el-1-geth-lighthouse")
+            .nth(1)
+            .and_then(|str| str.split("ws").nth(1))
+            .and_then(|str| str.split("->").nth(1))
+            .and_then(|str| str.split("\n").next())
+            .map(|str| format!("ws://{}", str.trim()))
+            .context("Failed to find the WS connection string of Kurtosis")?;
 
         Ok(self)
-    }
-
-    fn spawn_geth_process(&mut self) -> anyhow::Result<Process> {
-        Process::new(
-            None,
-            self.logs_directory.as_path(),
-            self.geth_binary_path.as_path(),
-            |command, stdout_file, stderr_file| {
-                command
-                    .arg("--datadir")
-                    .arg(&self.execution_layer_data_directory)
-                    .arg("--networkid")
-                    .arg("420420420")
-                    .arg("--ipcpath")
-                    .arg(&self.connection_string)
-                    .arg("--nodiscover")
-                    .arg("--maxpeers")
-                    .arg("0")
-                    .arg("--nat")
-                    .arg("none")
-                    .arg("--authrpc.addr")
-                    .arg("127.0.0.1")
-                    .arg("--authrpc.port")
-                    .arg(self.execution_layer_auth_rpc_port.to_string())
-                    .arg("--authrpc.vhosts")
-                    .arg("localhost")
-                    .arg("--authrpc.jwtsecret")
-                    .arg(self.shared_secret_file_path.as_path())
-                    .arg("--port")
-                    .arg("0")
-                    .arg("--txlookuplimit")
-                    .arg("0")
-                    .arg("--cache.blocklogs")
-                    .arg("512")
-                    .arg("--state.scheme")
-                    .arg("hash")
-                    .arg("--syncmode")
-                    .arg("full")
-                    .arg("--gcmode")
-                    .arg("archive")
-                    .stderr(stderr_file)
-                    .stdout(stdout_file);
-            },
-            ProcessReadinessWaitBehavior::TimeBoundedWaitFunction {
-                max_wait_duration: self.geth_binary_start_timeout,
-                check_function: Box::new(|_, stderr_line| match stderr_line {
-                    Some(line) => {
-                        if line.contains(Self::ERROR_MARKER) {
-                            anyhow::bail!("Failed to start geth {line}");
-                        } else {
-                            Ok(line.contains(Self::GETH_READY_MARKER))
-                        }
-                    }
-                    None => Ok(false),
-                }),
-            },
-        )
-    }
-
-    fn spawn_lighthouse_beacon_node_process(&mut self) -> anyhow::Result<Process> {
-        Process::new(
-            None,
-            self.logs_directory.as_path(),
-            // TODO: Consider making this an argument in the CLI.
-            self.lighthouse_binary_path.as_path(),
-            |command, stdout_file, stderr_file| {
-                command
-                    .arg("--debug-level")
-                    .arg("info")
-                    .arg("--log-extra-info")
-                    .arg("bn")
-                    .arg("--testnet-dir")
-                    .arg(self.base_directory.as_path())
-                    .arg("--datadir")
-                    .arg(self.base_directory.as_path())
-                    .arg("--execution-endpoint")
-                    .arg(format!(
-                        "http://127.0.0.1:{}",
-                        self.execution_layer_auth_rpc_port
-                    ))
-                    .arg("--execution-jwt")
-                    .arg(self.shared_secret_file_path.as_path())
-                    .arg("--disable-discovery")
-                    .arg("--boot-nodes")
-                    .arg("--listen-address")
-                    .arg("127.0.0.1")
-                    .arg("--port")
-                    .arg(self.beacon_node_listening_port.to_string())
-                    .arg("--http")
-                    .arg("--http-port")
-                    .arg(self.beacon_node_http_port.to_string())
-                    .stderr(stderr_file)
-                    .stdout(stdout_file);
-            },
-            ProcessReadinessWaitBehavior::TimeBoundedWaitFunction {
-                max_wait_duration: self.lighthouse_binary_start_timeout,
-                check_function: Box::new(|_, stderr_line| match stderr_line {
-                    Some(line) => {
-                        if line.contains(Self::ERROR_MARKER) {
-                            anyhow::bail!("Failed to start geth {line}");
-                        } else {
-                            Ok(line.contains(Self::LIGHTHOUSE_BEACON_NODE_READY_MARKER))
-                        }
-                    }
-                    None => Ok(false),
-                }),
-            },
-        )
-    }
-
-    fn spawn_lighthouse_validator_node_process(&mut self) -> anyhow::Result<Process> {
-        Process::new(
-            None,
-            self.logs_directory.as_path(),
-            // TODO: Consider making this an argument in the CLI.
-            self.lighthouse_binary_path.as_path(),
-            |command, stdout_file, stderr_file| {
-                command
-                    .arg("--debug-level")
-                    .arg("info")
-                    .arg("--log-extra-info")
-                    .arg("vc")
-                    .arg("--testnet-dir")
-                    .arg(self.base_directory.as_path())
-                    .arg("--datadir")
-                    .arg(self.base_directory.as_path())
-                    .arg("--beacon-nodes")
-                    .arg(format!("http://127.0.0.1:{}", self.beacon_node_http_port))
-                    .arg("--http")
-                    .arg("--http-port")
-                    .arg(self.validator_node_http_port.to_string())
-                    .arg("--http-token-path")
-                    .arg(self.validator_api_token_file_path.as_path())
-                    .arg("--suggested-fee-recipient")
-                    .arg("0x0000000000000000000000000000000000000000")
-                    .arg("--unencrypted-http-transport")
-                    .stderr(stderr_file)
-                    .stdout(stdout_file);
-            },
-            ProcessReadinessWaitBehavior::TimeBoundedWaitFunction {
-                max_wait_duration: self.lighthouse_binary_start_timeout,
-                check_function: {
-                    let path = self.validator_api_token_file_path.clone();
-                    Box::new(move |_, _| Ok(path.exists()))
-                },
-            },
-        )
-    }
-
-    fn import_validator_keys(&mut self) -> anyhow::Result<()> {
-        // TODO: Consider allowing this to be passed in the cli.
-        let mut child = Command::new(self.lighthouse_binary_path.as_path())
-            .arg("validator_manager")
-            .arg("import")
-            .arg("--validators-file")
-            .arg(self.validators_json_file_path.as_path())
-            .arg("--vc-url")
-            .arg(format!(
-                "http://127.0.0.1:{}",
-                self.validator_node_http_port
-            ))
-            .arg("--vc-token")
-            .arg(self.validator_api_token_file_path.as_path())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .context("Failed to spawn the lighthouse validator manager import command")?;
-
-        let mut stderr = String::new();
-        child
-            .stderr
-            .take()
-            .expect("should be piped")
-            .read_to_string(&mut stderr)
-            .context("Failed to read the lighthouse validator_manager import stderr")?;
-
-        if !child
-            .wait()
-            .context("Failed waiting for lighthouse validator_manager import process to finish")?
-            .success()
-        {
-            anyhow::bail!("Failed when calling 'lighthouse validator_manager import': {stderr}");
-        }
-
-        Ok(())
     }
 
     async fn provider(
@@ -671,7 +348,7 @@ impl LighthouseGethNode {
             .wallet(self.wallet.clone())
             .connect(&self.connection_string)
             .await
-            .map_err(Into::into)
+            .context("Failed to create the provider for Kurtosis")
     }
 }
 
@@ -702,31 +379,35 @@ impl EthereumNode for LighthouseGethNode {
                 .context("Failed to create provider for transaction submission")?;
 
             let pending_transaction = provider
-            .send_transaction(transaction)
-            .await
-            .inspect_err(
-                |err| tracing::error!(%err, "Encountered an error when submitting the transaction"),
-            )
-            .context("Failed to submit transaction to geth node")?;
+                .send_transaction(transaction)
+                .await
+                .inspect_err(|err| {
+                    tracing::error!(
+                        %err,
+                        "Encountered an error when submitting the transaction"
+                    )
+                })
+                .context("Failed to submit transaction to geth node")?;
             let transaction_hash = *pending_transaction.tx_hash();
 
-            // The following is a fix for the "transaction indexing is in progress" error that we used
-            // to get. You can find more information on this in the following GH issue in geth
+            // The following is a fix for the "transaction indexing is in progress" error that we
+            // used to get. You can find more information on this in the following GH issue in geth
             // https://github.com/ethereum/go-ethereum/issues/28877. To summarize what's going on,
             // before we can get the receipt of the transaction it needs to have been indexed by the
-            // node's indexer. Just because the transaction has been confirmed it doesn't mean that it
-            // has been indexed. When we call alloy's `get_receipt` it checks if the transaction was
-            // confirmed. If it has been, then it will call `eth_getTransactionReceipt` method which
-            // _might_ return the above error if the tx has not yet been indexed yet. So, we need to
-            // implement a retry mechanism for the receipt to keep retrying to get it until it
-            // eventually works, but we only do that if the error we get back is the "transaction
+            // node's indexer. Just because the transaction has been confirmed it doesn't mean that
+            // it has been indexed. When we call alloy's `get_receipt` it checks if the transaction
+            // was confirmed. If it has been, then it will call `eth_getTransactionReceipt` method
+            // which _might_ return the above error if the tx has not yet been indexed yet. So, we
+            // need to implement a retry mechanism for the receipt to keep retrying to get it until
+            // it eventually works, but we only do that if the error we get back is the "transaction
             // indexing is in progress" error or if the receipt is None.
             //
-            // Getting the transaction indexed and taking a receipt can take a long time especially when
-            // a lot of transactions are being submitted to the node. Thus, while initially we only
-            // allowed for 60 seconds of waiting with a 1 second delay in polling, we need to allow for
-            // a larger wait time. Therefore, in here we allow for 5 minutes of waiting with exponential
-            // backoff each time we attempt to get the receipt and find that it's not available.
+            // Getting the transaction indexed and taking a receipt can take a long time especially
+            // when a lot of transactions are being submitted to the node. Thus, while initially we
+            // only allowed for 60 seconds of waiting with a 1 second delay in polling, we need to
+            // allow for a larger wait time. Therefore, in here we allow for 5 minutes of waiting
+            // with exponential backoff each time we attempt to get the receipt and find that it's
+            // not available.
             let provider = Arc::new(provider);
             poll(
                 Self::RECEIPT_POLLING_DURATION,
@@ -1001,15 +682,23 @@ impl<F: TxFiller<Ethereum>, P: Provider<Ethereum>> ResolverApi
 impl Node for LighthouseGethNode {
     #[instrument(level = "info", skip_all, fields(geth_node_id = self.id))]
     fn shutdown(&mut self) -> anyhow::Result<()> {
-        drop(self.geth_execution_layer_process.take());
+        if !Command::new(self.kurtosis_binary_path.as_path())
+            .arg("enclave")
+            .arg("rm")
+            .arg("-f")
+            .arg(self.enclave_name.as_str())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("Failed to spawn the enclave kill command")
+            .wait()
+            .expect("Failed to wait for the enclave kill command")
+            .success()
+        {
+            panic!("Failed to shut down the enclave {}", self.enclave_name)
+        }
 
-        // Remove the node's database so that subsequent runs do not run on the same database. We
-        // ignore the error just in case the directory didn't exist in the first place and therefore
-        // there's nothing to be deleted.
-        let _ = remove_dir_all(
-            self.base_directory
-                .join(Self::EXECUTION_LAYER_DATA_DIRECTORY),
-        );
+        drop(self.process.take());
 
         Ok(())
     }
@@ -1022,8 +711,8 @@ impl Node for LighthouseGethNode {
 
     #[instrument(level = "info", skip_all, fields(geth_node_id = self.id))]
     fn version(&self) -> anyhow::Result<String> {
-        let output = Command::new(&self.geth_binary_path)
-            .arg("--version")
+        let output = Command::new(&self.kurtosis_binary_path)
+            .arg("version")
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
@@ -1043,47 +732,166 @@ impl Drop for LighthouseGethNode {
     }
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize)]
+struct KurtosisNetworkConfig {
+    pub participants: Vec<ParticipantParameters>,
+
+    #[serde(rename = "network_params")]
+    pub network_parameters: NetworkParameters,
+
+    pub wait_for_finalization: bool,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub port_publisher: Option<PortPublisherParameters>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+struct ParticipantParameters {
+    #[serde(rename = "el_type")]
+    pub execution_layer_type: ExecutionLayerType,
+
+    #[serde(rename = "el_extra_params")]
+    pub execution_layer_extra_parameters: Vec<String>,
+
+    #[serde(rename = "cl_type")]
+    pub consensus_layer_type: ConsensusLayerType,
+
+    #[serde(rename = "cl_extra_params")]
+    pub consensus_layer_extra_parameters: Vec<String>,
+}
+
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum ExecutionLayerType {
+    Geth,
+}
+
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum ConsensusLayerType {
+    Lighthouse,
+}
+
+#[serde_as]
+#[derive(Clone, Debug, Serialize, Deserialize)]
+struct NetworkParameters {
+    pub preset: NetworkPreset,
+
+    pub seconds_per_slot: u64,
+
+    #[serde_as(as = "serde_with::DisplayFromStr")]
+    pub network_id: u64,
+
+    pub deposit_contract_address: Address,
+
+    pub altair_fork_epoch: u64,
+    pub bellatrix_fork_epoch: u64,
+    pub capella_fork_epoch: u64,
+    pub deneb_fork_epoch: u64,
+    pub electra_fork_epoch: u64,
+
+    pub preregistered_validator_keys_mnemonic: String,
+
+    pub num_validator_keys_per_node: u64,
+
+    pub genesis_delay: u64,
+
+    pub prefunded_accounts: String,
+}
+
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum NetworkPreset {
+    Mainnet,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+struct PortPublisherParameters {
+    #[serde(rename = "el", skip_serializing_if = "Option::is_none")]
+    pub execution_layer_port_publisher_parameters: Option<PortPublisherSingleItemParameters>,
+
+    #[serde(rename = "cl", skip_serializing_if = "Option::is_none")]
+    pub consensus_layer_port_publisher_parameters: Option<PortPublisherSingleItemParameters>,
+}
+
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+struct PortPublisherSingleItemParameters {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub enabled: Option<bool>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub public_port_start: Option<u16>,
+}
+
+/// Custom serializer/deserializer for u128 values as 0x-prefixed hex strings
+pub struct HexPrefixedU128;
+
+impl serde_with::SerializeAs<u128> for HexPrefixedU128 {
+    fn serialize_as<S>(source: &u128, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let hex_string = format!("0x{source:x}");
+        serializer.serialize_str(&hex_string)
+    }
+}
+
+impl<'de> serde_with::DeserializeAs<'de, u128> for HexPrefixedU128 {
+    fn deserialize_as<D>(deserializer: D) -> Result<u128, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let hex_string = String::deserialize(deserializer)?;
+        if let Some(hex_part) = hex_string.strip_prefix("0x") {
+            u128::from_str_radix(hex_part, 16).map_err(serde::de::Error::custom)
+        } else {
+            Err(serde::de::Error::custom("Expected 0x-prefixed hex string"))
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use std::sync::LazyLock;
+    use std::sync::Mutex;
 
     use super::*;
-
-    static DEFAULT_GENESIS: LazyLock<Genesis> = LazyLock::new(|| {
-        let genesis = include_str!("../../../assets/prod-genesis.json");
-        serde_json::from_str(genesis).unwrap()
-    });
 
     fn test_config() -> TestExecutionContext {
         TestExecutionContext::default()
     }
 
     fn new_node() -> (TestExecutionContext, LighthouseGethNode) {
+        // Note: When we run the tests in the CI we found that if they're all
+        // run in parallel then the CI is unable to start all of the nodes in
+        // time and their start up times-out. Therefore, we want all of the
+        // nodes to be started in series and not in parallel. To do this, we use
+        // a dummy mutex here such that there can only be a single node being
+        // started up at any point of time. This will make our tests run slower
+        // but it will allow the node startup to not timeout.
+        //
+        // Note: an alternative to starting all of the nodes in series and not
+        // in parallel would be for us to reuse the same node between tests
+        // which is not the best thing to do in my opinion as it removes all
+        // of the isolation between tests and makes them depend on what other
+        // tests do. For example, if one test checks what the block number is
+        // and another test submits a transaction then the tx test would have
+        // side effects that affect the block number test.
+        static NODE_START_MUTEX: Mutex<()> = Mutex::new(());
+        let _guard = NODE_START_MUTEX.lock().unwrap();
+
         let context = test_config();
         let mut node = LighthouseGethNode::new(&context);
-        node.init(DEFAULT_GENESIS.clone())
+        node.init(context.genesis_configuration.genesis().unwrap().clone())
             .expect("Failed to initialize the node")
             .spawn_process()
             .expect("Failed to spawn the node process");
         (context, node)
     }
 
-    fn shared_state() -> &'static (TestExecutionContext, LighthouseGethNode) {
-        static STATE: LazyLock<(TestExecutionContext, LighthouseGethNode)> =
-            LazyLock::new(new_node);
-        &STATE
-    }
-
-    fn shared_node() -> &'static LighthouseGethNode {
-        &shared_state().1
-    }
-
     #[tokio::test]
     async fn node_mines_simple_transfer_transaction_and_returns_receipt() {
         // Arrange
-        let (context, node) = shared_state();
-
-        let provider = node.provider().await.expect("Failed to create provider");
+        let (context, node) = new_node();
 
         let account_address = context
             .wallet_configuration
@@ -1095,20 +903,16 @@ mod tests {
             .value(U256::from(100_000_000_000_000u128));
 
         // Act
-        let receipt = provider.send_transaction(transaction).await;
+        let receipt = node.execute_transaction(transaction).await;
 
         // Assert
-        let _ = receipt
-            .expect("Failed to send the transfer transaction")
-            .get_receipt()
-            .await
-            .expect("Failed to get the receipt for the transfer");
+        let _ = receipt.expect("Failed to send the transfer transaction");
     }
 
     #[test]
     fn version_works() {
         // Arrange
-        let node = shared_node();
+        let (_context, node) = new_node();
 
         // Act
         let version = node.version();
@@ -1116,7 +920,7 @@ mod tests {
         // Assert
         let version = version.expect("Failed to get the version");
         assert!(
-            version.starts_with("geth version"),
+            version.starts_with("CLI Version"),
             "expected version string, got: '{version}'"
         );
     }
@@ -1124,7 +928,7 @@ mod tests {
     #[tokio::test]
     async fn can_get_chain_id_from_node() {
         // Arrange
-        let node = shared_node();
+        let (_context, node) = new_node();
 
         // Act
         let chain_id = node.resolver().await.unwrap().chain_id().await;
@@ -1137,7 +941,7 @@ mod tests {
     #[tokio::test]
     async fn can_get_gas_limit_from_node() {
         // Arrange
-        let node = shared_node();
+        let (_context, node) = new_node();
 
         // Act
         let gas_limit = node
@@ -1154,7 +958,7 @@ mod tests {
     #[tokio::test]
     async fn can_get_coinbase_from_node() {
         // Arrange
-        let node = shared_node();
+        let (_context, node) = new_node();
 
         // Act
         let coinbase = node
@@ -1171,7 +975,7 @@ mod tests {
     #[tokio::test]
     async fn can_get_block_difficulty_from_node() {
         // Arrange
-        let node = shared_node();
+        let (_context, node) = new_node();
 
         // Act
         let block_difficulty = node
@@ -1188,7 +992,7 @@ mod tests {
     #[tokio::test]
     async fn can_get_block_hash_from_node() {
         // Arrange
-        let node = shared_node();
+        let (_context, node) = new_node();
 
         // Act
         let block_hash = node
@@ -1205,7 +1009,7 @@ mod tests {
     #[tokio::test]
     async fn can_get_block_timestamp_from_node() {
         // Arrange
-        let node = shared_node();
+        let (_context, node) = new_node();
 
         // Act
         let block_timestamp = node
@@ -1222,7 +1026,7 @@ mod tests {
     #[tokio::test]
     async fn can_get_block_number_from_node() {
         // Arrange
-        let node = shared_node();
+        let (_context, node) = new_node();
 
         // Act
         let block_number = node.resolver().await.unwrap().last_block_number().await;

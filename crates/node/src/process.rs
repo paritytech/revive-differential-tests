@@ -68,7 +68,7 @@ impl Process {
             command_building_callback(&mut command, stdout_logs_file, stderr_logs_file);
             command
         };
-        let child = command
+        let mut child = command
             .spawn()
             .context("Failed to spawn the built command")?;
 
@@ -106,7 +106,7 @@ impl Process {
                     }
                     if let Some(stderr_line) = stderr_line.as_ref() {
                         stderr.push_str(stderr_line);
-                        stdout.push('\n');
+                        stderr.push('\n');
                     }
 
                     let check_result =
@@ -122,6 +122,15 @@ impl Process {
                             "Waited for the process to start but it failed to start in time. stderr {stderr} - stdout {stdout}"
                         )
                     }
+                }
+            }
+            ProcessReadinessWaitBehavior::WaitForCommandToExit => {
+                if !child
+                    .wait()
+                    .context("Failed waiting for kurtosis run process to finish")?
+                    .success()
+                {
+                    anyhow::bail!("Failed to initialize kurtosis network",);
                 }
             }
         }
@@ -150,6 +159,9 @@ pub enum ProcessReadinessWaitBehavior {
     /// The process does not require any kind of wait after it's been spawned and can be used
     /// straight away.
     NoStartupWait,
+
+    /// Waits for the command to exit.
+    WaitForCommandToExit,
 
     /// The process does require some amount of wait duration after it's been started.
     WaitDuration(Duration),

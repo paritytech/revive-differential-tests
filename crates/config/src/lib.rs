@@ -79,8 +79,8 @@ impl AsRef<GethConfiguration> for Context {
     }
 }
 
-impl AsRef<LighthouseConfiguration> for Context {
-    fn as_ref(&self) -> &LighthouseConfiguration {
+impl AsRef<KurtosisConfiguration> for Context {
+    fn as_ref(&self) -> &KurtosisConfiguration {
         match self {
             Self::ExecuteTests(context) => context.as_ref().as_ref(),
             Self::ExportJsonSchema => unreachable!(),
@@ -201,7 +201,7 @@ pub struct TestExecutionContext {
 
     /// Configuration parameters for the lighthouse node.
     #[clap(flatten, next_help_heading = "Lighthouse Configuration")]
-    pub lighthouse_configuration: LighthouseConfiguration,
+    pub lighthouse_configuration: KurtosisConfiguration,
 
     /// Configuration parameters for the Kitchensink.
     #[clap(flatten, next_help_heading = "Kitchensink Configuration")]
@@ -266,8 +266,8 @@ impl AsRef<GethConfiguration> for TestExecutionContext {
     }
 }
 
-impl AsRef<LighthouseConfiguration> for TestExecutionContext {
-    fn as_ref(&self) -> &LighthouseConfiguration {
+impl AsRef<KurtosisConfiguration> for TestExecutionContext {
+    fn as_ref(&self) -> &KurtosisConfiguration {
         &self.lighthouse_configuration
     }
 }
@@ -360,28 +360,19 @@ pub struct GethConfiguration {
     pub start_timeout_ms: Duration,
 }
 
-/// A set of configuration parameters for lighthouse.
+/// A set of configuration parameters for kurtosis.
 #[derive(Clone, Debug, Parser, Serialize)]
-pub struct LighthouseConfiguration {
-    /// Specifies the path of the lighthouse node to be used by the tool.
+pub struct KurtosisConfiguration {
+    /// Specifies the path of the kurtosis node to be used by the tool.
     ///
-    /// If this is not specified, then the tool assumes that it should use the lighthouse binary that's
+    /// If this is not specified, then the tool assumes that it should use the kurtosis binary that's
     /// provided in the user's $PATH.
     #[clap(
-        id = "lighthouse.path",
-        long = "lighthouse.path",
-        default_value = "lighthouse"
+        id = "kurtosis.path",
+        long = "kurtosis.path",
+        default_value = "kurtosis"
     )]
     pub path: PathBuf,
-
-    /// The amount of time to wait upon startup before considering that the node timed out.
-    #[clap(
-        id = "lighthouse.start-timeout-ms",
-        long = "lighthouse.start-timeout-ms",
-        default_value = "30000",
-        value_parser = parse_duration
-    )]
-    pub start_timeout_ms: Duration,
 }
 
 /// A set of configuration parameters for Kitchensink.
@@ -508,7 +499,7 @@ pub struct WalletConfiguration {
     /// This argument controls which private keys the nodes should have access to and be added to
     /// its wallet signers. With a value of N, private keys (0, N] will be added to the signer set
     /// of the node.
-    #[clap(long = "wallet.additional-keys", default_value_t = 100_000)]
+    #[clap(long = "wallet.additional-keys", default_value_t = 200)]
     additional_keys: usize,
 
     /// The wallet object that will be used.
@@ -638,7 +629,6 @@ impl AsRef<Path> for WorkingDirectoryConfiguration {
 impl Default for WorkingDirectoryConfiguration {
     fn default() -> Self {
         TempDir::new()
-            .map(|tempdir| dbg!(tempdir.dont_delete_on_drop()))
             .map(Arc::new)
             .map(Self::TemporaryDirectory)
             .expect("Failed to create the temporary directory")
