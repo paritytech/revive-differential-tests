@@ -245,7 +245,7 @@ impl LighthouseGethNode {
                 execution_layer_port_publisher_parameters: Some(
                     PortPublisherSingleItemParameters {
                         enabled: Some(true),
-                        public_port_start: None,
+                        public_port_start: Some(32000 + self.id as u16 * 1000),
                     },
                 ),
                 consensus_layer_port_publisher_parameters: Default::default(),
@@ -281,14 +281,10 @@ impl LighthouseGethNode {
             ProcessReadinessWaitBehavior::TimeBoundedWaitFunction {
                 max_wait_duration: Duration::from_secs(5 * 60),
                 check_function: Box::new(|stdout, stderr| {
-                    for line in [stdout, stderr]
-                        .iter()
-                        .flatten()
-                        .map(|line| line.to_lowercase())
-                    {
-                        if line.contains("error encountered") {
+                    for line in [stdout, stderr].iter().flatten() {
+                        if line.to_lowercase().contains("error encountered") {
                             anyhow::bail!("Encountered an error when starting Kurtosis")
-                        } else if line.contains("status") && line.contains("running") {
+                        } else if line.contains("RUNNING") {
                             return Ok(true);
                         }
                     }
