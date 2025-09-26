@@ -13,7 +13,9 @@ use anyhow::Context as _;
 use revive_dt_common::types::*;
 use revive_dt_compiler::{SolidityCompiler, revive_resolc::Resolc, solc::Solc};
 use revive_dt_config::*;
-use revive_dt_node::{Node, geth::GethNode, substrate::SubstrateNode};
+use revive_dt_node::{
+    Node, geth::GethNode, lighthouse_geth::LighthouseGethNode, substrate::SubstrateNode,
+};
 use revive_dt_node_interaction::EthereumNode;
 use tracing::info;
 
@@ -88,6 +90,51 @@ impl Platform for GethEvmSolcPlatform {
         Ok(thread::spawn(move || {
             let node = GethNode::new(context);
             let node = spawn_node::<GethNode>(node, genesis)?;
+            Ok(Box::new(node) as Box<_>)
+        }))
+    }
+
+    fn new_compiler(
+        &self,
+        context: Context,
+        version: Option<VersionOrRequirement>,
+    ) -> Pin<Box<dyn Future<Output = anyhow::Result<Box<dyn SolidityCompiler>>>>> {
+        Box::pin(async move {
+            let compiler = Solc::new(context, version).await;
+            compiler.map(|compiler| Box::new(compiler) as Box<dyn SolidityCompiler>)
+        })
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Default, Hash)]
+pub struct LighthouseGethEvmSolcPlatform;
+
+impl Platform for LighthouseGethEvmSolcPlatform {
+    fn platform_identifier(&self) -> PlatformIdentifier {
+        PlatformIdentifier::LighthouseGethEvmSolc
+    }
+
+    fn node_identifier(&self) -> NodeIdentifier {
+        NodeIdentifier::LighthouseGeth
+    }
+
+    fn vm_identifier(&self) -> VmIdentifier {
+        VmIdentifier::Evm
+    }
+
+    fn compiler_identifier(&self) -> CompilerIdentifier {
+        CompilerIdentifier::Solc
+    }
+
+    fn new_node(
+        &self,
+        context: Context,
+    ) -> anyhow::Result<JoinHandle<anyhow::Result<Box<dyn EthereumNode + Send + Sync>>>> {
+        let genesis_configuration = AsRef::<GenesisConfiguration>::as_ref(&context);
+        let genesis = genesis_configuration.genesis()?.clone();
+        Ok(thread::spawn(move || {
+            let node = LighthouseGethNode::new(context);
+            let node = spawn_node::<LighthouseGethNode>(node, genesis)?;
             Ok(Box::new(node) as Box<_>)
         }))
     }
@@ -316,6 +363,9 @@ impl From<PlatformIdentifier> for Box<dyn Platform> {
     fn from(value: PlatformIdentifier) -> Self {
         match value {
             PlatformIdentifier::GethEvmSolc => Box::new(GethEvmSolcPlatform) as Box<_>,
+            PlatformIdentifier::LighthouseGethEvmSolc => {
+                Box::new(LighthouseGethEvmSolcPlatform) as Box<_>
+            }
             PlatformIdentifier::KitchensinkPolkavmResolc => {
                 Box::new(KitchensinkPolkavmResolcPlatform) as Box<_>
             }
@@ -336,6 +386,9 @@ impl From<PlatformIdentifier> for &dyn Platform {
     fn from(value: PlatformIdentifier) -> Self {
         match value {
             PlatformIdentifier::GethEvmSolc => &GethEvmSolcPlatform as &dyn Platform,
+            PlatformIdentifier::LighthouseGethEvmSolc => {
+                &LighthouseGethEvmSolcPlatform as &dyn Platform
+            }
             PlatformIdentifier::KitchensinkPolkavmResolc => {
                 &KitchensinkPolkavmResolcPlatform as &dyn Platform
             }

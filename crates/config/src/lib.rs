@@ -79,6 +79,15 @@ impl AsRef<GethConfiguration> for Context {
     }
 }
 
+impl AsRef<KurtosisConfiguration> for Context {
+    fn as_ref(&self) -> &KurtosisConfiguration {
+        match self {
+            Self::ExecuteTests(context) => context.as_ref().as_ref(),
+            Self::ExportJsonSchema => unreachable!(),
+        }
+    }
+}
+
 impl AsRef<KitchensinkConfiguration> for Context {
     fn as_ref(&self) -> &KitchensinkConfiguration {
         match self {
@@ -190,6 +199,10 @@ pub struct TestExecutionContext {
     #[clap(flatten, next_help_heading = "Geth Configuration")]
     pub geth_configuration: GethConfiguration,
 
+    /// Configuration parameters for the lighthouse node.
+    #[clap(flatten, next_help_heading = "Lighthouse Configuration")]
+    pub lighthouse_configuration: KurtosisConfiguration,
+
     /// Configuration parameters for the Kitchensink.
     #[clap(flatten, next_help_heading = "Kitchensink Configuration")]
     pub kitchensink_configuration: KitchensinkConfiguration,
@@ -250,6 +263,12 @@ impl AsRef<ResolcConfiguration> for TestExecutionContext {
 impl AsRef<GethConfiguration> for TestExecutionContext {
     fn as_ref(&self) -> &GethConfiguration {
         &self.geth_configuration
+    }
+}
+
+impl AsRef<KurtosisConfiguration> for TestExecutionContext {
+    fn as_ref(&self) -> &KurtosisConfiguration {
+        &self.lighthouse_configuration
     }
 }
 
@@ -335,10 +354,25 @@ pub struct GethConfiguration {
     #[clap(
         id = "geth.start-timeout-ms",
         long = "geth.start-timeout-ms",
-        default_value = "5000",
+        default_value = "30000",
         value_parser = parse_duration
     )]
     pub start_timeout_ms: Duration,
+}
+
+/// A set of configuration parameters for kurtosis.
+#[derive(Clone, Debug, Parser, Serialize)]
+pub struct KurtosisConfiguration {
+    /// Specifies the path of the kurtosis node to be used by the tool.
+    ///
+    /// If this is not specified, then the tool assumes that it should use the kurtosis binary that's
+    /// provided in the user's $PATH.
+    #[clap(
+        id = "kurtosis.path",
+        long = "kurtosis.path",
+        default_value = "kurtosis"
+    )]
+    pub path: PathBuf,
 }
 
 /// A set of configuration parameters for Kitchensink.
@@ -359,7 +393,7 @@ pub struct KitchensinkConfiguration {
     #[clap(
         id = "kitchensink.start-timeout-ms",
         long = "kitchensink.start-timeout-ms",
-        default_value = "5000",
+        default_value = "30000",
         value_parser = parse_duration
     )]
     pub start_timeout_ms: Duration,
@@ -387,7 +421,7 @@ pub struct ReviveDevNodeConfiguration {
     #[clap(
         id = "revive-dev-node.start-timeout-ms",
         long = "revive-dev-node.start-timeout-ms",
-        default_value = "5000",
+        default_value = "30000",
         value_parser = parse_duration
     )]
     pub start_timeout_ms: Duration,
@@ -407,7 +441,7 @@ pub struct EthRpcConfiguration {
     #[clap(
         id = "eth-rpc.start-timeout-ms",
         long = "eth-rpc.start-timeout-ms",
-        default_value = "5000",
+        default_value = "30000",
         value_parser = parse_duration
     )]
     pub start_timeout_ms: Duration,
@@ -431,7 +465,7 @@ pub struct GenesisConfiguration {
 impl GenesisConfiguration {
     pub fn genesis(&self) -> anyhow::Result<&Genesis> {
         static DEFAULT_GENESIS: LazyLock<Genesis> = LazyLock::new(|| {
-            let genesis = include_str!("../../../dev-genesis.json");
+            let genesis = include_str!("../../../assets/dev-genesis.json");
             serde_json::from_str(genesis).unwrap()
         });
 
@@ -465,7 +499,7 @@ pub struct WalletConfiguration {
     /// This argument controls which private keys the nodes should have access to and be added to
     /// its wallet signers. With a value of N, private keys (0, N] will be added to the signer set
     /// of the node.
-    #[clap(long = "wallet.additional-keys", default_value_t = 100_000)]
+    #[clap(long = "wallet.additional-keys", default_value_t = 200)]
     additional_keys: usize,
 
     /// The wallet object that will be used.

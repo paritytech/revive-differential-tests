@@ -44,6 +44,7 @@ This section describes the required dependencies that this framework requires to
 - ETH-RPC - All communication with Kitchensink is done through the ETH RPC.
 - Solc - This is actually a transitive dependency, while this tool doesn't require solc as it downloads the versions that it requires, resolc requires that Solc is installed and available in the path.
 - Resolc - This is required to compile the contracts to PolkaVM bytecode.
+- Kurtosis - The Kurtosis CLI tool is required for the production Ethereum mainnet-like node configuration with Geth as the execution layer and lighthouse as the consensus layer. Kurtosis also requires docker to be installed since it runs everything inside of docker containers.
 
 All of the above need to be installed and available in the path in order for the tool to work.
 

@@ -45,7 +45,8 @@ serde_json = { version = "1.0", default-features = false, features = [
     "std",
     "unbounded_depth",
 ] }
-serde_with = { version = "3.14.0" }
+serde_with = { version = "3.14.0", features = ["hex"] }
+serde_yaml_ng = { version = "0.10.0" }
 sha2 = { version = "0.10.9" }
 sp-core = "36.1.0"
 sp-runtime = "41.1.0"
@@ -80,6 +81,7 @@ features = [
     "json-abi",
     "providers",
     "provider-ipc",
+    "provider-ws",
     "provider-debug-api",
     "reqwest",
     "rpc-types",
