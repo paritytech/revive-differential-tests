@@ -8,6 +8,7 @@ pub mod constants;
 pub mod geth;
 pub mod process;
 pub mod substrate;
+pub mod zombie;
 
 /// An abstract interface for testing nodes.
 pub trait Node: EthereumNode {

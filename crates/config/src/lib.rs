@@ -88,6 +88,15 @@ impl AsRef<KitchensinkConfiguration> for Context {
     }
 }
 
+impl AsRef<ZombieNetConfiguration> for Context {
+    fn as_ref(&self) -> &ZombieNetConfiguration {
+        match self {
+            Self::ExecuteTests(context) => context.as_ref().as_ref(),
+            Self::ExportJsonSchema => unreachable!(),
+        }
+    }
+}
+
 impl AsRef<ReviveDevNodeConfiguration> for Context {
     fn as_ref(&self) -> &ReviveDevNodeConfiguration {
         match self {
@@ -194,6 +203,10 @@ pub struct TestExecutionContext {
     #[clap(flatten, next_help_heading = "Kitchensink Configuration")]
     pub kitchensink_configuration: KitchensinkConfiguration,
 
+    /// Configuration parameters for the Zombienet.
+    #[clap(flatten, next_help_heading = "Zombienet Configuration")]
+    pub zombienet_configuration: ZombieNetConfiguration,
+
     /// Configuration parameters for the Revive Dev Node.
     #[clap(flatten, next_help_heading = "Revive Dev Node Configuration")]
     pub revive_dev_node_configuration: ReviveDevNodeConfiguration,
@@ -262,6 +275,12 @@ impl AsRef<KitchensinkConfiguration> for TestExecutionContext {
 impl AsRef<ReviveDevNodeConfiguration> for TestExecutionContext {
     fn as_ref(&self) -> &ReviveDevNodeConfiguration {
         &self.revive_dev_node_configuration
+    }
+}
+
+impl AsRef<ZombieNetConfiguration> for TestExecutionContext {
+    fn as_ref(&self) -> &ZombieNetConfiguration {
+        &self.zombienet_configuration
     }
 }
 
@@ -339,6 +358,34 @@ pub struct GethConfiguration {
         value_parser = parse_duration
     )]
     pub start_timeout_ms: Duration,
+}
+
+/// A set of configuration parameters for Zombienet.
+#[derive(Clone, Debug, Parser, Serialize)]
+pub struct ZombieNetConfiguration {
+    /// Specifies the path of the zombienet node to be used by the tool.
+    ///
+    /// If this is not specified, then the tool assumes that it should use the zombienet binary
+    /// that's provided in the user's $PATH.
+    #[clap(
+        id = "zombienet.path",
+        long = "zombienet.path",
+        default_value = "polkadot-parachain"
+    )]
+    pub path: PathBuf,
+
+    /// The amount of time to wait upon startup before considering that the node timed out.
+    #[clap(
+        id = "zombienet.start-timeout-ms",
+        long = "zombienet.start-timeout-ms",
+        default_value = "5000",
+        value_parser = parse_duration
+    )]
+    pub start_timeout_ms: Duration,
+
+    /// This configures the tool to use Zombienet instead of using the revive-dev-node.
+    #[clap(long = "zombienet.dont-use-dev-node")]
+    pub use_zombienet: bool,
 }
 
 /// A set of configuration parameters for Kitchensink.
@@ -658,4 +705,6 @@ pub enum TestingPlatform {
     Geth,
     /// The kitchensink runtime provides the PolkaVM (PVM) based node implementation.
     Kitchensink,
+    /// A polkadot/Substrate based network
+    ZombieNet,
 }
