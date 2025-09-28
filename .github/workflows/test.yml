@@ -36,7 +36,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y protobuf-compiler clang libclang-dev
           rustup target add wasm32-unknown-unknown
-          rustup component add rust-src rustfmt
+          rustup component add rust-src
 
       - name: Install dependencies (macOS)
         if: matrix.os == 'macos-14'
@@ -44,7 +44,6 @@ jobs:
           brew install protobuf
           rustup target add wasm32-unknown-unknown
           rustup component add rust-src
-          rustup component add --toolchain stable-aarch64-apple-darwin rustfmt
 
       - name: Cache binaries
         id: cache
@@ -92,10 +91,10 @@ jobs:
         with:
           rustflags: ""
 
-      - name: Add wasm32 target
+      - name: Add wasm32 target and formatting
         run: |
           rustup target add wasm32-unknown-unknown
-          rustup component add rust-src
+          rustup component add rust-src rustfmt
 
       - name: Install Geth on Ubuntu
         if: matrix.os == 'ubuntu-24.04'
