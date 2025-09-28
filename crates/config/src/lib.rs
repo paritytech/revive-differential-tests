@@ -236,6 +236,78 @@ pub struct TestExecutionContext {
     pub report_configuration: ReportConfiguration,
 }
 
+#[derive(Clone, Debug, Parser, Serialize)]
+pub struct BenchmarkingContext {
+    /// The working directory that the program will use for all of the temporary artifacts needed at
+    /// runtime.
+    ///
+    /// If not specified, then a temporary directory will be created and used by the program for all
+    /// temporary artifacts.
+    #[clap(
+        short,
+        long,
+        default_value = "",
+        value_hint = ValueHint::DirPath,
+    )]
+    pub working_directory: WorkingDirectoryConfiguration,
+
+    /// The set of platforms that the differential tests should run on.
+    #[arg(
+        short = 'p',
+        long = "platform",
+        default_values = ["geth-evm-solc", "revive-dev-node-polkavm-resolc"]
+    )]
+    pub platforms: Vec<PlatformIdentifier>,
+
+    /// A list of test corpus JSON files to be tested.
+    #[arg(long = "corpus", short)]
+    pub corpus: Vec<PathBuf>,
+
+    /// Configuration parameters for the solc compiler.
+    #[clap(flatten, next_help_heading = "Solc Configuration")]
+    pub solc_configuration: SolcConfiguration,
+
+    /// Configuration parameters for the resolc compiler.
+    #[clap(flatten, next_help_heading = "Resolc Configuration")]
+    pub resolc_configuration: ResolcConfiguration,
+
+    /// Configuration parameters for the geth node.
+    #[clap(flatten, next_help_heading = "Geth Configuration")]
+    pub geth_configuration: GethConfiguration,
+
+    /// Configuration parameters for the lighthouse node.
+    #[clap(flatten, next_help_heading = "Lighthouse Configuration")]
+    pub lighthouse_configuration: KurtosisConfiguration,
+
+    /// Configuration parameters for the Kitchensink.
+    #[clap(flatten, next_help_heading = "Kitchensink Configuration")]
+    pub kitchensink_configuration: KitchensinkConfiguration,
+
+    /// Configuration parameters for the Revive Dev Node.
+    #[clap(flatten, next_help_heading = "Revive Dev Node Configuration")]
+    pub revive_dev_node_configuration: ReviveDevNodeConfiguration,
+
+    /// Configuration parameters for the Eth Rpc.
+    #[clap(flatten, next_help_heading = "Eth RPC Configuration")]
+    pub eth_rpc_configuration: EthRpcConfiguration,
+
+    /// Configuration parameters for the wallet.
+    #[clap(flatten, next_help_heading = "Wallet Configuration")]
+    pub wallet_configuration: WalletConfiguration,
+
+    /// Configuration parameters for concurrency.
+    #[clap(flatten, next_help_heading = "Concurrency Configuration")]
+    pub concurrency_configuration: ConcurrencyConfiguration,
+
+    /// Configuration parameters for the compilers and compilation.
+    #[clap(flatten, next_help_heading = "Compilation Configuration")]
+    pub compilation_configuration: CompilationConfiguration,
+
+    /// Configuration parameters for the report.
+    #[clap(flatten, next_help_heading = "Report Configuration")]
+    pub report_configuration: ReportConfiguration,
+}
+
 impl Default for TestExecutionContext {
     fn default() -> Self {
         Self::parse_from(["execution-context"])
@@ -315,6 +387,84 @@ impl AsRef<CompilationConfiguration> for TestExecutionContext {
 }
 
 impl AsRef<ReportConfiguration> for TestExecutionContext {
+    fn as_ref(&self) -> &ReportConfiguration {
+        &self.report_configuration
+    }
+}
+
+impl Default for BenchmarkingContext {
+    fn default() -> Self {
+        Self::parse_from(["execution-context"])
+    }
+}
+
+impl AsRef<WorkingDirectoryConfiguration> for BenchmarkingContext {
+    fn as_ref(&self) -> &WorkingDirectoryConfiguration {
+        &self.working_directory
+    }
+}
+
+impl AsRef<SolcConfiguration> for BenchmarkingContext {
+    fn as_ref(&self) -> &SolcConfiguration {
+        &self.solc_configuration
+    }
+}
+
+impl AsRef<ResolcConfiguration> for BenchmarkingContext {
+    fn as_ref(&self) -> &ResolcConfiguration {
+        &self.resolc_configuration
+    }
+}
+
+impl AsRef<GethConfiguration> for BenchmarkingContext {
+    fn as_ref(&self) -> &GethConfiguration {
+        &self.geth_configuration
+    }
+}
+
+impl AsRef<KurtosisConfiguration> for BenchmarkingContext {
+    fn as_ref(&self) -> &KurtosisConfiguration {
+        &self.lighthouse_configuration
+    }
+}
+
+impl AsRef<KitchensinkConfiguration> for BenchmarkingContext {
+    fn as_ref(&self) -> &KitchensinkConfiguration {
+        &self.kitchensink_configuration
+    }
+}
+
+impl AsRef<ReviveDevNodeConfiguration> for BenchmarkingContext {
+    fn as_ref(&self) -> &ReviveDevNodeConfiguration {
+        &self.revive_dev_node_configuration
+    }
+}
+
+impl AsRef<EthRpcConfiguration> for BenchmarkingContext {
+    fn as_ref(&self) -> &EthRpcConfiguration {
+        &self.eth_rpc_configuration
+    }
+}
+
+impl AsRef<WalletConfiguration> for BenchmarkingContext {
+    fn as_ref(&self) -> &WalletConfiguration {
+        &self.wallet_configuration
+    }
+}
+
+impl AsRef<ConcurrencyConfiguration> for BenchmarkingContext {
+    fn as_ref(&self) -> &ConcurrencyConfiguration {
+        &self.concurrency_configuration
+    }
+}
+
+impl AsRef<CompilationConfiguration> for BenchmarkingContext {
+    fn as_ref(&self) -> &CompilationConfiguration {
+        &self.compilation_configuration
+    }
+}
+
+impl AsRef<ReportConfiguration> for BenchmarkingContext {
     fn as_ref(&self) -> &ReportConfiguration {
         &self.report_configuration
     }
@@ -499,7 +649,7 @@ pub struct WalletConfiguration {
     /// This argument controls which private keys the nodes should have access to and be added to
     /// its wallet signers. With a value of N, private keys (0, N] will be added to the signer set
     /// of the node.
-    #[clap(long = "wallet.additional-keys", default_value_t = 200)]
+    #[clap(long = "wallet.additional-keys", default_value_t = 100_000)]
     additional_keys: usize,
 
     /// The wallet object that will be used.
@@ -629,6 +779,7 @@ impl AsRef<Path> for WorkingDirectoryConfiguration {
 impl Default for WorkingDirectoryConfiguration {
     fn default() -> Self {
         TempDir::new()
+            .map(|tempdir| dbg!(tempdir.dont_delete_on_drop()))
             .map(Arc::new)
             .map(Self::TemporaryDirectory)
             .expect("Failed to create the temporary directory")

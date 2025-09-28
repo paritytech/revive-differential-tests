@@ -14,6 +14,9 @@ use revive_dt_format::traits::ResolverApi;
 /// An interface for all interactions with Ethereum compatible nodes.
 #[allow(clippy::type_complexity)]
 pub trait EthereumNode {
+    /// A function to run post spawning the nodes and before any transactions are run on the node.
+    fn pre_transactions(&mut self) -> Pin<Box<dyn Future<Output = anyhow::Result<()>> + '_>>;
+
     fn id(&self) -> usize;
 
     /// Returns the nodes connection string.

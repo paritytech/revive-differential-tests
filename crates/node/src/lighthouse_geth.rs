@@ -39,8 +39,10 @@ use alloy::{
         EIP1186AccountProofResponse, TransactionRequest,
         trace::geth::{DiffMode, GethDebugTracingOptions, PreStateConfig, PreStateFrame},
     },
+    signers::local::PrivateKeySigner,
 };
 use anyhow::Context as _;
+use futures::future;
 use revive_common::EVMVersion;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_with::serde_as;
@@ -90,6 +92,9 @@ pub struct LighthouseGethNode {
 
     /* Spawned Processes */
     process: Option<Process>,
+
+    /* Prefunded Account Information */
+    prefunded_account_private_key: PrivateKeySigner,
 
     /* Provider Related Fields */
     wallet: Arc<EthereumWallet>,
@@ -160,6 +165,9 @@ impl LighthouseGethNode {
             /* Spawned Processes */
             process: None,
 
+            /* Prefunded Account Information */
+            prefunded_account_private_key: PrivateKeySigner::random(),
+
             /* Provider Related Fields */
             wallet: wallet.clone(),
             nonce_manager: Default::default(),
@@ -168,7 +176,7 @@ impl LighthouseGethNode {
     }
 
     /// Create the node directory and call `geth init` to configure the genesis.
-    #[instrument(level = "info", skip_all, fields(geth_node_id = self.id))]
+    #[instrument(level = "info", skip_all, fields(lighthouse_node_id = self.id))]
     fn init(&mut self, _: Genesis) -> anyhow::Result<&mut Self> {
         self.init_directories()
             .context("Failed to initialize the directories of the Lighthouse Geth node.")?;
@@ -228,14 +236,8 @@ impl LighthouseGethNode {
                 num_validator_keys_per_node: 64,
                 genesis_delay: 10,
                 prefunded_accounts: {
-                    let map = NetworkWallet::<Ethereum>::signer_addresses(&self.wallet)
-                        .map(|address| {
-                            (
-                                address,
-                                GenesisAccount::default()
-                                    .with_balance(INITIAL_BALANCE.try_into().unwrap()),
-                            )
-                        })
+                    let map = std::iter::once(self.prefunded_account_private_key.address())
+                        .map(|address| (address, GenesisAccount::default().with_balance(U256::MAX)))
                         .collect::<BTreeMap<_, _>>();
                     serde_json::to_string(&map).unwrap()
                 },
@@ -261,7 +263,7 @@ impl LighthouseGethNode {
     }
 
     /// Spawn the go-ethereum node child process.
-    #[instrument(level = "info", skip_all, fields(geth_node_id = self.id))]
+    #[instrument(level = "info", skip_all, fields(lighthouse_node_id = self.id))]
     fn spawn_process(&mut self) -> anyhow::Result<&mut Self> {
         let process = Process::new(
             None,
@@ -346,9 +348,30 @@ impl LighthouseGethNode {
             .await
             .context("Failed to create the provider for Kurtosis")
     }
+
+    /// Funds all of the accounts in the Ethereum wallet from the initially funded account.
+    async fn fund_all_accounts(&self) -> anyhow::Result<()> {
+        let tasks = NetworkWallet::<Ethereum>::signer_addresses(self.wallet.as_ref())
+            .enumerate()
+            .map(|(nonce, address)| async move {
+                let transaction = TransactionRequest::default()
+                    .from(self.prefunded_account_private_key.address())
+                    .to(address)
+                    .nonce(nonce as _)
+                    .value(INITIAL_BALANCE.try_into().unwrap());
+                self.execute_transaction(transaction).await
+            })
+            .collect::<Vec<_>>();
+        future::try_join_all(tasks).await?;
+        Ok(())
+    }
 }
 
 impl EthereumNode for LighthouseGethNode {
+    fn pre_transactions(&mut self) -> Pin<Box<dyn Future<Output = anyhow::Result<()>> + '_>> {
+        Box::pin(async move { self.fund_all_accounts().await })
+    }
+
     fn id(&self) -> usize {
         self.id as _
     }
@@ -360,7 +383,7 @@ impl EthereumNode for LighthouseGethNode {
     #[instrument(
         level = "info",
         skip_all,
-        fields(geth_node_id = self.id, connection_string = self.connection_string),
+        fields(lighthouse_node_id = self.id, connection_string = self.connection_string),
         err,
     )]
     fn execute_transaction(
@@ -407,7 +430,7 @@ impl EthereumNode for LighthouseGethNode {
             let provider = Arc::new(provider);
             poll(
                 Self::RECEIPT_POLLING_DURATION,
-                PollingWaitBehavior::Constant(Duration::from_millis(200)),
+                PollingWaitBehavior::Constant(Duration::from_millis(500)),
                 move || {
                     let provider = provider.clone();
                     async move {
@@ -433,7 +456,7 @@ impl EthereumNode for LighthouseGethNode {
         })
     }
 
-    #[instrument(level = "info", skip_all, fields(geth_node_id = self.id))]
+    #[instrument(level = "info", skip_all, fields(lighthouse_node_id = self.id))]
     fn trace_transaction(
         &self,
         tx_hash: TxHash,
@@ -473,7 +496,7 @@ impl EthereumNode for LighthouseGethNode {
         })
     }
 
-    #[instrument(level = "info", skip_all, fields(geth_node_id = self.id))]
+    #[instrument(level = "info", skip_all, fields(lighthouse_node_id = self.id))]
     fn state_diff(
         &self,
         tx_hash: TxHash,
@@ -497,7 +520,7 @@ impl EthereumNode for LighthouseGethNode {
         })
     }
 
-    #[instrument(level = "info", skip_all, fields(geth_node_id = self.id))]
+    #[instrument(level = "info", skip_all, fields(lighthouse_node_id = self.id))]
     fn balance_of(
         &self,
         address: Address,
@@ -512,7 +535,7 @@ impl EthereumNode for LighthouseGethNode {
         })
     }
 
-    #[instrument(level = "info", skip_all, fields(geth_node_id = self.id))]
+    #[instrument(level = "info", skip_all, fields(lighthouse_node_id = self.id))]
     fn latest_state_proof(
         &self,
         address: Address,
@@ -529,7 +552,7 @@ impl EthereumNode for LighthouseGethNode {
         })
     }
 
-    // #[instrument(level = "info", skip_all, fields(geth_node_id = self.id))]
+    // #[instrument(level = "info", skip_all, fields(lighthouse_node_id = self.id))]
     fn resolver(
         &self,
     ) -> Pin<Box<dyn Future<Output = anyhow::Result<Arc<dyn ResolverApi + '_>>> + '_>> {
@@ -553,14 +576,14 @@ pub struct LighthouseGethNodeResolver<F: TxFiller<Ethereum>, P: Provider<Ethereu
 impl<F: TxFiller<Ethereum>, P: Provider<Ethereum>> ResolverApi
     for LighthouseGethNodeResolver<F, P>
 {
-    #[instrument(level = "info", skip_all, fields(geth_node_id = self.id))]
+    #[instrument(level = "info", skip_all, fields(lighthouse_node_id = self.id))]
     fn chain_id(
         &self,
     ) -> Pin<Box<dyn Future<Output = anyhow::Result<alloy::primitives::ChainId>> + '_>> {
         Box::pin(async move { self.provider.get_chain_id().await.map_err(Into::into) })
     }
 
-    #[instrument(level = "info", skip_all, fields(geth_node_id = self.id))]
+    #[instrument(level = "info", skip_all, fields(lighthouse_node_id = self.id))]
     fn transaction_gas_price(
         &self,
         tx_hash: TxHash,
@@ -574,7 +597,7 @@ impl<F: TxFiller<Ethereum>, P: Provider<Ethereum>> ResolverApi
         })
     }
 
-    #[instrument(level = "info", skip_all, fields(geth_node_id = self.id))]
+    #[instrument(level = "info", skip_all, fields(lighthouse_node_id = self.id))]
     fn block_gas_limit(
         &self,
         number: BlockNumberOrTag,
@@ -589,7 +612,7 @@ impl<F: TxFiller<Ethereum>, P: Provider<Ethereum>> ResolverApi
         })
     }
 
-    #[instrument(level = "info", skip_all, fields(geth_node_id = self.id))]
+    #[instrument(level = "info", skip_all, fields(lighthouse_node_id = self.id))]
     fn block_coinbase(
         &self,
         number: BlockNumberOrTag,
@@ -604,7 +627,7 @@ impl<F: TxFiller<Ethereum>, P: Provider<Ethereum>> ResolverApi
         })
     }
 
-    #[instrument(level = "info", skip_all, fields(geth_node_id = self.id))]
+    #[instrument(level = "info", skip_all, fields(lighthouse_node_id = self.id))]
     fn block_difficulty(
         &self,
         number: BlockNumberOrTag,
@@ -619,7 +642,7 @@ impl<F: TxFiller<Ethereum>, P: Provider<Ethereum>> ResolverApi
         })
     }
 
-    #[instrument(level = "info", skip_all, fields(geth_node_id = self.id))]
+    #[instrument(level = "info", skip_all, fields(lighthouse_node_id = self.id))]
     fn block_base_fee(
         &self,
         number: BlockNumberOrTag,
@@ -639,7 +662,7 @@ impl<F: TxFiller<Ethereum>, P: Provider<Ethereum>> ResolverApi
         })
     }
 
-    #[instrument(level = "info", skip_all, fields(geth_node_id = self.id))]
+    #[instrument(level = "info", skip_all, fields(lighthouse_node_id = self.id))]
     fn block_hash(
         &self,
         number: BlockNumberOrTag,
@@ -654,7 +677,7 @@ impl<F: TxFiller<Ethereum>, P: Provider<Ethereum>> ResolverApi
         })
     }
 
-    #[instrument(level = "info", skip_all, fields(geth_node_id = self.id))]
+    #[instrument(level = "info", skip_all, fields(lighthouse_node_id = self.id))]
     fn block_timestamp(
         &self,
         number: BlockNumberOrTag,
@@ -669,14 +692,14 @@ impl<F: TxFiller<Ethereum>, P: Provider<Ethereum>> ResolverApi
         })
     }
 
-    #[instrument(level = "info", skip_all, fields(geth_node_id = self.id))]
+    #[instrument(level = "info", skip_all, fields(lighthouse_node_id = self.id))]
     fn last_block_number(&self) -> Pin<Box<dyn Future<Output = anyhow::Result<BlockNumber>> + '_>> {
         Box::pin(async move { self.provider.get_block_number().await.map_err(Into::into) })
     }
 }
 
 impl Node for LighthouseGethNode {
-    #[instrument(level = "info", skip_all, fields(geth_node_id = self.id))]
+    #[instrument(level = "info", skip_all, fields(lighthouse_node_id = self.id))]
     fn shutdown(&mut self) -> anyhow::Result<()> {
         if !Command::new(self.kurtosis_binary_path.as_path())
             .arg("enclave")
@@ -699,13 +722,13 @@ impl Node for LighthouseGethNode {
         Ok(())
     }
 
-    #[instrument(level = "info", skip_all, fields(geth_node_id = self.id))]
+    #[instrument(level = "info", skip_all, fields(lighthouse_node_id = self.id))]
     fn spawn(&mut self, genesis: Genesis) -> anyhow::Result<()> {
         self.init(genesis)?.spawn_process()?;
         Ok(())
     }
 
-    #[instrument(level = "info", skip_all, fields(geth_node_id = self.id))]
+    #[instrument(level = "info", skip_all, fields(lighthouse_node_id = self.id))]
     fn version(&self) -> anyhow::Result<String> {
         let output = Command::new(&self.kurtosis_binary_path)
             .arg("version")
@@ -722,7 +745,7 @@ impl Node for LighthouseGethNode {
 }
 
 impl Drop for LighthouseGethNode {
-    #[instrument(level = "info", skip_all, fields(geth_node_id = self.id))]
+    #[instrument(level = "info", skip_all, fields(lighthouse_node_id = self.id))]
     fn drop(&mut self) {
         self.shutdown().expect("Failed to shutdown")
     }

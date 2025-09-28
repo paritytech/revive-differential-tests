@@ -266,6 +266,10 @@ impl GethNode {
 }
 
 impl EthereumNode for GethNode {
+    fn pre_transactions(&mut self) -> Pin<Box<dyn Future<Output = anyhow::Result<()>> + '_>> {
+        Box::pin(async move { Ok(()) })
+    }
+
     fn id(&self) -> usize {
         self.id as _
     }

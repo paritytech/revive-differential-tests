@@ -147,6 +147,7 @@ async fn run_driver(
     let mut nodes = Vec::<(&dyn Platform, NodePool)>::new();
     for platform in platforms.into_iter() {
         let pool = NodePool::new(Context::ExecuteTests(Box::new(context.clone())), platform)
+            .await
             .inspect_err(|err| {
                 error!(
                     ?err,

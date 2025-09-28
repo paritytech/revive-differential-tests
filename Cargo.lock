@@ -4618,6 +4618,7 @@ version = "0.1.0"
 dependencies = [
  "alloy",
  "anyhow",
+ "futures",
  "revive-common",
  "revive-dt-common",
  "revive-dt-config",
