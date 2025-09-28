@@ -43,7 +43,8 @@ jobs:
         run: |
           brew install protobuf
           rustup target add wasm32-unknown-unknown
-          rustup component add rust-src rustfmt
+          rustup component add rust-src
+          rustup component add --toolchain stable-aarch64-apple-darwin rustfmt
 
       - name: Cache binaries
         id: cache
