@@ -35,16 +35,19 @@ use alloy::{
         ext::DebugApi,
         fillers::{CachedNonceManager, ChainIdFiller, FillProvider, NonceFiller, TxFiller},
     },
-    rpc::types::{
-        EIP1186AccountProofResponse, TransactionRequest,
-        trace::geth::{DiffMode, GethDebugTracingOptions, PreStateConfig, PreStateFrame},
+    rpc::{
+        client::{BuiltInConnectionString, ClientBuilder, RpcClient},
+        types::{
+            EIP1186AccountProofResponse, TransactionRequest,
+            trace::geth::{DiffMode, GethDebugTracingOptions, PreStateConfig, PreStateFrame},
+        },
     },
 };
 use anyhow::Context as _;
 use revive_common::EVMVersion;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_with::serde_as;
-use tracing::{Instrument, instrument};
+use tracing::{Instrument, info, instrument};
 
 use revive_dt_common::{
     fs::clear_directory,
@@ -75,7 +78,8 @@ static NODE_COUNT: AtomicU32 = AtomicU32::new(0);
 pub struct LighthouseGethNode {
     /* Node Identifier */
     id: u32,
-    connection_string: String,
+    ws_connection_string: String,
+    http_connection_string: String,
     enclave_name: String,
 
     /* Directory Paths */
@@ -104,7 +108,6 @@ impl LighthouseGethNode {
     const BASE_DIRECTORY: &str = "lighthouse";
     const LOGS_DIRECTORY: &str = "logs";
 
-    const IPC_FILE_NAME: &str = "geth.ipc";
     const CONFIG_FILE_NAME: &str = "config.yaml";
 
     const TRANSACTION_INDEXING_ERROR: &str = "transaction indexing is in progress";
@@ -137,10 +140,8 @@ impl LighthouseGethNode {
         Self {
             /* Node Identifier */
             id,
-            connection_string: base_directory
-                .join(Self::IPC_FILE_NAME)
-                .display()
-                .to_string(),
+            ws_connection_string: String::default(),
+            http_connection_string: String::default(),
             enclave_name: format!(
                 "enclave-{}-{}",
                 SystemTime::now()
@@ -316,14 +317,30 @@ impl LighthouseGethNode {
             stdout
         };
 
-        self.connection_string = stdout
+        self.http_connection_string = stdout
+            .split("el-1-geth-lighthouse")
+            .nth(1)
+            .and_then(|str| str.split(" rpc").nth(1))
+            .and_then(|str| str.split("->").nth(1))
+            .and_then(|str| str.split("\n").next())
+            .and_then(|str| str.trim().split(" ").next())
+            .map(|str| format!("http://{}", str.trim()))
+            .context("Failed to find the HTTP connection string of Kurtosis")?;
+        self.ws_connection_string = stdout
             .split("el-1-geth-lighthouse")
             .nth(1)
             .and_then(|str| str.split("ws").nth(1))
             .and_then(|str| str.split("->").nth(1))
             .and_then(|str| str.split("\n").next())
+            .and_then(|str| str.trim().split(" ").next())
             .map(|str| format!("ws://{}", str.trim()))
             .context("Failed to find the WS connection string of Kurtosis")?;
+
+        info!(
+            http_connection_string = self.http_connection_string,
+            ws_connection_string = self.ws_connection_string,
+            "Discovered the connection strings for the node"
+        );
 
         Ok(self)
     }
@@ -331,13 +348,44 @@ impl LighthouseGethNode {
     #[instrument(
         level = "info",
         skip_all,
-        fields(lighthouse_node_id = self.id, connection_string = self.connection_string),
+        fields(lighthouse_node_id = self.id, connection_string = self.ws_connection_string),
         err(Debug),
     )]
-    async fn provider(
+    async fn ws_provider(
         &self,
     ) -> anyhow::Result<FillProvider<impl TxFiller<Ethereum>, impl Provider<Ethereum>, Ethereum>>
     {
+        let client = ClientBuilder::default()
+            .connect_with(BuiltInConnectionString::Ws(
+                self.ws_connection_string.as_str().parse().unwrap(),
+                None,
+            ))
+            .await?;
+        Ok(self.provider(client))
+    }
+
+    #[instrument(
+        level = "info",
+        skip_all,
+        fields(lighthouse_node_id = self.id, connection_string = self.ws_connection_string),
+        err(Debug),
+    )]
+    async fn http_provider(
+        &self,
+    ) -> anyhow::Result<FillProvider<impl TxFiller<Ethereum>, impl Provider<Ethereum>, Ethereum>>
+    {
+        let client = ClientBuilder::default()
+            .connect_with(BuiltInConnectionString::Http(
+                self.http_connection_string.as_str().parse().unwrap(),
+            ))
+            .await?;
+        Ok(self.provider(client))
+    }
+
+    fn provider(
+        &self,
+        rpc_client: RpcClient,
+    ) -> FillProvider<impl TxFiller<Ethereum>, impl Provider<Ethereum>, Ethereum> {
         ProviderBuilder::new()
             .disable_recommended_fillers()
             .filler(FallbackGasFiller::new(
@@ -348,21 +396,19 @@ impl LighthouseGethNode {
             .filler(self.chain_id_filler.clone())
             .filler(NonceFiller::new(self.nonce_manager.clone()))
             .wallet(self.wallet.clone())
-            .connect(&self.connection_string)
-            .await
-            .context("Failed to create the provider for Kurtosis")
+            .connect_client(rpc_client)
     }
 
     /// Funds all of the accounts in the Ethereum wallet from the initially funded account.
     #[instrument(
         level = "info",
         skip_all,
-        fields(lighthouse_node_id = self.id, connection_string = self.connection_string),
+        fields(lighthouse_node_id = self.id, connection_string = self.ws_connection_string),
         err(Debug),
     )]
     async fn fund_all_accounts(&self) -> anyhow::Result<()> {
         let mut providers =
-            futures::future::try_join_all((0..100).map(|_| self.provider()).collect::<Vec<_>>())
+            futures::future::try_join_all((0..100).map(|_| self.ws_provider()).collect::<Vec<_>>())
                 .await
                 .context("Failed to create the providers")?
                 .into_iter()
@@ -406,6 +452,13 @@ impl LighthouseGethNode {
             for hash in block.transactions.into_hashes().as_hashes().unwrap() {
                 tx_hashes.remove(hash);
             }
+
+            info!(
+                block.number = block_number,
+                block.timestamp = block.header.timestamp,
+                remaining_transactions = tx_hashes.len(),
+                "Discovered new block in funding accounts"
+            );
 
             block_number += 1
         }
@@ -490,13 +543,13 @@ impl EthereumNode for LighthouseGethNode {
     }
 
     fn connection_string(&self) -> &str {
-        &self.connection_string
+        &self.ws_connection_string
     }
 
     #[instrument(
         level = "info",
         skip_all,
-        fields(lighthouse_node_id = self.id, connection_string = self.connection_string),
+        fields(lighthouse_node_id = self.id, connection_string = self.ws_connection_string),
         err,
     )]
     fn execute_transaction(
@@ -506,7 +559,7 @@ impl EthereumNode for LighthouseGethNode {
     {
         Box::pin(async move {
             let provider = self
-                .provider()
+                .ws_provider()
                 .await
                 .map(Arc::new)
                 .context("Failed to create provider for transaction submission")?;
@@ -523,7 +576,7 @@ impl EthereumNode for LighthouseGethNode {
     {
         Box::pin(async move {
             let provider = Arc::new(
-                self.provider()
+                self.http_provider()
                     .await
                     .context("Failed to create provider for tracing")?,
             );
@@ -584,7 +637,7 @@ impl EthereumNode for LighthouseGethNode {
         address: Address,
     ) -> Pin<Box<dyn Future<Output = anyhow::Result<U256>> + '_>> {
         Box::pin(async move {
-            self.provider()
+            self.ws_provider()
                 .await
                 .context("Failed to get the Geth provider")?
                 .get_balance(address)
@@ -600,7 +653,7 @@ impl EthereumNode for LighthouseGethNode {
         keys: Vec<StorageKey>,
     ) -> Pin<Box<dyn Future<Output = anyhow::Result<EIP1186AccountProofResponse>> + '_>> {
         Box::pin(async move {
-            self.provider()
+            self.ws_provider()
                 .await
                 .context("Failed to get the Geth provider")?
                 .get_proof(address, keys)
@@ -616,7 +669,7 @@ impl EthereumNode for LighthouseGethNode {
     ) -> Pin<Box<dyn Future<Output = anyhow::Result<Arc<dyn ResolverApi + '_>>> + '_>> {
         Box::pin(async move {
             let id = self.id;
-            let provider = self.provider().await?;
+            let provider = self.ws_provider().await?;
             Ok(Arc::new(LighthouseGethNodeResolver { id, provider }) as Arc<dyn ResolverApi>)
         })
     }

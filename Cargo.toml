@@ -80,8 +80,9 @@ default-features = false
 features = [
     "json-abi",
     "providers",
-    "provider-ipc",
     "provider-ws",
+    "provider-ipc",
+    "provider-http",
     "provider-debug-api",
     "reqwest",
     "rpc-types",
