@@ -650,7 +650,7 @@ pub struct WalletConfiguration {
     /// its wallet signers. With a value of N, private keys (0, N] will be added to the signer set
     /// of the node.
     #[clap(long = "wallet.additional-keys", default_value_t = 100_000)]
-    additional_keys: usize,
+    pub additional_keys: usize,
 
     /// The wallet object that will be used.
     #[clap(skip)]
@@ -779,7 +779,6 @@ impl AsRef<Path> for WorkingDirectoryConfiguration {
 impl Default for WorkingDirectoryConfiguration {
     fn default() -> Self {
         TempDir::new()
-            .map(|tempdir| dbg!(tempdir.dont_delete_on_drop()))
             .map(Arc::new)
             .map(Self::TemporaryDirectory)
             .expect("Failed to create the temporary directory")

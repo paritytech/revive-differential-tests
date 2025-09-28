@@ -91,7 +91,7 @@ echo ""
 # Run the tool
 RUST_LOG="info" cargo run --release -- execute-tests \
     --platform geth-evm-solc \
-    --platform revive-dev-node-polkavm-resolc \
+    --platform lighthouse-geth-evm-solc \
     --corpus "$CORPUS_FILE" \
     --working-directory "$WORKDIR" \
     --concurrency.number-of-nodes 5 \

@@ -9,7 +9,7 @@
 //! that the tool has.
 
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, HashSet},
     fs::{File, create_dir_all},
     io::Read,
     ops::ControlFlow,
@@ -24,7 +24,7 @@ use std::{
 };
 
 use alloy::{
-    eips::BlockNumberOrTag,
+    eips::{BlockId, BlockNumberOrTag},
     genesis::{Genesis, GenesisAccount},
     network::{Ethereum, EthereumWallet, NetworkWallet},
     primitives::{
@@ -39,10 +39,8 @@ use alloy::{
         EIP1186AccountProofResponse, TransactionRequest,
         trace::geth::{DiffMode, GethDebugTracingOptions, PreStateConfig, PreStateFrame},
     },
-    signers::local::PrivateKeySigner,
 };
 use anyhow::Context as _;
-use futures::future;
 use revive_common::EVMVersion;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_with::serde_as;
@@ -94,7 +92,7 @@ pub struct LighthouseGethNode {
     process: Option<Process>,
 
     /* Prefunded Account Information */
-    prefunded_account_private_key: PrivateKeySigner,
+    prefunded_account_address: Address,
 
     /* Provider Related Fields */
     wallet: Arc<EthereumWallet>,
@@ -166,7 +164,7 @@ impl LighthouseGethNode {
             process: None,
 
             /* Prefunded Account Information */
-            prefunded_account_private_key: PrivateKeySigner::random(),
+            prefunded_account_address: wallet.default_signer().address(),
 
             /* Provider Related Fields */
             wallet: wallet.clone(),
@@ -236,7 +234,7 @@ impl LighthouseGethNode {
                 num_validator_keys_per_node: 64,
                 genesis_delay: 10,
                 prefunded_accounts: {
-                    let map = std::iter::once(self.prefunded_account_private_key.address())
+                    let map = std::iter::once(self.prefunded_account_address)
                         .map(|address| (address, GenesisAccount::default().with_balance(U256::MAX)))
                         .collect::<BTreeMap<_, _>>();
                     serde_json::to_string(&map).unwrap()
@@ -330,6 +328,12 @@ impl LighthouseGethNode {
         Ok(self)
     }
 
+    #[instrument(
+        level = "info",
+        skip_all,
+        fields(lighthouse_node_id = self.id, connection_string = self.connection_string),
+        err(Debug),
+    )]
     async fn provider(
         &self,
     ) -> anyhow::Result<FillProvider<impl TxFiller<Ethereum>, impl Provider<Ethereum>, Ethereum>>
@@ -350,20 +354,129 @@ impl LighthouseGethNode {
     }
 
     /// Funds all of the accounts in the Ethereum wallet from the initially funded account.
+    #[instrument(
+        level = "info",
+        skip_all,
+        fields(lighthouse_node_id = self.id, connection_string = self.connection_string),
+        err(Debug),
+    )]
     async fn fund_all_accounts(&self) -> anyhow::Result<()> {
-        let tasks = NetworkWallet::<Ethereum>::signer_addresses(self.wallet.as_ref())
-            .enumerate()
-            .map(|(nonce, address)| async move {
-                let transaction = TransactionRequest::default()
-                    .from(self.prefunded_account_private_key.address())
-                    .to(address)
-                    .nonce(nonce as _)
-                    .value(INITIAL_BALANCE.try_into().unwrap());
-                self.execute_transaction(transaction).await
-            })
-            .collect::<Vec<_>>();
-        future::try_join_all(tasks).await?;
+        let mut providers =
+            futures::future::try_join_all((0..100).map(|_| self.provider()).collect::<Vec<_>>())
+                .await
+                .context("Failed to create the providers")?
+                .into_iter()
+                .map(Arc::new)
+                .collect::<Vec<_>>();
+
+        let mut tx_hashes = futures::future::try_join_all(
+            NetworkWallet::<Ethereum>::signer_addresses(self.wallet.as_ref())
+                .enumerate()
+                .map(|(nonce, address)| {
+                    let provider = providers[nonce % 100].clone();
+                    async move {
+                        let transaction = TransactionRequest::default()
+                            .from(self.prefunded_account_address)
+                            .to(address)
+                            .nonce(nonce as _)
+                            .value(INITIAL_BALANCE.try_into().unwrap());
+                        provider
+                            .send_transaction(transaction)
+                            .await
+                            .map(|tx| *tx.tx_hash())
+                    }
+                })
+                .collect::<Vec<_>>(),
+        )
+        .await
+        .context("Failed to submit all transactions")?
+        .into_iter()
+        .collect::<HashSet<_>>();
+
+        let provider = providers.pop().unwrap();
+        let mut block_number = 0 as BlockNumber;
+        while !tx_hashes.is_empty() {
+            let Ok(Some(block)) = provider
+                .get_block(BlockId::Number(BlockNumberOrTag::Number(block_number)))
+                .await
+            else {
+                continue;
+            };
+
+            for hash in block.transactions.into_hashes().as_hashes().unwrap() {
+                tx_hashes.remove(hash);
+            }
+
+            block_number += 1
+        }
+
         Ok(())
+    }
+
+    fn internal_execute_transaction<'a>(
+        transaction: TransactionRequest,
+        provider: Arc<
+            FillProvider<impl TxFiller<Ethereum> + 'a, impl Provider<Ethereum> + 'a, Ethereum>,
+        >,
+    ) -> Pin<Box<dyn Future<Output = anyhow::Result<alloy::rpc::types::TransactionReceipt>> + 'a>>
+    {
+        Box::pin(async move {
+            let pending_transaction = provider
+                .send_transaction(transaction)
+                .await
+                .inspect_err(|err| {
+                    tracing::error!(
+                        %err,
+                        "Encountered an error when submitting the transaction"
+                    )
+                })
+                .context("Failed to submit transaction to geth node")?;
+            let transaction_hash = *pending_transaction.tx_hash();
+
+            // The following is a fix for the "transaction indexing is in progress" error that we
+            // used to get. You can find more information on this in the following GH issue in geth
+            // https://github.com/ethereum/go-ethereum/issues/28877. To summarize what's going on,
+            // before we can get the receipt of the transaction it needs to have been indexed by the
+            // node's indexer. Just because the transaction has been confirmed it doesn't mean that
+            // it has been indexed. When we call alloy's `get_receipt` it checks if the transaction
+            // was confirmed. If it has been, then it will call `eth_getTransactionReceipt` method
+            // which _might_ return the above error if the tx has not yet been indexed yet. So, we
+            // need to implement a retry mechanism for the receipt to keep retrying to get it until
+            // it eventually works, but we only do that if the error we get back is the "transaction
+            // indexing is in progress" error or if the receipt is None.
+            //
+            // Getting the transaction indexed and taking a receipt can take a long time especially
+            // when a lot of transactions are being submitted to the node. Thus, while initially we
+            // only allowed for 60 seconds of waiting with a 1 second delay in polling, we need to
+            // allow for a larger wait time. Therefore, in here we allow for 5 minutes of waiting
+            // with exponential backoff each time we attempt to get the receipt and find that it's
+            // not available.
+            poll(
+                Self::RECEIPT_POLLING_DURATION,
+                PollingWaitBehavior::Constant(Duration::from_millis(500)),
+                move || {
+                    let provider = provider.clone();
+                    async move {
+                        match provider.get_transaction_receipt(transaction_hash).await {
+                            Ok(Some(receipt)) => Ok(ControlFlow::Break(receipt)),
+                            Ok(None) => Ok(ControlFlow::Continue(())),
+                            Err(error) => {
+                                let error_string = error.to_string();
+                                match error_string.contains(Self::TRANSACTION_INDEXING_ERROR) {
+                                    true => Ok(ControlFlow::Continue(())),
+                                    false => Err(error.into()),
+                                }
+                            }
+                        }
+                    }
+                },
+            )
+            .instrument(tracing::info_span!(
+                "Awaiting transaction receipt",
+                ?transaction_hash
+            ))
+            .await
+        })
     }
 }
 
@@ -395,64 +508,9 @@ impl EthereumNode for LighthouseGethNode {
             let provider = self
                 .provider()
                 .await
+                .map(Arc::new)
                 .context("Failed to create provider for transaction submission")?;
-
-            let pending_transaction = provider
-                .send_transaction(transaction)
-                .await
-                .inspect_err(|err| {
-                    tracing::error!(
-                        %err,
-                        "Encountered an error when submitting the transaction"
-                    )
-                })
-                .context("Failed to submit transaction to geth node")?;
-            let transaction_hash = *pending_transaction.tx_hash();
-
-            // The following is a fix for the "transaction indexing is in progress" error that we
-            // used to get. You can find more information on this in the following GH issue in geth
-            // https://github.com/ethereum/go-ethereum/issues/28877. To summarize what's going on,
-            // before we can get the receipt of the transaction it needs to have been indexed by the
-            // node's indexer. Just because the transaction has been confirmed it doesn't mean that
-            // it has been indexed. When we call alloy's `get_receipt` it checks if the transaction
-            // was confirmed. If it has been, then it will call `eth_getTransactionReceipt` method
-            // which _might_ return the above error if the tx has not yet been indexed yet. So, we
-            // need to implement a retry mechanism for the receipt to keep retrying to get it until
-            // it eventually works, but we only do that if the error we get back is the "transaction
-            // indexing is in progress" error or if the receipt is None.
-            //
-            // Getting the transaction indexed and taking a receipt can take a long time especially
-            // when a lot of transactions are being submitted to the node. Thus, while initially we
-            // only allowed for 60 seconds of waiting with a 1 second delay in polling, we need to
-            // allow for a larger wait time. Therefore, in here we allow for 5 minutes of waiting
-            // with exponential backoff each time we attempt to get the receipt and find that it's
-            // not available.
-            let provider = Arc::new(provider);
-            poll(
-                Self::RECEIPT_POLLING_DURATION,
-                PollingWaitBehavior::Constant(Duration::from_millis(500)),
-                move || {
-                    let provider = provider.clone();
-                    async move {
-                        match provider.get_transaction_receipt(transaction_hash).await {
-                            Ok(Some(receipt)) => Ok(ControlFlow::Break(receipt)),
-                            Ok(None) => Ok(ControlFlow::Continue(())),
-                            Err(error) => {
-                                let error_string = error.to_string();
-                                match error_string.contains(Self::TRANSACTION_INDEXING_ERROR) {
-                                    true => Ok(ControlFlow::Continue(())),
-                                    false => Err(error.into()),
-                                }
-                            }
-                        }
-                    }
-                },
-            )
-            .instrument(tracing::info_span!(
-                "Awaiting transaction receipt",
-                ?transaction_hash
-            ))
-            .await
+            Self::internal_execute_transaction(transaction, provider).await
         })
     }
 
@@ -876,7 +934,9 @@ mod tests {
     use super::*;
 
     fn test_config() -> TestExecutionContext {
-        TestExecutionContext::default()
+        let mut config = TestExecutionContext::default();
+        config.wallet_configuration.additional_keys = 100;
+        config
     }
 
     fn new_node() -> (TestExecutionContext, LighthouseGethNode) {
@@ -911,6 +971,7 @@ mod tests {
     async fn node_mines_simple_transfer_transaction_and_returns_receipt() {
         // Arrange
         let (context, node) = new_node();
+        node.fund_all_accounts().await.expect("Failed");
 
         let account_address = context
             .wallet_configuration
