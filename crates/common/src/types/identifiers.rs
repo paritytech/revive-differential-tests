@@ -29,6 +29,8 @@ use strum::{AsRefStr, Display, EnumString, IntoStaticStr};
 pub enum PlatformIdentifier {
     /// The Go-ethereum reference full node EVM implementation with the solc compiler.
     GethEvmSolc,
+    /// The Lighthouse Go-ethereum reference full node EVM implementation with the solc compiler.
+    LighthouseGethEvmSolc,
     /// The kitchensink node with the PolkaVM backend with the resolc compiler.
     KitchensinkPolkavmResolc,
     /// The kitchensink node with the REVM backend with the solc compiler.
@@ -87,6 +89,8 @@ pub enum CompilerIdentifier {
 pub enum NodeIdentifier {
     /// The go-ethereum node implementation.
     Geth,
+    /// The go-ethereum node implementation.
+    LighthouseGeth,
     /// The Kitchensink node implementation.
     Kitchensink,
     /// The revive dev node implementation.
