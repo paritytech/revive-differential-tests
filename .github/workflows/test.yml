@@ -170,5 +170,22 @@ jobs:
       - name: Check resolc version
         run: resolc --version
 
-      - name: Test cargo workspace
-        run: make test
+      - name: Test Formatting
+        run: make format
+
+      - name: Test Clippy
+        run: make clippy
+
+      - name: Test Machete
+        run: make machete
+
+      - name: Unit Tests
+        if: matrix.os == 'ubuntu-24.04'
+        run: cargo test --workspace -- --nocapture
+
+      # We can't install docker in the MacOS image used in CI and therefore we need to skip the
+      # Kurtosis and lighthouse related tests when running the CI on MacOS.
+      - name: Unit Tests
+        if: matrix.os == 'macos-14'
+        run: |
+          cargo test --workspace -- --nocapture --skip lighthouse_geth::tests::
