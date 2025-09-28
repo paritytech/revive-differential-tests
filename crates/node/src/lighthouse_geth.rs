@@ -279,7 +279,7 @@ impl LighthouseGethNode {
                     .stderr(stderr);
             },
             ProcessReadinessWaitBehavior::TimeBoundedWaitFunction {
-                max_wait_duration: Duration::from_secs(5 * 60),
+                max_wait_duration: Duration::from_secs(15 * 60),
                 check_function: Box::new(|stdout, stderr| {
                     for line in [stdout, stderr].iter().flatten() {
                         if line.to_lowercase().contains("error encountered") {
