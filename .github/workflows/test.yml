@@ -141,6 +141,17 @@ jobs:
           chmod +x resolc
           sudo mv resolc /usr/local/bin
 
+      - name: Install Kurtosis on macOS
+        if: matrix.os == 'macos-14'
+        run: brew install kurtosis-tech/tap/kurtosis-cli
+
+      - name: Install Kurtosis on Ubuntu
+        if: matrix.os == 'macos-14'
+        run: |
+          echo "deb [trusted=yes] https://apt.fury.io/kurtosis-tech/ /" | sudo tee /etc/apt/sources.list.d/kurtosis.list
+          sudo apt update
+          sudo apt install kurtosis-cli
+
       - name: Machete
         uses: bnjbvr/cargo-machete@v0.7.1
 
