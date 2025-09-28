@@ -36,14 +36,14 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y protobuf-compiler clang libclang-dev
           rustup target add wasm32-unknown-unknown
-          rustup component add rust-src
+          rustup component add rust-src cargo-fmt
 
       - name: Install dependencies (macOS)
         if: matrix.os == 'macos-14'
         run: |
           brew install protobuf
           rustup target add wasm32-unknown-unknown
-          rustup component add rust-src
+          rustup component add rust-src cargo-fmt
 
       - name: Cache binaries
         id: cache
