@@ -7,6 +7,7 @@ use alloy::{
 
 use revive_dt_format::metadata::{ContractIdent, ContractInstance};
 
+#[derive(Clone)]
 /// The state associated with the test execution of one of the tests.
 pub struct ExecutionState {
     /// The compiled contracts, these contracts have been compiled and have had the libraries linked
@@ -17,7 +18,7 @@ pub struct ExecutionState {
     pub deployed_contracts: HashMap<ContractInstance, (ContractIdent, Address, JsonAbi)>,
 
     /// This map stores the variables used for each one of the cases contained in the metadata file.
-    variables: HashMap<String, U256>,
+    pub variables: HashMap<String, U256>,
 }
 
 impl ExecutionState {
