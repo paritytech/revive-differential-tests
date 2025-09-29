@@ -106,15 +106,6 @@ impl AsRef<KitchensinkConfiguration> for Context {
     }
 }
 
-impl AsRef<ZombieNetConfiguration> for Context {
-    fn as_ref(&self) -> &ZombieNetConfiguration {
-        match self {
-            Self::ExecuteTests(context) => context.as_ref().as_ref(),
-            Self::ExportJsonSchema => unreachable!(),
-        }
-    }
-}
-
 impl AsRef<ReviveDevNodeConfiguration> for Context {
     fn as_ref(&self) -> &ReviveDevNodeConfiguration {
         match self {
@@ -309,12 +300,6 @@ impl AsRef<KitchensinkConfiguration> for TestExecutionContext {
 impl AsRef<ReviveDevNodeConfiguration> for TestExecutionContext {
     fn as_ref(&self) -> &ReviveDevNodeConfiguration {
         &self.revive_dev_node_configuration
-    }
-}
-
-impl AsRef<ZombieNetConfiguration> for TestExecutionContext {
-    fn as_ref(&self) -> &ZombieNetConfiguration {
-        &self.zombienet_configuration
     }
 }
 
