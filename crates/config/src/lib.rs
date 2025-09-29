@@ -204,7 +204,7 @@ pub struct TestExecutionContext {
     #[clap(flatten, next_help_heading = "Resolc Configuration")]
     pub resolc_configuration: ResolcConfiguration,
 
-     /// Configuration parameters for the Zombienet.
+    /// Configuration parameters for the Zombienet.
     #[clap(flatten, next_help_heading = "Zombienet Configuration")]
     pub zombienet_configuration: ZombieNetConfiguration,
 
