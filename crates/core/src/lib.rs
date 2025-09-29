@@ -15,6 +15,7 @@ use revive_dt_compiler::{SolidityCompiler, revive_resolc::Resolc, solc::Solc};
 use revive_dt_config::*;
 use revive_dt_node::{
     Node, geth::GethNode, lighthouse_geth::LighthouseGethNode, substrate::SubstrateNode,
+    zombie::ZombieNode,
 };
 use revive_dt_node_interaction::EthereumNode;
 use tracing::info;

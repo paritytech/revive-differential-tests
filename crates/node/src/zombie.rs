@@ -738,10 +738,7 @@ impl Drop for ZombieNode {
 
 #[cfg(test)]
 mod tests {
-    use alloy::{
-        primitives::TxKind,
-        rpc::types::{TransactionInput, TransactionRequest},
-    };
+    use alloy::rpc::types::TransactionRequest;
 
     use crate::zombie::tests::utils::shared_node;
 
@@ -749,6 +746,9 @@ mod tests {
 
     mod utils {
         use super::*;
+
+        use std::sync::Arc;
+        use tokio::sync::OnceCell;
 
         pub fn test_config() -> TestExecutionContext {
             let mut context = TestExecutionContext::default();
@@ -773,9 +773,6 @@ mod tests {
             (context, node)
         }
 
-        use std::sync::Arc;
-        use tokio::sync::OnceCell;
-
         pub async fn shared_node() -> Arc<ZombieNode> {
             static NODE: OnceCell<Arc<ZombieNode>> = OnceCell::const_new();
 
@@ -793,33 +790,9 @@ mod tests {
     async fn test_transfer_transaction_should_return_receipt() {
         let (ctx, node) = new_node().await;
 
-        // The data for this request copied from a failed transaction while running the cli using the smart contracts
-        let transaction_request = TransactionRequest {
-                from: Some("0xd2b654d7b7d485780907b877e11c662e789245e0".parse().unwrap()),
-                to: Some(TxKind::Create),
-                gas_price: None,
-                max_fee_per_gas: None,
-                max_priority_fee_per_gas: None,
-                max_fee_per_blob_gas: None,
-                gas: None,
-                value: None,
-                input: TransactionInput {
-                    // Use hex string instead of integer literal
-                    input: Some(alloy::hex::decode("6080604052348015600e575f5ffd5b5061029e8061001c5f395ff3fe608060405234801561000f575f5ffd5b5060043610610029575f3560e01c8063d73d36f71461002d575b5f5ffd5b61004760048036038101906100429190610172565b61005d565b60405161005491906101c8565b60405180910390f35b5f8173ffffffffffffffffffffffffffffffffffffffff166309a31ea4846040518263ffffffff1660e01b815260040161009791906101fa565b602060405180830381865afa1580156100b2573d5f5f3e3d5ffd5b505050506040513d601f19601f820116820180604052508101906100d6919061023d565b905092915050565b5f5ffd5b5f5ffd5b5f81905082602060010282011115610101576101006100e2565b5b92915050565b5f73ffffffffffffffffffffffffffffffffffffffff82169050919050565b5f61013082610107565b9050919050565b5f61014182610126565b9050919050565b61015181610137565b811461015b575f5ffd5b50565b5f8135905061016c81610148565b92915050565b5f5f60408385031215610188576101876100de565b5b5f610195858286016100e6565b92505060206101a68582860161015e565b9150509250929050565b5f819050919050565b6101c2816101b0565b82525050565b5f6020820190506101db5f8301846101b9565b92915050565b82818337505050565b6101f6602083836101e1565b5050565b5f60208201905061020d5f8301846101ea565b92915050565b61021c816101b0565b8114610226575f5ffd5b50565b5f8151905061023781610213565b92915050565b5f60208284031215610252576102516100de565b5b5f61025f84828501610229565b9150509291505056fea2646970667358221220e305b5abf6b652b69c05ac91b240e0236f4907b7b46e4cc40524e5ee0204192d64736f6c634300081d0033").unwrap().into()),
-                    data: None
-                },
-                nonce: None,
-                chain_id: None,
-                access_list: None,
-                transaction_type: None,
-                blob_versioned_hashes: None,
-                sidecar: None,
-                authorization_list: None
-            };
-
         let provider = node.provider().await.expect("Failed to create provider");
         let account_address = ctx.wallet_configuration.wallet().default_signer().address();
-        let transaction = transaction_request
+        let transaction = TransactionRequest::default()
             .to(account_address)
             .value(U256::from(100_000_000_000_000u128));
 
