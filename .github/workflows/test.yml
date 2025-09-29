@@ -52,6 +52,8 @@ jobs:
           path: |
             ~/.cargo/bin/substrate-node
             ~/.cargo/bin/eth-rpc
+            ~/.cargo/bin/polkadot
+            ~/.cargo/bin/polkadot-parachain
           key: polkadot-binaries-${{ matrix.os }}-${{ hashFiles('polkadot-sdk/.git') }}
 
       - name: Build substrate-node
@@ -65,6 +67,18 @@ jobs:
         run: |
           cd polkadot-sdk
           cargo install --path substrate/frame/revive/rpc --bin eth-rpc
+      
+      - name: Build polkadot node
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          cd polkadot-sdk
+          cargo install --path ./polkadot --force --locked
+
+      - name: Build parachain node
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          cd polkadot-sdk
+          cargo install --path ./templates/parachain/node --force --locked
 
   ci:
     name: CI on ${{ matrix.os }}
