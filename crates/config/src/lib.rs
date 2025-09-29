@@ -52,6 +52,15 @@ impl AsRef<WorkingDirectoryConfiguration> for Context {
     }
 }
 
+impl AsRef<CorpusConfiguration> for Context {
+    fn as_ref(&self) -> &CorpusConfiguration {
+        match self {
+            Self::ExecuteTests(context) => context.as_ref().as_ref(),
+            Self::ExportJsonSchema => unreachable!(),
+        }
+    }
+}
+
 impl AsRef<SolcConfiguration> for Context {
     fn as_ref(&self) -> &SolcConfiguration {
         match self {
@@ -183,9 +192,9 @@ pub struct TestExecutionContext {
     )]
     pub platforms: Vec<PlatformIdentifier>,
 
-    /// A list of test corpus JSON files to be tested.
-    #[arg(long = "corpus", short)]
-    pub corpus: Vec<PathBuf>,
+    /// Configuration parameters for the corpus files to use.
+    #[clap(flatten, next_help_heading = "Corpus Configuration")]
+    pub corpus_configuration: CorpusConfiguration,
 
     /// Configuration parameters for the solc compiler.
     #[clap(flatten, next_help_heading = "Solc Configuration")]
@@ -259,9 +268,9 @@ pub struct BenchmarkingContext {
     )]
     pub platforms: Vec<PlatformIdentifier>,
 
-    /// A list of test corpus JSON files to be tested.
-    #[arg(long = "corpus", short)]
-    pub corpus: Vec<PathBuf>,
+    /// Configuration parameters for the corpus files to use.
+    #[clap(flatten, next_help_heading = "Corpus Configuration")]
+    pub corpus_configuration: CorpusConfiguration,
 
     /// Configuration parameters for the solc compiler.
     #[clap(flatten, next_help_heading = "Solc Configuration")]
@@ -317,6 +326,12 @@ impl Default for TestExecutionContext {
 impl AsRef<WorkingDirectoryConfiguration> for TestExecutionContext {
     fn as_ref(&self) -> &WorkingDirectoryConfiguration {
         &self.working_directory
+    }
+}
+
+impl AsRef<CorpusConfiguration> for TestExecutionContext {
+    fn as_ref(&self) -> &CorpusConfiguration {
+        &self.corpus_configuration
     }
 }
 
@@ -404,6 +419,12 @@ impl AsRef<WorkingDirectoryConfiguration> for BenchmarkingContext {
     }
 }
 
+impl AsRef<CorpusConfiguration> for BenchmarkingContext {
+    fn as_ref(&self) -> &CorpusConfiguration {
+        &self.corpus_configuration
+    }
+}
+
 impl AsRef<SolcConfiguration> for BenchmarkingContext {
     fn as_ref(&self) -> &SolcConfiguration {
         &self.solc_configuration
@@ -468,6 +489,14 @@ impl AsRef<ReportConfiguration> for BenchmarkingContext {
     fn as_ref(&self) -> &ReportConfiguration {
         &self.report_configuration
     }
+}
+
+/// A set of configuration parameters for the corpus files to use for the execution.
+#[derive(Clone, Debug, Parser, Serialize)]
+pub struct CorpusConfiguration {
+    /// A list of test corpus JSON files to be tested.
+    #[arg(long = "corpus", short)]
+    pub paths: Vec<PathBuf>,
 }
 
 /// A set of configuration parameters for Solc.

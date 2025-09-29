@@ -1,5 +1,5 @@
-mod cached_compiler;
-mod pool;
+mod differential_tests;
+mod helpers;
 
 use std::{
     borrow::Cow,
@@ -48,8 +48,7 @@ use revive_dt_format::{
     steps::{FunctionCallStep, Step},
 };
 
-use crate::cached_compiler::CachedCompiler;
-use crate::pool::NodePool;
+use crate::helpers::*;
 
 fn main() -> anyhow::Result<()> {
     let (writer, _guard) = tracing_appender::non_blocking::NonBlockingBuilder::default()
@@ -120,7 +119,7 @@ fn collect_corpora(
 ) -> anyhow::Result<HashMap<Corpus, Vec<MetadataFile>>> {
     let mut corpora = HashMap::new();
 
-    for path in &context.corpus {
+    for path in &context.corpus_configuration.paths {
         let span = info_span!("Processing corpus file", path = %path.display());
         let _guard = span.enter();
 
