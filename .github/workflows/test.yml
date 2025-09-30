@@ -52,8 +52,6 @@ jobs:
           path: |
             ~/.cargo/bin/substrate-node
             ~/.cargo/bin/eth-rpc
-            ~/.cargo/bin/polkadot
-            ~/.cargo/bin/polkadot-parachain
           key: polkadot-binaries-${{ matrix.os }}-${{ hashFiles('polkadot-sdk/.git') }}
 
       - name: Build substrate-node
@@ -67,18 +65,6 @@ jobs:
         run: |
           cd polkadot-sdk
           cargo install --path substrate/frame/revive/rpc --bin eth-rpc
-      
-      - name: Build polkadot node
-        if: steps.cache.outputs.cache-hit != 'true'
-        run: |
-          cd polkadot-sdk
-          cargo install --path ./polkadot --force --locked
-
-      - name: Build parachain node
-        if: steps.cache.outputs.cache-hit != 'true'
-        run: |
-          cd polkadot-sdk
-          cargo install --path ./templates/parachain/node --force --locked
 
   ci:
     name: CI on ${{ matrix.os }}
@@ -109,6 +95,44 @@ jobs:
         run: |
           rustup target add wasm32-unknown-unknown
           rustup component add rust-src rustfmt clippy
+
+      - name : Install Polkadot binaries on macOS
+        if: matrix.os == 'macos-14'
+        run: |
+          curl -sL https://github.com/paritytech/polkadot-sdk/releases/download/polkadot-stable2506-2/polkadot-aarch64-apple-darwin -o polkadot
+          chmod +x polkadot
+          sudo mv polkadot /usr/local/bin
+
+          curl -sL https://github.com/paritytech/polkadot-sdk/releases/download/polkadot-stable2506-2/polkadot-execute-worker-aarch64-apple-darwin -o  polkadot-execute-worker
+          chmod +x polkadot-execute-worker
+          sudo mv polkadot-execute-worker /usr/local/bin
+
+          curl -sL https://github.com/paritytech/polkadot-sdk/releases/download/polkadot-stable2506-2/polkadot-prepare-worker-aarch64-apple-darwin -o  polkadot-prepare-worker
+          chmod +x polkadot-prepare-worker
+          sudo mv polkadot-prepare-worker /usr/local/bin
+
+          curl -sL https://github.com/paritytech/polkadot-sdk/releases/download/polkadot-stable2506-2/polkadot-parachain-aarch64-apple-darwin -o polkadot-parachain
+          chmod +x polkadot-parachain
+          sudo mv polkadot-parachain /usr/local/bin  
+
+      - name : Install Polkadot binaries on Ubuntu
+        if: matrix.os == 'ubuntu-24.04'
+        run: |
+          curl -sL https://github.com/paritytech/polkadot-sdk/releases/download/polkadot-stable2506-2/polkadot -o polkadot
+          chmod +x polkadot
+          sudo mv polkadot /usr/local/bin
+
+          curl -sL https://github.com/paritytech/polkadot-sdk/releases/download/polkadot-stable2506-2/polkadot-execute-worker -o  polkadot-execute-worker
+          chmod +x polkadot-execute-worker
+          sudo mv polkadot-execute-worker /usr/local/bin
+
+          curl -sL https://github.com/paritytech/polkadot-sdk/releases/download/polkadot-stable2506-2/polkadot-prepare-worker -o  polkadot-prepare-worker
+          chmod +x polkadot-prepare-worker
+          sudo mv polkadot-prepare-worker /usr/local/bin
+
+          curl -sL https://github.com/paritytech/polkadot-sdk/releases/download/polkadot-stable2506-2/polkadot-parachain -o polkadot-parachain
+          chmod +x polkadot-parachain
+          sudo mv polkadot-parachain /usr/local/bin
 
       - name: Install Geth on Ubuntu
         if: matrix.os == 'ubuntu-24.04'
@@ -183,6 +207,18 @@ jobs:
 
       - name: Check resolc version
         run: resolc --version
+
+      - name: Check polkadot version
+        run: polkadot --version
+      
+      - name: Check polkadot-parachain version
+        run: polkadot-parachain --version
+
+      - name: Check polkadot-execute-worker version
+        run: polkadot-execute-worker --version
+      
+      - name: Check polkadot-prepare-worker version
+        run: polkadot-prepare-worker --version
 
       - name: Test Formatting
         run: make format
