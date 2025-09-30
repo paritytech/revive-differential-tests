@@ -106,6 +106,7 @@ impl ReportAggregator {
                 RunnerEvent::ContractDeployed(event) => {
                     self.handle_contract_deployed_event(*event);
                 }
+                RunnerEvent::Completion(event) => self.handle_completion(*event),
             }
         }
         debug!("Report aggregation completed");
@@ -380,6 +381,10 @@ impl ReportAggregator {
             .deployed_contracts
             .get_or_insert_default()
             .insert(event.contract_instance, event.address);
+    }
+
+    fn handle_completion(&mut self, _: CompletionEvent) {
+        self.runner_rx.close();
     }
 
     fn test_case_report(&mut self, specifier: &TestSpecifier) -> &mut TestCaseReport {

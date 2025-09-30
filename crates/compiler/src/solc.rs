@@ -10,8 +10,9 @@ use std::{
 
 use dashmap::DashMap;
 use revive_dt_common::types::VersionOrRequirement;
-use revive_dt_config::{ResolcConfiguration, SolcConfiguration, WorkingDirectoryConfiguration};
+use revive_dt_config::{SolcConfiguration, WorkingDirectoryConfiguration};
 use revive_dt_solc_binaries::download_solc;
+use tracing::{Span, field::display, info};
 
 use crate::{CompilerInput, CompilerOutput, ModeOptimizerSetting, ModePipeline, SolidityCompiler};
 
@@ -39,9 +40,7 @@ struct SolcInner {
 
 impl Solc {
     pub async fn new(
-        context: impl AsRef<SolcConfiguration>
-        + AsRef<ResolcConfiguration>
-        + AsRef<WorkingDirectoryConfiguration>,
+        context: impl AsRef<SolcConfiguration> + AsRef<WorkingDirectoryConfiguration>,
         version: impl Into<Option<VersionOrRequirement>>,
     ) -> Result<Self> {
         // This is a cache for the compiler objects so that whenever the same compiler version is
@@ -69,6 +68,11 @@ impl Solc {
         Ok(COMPILERS_CACHE
             .entry((path.clone(), version.clone()))
             .or_insert_with(|| {
+                info!(
+                    solc_path = %path.display(),
+                    solc_version = %version,
+                    "Created a new solc compiler object"
+                );
                 Self(Arc::new(SolcInner {
                     solc_path: path,
                     solc_version: version,
@@ -88,6 +92,12 @@ impl SolidityCompiler for Solc {
     }
 
     #[tracing::instrument(level = "debug", ret)]
+    #[tracing::instrument(
+        level = "error",
+        skip_all,
+        fields(json_in = tracing::field::Empty),
+        err(Debug)
+    )]
     fn build(
         &self,
         CompilerInput {
@@ -166,12 +176,14 @@ impl SolidityCompiler for Solc {
                 },
             };
 
+            Span::current().record("json_in", display(serde_json::to_string(&input).unwrap()));
+
             let path = &self.0.solc_path;
             let mut command = AsyncCommand::new(path);
             command
                 .stdin(Stdio::piped())
                 .stdout(Stdio::piped())
-                .stderr(Stdio::piped())
+                .stderr(Stdio::null())
                 .arg("--standard-json");
 
             if let Some(ref base_path) = base_path {
@@ -205,20 +217,18 @@ impl SolidityCompiler for Solc {
             if !output.status.success() {
                 let json_in = serde_json::to_string_pretty(&input)
                     .context("Failed to pretty-print Standard JSON input for logging")?;
-                let message = String::from_utf8_lossy(&output.stderr);
                 tracing::error!(
                     status = %output.status,
-                    message = %message,
                     json_input = json_in,
                     "Compilation using solc failed"
                 );
-                anyhow::bail!("Compilation failed with an error: {message}");
+                anyhow::bail!("Compilation failed");
             }
 
             let parsed = serde_json::from_slice::<SolcOutput>(&output.stdout)
                 .map_err(|e| {
                     anyhow::anyhow!(
-                        "failed to parse resolc JSON output: {e}\nstderr: {}",
+                        "failed to parse resolc JSON output: {e}\nstdout: {}",
                         String::from_utf8_lossy(&output.stdout)
                     )
                 })

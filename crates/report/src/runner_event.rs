@@ -613,6 +613,8 @@ define_event! {
             /// The address of the contract.
             address: Address
         },
+        /// Reports the completion of the run.
+        Completion {}
     }
 }
 

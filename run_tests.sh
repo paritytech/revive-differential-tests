@@ -91,11 +91,11 @@ echo ""
 # Run the tool
 RUST_LOG="info,alloy_pubsub::service=error" cargo run --release -- execute-tests \
     --platform geth-evm-solc \
-    --platform lighthouse-geth-evm-solc \
+    --platform revive-dev-node-polkavm-resolc \
     --corpus "$CORPUS_FILE" \
     --working-directory "$WORKDIR" \
-    --concurrency.number-of-nodes 3 \
-    --wallet.additional-keys 10000 \
+    --concurrency.number-of-nodes 5 \
+    --wallet.additional-keys 100000 \
     --kitchensink.path "$SUBSTRATE_NODE_BIN" \
     --revive-dev-node.path "$REVIVE_DEV_NODE_BIN" \
     --eth-rpc.path "$ETH_RPC_BIN" \

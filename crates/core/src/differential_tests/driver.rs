@@ -1,4 +1,7 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::{BTreeMap, HashMap},
+    sync::Arc,
+};
 
 use alloy::{
     consensus::EMPTY_ROOT_HASH,
@@ -17,7 +20,7 @@ use alloy::{
 use anyhow::{Context as _, Result, bail};
 use futures::TryStreamExt;
 use indexmap::IndexMap;
-use revive_dt_common::types::PrivateKeyAllocator;
+use revive_dt_common::types::{PlatformIdentifier, PrivateKeyAllocator};
 use revive_dt_format::{
     metadata::{ContractInstance, ContractPathAndIdent},
     steps::{
@@ -35,6 +38,92 @@ use crate::{
     helpers::{CachedCompiler, TestDefinition, TestPlatformInformation},
 };
 
+type StepsIterator = std::vec::IntoIter<(StepPath, Step)>;
+
+pub struct DifferentialTestsDriver<'a, I> {
+    /// The drivers for the various platforms that we're executing the tests on.
+    platform_drivers: BTreeMap<PlatformIdentifier, DifferentialTestsPlatformDriver<'a, I>>,
+}
+
+impl<'a, I> DifferentialTestsDriver<'a, I> where I: Iterator<Item = (StepPath, Step)> {}
+
+impl<'a> DifferentialTestsDriver<'a, StepsIterator> {
+    // region:Constructors
+    pub async fn new_root(
+        test_definition: &'a TestDefinition<'a>,
+        private_key_allocator: Arc<Mutex<PrivateKeyAllocator>>,
+        cached_compiler: &CachedCompiler<'a>,
+    ) -> Result<Self> {
+        let platform_drivers = futures::future::try_join_all(test_definition.platforms.iter().map(
+            |(identifier, information)| {
+                let identifier = *identifier;
+                let private_key_allocator = private_key_allocator.clone();
+                async move {
+                    Self::create_platform_driver(
+                        identifier,
+                        information,
+                        test_definition,
+                        private_key_allocator,
+                        cached_compiler,
+                    )
+                    .await
+                    .map(|driver| (identifier, driver))
+                }
+            },
+        ))
+        .await
+        .context("Failed to create the drivers for the various platforms")?
+        .into_iter()
+        .collect::<BTreeMap<_, _>>();
+
+        Ok(Self { platform_drivers })
+    }
+
+    async fn create_platform_driver(
+        identifier: PlatformIdentifier,
+        information: &'a TestPlatformInformation<'a>,
+        test_definition: &'a TestDefinition<'a>,
+        private_key_allocator: Arc<Mutex<PrivateKeyAllocator>>,
+        cached_compiler: &CachedCompiler<'a>,
+    ) -> Result<DifferentialTestsPlatformDriver<'a, StepsIterator>> {
+        let steps: Vec<(StepPath, Step)> = test_definition
+            .case
+            .steps_iterator()
+            .enumerate()
+            .map(|(step_idx, step)| -> (StepPath, Step) {
+                (StepPath::new(vec![StepIdx::new(step_idx)]), step)
+            })
+            .collect();
+        let steps_iterator: StepsIterator = steps.into_iter();
+
+        DifferentialTestsPlatformDriver::new(
+            information,
+            test_definition,
+            private_key_allocator,
+            cached_compiler,
+            steps_iterator,
+        )
+        .await
+        .context(format!("Failed to create driver for {identifier}"))
+    }
+    // endregion:Constructors
+
+    // region:Execution
+    #[instrument(level = "info", skip_all)]
+    pub async fn execute_all(mut self) -> Result<usize> {
+        let platform_drivers = std::mem::take(&mut self.platform_drivers);
+        let results = futures::future::try_join_all(
+            platform_drivers
+                .into_values()
+                .map(|driver| driver.execute_all()),
+        )
+        .await
+        .context("Failed to execute all of the steps on the driver")?;
+        Ok(results.first().copied().unwrap_or_default())
+    }
+    // endregion:Execution
+}
+
 /// The differential tests driver for a single platform.
 pub struct DifferentialTestsPlatformDriver<'a, I> {
     /// The information of the platform that this driver is for.
@@ -50,6 +139,9 @@ pub struct DifferentialTestsPlatformDriver<'a, I> {
     /// The execution state associated with the platform.
     execution_state: ExecutionState,
 
+    /// The number of steps that were executed on the driver.
+    steps_executed: usize,
+
     /// This is the queue of steps that are to be executed by the driver for this test case. Each
     /// time `execute_step` is called one of the steps is executed.
     steps_iterator: I,
@@ -60,28 +152,6 @@ where
     I: Iterator<Item = (StepPath, Step)>,
 {
     // region:Constructors & Initialization
-    pub async fn new_root(
-        platform_information: &'a TestPlatformInformation<'a>,
-        test_definition: &'a TestDefinition<'a>,
-        private_key_allocator: Arc<Mutex<PrivateKeyAllocator>>,
-        cached_compiler: &CachedCompiler<'a>,
-    ) -> Result<DifferentialTestsPlatformDriver<'a, impl Iterator<Item = (StepPath, Step)>>> {
-        let steps_iterator = test_definition
-            .case
-            .steps
-            .clone()
-            .into_iter()
-            .enumerate()
-            .map(|(step_idx, step)| (StepPath::new(vec![StepIdx::new(step_idx)]), step));
-        DifferentialTestsPlatformDriver::new(
-            platform_information,
-            test_definition,
-            private_key_allocator,
-            cached_compiler,
-            steps_iterator,
-        )
-        .await
-    }
 
     pub async fn new(
         platform_information: &'a TestPlatformInformation<'a>,
@@ -99,6 +169,7 @@ where
             test_definition,
             private_key_allocator,
             execution_state,
+            steps_executed: 0,
             steps_iterator: steps,
         })
     }
@@ -242,11 +313,11 @@ where
 
     // region:Step Handling
     #[instrument(level = "info", skip_all)]
-    pub async fn execute_all(mut self) -> Result<()> {
+    pub async fn execute_all(mut self) -> Result<usize> {
         while let Some(result) = self.execute_next_step().await {
             result?
         }
-        Ok(())
+        Ok(self.steps_executed)
     }
 
     #[instrument(
@@ -272,7 +343,7 @@ where
         err(Debug),
     )]
     async fn execute_step(&mut self, step_path: &StepPath, step: &Step) -> Result<()> {
-        match step {
+        let steps_executed = match step {
             Step::FunctionCall(step) => self
                 .execute_function_call(step_path, step.as_ref())
                 .await
@@ -293,7 +364,9 @@ where
                 .execute_account_allocation(step_path, step.as_ref())
                 .await
                 .context("Account Allocation Step Failed"),
-        }
+        }?;
+        self.steps_executed += steps_executed;
+        Ok(())
     }
 
     #[instrument(level = "info", skip_all)]
@@ -301,7 +374,7 @@ where
         &mut self,
         _: &StepPath,
         step: &FunctionCallStep,
-    ) -> Result<()> {
+    ) -> Result<usize> {
         let deployment_receipts = self
             .handle_function_call_contract_deployment(step)
             .await
@@ -317,7 +390,10 @@ where
         self.handle_function_call_variable_assignment(step, &tracing_result)
             .await
             .context("Failed to handle function call variable assignment")?;
-        todo!()
+        self.handle_function_call_assertions(step, &execution_receipt, &tracing_result)
+            .await
+            .context("Failed to handle function call assertions")?;
+        Ok(1)
     }
 
     async fn handle_function_call_contract_deployment(
@@ -651,7 +727,7 @@ where
         &mut self,
         _: &StepPath,
         step: &BalanceAssertionStep,
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<usize> {
         self.step_address_auto_deployment(&step.address)
             .await
             .context("Failed to perform auto-deployment for the step address")?;
@@ -677,7 +753,7 @@ where
             )
         }
 
-        Ok(())
+        Ok(1)
     }
 
     #[instrument(level = "info", skip_all, err(Debug))]
@@ -685,7 +761,7 @@ where
         &mut self,
         _: &StepPath,
         step: &StorageEmptyAssertionStep,
-    ) -> Result<()> {
+    ) -> Result<usize> {
         self.step_address_auto_deployment(&step.address)
             .await
             .context("Failed to perform auto-deployment for the step address")?;
@@ -717,32 +793,43 @@ where
             )
         };
 
-        Ok(())
+        Ok(1)
     }
 
     #[instrument(level = "info", skip_all, err(Debug))]
-    async fn execute_repeat_step(&mut self, step_path: &StepPath, step: &RepeatStep) -> Result<()> {
-        let tasks =
-            (0..step.repeat)
-                .map(|_| DifferentialTestsPlatformDriver {
-                    platform_information: self.platform_information,
-                    test_definition: self.test_definition,
-                    private_key_allocator: self.private_key_allocator.clone(),
-                    execution_state: self.execution_state.clone(),
-                    steps_iterator: step.steps.iter().cloned().enumerate().map(
-                        |(step_idx, step)| {
+    async fn execute_repeat_step(
+        &mut self,
+        step_path: &StepPath,
+        step: &RepeatStep,
+    ) -> Result<usize> {
+        let tasks = (0..step.repeat)
+            .map(|_| DifferentialTestsPlatformDriver {
+                platform_information: self.platform_information,
+                test_definition: self.test_definition,
+                private_key_allocator: self.private_key_allocator.clone(),
+                execution_state: self.execution_state.clone(),
+                steps_executed: 0,
+                steps_iterator: {
+                    let steps: Vec<(StepPath, Step)> = step
+                        .steps
+                        .iter()
+                        .cloned()
+                        .enumerate()
+                        .map(|(step_idx, step)| {
                             let step_idx = StepIdx::new(step_idx);
                             let step_path = step_path.append(step_idx);
                             (step_path, step)
-                        },
-                    ),
-                })
-                .map(|driver| driver.execute_all())
-                .collect::<Vec<_>>();
-        futures::future::try_join_all(tasks)
+                        })
+                        .collect();
+                    steps.into_iter()
+                },
+            })
+            .map(|driver| driver.execute_all())
+            .collect::<Vec<_>>();
+        let res = futures::future::try_join_all(tasks)
             .await
             .context("Repetition execution failed")?;
-        Ok(())
+        Ok(res.first().copied().unwrap_or_default())
     }
 
     #[instrument(level = "info", skip_all, err(Debug))]
@@ -750,7 +837,7 @@ where
         &mut self,
         _: &StepPath,
         step: &AllocateAccountStep,
-    ) -> Result<()> {
+    ) -> Result<usize> {
         let Some(variable_name) = step.variable_name.strip_prefix("$VARIABLE:") else {
             bail!("Account allocation must start with $VARIABLE:");
         };
@@ -763,7 +850,7 @@ where
             .variables
             .insert(variable_name.to_string(), variable);
 
-        Ok(())
+        Ok(1)
     }
     // endregion:Step Handling
 

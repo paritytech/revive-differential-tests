@@ -19,12 +19,12 @@ use revive_dt_format::{
 use revive_dt_node_interaction::EthereumNode;
 use revive_dt_report::{ExecutionSpecificReporter, Reporter};
 use revive_dt_report::{TestSpecificReporter, TestSpecifier};
-use tracing::{debug, error};
+use tracing::{debug, error, info};
 
 use crate::Platform;
 use crate::helpers::NodePool;
 
-async fn create_test_definitions_stream<'a>(
+pub async fn create_test_definitions_stream<'a>(
     // This is only required for creating the compiler objects and is not used anywhere else in the
     // function.
     context: &Context,
@@ -165,6 +165,14 @@ async fn create_test_definitions_stream<'a>(
             }
         }
     })
+    .inspect(|test| {
+        info!(
+            metadata_file_path = %test.metadata_file_path.display(),
+            case_idx = %test.case_idx,
+            mode = %test.mode,
+            "Created a test case definition"
+        );
+    })
 }
 
 /// This is a full description of a differential test to run alongside the full metadata file, the
@@ -228,15 +236,8 @@ impl<'a> TestDefinition<'a> {
         for (_, platform_information) in self.platforms.iter() {
             let is_allowed_for_platform = match self.metadata.targets.as_ref() {
                 None => true,
-                Some(targets) => {
-                    let mut target_matches = false;
-                    for target in targets.iter() {
-                        if &platform_information.platform.vm_identifier() == target {
-                            target_matches = true;
-                            break;
-                        }
-                    }
-                    target_matches
+                Some(required_vm_identifiers) => {
+                    required_vm_identifiers.contains(&platform_information.platform.vm_identifier())
                 }
             };
             is_allowed &= is_allowed_for_platform;
