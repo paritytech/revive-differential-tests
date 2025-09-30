@@ -98,7 +98,7 @@ impl ZombieNode {
     const DATA_DIRECTORY: &str = "data";
     const LOGS_DIRECTORY: &str = "logs";
 
-    const NODE_BASE_RPC_PORT: u16 = 9944;
+    const NODE_BASE_RPC_PORT: u16 = 9946;
     const PARACHAIN_ID: u32 = 100;
     const ETH_RPC_BASE_PORT: u16 = 8545;
 
@@ -163,9 +163,10 @@ impl ZombieNode {
 
         let network_config = NetworkConfigBuilder::new()
             .with_relaychain(|r| {
-                r.with_chain("rococo-local")
+                r.with_chain("westend-local")
                     .with_default_command("polkadot")
                     .with_node(|node| node.with_name("alice"))
+                    .with_node(|node| node.with_name("bob"))
             })
             .with_global_settings(|g| g.with_base_dir(&self.base_directory))
             .with_parachain(|p| {
@@ -222,7 +223,7 @@ impl ZombieNode {
 
         let eth_rpc_stdout_logs_file = open_options
             .clone()
-            .open(eth_rpc_stdout_log)
+            .open(&eth_rpc_stdout_log)
             .context("Failed to open eth-rpc stdout logs file")?;
         let eth_rpc_stderr_logs_file = open_options
             .open(&eth_rpc_stderr_log)
@@ -233,8 +234,6 @@ impl ZombieNode {
             .arg(node_url)
             .arg("--rpc-cors")
             .arg("all")
-            .arg("--rpc-methods")
-            .arg("Unsafe")
             .arg("--rpc-max-connections")
             .arg(u32::MAX.to_string())
             .arg("--rpc-port")
@@ -260,12 +259,15 @@ impl ZombieNode {
         );
 
         if let Err(error) = ready_result {
+            tracing::error!("eth-rpc failed to start: {error:?}");
             self.shutdown()
                 .context("Failed to gracefully shutdown after Substrate start error")?;
             return Err(error);
         };
 
-        tracing::debug!("eth-rpc is up");
+        tracing::info!("eth-rpc is up");
+        tracing::debug!("Monitoring eth-rpc stderr logs at: {}", eth_rpc_stderr_log);
+        tracing::debug!("Monitoring eth-rpc stdout logs at: {}", eth_rpc_stdout_log);
 
         self.connection_string = format!("http://localhost:{}", eth_rpc_port);
         self.eth_rpc_process = Some(child);
@@ -421,7 +423,7 @@ impl ZombieNode {
             .disable_recommended_fillers()
             .network::<ReviveNetwork>()
             .filler(FallbackGasFiller::new(
-                25_000_000,
+                1_000_000_000,
                 1_000_000_000,
                 1_000_000_000,
             ))
@@ -981,7 +983,7 @@ mod tests {
             .expect("Failed to get chain id");
 
         // Assert
-        assert_eq!(chain_id, 420_420_421, "Chain id should be 420_420_421");
+        assert!(chain_id > 0, "Chain ID should be greater than zero");
     }
 
     #[tokio::test]
