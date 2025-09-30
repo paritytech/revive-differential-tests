@@ -99,7 +99,7 @@ pub enum NodeIdentifier {
     Kitchensink,
     /// The revive dev node implementation.
     ReviveDevNode,
-    /// A zombienet spawned node : TODO: FIX name
+    /// A zombienet spawned nodes
     ZombieNet,
 }
 
