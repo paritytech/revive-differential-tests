@@ -150,19 +150,19 @@ impl Watcher {
             // very simple reporting for the time being.
             use std::io::Write;
 
-            let mut stdout = std::io::stdout().lock();
+            let mut stderr = std::io::stderr().lock();
             writeln!(
-                stdout,
+                stderr,
                 "Watcher information for {}",
                 self.platform_identifier
             )?;
             writeln!(
-                stdout,
+                stderr,
                 "block_number,block_timestamp,mined_gas,block_gas_limit,tx_count"
             )?;
             for block in mined_blocks_information {
                 writeln!(
-                    stdout,
+                    stderr,
                     "{},{},{},{},{}",
                     block.block_number,
                     block.block_timestamp,

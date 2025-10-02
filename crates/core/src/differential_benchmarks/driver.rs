@@ -36,7 +36,7 @@ use revive_dt_format::{
     traits::{ResolutionContext, ResolverApi},
 };
 use tokio::sync::{Mutex, mpsc::UnboundedSender};
-use tracing::{Instrument, Span, debug, error, field::display, info, info_span, instrument, trace};
+use tracing::{Instrument, Span, debug, error, field::display, info, info_span, instrument};
 
 use crate::{
     differential_benchmarks::{ExecutionState, WatcherEvent},
@@ -482,7 +482,8 @@ where
                 execution_state: self.execution_state.clone(),
                 steps_executed: 0,
                 steps_iterator: {
-                    step.steps
+                    let steps = step
+                        .steps
                         .iter()
                         .cloned()
                         .enumerate()
@@ -491,6 +492,8 @@ where
                             let step_path = step_path.append(step_idx);
                             (step_path, step)
                         })
+                        .collect::<Vec<_>>();
+                    steps.into_iter()
                 },
                 watcher_tx: self.watcher_tx.clone(),
             })
@@ -740,19 +743,21 @@ where
         Span::current().record("transaction_hash", display(transaction_hash));
 
         info!("Submitted transaction");
-
         self.watcher_tx
             .send(WatcherEvent::SubmittedTransaction { transaction_hash })
             .context("Failed to send the transaction hash to the watcher")?;
 
         info!("Starting to poll for transaction receipt");
         poll(
-            Duration::from_secs(10 * 60),
+            Duration::from_secs(30 * 60),
             PollingWaitBehavior::Constant(Duration::from_secs(1)),
             || {
                 async move {
                     match node.get_receipt(transaction_hash).await {
-                        Ok(receipt) => Ok(ControlFlow::Break(receipt)),
+                        Ok(receipt) => {
+                            info!("Polling succeeded, receipt found");
+                            Ok(ControlFlow::Break(receipt))
+                        }
                         Err(_) => Ok(ControlFlow::Continue(())),
                     }
                 }
