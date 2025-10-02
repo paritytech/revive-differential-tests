@@ -23,17 +23,23 @@ use alloy::{
         TxHash, U256,
     },
     providers::{
-        Provider, ProviderBuilder,
+        Identity, Provider, ProviderBuilder, RootProvider,
         ext::DebugApi,
-        fillers::{CachedNonceManager, ChainIdFiller, FillProvider, NonceFiller, TxFiller},
+        fillers::{
+            CachedNonceManager, ChainIdFiller, FillProvider, JoinFill, NonceFiller, TxFiller,
+            WalletFiller,
+        },
     },
     rpc::types::{
-        EIP1186AccountProofResponse, TransactionReceipt,
+        EIP1186AccountProofResponse, TransactionReceipt, TransactionRequest,
         eth::{Block, Header, Transaction},
-        trace::geth::{DiffMode, GethDebugTracingOptions, PreStateConfig, PreStateFrame},
+        trace::geth::{
+            DiffMode, GethDebugTracingOptions, GethTrace, PreStateConfig, PreStateFrame,
+        },
     },
 };
 use anyhow::Context as _;
+use futures::{Stream, StreamExt};
 use revive_common::EVMVersion;
 use revive_dt_common::fs::clear_directory;
 use revive_dt_format::traits::ResolverApi;
@@ -43,7 +49,8 @@ use sp_core::crypto::Ss58Codec;
 use sp_runtime::AccountId32;
 
 use revive_dt_config::*;
-use revive_dt_node_interaction::EthereumNode;
+use revive_dt_node_interaction::{EthereumNode, MinedBlockInformation};
+use tokio::sync::OnceCell;
 use tracing::instrument;
 
 use crate::{
@@ -59,6 +66,7 @@ static NODE_COUNT: AtomicU32 = AtomicU32::new(0);
 /// or the revive-dev-node which is done by changing the path and some of the other arguments passed
 /// to the command.
 #[derive(Debug)]
+
 pub struct SubstrateNode {
     id: u32,
     node_binary: PathBuf,
@@ -72,6 +80,20 @@ pub struct SubstrateNode {
     wallet: Arc<EthereumWallet>,
     nonce_manager: CachedNonceManager,
     chain_id_filler: ChainIdFiller,
+    #[allow(clippy::type_complexity)]
+    provider: OnceCell<
+        FillProvider<
+            JoinFill<
+                JoinFill<
+                    JoinFill<JoinFill<Identity, FallbackGasFiller>, ChainIdFiller>,
+                    NonceFiller,
+                >,
+                WalletFiller<Arc<EthereumWallet>>,
+            >,
+            RootProvider<ReviveNetwork>,
+            ReviveNetwork,
+        >,
+    >,
 }
 
 impl SubstrateNode {
@@ -123,6 +145,7 @@ impl SubstrateNode {
             wallet: wallet.clone(),
             chain_id_filler: Default::default(),
             nonce_manager: Default::default(),
+            provider: Default::default(),
         }
     }
 
@@ -336,22 +359,31 @@ impl SubstrateNode {
     async fn provider(
         &self,
     ) -> anyhow::Result<
-        FillProvider<impl TxFiller<ReviveNetwork>, impl Provider<ReviveNetwork>, ReviveNetwork>,
+        FillProvider<
+            impl TxFiller<ReviveNetwork>,
+            impl Provider<ReviveNetwork> + Clone,
+            ReviveNetwork,
+        >,
     > {
-        ProviderBuilder::new()
-            .disable_recommended_fillers()
-            .network::<ReviveNetwork>()
-            .filler(FallbackGasFiller::new(
-                25_000_000,
-                1_000_000_000,
-                1_000_000_000,
-            ))
-            .filler(self.chain_id_filler.clone())
-            .filler(NonceFiller::new(self.nonce_manager.clone()))
-            .wallet(self.wallet.clone())
-            .connect(&self.rpc_url)
+        self.provider
+            .get_or_try_init(|| async move {
+                ProviderBuilder::new()
+                    .disable_recommended_fillers()
+                    .network::<ReviveNetwork>()
+                    .filler(FallbackGasFiller::new(
+                        25_000_000,
+                        1_000_000_000,
+                        1_000_000_000,
+                    ))
+                    .filler(self.chain_id_filler.clone())
+                    .filler(NonceFiller::new(self.nonce_manager.clone()))
+                    .wallet(self.wallet.clone())
+                    .connect(&self.rpc_url)
+                    .await
+                    .map_err(Into::into)
+            })
             .await
-            .map_err(Into::into)
+            .cloned()
     }
 }
 
@@ -368,9 +400,41 @@ impl EthereumNode for SubstrateNode {
         &self.rpc_url
     }
 
+    fn submit_transaction(
+        &self,
+        transaction: TransactionRequest,
+    ) -> Pin<Box<dyn Future<Output = anyhow::Result<TxHash>> + '_>> {
+        Box::pin(async move {
+            let provider = self
+                .provider()
+                .await
+                .context("Failed to create the provider for transaction submission")?;
+            let pending_transaction = provider
+                .send_transaction(transaction)
+                .await
+                .context("Failed to submit the transaction through the provider")?;
+            Ok(*pending_transaction.tx_hash())
+        })
+    }
+
+    fn get_receipt(
+        &self,
+        tx_hash: TxHash,
+    ) -> Pin<Box<dyn Future<Output = anyhow::Result<TransactionReceipt>> + '_>> {
+        Box::pin(async move {
+            self.provider()
+                .await
+                .context("Failed to create provider for getting the receipt")?
+                .get_transaction_receipt(tx_hash)
+                .await
+                .context("Failed to get the receipt of the transaction")?
+                .context("Failed to get the receipt of the transaction")
+        })
+    }
+
     fn execute_transaction(
         &self,
-        transaction: alloy::rpc::types::TransactionRequest,
+        transaction: TransactionRequest,
     ) -> Pin<Box<dyn Future<Output = anyhow::Result<TransactionReceipt>> + '_>> {
         Box::pin(async move {
             let receipt = self
@@ -391,8 +455,7 @@ impl EthereumNode for SubstrateNode {
         &self,
         tx_hash: TxHash,
         trace_options: GethDebugTracingOptions,
-    ) -> Pin<Box<dyn Future<Output = anyhow::Result<alloy::rpc::types::trace::geth::GethTrace>> + '_>>
-    {
+    ) -> Pin<Box<dyn Future<Output = anyhow::Result<GethTrace>> + '_>> {
         Box::pin(async move {
             self.provider()
                 .await
@@ -466,6 +529,46 @@ impl EthereumNode for SubstrateNode {
 
     fn evm_version(&self) -> EVMVersion {
         EVMVersion::Cancun
+    }
+
+    fn subscribe_to_full_blocks_information(
+        &self,
+    ) -> Pin<
+        Box<
+            dyn Future<Output = anyhow::Result<Pin<Box<dyn Stream<Item = MinedBlockInformation>>>>>
+                + '_,
+        >,
+    > {
+        Box::pin(async move {
+            let provider = self
+                .provider()
+                .await
+                .context("Failed to create the provider for block subscription")?;
+            let block_subscription = provider.subscribe_full_blocks();
+            let block_stream = block_subscription
+                .into_stream()
+                .await
+                .context("Failed to create the block stream")?;
+
+            let mined_block_information_stream = block_stream.filter_map(|block| async {
+                let block = block.ok()?;
+                Some(MinedBlockInformation {
+                    block_number: block.number(),
+                    block_timestamp: block.header.timestamp,
+                    mined_gas: block.header.gas_used as _,
+                    block_gas_limit: block.header.gas_limit,
+                    transaction_hashes: block
+                        .transactions
+                        .into_hashes()
+                        .as_hashes()
+                        .expect("Must be hashes")
+                        .to_vec(),
+                })
+            });
+
+            Ok(Box::pin(mined_block_information_stream)
+                as Pin<Box<dyn Stream<Item = MinedBlockInformation>>>)
+        })
     }
 }
 

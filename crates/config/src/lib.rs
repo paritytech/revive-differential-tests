@@ -28,7 +28,11 @@ use temp_dir::TempDir;
 #[command(name = "retester")]
 pub enum Context {
     /// Executes tests in the MatterLabs format differentially on multiple targets concurrently.
-    ExecuteTests(Box<TestExecutionContext>),
+    Test(Box<TestExecutionContext>),
+
+    /// Executes differential benchmarks on various platforms.
+    Benchmark(Box<BenchmarkingContext>),
+
     /// Exports the JSON schema of the MatterLabs test format used by the tool.
     ExportJsonSchema,
 }
@@ -46,7 +50,8 @@ impl Context {
 impl AsRef<WorkingDirectoryConfiguration> for Context {
     fn as_ref(&self) -> &WorkingDirectoryConfiguration {
         match self {
-            Self::ExecuteTests(context) => context.as_ref().as_ref(),
+            Self::Test(context) => context.as_ref().as_ref(),
+            Self::Benchmark(context) => context.as_ref().as_ref(),
             Self::ExportJsonSchema => unreachable!(),
         }
     }
@@ -55,7 +60,8 @@ impl AsRef<WorkingDirectoryConfiguration> for Context {
 impl AsRef<CorpusConfiguration> for Context {
     fn as_ref(&self) -> &CorpusConfiguration {
         match self {
-            Self::ExecuteTests(context) => context.as_ref().as_ref(),
+            Self::Test(context) => context.as_ref().as_ref(),
+            Self::Benchmark(context) => context.as_ref().as_ref(),
             Self::ExportJsonSchema => unreachable!(),
         }
     }
@@ -64,7 +70,8 @@ impl AsRef<CorpusConfiguration> for Context {
 impl AsRef<SolcConfiguration> for Context {
     fn as_ref(&self) -> &SolcConfiguration {
         match self {
-            Self::ExecuteTests(context) => context.as_ref().as_ref(),
+            Self::Test(context) => context.as_ref().as_ref(),
+            Self::Benchmark(context) => context.as_ref().as_ref(),
             Self::ExportJsonSchema => unreachable!(),
         }
     }
@@ -73,7 +80,8 @@ impl AsRef<SolcConfiguration> for Context {
 impl AsRef<ResolcConfiguration> for Context {
     fn as_ref(&self) -> &ResolcConfiguration {
         match self {
-            Self::ExecuteTests(context) => context.as_ref().as_ref(),
+            Self::Test(context) => context.as_ref().as_ref(),
+            Self::Benchmark(context) => context.as_ref().as_ref(),
             Self::ExportJsonSchema => unreachable!(),
         }
     }
@@ -82,7 +90,8 @@ impl AsRef<ResolcConfiguration> for Context {
 impl AsRef<GethConfiguration> for Context {
     fn as_ref(&self) -> &GethConfiguration {
         match self {
-            Self::ExecuteTests(context) => context.as_ref().as_ref(),
+            Self::Test(context) => context.as_ref().as_ref(),
+            Self::Benchmark(context) => context.as_ref().as_ref(),
             Self::ExportJsonSchema => unreachable!(),
         }
     }
@@ -91,7 +100,8 @@ impl AsRef<GethConfiguration> for Context {
 impl AsRef<KurtosisConfiguration> for Context {
     fn as_ref(&self) -> &KurtosisConfiguration {
         match self {
-            Self::ExecuteTests(context) => context.as_ref().as_ref(),
+            Self::Test(context) => context.as_ref().as_ref(),
+            Self::Benchmark(context) => context.as_ref().as_ref(),
             Self::ExportJsonSchema => unreachable!(),
         }
     }
@@ -100,7 +110,8 @@ impl AsRef<KurtosisConfiguration> for Context {
 impl AsRef<KitchensinkConfiguration> for Context {
     fn as_ref(&self) -> &KitchensinkConfiguration {
         match self {
-            Self::ExecuteTests(context) => context.as_ref().as_ref(),
+            Self::Test(context) => context.as_ref().as_ref(),
+            Self::Benchmark(context) => context.as_ref().as_ref(),
             Self::ExportJsonSchema => unreachable!(),
         }
     }
@@ -109,7 +120,8 @@ impl AsRef<KitchensinkConfiguration> for Context {
 impl AsRef<ReviveDevNodeConfiguration> for Context {
     fn as_ref(&self) -> &ReviveDevNodeConfiguration {
         match self {
-            Self::ExecuteTests(context) => context.as_ref().as_ref(),
+            Self::Test(context) => context.as_ref().as_ref(),
+            Self::Benchmark(context) => context.as_ref().as_ref(),
             Self::ExportJsonSchema => unreachable!(),
         }
     }
@@ -118,7 +130,8 @@ impl AsRef<ReviveDevNodeConfiguration> for Context {
 impl AsRef<EthRpcConfiguration> for Context {
     fn as_ref(&self) -> &EthRpcConfiguration {
         match self {
-            Self::ExecuteTests(context) => context.as_ref().as_ref(),
+            Self::Test(context) => context.as_ref().as_ref(),
+            Self::Benchmark(context) => context.as_ref().as_ref(),
             Self::ExportJsonSchema => unreachable!(),
         }
     }
@@ -127,7 +140,11 @@ impl AsRef<EthRpcConfiguration> for Context {
 impl AsRef<GenesisConfiguration> for Context {
     fn as_ref(&self) -> &GenesisConfiguration {
         match self {
-            Self::ExecuteTests(context) => context.as_ref().as_ref(),
+            Self::Test(context) => context.as_ref().as_ref(),
+            Self::Benchmark(..) => {
+                static GENESIS: LazyLock<GenesisConfiguration> = LazyLock::new(Default::default);
+                &GENESIS
+            }
             Self::ExportJsonSchema => unreachable!(),
         }
     }
@@ -136,7 +153,8 @@ impl AsRef<GenesisConfiguration> for Context {
 impl AsRef<WalletConfiguration> for Context {
     fn as_ref(&self) -> &WalletConfiguration {
         match self {
-            Self::ExecuteTests(context) => context.as_ref().as_ref(),
+            Self::Test(context) => context.as_ref().as_ref(),
+            Self::Benchmark(context) => context.as_ref().as_ref(),
             Self::ExportJsonSchema => unreachable!(),
         }
     }
@@ -145,7 +163,8 @@ impl AsRef<WalletConfiguration> for Context {
 impl AsRef<ConcurrencyConfiguration> for Context {
     fn as_ref(&self) -> &ConcurrencyConfiguration {
         match self {
-            Self::ExecuteTests(context) => context.as_ref().as_ref(),
+            Self::Test(context) => context.as_ref().as_ref(),
+            Self::Benchmark(context) => context.as_ref().as_ref(),
             Self::ExportJsonSchema => unreachable!(),
         }
     }
@@ -154,7 +173,8 @@ impl AsRef<ConcurrencyConfiguration> for Context {
 impl AsRef<CompilationConfiguration> for Context {
     fn as_ref(&self) -> &CompilationConfiguration {
         match self {
-            Self::ExecuteTests(context) => context.as_ref().as_ref(),
+            Self::Test(context) => context.as_ref().as_ref(),
+            Self::Benchmark(context) => context.as_ref().as_ref(),
             Self::ExportJsonSchema => unreachable!(),
         }
     }
@@ -163,7 +183,8 @@ impl AsRef<CompilationConfiguration> for Context {
 impl AsRef<ReportConfiguration> for Context {
     fn as_ref(&self) -> &ReportConfiguration {
         match self {
-            Self::ExecuteTests(context) => context.as_ref().as_ref(),
+            Self::Test(context) => context.as_ref().as_ref(),
+            Self::Benchmark(context) => context.as_ref().as_ref(),
             Self::ExportJsonSchema => unreachable!(),
         }
     }
@@ -267,6 +288,11 @@ pub struct BenchmarkingContext {
         default_values = ["geth-evm-solc", "revive-dev-node-polkavm-resolc"]
     )]
     pub platforms: Vec<PlatformIdentifier>,
+
+    /// The default repetition count for any workload specified but that doesn't contain a repeat
+    /// step.
+    #[arg(short = 'r', long = "default-repetition-count", default_value_t = 1000)]
+    pub default_repetition_count: usize,
 
     /// Configuration parameters for the corpus files to use.
     #[clap(flatten, next_help_heading = "Corpus Configuration")]
@@ -495,7 +521,7 @@ impl AsRef<ReportConfiguration> for BenchmarkingContext {
 #[derive(Clone, Debug, Parser, Serialize)]
 pub struct CorpusConfiguration {
     /// A list of test corpus JSON files to be tested.
-    #[arg(long = "corpus", short)]
+    #[arg(short = 'c', long = "corpus")]
     pub paths: Vec<PathBuf>,
 }
 
@@ -627,7 +653,7 @@ pub struct EthRpcConfiguration {
 }
 
 /// A set of configuration parameters for the genesis.
-#[derive(Clone, Debug, Parser, Serialize)]
+#[derive(Clone, Debug, Default, Parser, Serialize)]
 pub struct GenesisConfiguration {
     /// Specifies the path of the genesis file to use for the nodes that are started.
     ///

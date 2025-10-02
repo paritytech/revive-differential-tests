@@ -8,7 +8,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use alloy_primitives::Address;
+use alloy::primitives::Address;
 use anyhow::{Context as _, Result};
 use indexmap::IndexMap;
 use revive_dt_common::types::PlatformIdentifier;
@@ -106,7 +106,10 @@ impl ReportAggregator {
                 RunnerEvent::ContractDeployed(event) => {
                     self.handle_contract_deployed_event(*event);
                 }
-                RunnerEvent::Completion(event) => self.handle_completion(*event),
+                RunnerEvent::Completion(event) => {
+                    self.handle_completion(*event);
+                    break;
+                }
             }
         }
         debug!("Report aggregation completed");

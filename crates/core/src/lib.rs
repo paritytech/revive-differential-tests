@@ -19,8 +19,6 @@ use revive_dt_node::{
 use revive_dt_node_interaction::EthereumNode;
 use tracing::info;
 
-pub mod driver;
-
 /// A trait that describes the interface for the platforms that are supported by the tool.
 #[allow(clippy::type_complexity)]
 pub trait Platform {

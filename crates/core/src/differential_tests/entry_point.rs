@@ -18,7 +18,7 @@ use revive_dt_config::{Context, TestExecutionContext};
 use revive_dt_report::{Reporter, ReporterEvent, TestCaseStatus};
 
 use crate::{
-    differential_tests::DifferentialTestsDriver,
+    differential_tests::Driver,
     helpers::{CachedCompiler, NodePool, collect_metadata_files, create_test_definitions_stream},
 };
 
@@ -51,7 +51,7 @@ pub async fn handle_differential_tests(
         for platform in platforms.iter() {
             let platform_identifier = platform.platform_identifier();
 
-            let context = Context::ExecuteTests(Box::new(context.clone()));
+            let context = Context::Test(Box::new(context.clone()));
             let node_pool = NodePool::new(context, *platform)
                 .await
                 .inspect_err(|err| {
@@ -71,7 +71,7 @@ pub async fn handle_differential_tests(
     info!("Spawned the platform nodes");
 
     // Preparing test definitions.
-    let full_context = Context::ExecuteTests(Box::new(context.clone()));
+    let full_context = Context::Test(Box::new(context.clone()));
     let test_definitions = create_test_definitions_stream(
         &full_context,
         metadata_files.iter(),
@@ -112,23 +112,20 @@ pub async fn handle_differential_tests(
             mode = %mode
         );
         async move {
-            let driver = match DifferentialTestsDriver::new_root(
-                test_definition,
-                private_key_allocator,
-                &cached_compiler,
-            )
-            .await
-            {
-                Ok(driver) => driver,
-                Err(error) => {
-                    test_definition
-                        .reporter
-                        .report_test_failed_event(format!("{error:#}"))
-                        .expect("Can't fail");
-                    error!("Test Case Failed");
-                    return;
-                }
-            };
+            let driver =
+                match Driver::new_root(test_definition, private_key_allocator, &cached_compiler)
+                    .await
+                {
+                    Ok(driver) => driver,
+                    Err(error) => {
+                        test_definition
+                            .reporter
+                            .report_test_failed_event(format!("{error:#}"))
+                            .expect("Can't fail");
+                        error!("Test Case Failed");
+                        return;
+                    }
+                };
             info!("Created the driver for the test case");
 
             match driver.execute_all().await {
@@ -149,6 +146,7 @@ pub async fn handle_differential_tests(
         .instrument(span)
     }))
     .inspect(|_| {
+        info!("Finished executing all test cases");
         reporter_clone
             .report_completion_event()
             .expect("Can't fail")

@@ -3,8 +3,8 @@ use std::pin::Pin;
 
 use alloy::eips::BlockNumberOrTag;
 use alloy::json_abi::JsonAbi;
+use alloy::primitives::TxHash;
 use alloy::primitives::{Address, BlockHash, BlockNumber, BlockTimestamp, ChainId, U256};
-use alloy_primitives::TxHash;
 use anyhow::Result;
 
 use crate::metadata::{ContractIdent, ContractInstance};

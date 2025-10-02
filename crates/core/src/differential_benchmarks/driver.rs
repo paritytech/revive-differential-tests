@@ -1,10 +1,6 @@
-use std::{
-    collections::{BTreeMap, HashMap},
-    sync::Arc,
-};
+use std::{collections::HashMap, ops::ControlFlow, sync::Arc, time::Duration};
 
 use alloy::{
-    consensus::EMPTY_ROOT_HASH,
     hex,
     json_abi::JsonAbi,
     network::{Ethereum, TransactionBuilder},
@@ -18,116 +14,34 @@ use alloy::{
     },
 };
 use anyhow::{Context as _, Result, bail};
-use futures::TryStreamExt;
 use indexmap::IndexMap;
-use revive_dt_common::types::{PlatformIdentifier, PrivateKeyAllocator};
+use revive_dt_common::{
+    futures::{PollingWaitBehavior, poll},
+    types::PrivateKeyAllocator,
+};
 use revive_dt_format::{
     metadata::{ContractInstance, ContractPathAndIdent},
     steps::{
-        AllocateAccountStep, BalanceAssertionStep, Calldata, EtherValue, Expected, ExpectedOutput,
-        FunctionCallStep, Method, RepeatStep, Step, StepAddress, StepIdx, StepPath,
-        StorageEmptyAssertionStep,
+        AllocateAccountStep, BalanceAssertionStep, Calldata, EtherValue, FunctionCallStep, Method,
+        RepeatStep, Step, StepAddress, StepIdx, StepPath, StorageEmptyAssertionStep,
     },
-    traits::ResolutionContext,
+    traits::{ResolutionContext, ResolverApi},
 };
-use tokio::sync::Mutex;
-use tracing::{debug, error, info, instrument};
+use tokio::sync::{Mutex, mpsc::UnboundedSender};
+use tracing::{Instrument, Span, debug, error, field::display, info, info_span, instrument, trace};
 
 use crate::{
-    differential_tests::ExecutionState,
+    differential_benchmarks::{ExecutionState, WatcherEvent},
     helpers::{CachedCompiler, TestDefinition, TestPlatformInformation},
 };
 
-type StepsIterator = std::vec::IntoIter<(StepPath, Step)>;
-
-pub struct Driver<'a, I> {
-    /// The drivers for the various platforms that we're executing the tests on.
-    platform_drivers: BTreeMap<PlatformIdentifier, PlatformDriver<'a, I>>,
-}
-
-impl<'a, I> Driver<'a, I> where I: Iterator<Item = (StepPath, Step)> {}
-
-impl<'a> Driver<'a, StepsIterator> {
-    // region:Constructors
-    pub async fn new_root(
-        test_definition: &'a TestDefinition<'a>,
-        private_key_allocator: Arc<Mutex<PrivateKeyAllocator>>,
-        cached_compiler: &CachedCompiler<'a>,
-    ) -> Result<Self> {
-        let platform_drivers = futures::future::try_join_all(test_definition.platforms.iter().map(
-            |(identifier, information)| {
-                let identifier = *identifier;
-                let private_key_allocator = private_key_allocator.clone();
-                async move {
-                    Self::create_platform_driver(
-                        identifier,
-                        information,
-                        test_definition,
-                        private_key_allocator,
-                        cached_compiler,
-                    )
-                    .await
-                    .map(|driver| (identifier, driver))
-                }
-            },
-        ))
-        .await
-        .context("Failed to create the drivers for the various platforms")?
-        .into_iter()
-        .collect::<BTreeMap<_, _>>();
-
-        Ok(Self { platform_drivers })
-    }
-
-    async fn create_platform_driver(
-        identifier: PlatformIdentifier,
-        information: &'a TestPlatformInformation<'a>,
-        test_definition: &'a TestDefinition<'a>,
-        private_key_allocator: Arc<Mutex<PrivateKeyAllocator>>,
-        cached_compiler: &CachedCompiler<'a>,
-    ) -> Result<PlatformDriver<'a, StepsIterator>> {
-        let steps: Vec<(StepPath, Step)> = test_definition
-            .case
-            .steps_iterator()
-            .enumerate()
-            .map(|(step_idx, step)| -> (StepPath, Step) {
-                (StepPath::new(vec![StepIdx::new(step_idx)]), step)
-            })
-            .collect();
-        let steps_iterator: StepsIterator = steps.into_iter();
-
-        PlatformDriver::new(
-            information,
-            test_definition,
-            private_key_allocator,
-            cached_compiler,
-            steps_iterator,
-        )
-        .await
-        .context(format!("Failed to create driver for {identifier}"))
-    }
-    // endregion:Constructors
-
-    // region:Execution
-    #[instrument(level = "info", skip_all)]
-    pub async fn execute_all(mut self) -> Result<usize> {
-        let platform_drivers = std::mem::take(&mut self.platform_drivers);
-        let results = futures::future::try_join_all(
-            platform_drivers
-                .into_values()
-                .map(|driver| driver.execute_all()),
-        )
-        .await
-        .context("Failed to execute all of the steps on the driver")?;
-        Ok(results.first().copied().unwrap_or_default())
-    }
-    // endregion:Execution
-}
-
 /// The differential tests driver for a single platform.
-pub struct PlatformDriver<'a, I> {
+pub struct Driver<'a, I> {
     /// The information of the platform that this driver is for.
     platform_information: &'a TestPlatformInformation<'a>,
+
+    /// The resolver of the platform.
+    resolver: Arc<dyn ResolverApi + 'a>,
 
     /// The definition of the test that the driver is instructed to execute.
     test_definition: &'a TestDefinition<'a>,
@@ -139,6 +53,9 @@ pub struct PlatformDriver<'a, I> {
     /// The execution state associated with the platform.
     execution_state: ExecutionState,
 
+    /// The send side of the watcher's unbounded channel associated with this driver.
+    watcher_tx: UnboundedSender<WatcherEvent>,
+
     /// The number of steps that were executed on the driver.
     steps_executed: usize,
 
@@ -147,71 +64,75 @@ pub struct PlatformDriver<'a, I> {
     steps_iterator: I,
 }
 
-impl<'a, I> PlatformDriver<'a, I>
+impl<'a, I> Driver<'a, I>
 where
     I: Iterator<Item = (StepPath, Step)>,
 {
     // region:Constructors & Initialization
-
     pub async fn new(
         platform_information: &'a TestPlatformInformation<'a>,
         test_definition: &'a TestDefinition<'a>,
         private_key_allocator: Arc<Mutex<PrivateKeyAllocator>>,
         cached_compiler: &CachedCompiler<'a>,
+        watcher_tx: UnboundedSender<WatcherEvent>,
         steps: I,
     ) -> Result<Self> {
-        let execution_state =
-            Self::init_execution_state(platform_information, test_definition, cached_compiler)
-                .await
-                .context("Failed to initialize the execution state of the platform")?;
-        Ok(PlatformDriver {
+        let mut this = Driver {
             platform_information,
+            resolver: platform_information
+                .node
+                .resolver()
+                .await
+                .context("Failed to create resolver")?,
             test_definition,
             private_key_allocator,
-            execution_state,
+            execution_state: ExecutionState::empty(),
             steps_executed: 0,
             steps_iterator: steps,
-        })
+            watcher_tx,
+        };
+        this.init_execution_state(cached_compiler)
+            .await
+            .context("Failed to initialize the execution state of the platform")?;
+        Ok(this)
     }
 
-    async fn init_execution_state(
-        platform_information: &'a TestPlatformInformation<'a>,
-        test_definition: &'a TestDefinition<'a>,
-        cached_compiler: &CachedCompiler<'a>,
-    ) -> Result<ExecutionState> {
+    async fn init_execution_state(&mut self, cached_compiler: &CachedCompiler<'a>) -> Result<()> {
         let compiler_output = cached_compiler
             .compile_contracts(
-                test_definition.metadata,
-                test_definition.metadata_file_path,
-                test_definition.mode.clone(),
+                self.test_definition.metadata,
+                self.test_definition.metadata_file_path,
+                self.test_definition.mode.clone(),
                 None,
-                platform_information.compiler.as_ref(),
-                platform_information.platform,
-                &platform_information.reporter,
+                self.platform_information.compiler.as_ref(),
+                self.platform_information.platform,
+                &self.platform_information.reporter,
             )
             .await
             .inspect_err(|err| {
                 error!(
                     ?err,
-                    platform_identifier = %platform_information.platform.platform_identifier(),
+                    platform_identifier = %self.platform_information.platform.platform_identifier(),
                     "Pre-linking compilation failed"
                 )
             })
             .context("Failed to produce the pre-linking compiled contracts")?;
 
         let mut deployed_libraries = None::<HashMap<_, _>>;
-        let mut contract_sources = test_definition
+        let mut contract_sources = self
+            .test_definition
             .metadata
             .contract_sources()
             .inspect_err(|err| {
                 error!(
                     ?err,
-                    platform_identifier = %platform_information.platform.platform_identifier(),
+                    platform_identifier = %self.platform_information.platform.platform_identifier(),
                     "Failed to retrieve contract sources from metadata"
                 )
             })
             .context("Failed to get the contract instances from the metadata file")?;
-        for library_instance in test_definition
+        for library_instance in self
+            .test_definition
             .metadata
             .libraries
             .iter()
@@ -238,7 +159,8 @@ where
             // Getting the deployer address from the cases themselves. This is to ensure
             // that we're doing the deployments from different accounts and therefore we're
             // not slowed down by the nonce.
-            let deployer_address = test_definition
+            let deployer_address = self
+                .test_definition
                 .case
                 .steps
                 .iter()
@@ -255,22 +177,18 @@ where
                 TransactionRequest::default().from(deployer_address),
                 code,
             );
-            let receipt = platform_information
-                .node
-                .execute_transaction(tx)
-                .await
-                .inspect_err(|err| {
-                    error!(
-                        ?err,
-                        %library_instance,
-                        platform_identifier = %platform_information.platform.platform_identifier(),
-                        "Failed to deploy the library"
-                    )
-                })?;
+            let receipt = self.execute_transaction(tx).await.inspect_err(|err| {
+                error!(
+                    ?err,
+                    %library_instance,
+                    platform_identifier = %self.platform_information.platform.platform_identifier(),
+                    "Failed to deploy the library"
+                )
+            })?;
 
             debug!(
                 ?library_instance,
-                platform_identifier = %platform_information.platform.platform_identifier(),
+                platform_identifier = %self.platform_information.platform.platform_identifier(),
                 "Deployed library"
             );
 
@@ -286,33 +204,34 @@ where
 
         let compiler_output = cached_compiler
             .compile_contracts(
-                test_definition.metadata,
-                test_definition.metadata_file_path,
-                test_definition.mode.clone(),
+                self.test_definition.metadata,
+                self.test_definition.metadata_file_path,
+                self.test_definition.mode.clone(),
                 deployed_libraries.as_ref(),
-                platform_information.compiler.as_ref(),
-                platform_information.platform,
-                &platform_information.reporter,
+                self.platform_information.compiler.as_ref(),
+                self.platform_information.platform,
+                &self.platform_information.reporter,
             )
             .await
             .inspect_err(|err| {
                 error!(
                     ?err,
-                    platform_identifier = %platform_information.platform.platform_identifier(),
-                    "Pre-linking compilation failed"
+                    platform_identifier = %self.platform_information.platform.platform_identifier(),
+                    "Post-linking compilation failed"
                 )
             })
             .context("Failed to compile the post-link contracts")?;
 
-        Ok(ExecutionState::new(
+        self.execution_state = ExecutionState::new(
             compiler_output.contracts,
             deployed_libraries.unwrap_or_default(),
-        ))
+        );
+
+        Ok(())
     }
     // endregion:Constructors & Initialization
 
     // region:Step Handling
-    #[instrument(level = "info", skip_all)]
     pub async fn execute_all(mut self) -> Result<usize> {
         while let Some(result) = self.execute_next_step().await {
             result?
@@ -320,17 +239,8 @@ where
         Ok(self.steps_executed)
     }
 
-    #[instrument(
-        level = "info",
-        skip_all,
-        fields(
-            platform_identifier = %self.platform_information.platform.platform_identifier(),
-            node_id = self.platform_information.node.id(),
-        ),
-    )]
     pub async fn execute_next_step(&mut self) -> Option<Result<()>> {
         let (step_path, step) = self.steps_iterator.next()?;
-
         info!(%step_path, "Executing Step");
         Some(
             self.execute_step(&step_path, &step)
@@ -355,14 +265,6 @@ where
                 .execute_function_call(step_path, step.as_ref())
                 .await
                 .context("Function call step Failed"),
-            Step::BalanceAssertion(step) => self
-                .execute_balance_assertion(step_path, step.as_ref())
-                .await
-                .context("Balance Assertion Step Failed"),
-            Step::StorageEmptyAssertion(step) => self
-                .execute_storage_empty_assertion_step(step_path, step.as_ref())
-                .await
-                .context("Storage Empty Assertion Step Failed"),
             Step::Repeat(step) => self
                 .execute_repeat_step(step_path, step.as_ref())
                 .await
@@ -371,6 +273,8 @@ where
                 .execute_account_allocation(step_path, step.as_ref())
                 .await
                 .context("Account Allocation Step Failed"),
+            // The following steps are disabled in the benchmarking driver.
+            Step::BalanceAssertion(..) | Step::StorageEmptyAssertion(..) => Ok(0),
         }?;
         self.steps_executed += steps_executed;
         Ok(())
@@ -397,9 +301,6 @@ where
         self.handle_function_call_variable_assignment(step, &tracing_result)
             .await
             .context("Failed to handle function call variable assignment")?;
-        self.handle_function_call_assertions(step, &execution_receipt, &tracing_result)
-            .await
-            .context("Failed to handle function call assertions")?;
         Ok(1)
     }
 
@@ -407,6 +308,8 @@ where
         &mut self,
         step: &FunctionCallStep,
     ) -> Result<HashMap<ContractInstance, TransactionReceipt>> {
+        trace!("Handling Function Call Contract Deployment");
+
         let mut instances_we_must_deploy = IndexMap::<ContractInstance, bool>::new();
         for instance in step.find_all_contract_instances().into_iter() {
             if !self
@@ -431,9 +334,8 @@ where
 
             let caller = {
                 let context = self.default_resolution_context();
-                let resolver = self.platform_information.node.resolver().await?;
                 step.caller
-                    .resolve_address(resolver.as_ref(), context)
+                    .resolve_address(self.resolver.as_ref(), context)
                     .await?
             };
             if let (_, _, Some(receipt)) = self
@@ -445,6 +347,10 @@ where
             }
         }
 
+        trace!(
+            deployed_contracts = receipts.len(),
+            "Handled function call contract deployment"
+        );
         Ok(receipts)
     }
 
@@ -453,6 +359,7 @@ where
         step: &FunctionCallStep,
         mut deployment_receipts: HashMap<ContractInstance, TransactionReceipt>,
     ) -> Result<TransactionReceipt> {
+        trace!("Handling the function call execution");
         match step.method {
             // This step was already executed when `handle_step` was called. We just need to
             // lookup the transaction receipt in this case and continue on.
@@ -460,21 +367,13 @@ where
                 .remove(&step.instance)
                 .context("Failed to find deployment receipt for constructor call"),
             Method::Fallback | Method::FunctionName(_) => {
-                let resolver = self.platform_information.node.resolver().await?;
-                let tx = match step
-                    .as_transaction(resolver.as_ref(), self.default_resolution_context())
-                    .await
-                {
-                    Ok(tx) => tx,
-                    Err(err) => {
-                        return Err(err);
-                    }
-                };
-
-                match self.platform_information.node.execute_transaction(tx).await {
-                    Ok(receipt) => Ok(receipt),
-                    Err(err) => Err(err),
-                }
+                trace!("Creating the transaction");
+                let tx = step
+                    .as_transaction(self.resolver.as_ref(), self.default_resolution_context())
+                    .await?;
+                trace!("Created the transaction");
+                trace!("Calling the execute transaction when handling the function call execution");
+                self.execute_transaction(tx).await
             }
         }
     }
@@ -542,224 +441,13 @@ where
         Ok(())
     }
 
-    async fn handle_function_call_assertions(
-        &mut self,
-        step: &FunctionCallStep,
-        receipt: &TransactionReceipt,
-        tracing_result: &CallFrame,
-    ) -> Result<()> {
-        // Resolving the `step.expected` into a series of expectations that we can then assert on.
-        let mut expectations = match step {
-            FunctionCallStep {
-                expected: Some(Expected::Calldata(calldata)),
-                ..
-            } => vec![ExpectedOutput::new().with_calldata(calldata.clone())],
-            FunctionCallStep {
-                expected: Some(Expected::Expected(expected)),
-                ..
-            } => vec![expected.clone()],
-            FunctionCallStep {
-                expected: Some(Expected::ExpectedMany(expected)),
-                ..
-            } => expected.clone(),
-            FunctionCallStep { expected: None, .. } => vec![ExpectedOutput::new().with_success()],
-        };
-
-        // This is a bit of a special case and we have to support it separately on it's own. If it's
-        // a call to the deployer method, then the tests will assert that it "returns" the address
-        // of the contract. Deployments do not return the address of the contract but the runtime
-        // code of the contracts. Therefore, this assertion would always fail. So, we replace it
-        // with an assertion of "check if it succeeded"
-        if let Method::Deployer = &step.method {
-            for expectation in expectations.iter_mut() {
-                expectation.return_data = None;
-            }
-        }
-
-        futures::stream::iter(expectations.into_iter().map(Ok))
-            .try_for_each_concurrent(None, |expectation| async {
-                self.handle_function_call_assertion_item(receipt, tracing_result, expectation)
-                    .await
-            })
-            .await
-    }
-
-    async fn handle_function_call_assertion_item(
-        &self,
-        receipt: &TransactionReceipt,
-        tracing_result: &CallFrame,
-        assertion: ExpectedOutput,
-    ) -> Result<()> {
-        let resolver = self
-            .platform_information
-            .node
-            .resolver()
-            .await
-            .context("Failed to create the resolver for the node")?;
-
-        if let Some(ref version_requirement) = assertion.compiler_version {
-            if !version_requirement.matches(self.platform_information.compiler.version()) {
-                return Ok(());
-            }
-        }
-
-        let resolution_context = self
-            .default_resolution_context()
-            .with_block_number(receipt.block_number.as_ref())
-            .with_transaction_hash(&receipt.transaction_hash);
-
-        // Handling the receipt state assertion.
-        let expected = !assertion.exception;
-        let actual = receipt.status();
-        if actual != expected {
-            tracing::error!(
-                expected,
-                actual,
-                ?receipt,
-                ?tracing_result,
-                "Transaction status assertion failed"
-            );
-            anyhow::bail!(
-                "Transaction status assertion failed - Expected {expected} but got {actual}",
-            );
-        }
-
-        // Handling the calldata assertion
-        if let Some(ref expected_calldata) = assertion.return_data {
-            let expected = expected_calldata;
-            let actual = &tracing_result.output.as_ref().unwrap_or_default();
-            if !expected
-                .is_equivalent(actual, resolver.as_ref(), resolution_context)
-                .await
-                .context("Failed to resolve calldata equivalence for return data assertion")?
-            {
-                tracing::error!(
-                    ?receipt,
-                    ?expected,
-                    %actual,
-                    "Calldata assertion failed"
-                );
-                anyhow::bail!("Calldata assertion failed - Expected {expected:?} but got {actual}",);
-            }
-        }
-
-        // Handling the events assertion
-        if let Some(ref expected_events) = assertion.events {
-            // Handling the events length assertion.
-            let expected = expected_events.len();
-            let actual = receipt.logs().len();
-            if actual != expected {
-                tracing::error!(expected, actual, "Event count assertion failed",);
-                anyhow::bail!(
-                    "Event count assertion failed - Expected {expected} but got {actual}",
-                );
-            }
-
-            // Handling the events assertion.
-            for (event_idx, (expected_event, actual_event)) in
-                expected_events.iter().zip(receipt.logs()).enumerate()
-            {
-                // Handling the emitter assertion.
-                if let Some(ref expected_address) = expected_event.address {
-                    let expected = expected_address
-                        .resolve_address(resolver.as_ref(), resolution_context)
-                        .await?;
-                    let actual = actual_event.address();
-                    if actual != expected {
-                        tracing::error!(
-                            event_idx,
-                            %expected,
-                            %actual,
-                            "Event emitter assertion failed",
-                        );
-                        anyhow::bail!(
-                            "Event emitter assertion failed - Expected {expected} but got {actual}",
-                        );
-                    }
-                }
-
-                // Handling the topics assertion.
-                for (expected, actual) in expected_event
-                    .topics
-                    .as_slice()
-                    .iter()
-                    .zip(actual_event.topics())
-                {
-                    let expected = Calldata::new_compound([expected]);
-                    if !expected
-                        .is_equivalent(&actual.0, resolver.as_ref(), resolution_context)
-                        .await
-                        .context("Failed to resolve event topic equivalence")?
-                    {
-                        tracing::error!(
-                            event_idx,
-                            ?receipt,
-                            ?expected,
-                            ?actual,
-                            "Event topics assertion failed",
-                        );
-                        anyhow::bail!(
-                            "Event topics assertion failed - Expected {expected:?} but got {actual:?}",
-                        );
-                    }
-                }
-
-                // Handling the values assertion.
-                let expected = &expected_event.values;
-                let actual = &actual_event.data().data;
-                if !expected
-                    .is_equivalent(&actual.0, resolver.as_ref(), resolution_context)
-                    .await
-                    .context("Failed to resolve event value equivalence")?
-                {
-                    tracing::error!(
-                        event_idx,
-                        ?receipt,
-                        ?expected,
-                        ?actual,
-                        "Event value assertion failed",
-                    );
-                    anyhow::bail!(
-                        "Event value assertion failed - Expected {expected:?} but got {actual:?}",
-                    );
-                }
-            }
-        }
-
-        Ok(())
-    }
-
     #[instrument(level = "info", skip_all)]
     pub async fn execute_balance_assertion(
         &mut self,
         _: &StepPath,
-        step: &BalanceAssertionStep,
+        _: &BalanceAssertionStep,
     ) -> anyhow::Result<usize> {
-        self.step_address_auto_deployment(&step.address)
-            .await
-            .context("Failed to perform auto-deployment for the step address")?;
-
-        let resolver = self.platform_information.node.resolver().await?;
-        let address = step
-            .address
-            .resolve_address(resolver.as_ref(), self.default_resolution_context())
-            .await?;
-
-        let balance = self.platform_information.node.balance_of(address).await?;
-
-        let expected = step.expected_balance;
-        let actual = balance;
-        if expected != actual {
-            tracing::error!(%expected, %actual, %address, "Balance assertion failed");
-            anyhow::bail!(
-                "Balance assertion failed - Expected {} but got {} for {} resolved to {}",
-                expected,
-                actual,
-                address,
-                address,
-            )
-        }
-
+        // Kept empty intentionally for the benchmark driver.
         Ok(1)
     }
 
@@ -767,39 +455,9 @@ where
     async fn execute_storage_empty_assertion_step(
         &mut self,
         _: &StepPath,
-        step: &StorageEmptyAssertionStep,
+        _: &StorageEmptyAssertionStep,
     ) -> Result<usize> {
-        self.step_address_auto_deployment(&step.address)
-            .await
-            .context("Failed to perform auto-deployment for the step address")?;
-
-        let resolver = self.platform_information.node.resolver().await?;
-        let address = step
-            .address
-            .resolve_address(resolver.as_ref(), self.default_resolution_context())
-            .await?;
-
-        let storage = self
-            .platform_information
-            .node
-            .latest_state_proof(address, Default::default())
-            .await?;
-        let is_empty = storage.storage_hash == EMPTY_ROOT_HASH;
-
-        let expected = step.is_storage_empty;
-        let actual = is_empty;
-
-        if expected != actual {
-            tracing::error!(%expected, %actual, %address, "Storage Empty Assertion failed");
-            anyhow::bail!(
-                "Storage Empty Assertion failed - Expected {} but got {} for {} resolved to {}",
-                expected,
-                actual,
-                address,
-                address,
-            )
-        };
-
+        // Kept empty intentionally for the benchmark driver.
         Ok(1)
     }
 
@@ -810,8 +468,9 @@ where
         step: &RepeatStep,
     ) -> Result<usize> {
         let tasks = (0..step.repeat)
-            .map(|_| PlatformDriver {
+            .map(|_| Driver {
                 platform_information: self.platform_information,
+                resolver: self.resolver.clone(),
                 test_definition: self.test_definition,
                 private_key_allocator: self.private_key_allocator.clone(),
                 execution_state: self.execution_state.clone(),
@@ -830,13 +489,24 @@ where
                         .collect();
                     steps.into_iter()
                 },
+                watcher_tx: self.watcher_tx.clone(),
             })
             .map(|driver| driver.execute_all())
             .collect::<Vec<_>>();
+
+        // TODO: Determine how we want to know the `ignore_block_before` and if it's through the
+        // receipt and how this would impact the architecture and the possibility of us not waiting
+        // for receipts in the future.
+        self.watcher_tx
+            .send(WatcherEvent::RepetitionStartEvent {
+                ignore_block_before: 0,
+            })
+            .context("Failed to send message on the watcher's tx")?;
+
         let res = futures::future::try_join_all(tasks)
             .await
             .context("Repetition execution failed")?;
-        Ok(res.first().copied().unwrap_or_default())
+        Ok(res.into_iter().sum())
     }
 
     #[instrument(level = "info", skip_all, err(Debug))]
@@ -849,7 +519,12 @@ where
             bail!("Account allocation must start with $VARIABLE:");
         };
 
-        let private_key = self.private_key_allocator.lock().await.allocate()?;
+        let private_key = self
+            .private_key_allocator
+            .lock()
+            .await
+            .allocate()
+            .context("Account allocation through the private key allocator failed")?;
         let account = private_key.address();
         let variable = U256::from_be_slice(account.0.as_slice());
 
@@ -963,9 +638,8 @@ where
         };
 
         if let Some(calldata) = calldata {
-            let resolver = self.platform_information.node.resolver().await?;
             let calldata = calldata
-                .calldata(resolver.as_ref(), self.default_resolution_context())
+                .calldata(self.resolver.as_ref(), self.default_resolution_context())
                 .await?;
             code.extend(calldata);
         }
@@ -979,7 +653,7 @@ where
             TransactionBuilder::<Ethereum>::with_deploy_code(tx, code)
         };
 
-        let receipt = match self.platform_information.node.execute_transaction(tx).await {
+        let receipt = match self.execute_transaction(tx).await {
             Ok(receipt) => receipt,
             Err(error) => {
                 tracing::error!(?error, "Contract deployment transaction failed.");
@@ -1042,4 +716,43 @@ where
             .with_variables(&self.execution_state.variables)
     }
     // endregion:Resolution & Resolver
+
+    // region:Transaction Execution
+    /// Executes the transaction on the driver's node with some custom waiting logic for the receipt
+    #[instrument(level = "info", skip_all, fields(transaction_hash = tracing::field::Empty))]
+    async fn execute_transaction(
+        &self,
+        transaction: TransactionRequest,
+    ) -> anyhow::Result<TransactionReceipt> {
+        trace!("Submitting transaction");
+        let node = self.platform_information.node;
+        let transaction_hash = node
+            .submit_transaction(transaction)
+            .await
+            .context("Failed to submit transaction")?;
+        Span::current().record("transaction_hash", display(transaction_hash));
+
+        info!("Submitted transaction");
+
+        self.watcher_tx
+            .send(WatcherEvent::SubmittedTransaction { transaction_hash })
+            .context("Failed to send the transaction hash to the watcher")?;
+
+        info!("Starting to poll for transaction receipt");
+        poll(
+            Duration::from_secs(10 * 60),
+            PollingWaitBehavior::Constant(Duration::from_secs(1)),
+            || {
+                async move {
+                    match node.get_receipt(transaction_hash).await {
+                        Ok(receipt) => Ok(ControlFlow::Break(receipt)),
+                        Err(_) => Ok(ControlFlow::Continue(())),
+                    }
+                }
+                .instrument(info_span!("Polling for receipt"))
+            },
+        )
+        .await
+    }
+    // endregion:Transaction Execution
 }

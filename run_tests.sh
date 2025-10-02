@@ -89,8 +89,7 @@ echo "This may take a while..."
 echo ""
 
 # Run the tool
-RUST_LOG="info,alloy_pubsub::service=error" cargo run --release -- execute-tests \
-    --platform geth-evm-solc \
+RUST_LOG="info,alloy_pubsub::service=error" cargo run --release -- test \
     --platform revive-dev-node-polkavm-resolc \
     --corpus "$CORPUS_FILE" \
     --working-directory "$WORKDIR" \

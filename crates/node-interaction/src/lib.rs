@@ -3,11 +3,12 @@
 use std::pin::Pin;
 use std::sync::Arc;
 
-use alloy::primitives::{Address, StorageKey, TxHash, U256};
+use alloy::primitives::{Address, BlockNumber, BlockTimestamp, StorageKey, TxHash, U256};
 use alloy::rpc::types::trace::geth::{DiffMode, GethDebugTracingOptions, GethTrace};
 use alloy::rpc::types::{EIP1186AccountProofResponse, TransactionReceipt, TransactionRequest};
 use anyhow::Result;
 
+use futures::Stream;
 use revive_common::EVMVersion;
 use revive_dt_format::traits::ResolverApi;
 
@@ -21,6 +22,16 @@ pub trait EthereumNode {
 
     /// Returns the nodes connection string.
     fn connection_string(&self) -> &str;
+
+    fn submit_transaction(
+        &self,
+        transaction: TransactionRequest,
+    ) -> Pin<Box<dyn Future<Output = Result<TxHash>> + '_>>;
+
+    fn get_receipt(
+        &self,
+        tx_hash: TxHash,
+    ) -> Pin<Box<dyn Future<Output = Result<TransactionReceipt>> + '_>>;
 
     /// Execute the [TransactionRequest] and return a [TransactionReceipt].
     fn execute_transaction(
@@ -53,4 +64,32 @@ pub trait EthereumNode {
 
     /// Returns the EVM version of the node.
     fn evm_version(&self) -> EVMVersion;
+
+    /// Returns a stream of the blocks that were mined by the node.
+    fn subscribe_to_full_blocks_information(
+        &self,
+    ) -> Pin<
+        Box<
+            dyn Future<Output = anyhow::Result<Pin<Box<dyn Stream<Item = MinedBlockInformation>>>>>
+                + '_,
+        >,
+    >;
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct MinedBlockInformation {
+    /// The block number.
+    pub block_number: BlockNumber,
+
+    /// The block timestamp.
+    pub block_timestamp: BlockTimestamp,
+
+    /// The amount of gas mined in the block.
+    pub mined_gas: u128,
+
+    /// The gas limit of the block.
+    pub block_gas_limit: u128,
+
+    /// The hashes of the transactions that were mined as part of the block.
+    pub transaction_hashes: Vec<TxHash>,
 }

@@ -1,3 +1,4 @@
+mod differential_benchmarks;
 mod differential_tests;
 mod helpers;
 
@@ -11,7 +12,10 @@ use revive_dt_config::Context;
 use revive_dt_core::Platform;
 use revive_dt_format::metadata::Metadata;
 
-use crate::differential_tests::handle_differential_tests;
+use crate::{
+    differential_benchmarks::handle_differential_benchmarks,
+    differential_tests::handle_differential_tests,
+};
 
 fn main() -> anyhow::Result<()> {
     let (writer, _guard) = tracing_appender::non_blocking::NonBlockingBuilder::default()
@@ -37,7 +41,7 @@ fn main() -> anyhow::Result<()> {
     let (reporter, report_aggregator_task) = ReportAggregator::new(context.clone()).into_task();
 
     match context {
-        Context::ExecuteTests(context) => tokio::runtime::Builder::new_multi_thread()
+        Context::Test(context) => tokio::runtime::Builder::new_multi_thread()
             .worker_threads(context.concurrency_configuration.number_of_threads)
             .enable_all()
             .build()
@@ -48,6 +52,23 @@ fn main() -> anyhow::Result<()> {
 
                 futures::future::try_join(differential_tests_handling_task, report_aggregator_task)
                     .await?;
+
+                Ok(())
+            }),
+        Context::Benchmark(context) => tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(context.concurrency_configuration.number_of_threads)
+            .enable_all()
+            .build()
+            .expect("Failed building the Runtime")
+            .block_on(async move {
+                let differential_benchmarks_handling_task =
+                    handle_differential_benchmarks(*context, reporter);
+
+                futures::future::try_join(
+                    differential_benchmarks_handling_task,
+                    report_aggregator_task,
+                )
+                .await?;
 
                 Ok(())
             }),
