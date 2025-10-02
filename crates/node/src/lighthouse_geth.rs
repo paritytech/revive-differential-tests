@@ -642,15 +642,13 @@ impl EthereumNode for LighthouseGethNode {
     ) -> Pin<Box<dyn Future<Output = anyhow::Result<TxHash>> + '_>> {
         Box::pin(async move {
             let provider = self
-                .ws_provider()
+                .http_provider()
                 .await
                 .context("Failed to create the provider for transaction submission")?;
-            tracing::trace!("Submit transaction, provider created");
             let pending_transaction = provider
                 .send_transaction(transaction)
                 .await
                 .context("Failed to submit the transaction through the provider")?;
-            tracing::trace!("Submitted transaction");
             Ok(*pending_transaction.tx_hash())
         })
     }

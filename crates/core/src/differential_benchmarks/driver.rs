@@ -1,4 +1,12 @@
-use std::{collections::HashMap, ops::ControlFlow, sync::Arc, time::Duration};
+use std::{
+    collections::HashMap,
+    ops::ControlFlow,
+    sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    },
+    time::Duration,
+};
 
 use alloy::{
     hex,
@@ -35,8 +43,13 @@ use crate::{
     helpers::{CachedCompiler, TestDefinition, TestPlatformInformation},
 };
 
+static DRIVER_COUNT: AtomicUsize = AtomicUsize::new(0);
+
 /// The differential tests driver for a single platform.
 pub struct Driver<'a, I> {
+    /// The id of the driver.
+    driver_id: usize,
+
     /// The information of the platform that this driver is for.
     platform_information: &'a TestPlatformInformation<'a>,
 
@@ -78,6 +91,7 @@ where
         steps: I,
     ) -> Result<Self> {
         let mut this = Driver {
+            driver_id: DRIVER_COUNT.fetch_add(1, Ordering::SeqCst),
             platform_information,
             resolver: platform_information
                 .node
@@ -254,6 +268,7 @@ where
         level = "info",
         skip_all,
         fields(
+            driver_id = self.driver_id,
             platform_identifier = %self.platform_information.platform.platform_identifier(),
             %step_path,
         ),
@@ -280,7 +295,7 @@ where
         Ok(())
     }
 
-    #[instrument(level = "info", skip_all)]
+    #[instrument(level = "info", skip_all, fields(driver_id = self.driver_id))]
     pub async fn execute_function_call(
         &mut self,
         _: &StepPath,
@@ -308,8 +323,6 @@ where
         &mut self,
         step: &FunctionCallStep,
     ) -> Result<HashMap<ContractInstance, TransactionReceipt>> {
-        trace!("Handling Function Call Contract Deployment");
-
         let mut instances_we_must_deploy = IndexMap::<ContractInstance, bool>::new();
         for instance in step.find_all_contract_instances().into_iter() {
             if !self
@@ -347,10 +360,6 @@ where
             }
         }
 
-        trace!(
-            deployed_contracts = receipts.len(),
-            "Handled function call contract deployment"
-        );
         Ok(receipts)
     }
 
@@ -359,7 +368,6 @@ where
         step: &FunctionCallStep,
         mut deployment_receipts: HashMap<ContractInstance, TransactionReceipt>,
     ) -> Result<TransactionReceipt> {
-        trace!("Handling the function call execution");
         match step.method {
             // This step was already executed when `handle_step` was called. We just need to
             // lookup the transaction receipt in this case and continue on.
@@ -367,12 +375,9 @@ where
                 .remove(&step.instance)
                 .context("Failed to find deployment receipt for constructor call"),
             Method::Fallback | Method::FunctionName(_) => {
-                trace!("Creating the transaction");
                 let tx = step
                     .as_transaction(self.resolver.as_ref(), self.default_resolution_context())
                     .await?;
-                trace!("Created the transaction");
-                trace!("Calling the execute transaction when handling the function call execution");
                 self.execute_transaction(tx).await
             }
         }
@@ -441,7 +446,7 @@ where
         Ok(())
     }
 
-    #[instrument(level = "info", skip_all)]
+    #[instrument(level = "info", skip_all, fields(driver_id = self.driver_id))]
     pub async fn execute_balance_assertion(
         &mut self,
         _: &StepPath,
@@ -451,7 +456,7 @@ where
         Ok(1)
     }
 
-    #[instrument(level = "info", skip_all, err(Debug))]
+    #[instrument(level = "info", skip_all, fields(driver_id = self.driver_id), err(Debug))]
     async fn execute_storage_empty_assertion_step(
         &mut self,
         _: &StepPath,
@@ -461,7 +466,7 @@ where
         Ok(1)
     }
 
-    #[instrument(level = "info", skip_all, err(Debug))]
+    #[instrument(level = "info", skip_all, fields(driver_id = self.driver_id), err(Debug))]
     async fn execute_repeat_step(
         &mut self,
         step_path: &StepPath,
@@ -469,6 +474,7 @@ where
     ) -> Result<usize> {
         let tasks = (0..step.repeat)
             .map(|_| Driver {
+                driver_id: DRIVER_COUNT.fetch_add(1, Ordering::SeqCst),
                 platform_information: self.platform_information,
                 resolver: self.resolver.clone(),
                 test_definition: self.test_definition,
@@ -476,8 +482,7 @@ where
                 execution_state: self.execution_state.clone(),
                 steps_executed: 0,
                 steps_iterator: {
-                    let steps: Vec<(StepPath, Step)> = step
-                        .steps
+                    step.steps
                         .iter()
                         .cloned()
                         .enumerate()
@@ -486,13 +491,10 @@ where
                             let step_path = step_path.append(step_idx);
                             (step_path, step)
                         })
-                        .collect();
-                    steps.into_iter()
                 },
                 watcher_tx: self.watcher_tx.clone(),
             })
-            .map(|driver| driver.execute_all())
-            .collect::<Vec<_>>();
+            .map(|driver| driver.execute_all());
 
         // TODO: Determine how we want to know the `ignore_block_before` and if it's through the
         // receipt and how this would impact the architecture and the possibility of us not waiting
@@ -509,7 +511,7 @@ where
         Ok(res.into_iter().sum())
     }
 
-    #[instrument(level = "info", skip_all, err(Debug))]
+    #[instrument(level = "info", fields(driver_id = self.driver_id), skip_all, err(Debug))]
     pub async fn execute_account_allocation(
         &mut self,
         _: &StepPath,
@@ -541,6 +543,7 @@ where
         level = "info",
         skip_all,
         fields(
+            driver_id = self.driver_id,
             platform_identifier = %self.platform_information.platform.platform_identifier(),
             %contract_instance,
             %deployer
@@ -583,6 +586,7 @@ where
     level = "info",
     skip_all,
         fields(
+            driver_id = self.driver_id,
             platform_identifier = %self.platform_information.platform.platform_identifier(),
             %contract_instance,
             %deployer
@@ -681,7 +685,7 @@ where
         Ok((address, abi, receipt))
     }
 
-    #[instrument(level = "info", skip_all)]
+    #[instrument(level = "info", fields(driver_id = self.driver_id), skip_all)]
     async fn step_address_auto_deployment(
         &mut self,
         step_address: &StepAddress,
@@ -719,12 +723,15 @@ where
 
     // region:Transaction Execution
     /// Executes the transaction on the driver's node with some custom waiting logic for the receipt
-    #[instrument(level = "info", skip_all, fields(transaction_hash = tracing::field::Empty))]
+    #[instrument(
+        level = "info",
+        skip_all,
+        fields(driver_id = self.driver_id, transaction_hash = tracing::field::Empty)
+    )]
     async fn execute_transaction(
         &self,
         transaction: TransactionRequest,
     ) -> anyhow::Result<TransactionReceipt> {
-        trace!("Submitting transaction");
         let node = self.platform_information.node;
         let transaction_hash = node
             .submit_transaction(transaction)
