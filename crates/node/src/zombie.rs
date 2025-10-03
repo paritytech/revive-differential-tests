@@ -44,9 +44,12 @@ use alloy::{
     network::{Ethereum, EthereumWallet, NetworkWallet},
     primitives::{Address, BlockHash, BlockNumber, BlockTimestamp, StorageKey, TxHash, U256},
     providers::{
-        Provider, ProviderBuilder,
+        Identity, Provider, ProviderBuilder, RootProvider,
         ext::DebugApi,
-        fillers::{CachedNonceManager, ChainIdFiller, FillProvider, NonceFiller, TxFiller},
+        fillers::{
+            CachedNonceManager, ChainIdFiller, FillProvider, JoinFill, NonceFiller, TxFiller,
+            WalletFiller,
+        },
     },
     rpc::types::{
         EIP1186AccountProofResponse, TransactionReceipt,
@@ -63,6 +66,7 @@ use revive_dt_node_interaction::EthereumNode;
 use serde_json::{Value as JsonValue, json};
 use sp_core::crypto::Ss58Codec;
 use sp_runtime::AccountId32;
+use tokio::sync::OnceCell;
 use tracing::instrument;
 use zombienet_sdk::{LocalFileSystem, NetworkConfigBuilder, NetworkConfigExt};
 
@@ -94,6 +98,20 @@ pub struct ZombieNode {
     network: Option<zombienet_sdk::Network<LocalFileSystem>>,
     eth_rpc_process: Option<Process>,
     node_rpc_port: Option<u16>,
+    #[allow(clippy::type_complexity)]
+    provider: OnceCell<
+        FillProvider<
+            JoinFill<
+                JoinFill<
+                    JoinFill<JoinFill<Identity, FallbackGasFiller>, ChainIdFiller>,
+                    NonceFiller,
+                >,
+                WalletFiller<Arc<EthereumWallet>>,
+            >,
+            RootProvider<ReviveNetwork>,
+            ReviveNetwork,
+        >,
+    >,
 }
 
 impl ZombieNode {
@@ -141,6 +159,7 @@ impl ZombieNode {
             eth_rpc_process: None,
             connection_string: String::new(),
             node_rpc_port: None,
+            provider: Default::default(),
         }
     }
 
@@ -366,26 +385,31 @@ impl ZombieNode {
     async fn provider(
         &self,
     ) -> anyhow::Result<
-        FillProvider<impl TxFiller<ReviveNetwork>, impl Provider<ReviveNetwork>, ReviveNetwork>,
+        FillProvider<
+            impl TxFiller<ReviveNetwork>,
+            impl Provider<ReviveNetwork> + Clone,
+            ReviveNetwork,
+        >,
     > {
-        let Some(_network) = &self.network else {
-            anyhow::bail!("Node not initialized, call spawn() first");
-        };
-
-        ProviderBuilder::new()
-            .disable_recommended_fillers()
-            .network::<ReviveNetwork>()
-            .filler(FallbackGasFiller::new(
-                1_000_000_000,
-                1_000_000_000,
-                1_000_000_000,
-            ))
-            .filler(self.chain_id_filler.clone())
-            .filler(NonceFiller::new(self.nonce_manager.clone()))
-            .wallet(self.wallet.clone())
-            .connect(&self.connection_string)
+        self.provider
+            .get_or_try_init(|| async move {
+                ProviderBuilder::new()
+                    .disable_recommended_fillers()
+                    .network::<ReviveNetwork>()
+                    .filler(FallbackGasFiller::new(
+                        1_000_000_000,
+                        1_000_000_000,
+                        1_000_000_000,
+                    ))
+                    .filler(self.chain_id_filler.clone())
+                    .filler(NonceFiller::new(self.nonce_manager.clone()))
+                    .wallet(self.wallet.clone())
+                    .connect(&self.connection_string)
+                    .await
+                    .map_err(Into::into)
+            })
             .await
-            .context("Failed to connect to parachain Ethereum RPC")
+            .cloned()
     }
 }
 
