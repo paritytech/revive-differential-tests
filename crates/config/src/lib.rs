@@ -88,8 +88,8 @@ impl AsRef<KurtosisConfiguration> for Context {
     }
 }
 
-impl AsRef<ZombieNetConfiguration> for Context {
-    fn as_ref(&self) -> &ZombieNetConfiguration {
+impl AsRef<ZombienetConfiguration> for Context {
+    fn as_ref(&self) -> &ZombienetConfiguration {
         match self {
             Self::ExecuteTests(context) => context.as_ref().as_ref(),
             Self::ExportJsonSchema => unreachable!(),
@@ -206,7 +206,7 @@ pub struct TestExecutionContext {
 
     /// Configuration parameters for the Zombienet.
     #[clap(flatten, next_help_heading = "Zombienet Configuration")]
-    pub zombienet_configuration: ZombieNetConfiguration,
+    pub zombienet_configuration: ZombienetConfiguration,
 
     /// Configuration parameters for the geth node.
     #[clap(flatten, next_help_heading = "Geth Configuration")]
@@ -279,8 +279,8 @@ impl AsRef<GethConfiguration> for TestExecutionContext {
     }
 }
 
-impl AsRef<ZombieNetConfiguration> for TestExecutionContext {
-    fn as_ref(&self) -> &ZombieNetConfiguration {
+impl AsRef<ZombienetConfiguration> for TestExecutionContext {
+    fn as_ref(&self) -> &ZombienetConfiguration {
         &self.zombienet_configuration
     }
 }
@@ -361,7 +361,7 @@ pub struct ResolcConfiguration {
 
 /// A set of configuration parameters for Zombienet.
 #[derive(Clone, Debug, Parser, Serialize)]
-pub struct ZombieNetConfiguration {
+pub struct ZombienetConfiguration {
     /// Specifies the path of the zombienet node to be used by the tool.
     ///
     /// If this is not specified, then the tool assumes that it should use the zombienet binary
@@ -381,10 +381,6 @@ pub struct ZombieNetConfiguration {
         value_parser = parse_duration
     )]
     pub start_timeout_ms: Duration,
-
-    /// This configures the tool to use Zombienet instead of using the revive-dev-node.
-    #[clap(long = "zombienet.dont-use-dev-node")]
-    pub use_zombienet: bool,
 }
 
 /// A set of configuration parameters for Geth.
@@ -740,5 +736,5 @@ pub enum TestingPlatform {
     /// The kitchensink runtime provides the PolkaVM (PVM) based node implementation.
     Kitchensink,
     /// A polkadot/Substrate based network
-    ZombieNet,
+    Zombienet,
 }

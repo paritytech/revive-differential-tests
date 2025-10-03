@@ -361,15 +361,15 @@ impl Platform for ReviveDevNodeRevmSolcPlatform {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Default, Hash)]
-pub struct ZombieNetPolkavmResolcPlatform;
+pub struct ZombienetPolkavmResolcPlatform;
 
-impl Platform for ZombieNetPolkavmResolcPlatform {
+impl Platform for ZombienetPolkavmResolcPlatform {
     fn platform_identifier(&self) -> PlatformIdentifier {
-        PlatformIdentifier::ZombieNetPolkavmResolc
+        PlatformIdentifier::ZombienetPolkavmResolc
     }
 
     fn node_identifier(&self) -> NodeIdentifier {
-        NodeIdentifier::ZombieNet
+        NodeIdentifier::Zombienet
     }
 
     fn vm_identifier(&self) -> VmIdentifier {
@@ -385,12 +385,12 @@ impl Platform for ZombieNetPolkavmResolcPlatform {
         context: Context,
     ) -> anyhow::Result<JoinHandle<anyhow::Result<Box<dyn EthereumNode + Send + Sync>>>> {
         let genesis_configuration = AsRef::<GenesisConfiguration>::as_ref(&context);
-        let zombie_net_path = AsRef::<ZombieNetConfiguration>::as_ref(&context)
+        let zombienet_path = AsRef::<ZombienetConfiguration>::as_ref(&context)
             .path
             .clone();
         let genesis = genesis_configuration.genesis()?.clone();
         Ok(thread::spawn(move || {
-            let node = ZombieNode::new(zombie_net_path, context);
+            let node = ZombieNode::new(zombienet_path, context);
             let node = spawn_node(node, genesis)?;
             Ok(Box::new(node) as Box<_>)
         }))
@@ -409,15 +409,15 @@ impl Platform for ZombieNetPolkavmResolcPlatform {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Default, Hash)]
-pub struct ZombieNetRevmSolcPlatform;
+pub struct ZombienetRevmSolcPlatform;
 
-impl Platform for ZombieNetRevmSolcPlatform {
+impl Platform for ZombienetRevmSolcPlatform {
     fn platform_identifier(&self) -> PlatformIdentifier {
-        PlatformIdentifier::ZombieNetRevmSolc
+        PlatformIdentifier::ZombienetRevmSolc
     }
 
     fn node_identifier(&self) -> NodeIdentifier {
-        NodeIdentifier::ZombieNet
+        NodeIdentifier::Zombienet
     }
 
     fn vm_identifier(&self) -> VmIdentifier {
@@ -433,7 +433,7 @@ impl Platform for ZombieNetRevmSolcPlatform {
         context: Context,
     ) -> anyhow::Result<JoinHandle<anyhow::Result<Box<dyn EthereumNode + Send + Sync>>>> {
         let genesis_configuration = AsRef::<GenesisConfiguration>::as_ref(&context);
-        let zombie_net_path = AsRef::<ZombieNetConfiguration>::as_ref(&context)
+        let zombie_net_path = AsRef::<ZombienetConfiguration>::as_ref(&context)
             .path
             .clone();
         let genesis = genesis_configuration.genesis()?.clone();
@@ -475,10 +475,10 @@ impl From<PlatformIdentifier> for Box<dyn Platform> {
             PlatformIdentifier::ReviveDevNodeRevmSolc => {
                 Box::new(ReviveDevNodeRevmSolcPlatform) as Box<_>
             }
-            PlatformIdentifier::ZombieNetPolkavmResolc => {
-                Box::new(ZombieNetPolkavmResolcPlatform) as Box<_>
+            PlatformIdentifier::ZombienetPolkavmResolc => {
+                Box::new(ZombienetPolkavmResolcPlatform) as Box<_>
             }
-            PlatformIdentifier::ZombieNetRevmSolc => Box::new(ZombieNetRevmSolcPlatform) as Box<_>,
+            PlatformIdentifier::ZombienetRevmSolc => Box::new(ZombienetRevmSolcPlatform) as Box<_>,
         }
     }
 }
@@ -502,10 +502,10 @@ impl From<PlatformIdentifier> for &dyn Platform {
             PlatformIdentifier::ReviveDevNodeRevmSolc => {
                 &ReviveDevNodeRevmSolcPlatform as &dyn Platform
             }
-            PlatformIdentifier::ZombieNetPolkavmResolc => {
-                &ZombieNetPolkavmResolcPlatform as &dyn Platform
+            PlatformIdentifier::ZombienetPolkavmResolc => {
+                &ZombienetPolkavmResolcPlatform as &dyn Platform
             }
-            PlatformIdentifier::ZombieNetRevmSolc => &ZombieNetRevmSolcPlatform as &dyn Platform,
+            PlatformIdentifier::ZombienetRevmSolc => &ZombienetRevmSolcPlatform as &dyn Platform,
         }
     }
 }

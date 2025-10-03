@@ -40,9 +40,9 @@ pub enum PlatformIdentifier {
     /// The revive dev node with the REVM backend with the solc compiler.
     ReviveDevNodeRevmSolc,
     /// A zombienet based Substrate/Polkadot node with the PolkaVM backend with the resolc compiler.
-    ZombieNetPolkavmResolc,
+    ZombienetPolkavmResolc,
     /// A zombienet based Substrate/Polkadot node with the REVM backend with the solc compiler.
-    ZombieNetRevmSolc,
+    ZombienetRevmSolc,
 }
 
 /// An enum of the platform identifiers of all of the platforms supported by this framework.
@@ -100,7 +100,7 @@ pub enum NodeIdentifier {
     /// The revive dev node implementation.
     ReviveDevNode,
     /// A zombienet spawned nodes
-    ZombieNet,
+    Zombienet,
 }
 
 /// An enum representing the identifiers of the supported VMs.
