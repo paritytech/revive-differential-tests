@@ -23,12 +23,9 @@ use alloy::{
         TxHash, U256,
     },
     providers::{
-        Identity, Provider, ProviderBuilder, RootProvider,
+        Provider,
         ext::DebugApi,
-        fillers::{
-            CachedNonceManager, ChainIdFiller, FillProvider, JoinFill, NonceFiller, TxFiller,
-            WalletFiller,
-        },
+        fillers::{CachedNonceManager, ChainIdFiller, NonceFiller},
     },
     rpc::types::{
         EIP1186AccountProofResponse, TransactionReceipt, TransactionRequest,
@@ -55,9 +52,9 @@ use tracing::instrument;
 
 use crate::{
     Node,
-    common::FallbackGasFiller,
-    constants::INITIAL_BALANCE,
-    process::{Process, ProcessReadinessWaitBehavior},
+    constants::{CHAIN_ID, INITIAL_BALANCE},
+    helpers::{Process, ProcessReadinessWaitBehavior},
+    provider_utils::{ConcreteProvider, FallbackGasFiller, construct_concurrency_limited_provider},
 };
 
 static NODE_COUNT: AtomicU32 = AtomicU32::new(0);
@@ -79,21 +76,7 @@ pub struct SubstrateNode {
     eth_proxy_process: Option<Process>,
     wallet: Arc<EthereumWallet>,
     nonce_manager: CachedNonceManager,
-    chain_id_filler: ChainIdFiller,
-    #[allow(clippy::type_complexity)]
-    provider: OnceCell<
-        FillProvider<
-            JoinFill<
-                JoinFill<
-                    JoinFill<JoinFill<Identity, FallbackGasFiller>, ChainIdFiller>,
-                    NonceFiller,
-                >,
-                WalletFiller<Arc<EthereumWallet>>,
-            >,
-            RootProvider<ReviveNetwork>,
-            ReviveNetwork,
-        >,
-    >,
+    provider: OnceCell<ConcreteProvider<ReviveNetwork, Arc<EthereumWallet>>>,
 }
 
 impl SubstrateNode {
@@ -143,7 +126,6 @@ impl SubstrateNode {
             substrate_process: None,
             eth_proxy_process: None,
             wallet: wallet.clone(),
-            chain_id_filler: Default::default(),
             nonce_manager: Default::default(),
             provider: Default::default(),
         }
@@ -358,29 +340,18 @@ impl SubstrateNode {
 
     async fn provider(
         &self,
-    ) -> anyhow::Result<
-        FillProvider<
-            impl TxFiller<ReviveNetwork>,
-            impl Provider<ReviveNetwork> + Clone,
-            ReviveNetwork,
-        >,
-    > {
+    ) -> anyhow::Result<ConcreteProvider<ReviveNetwork, Arc<EthereumWallet>>> {
         self.provider
             .get_or_try_init(|| async move {
-                ProviderBuilder::new()
-                    .disable_recommended_fillers()
-                    .network::<ReviveNetwork>()
-                    .filler(FallbackGasFiller::new(
-                        25_000_000,
-                        1_000_000_000,
-                        1_000_000_000,
-                    ))
-                    .filler(self.chain_id_filler.clone())
-                    .filler(NonceFiller::new(self.nonce_manager.clone()))
-                    .wallet(self.wallet.clone())
-                    .connect(&self.rpc_url)
-                    .await
-                    .map_err(Into::into)
+                construct_concurrency_limited_provider::<ReviveNetwork, _>(
+                    self.rpc_url.as_str(),
+                    FallbackGasFiller::default(),
+                    ChainIdFiller::new(Some(CHAIN_ID)),
+                    NonceFiller::new(self.nonce_manager.clone()),
+                    self.wallet.clone(),
+                )
+                .await
+                .context("Failed to construct the provider")
             })
             .await
             .cloned()
@@ -436,7 +407,12 @@ impl EthereumNode for SubstrateNode {
         &self,
         transaction: TransactionRequest,
     ) -> Pin<Box<dyn Future<Output = anyhow::Result<TransactionReceipt>> + '_>> {
+        static SEMAPHORE: std::sync::LazyLock<tokio::sync::Semaphore> =
+            std::sync::LazyLock::new(|| tokio::sync::Semaphore::new(500));
+
         Box::pin(async move {
+            let _permit = SEMAPHORE.acquire().await?;
+
             let receipt = self
                 .provider()
                 .await
@@ -572,14 +548,12 @@ impl EthereumNode for SubstrateNode {
     }
 }
 
-pub struct SubstrateNodeResolver<F: TxFiller<ReviveNetwork>, P: Provider<ReviveNetwork>> {
+pub struct SubstrateNodeResolver {
     id: u32,
-    provider: FillProvider<F, P, ReviveNetwork>,
+    provider: ConcreteProvider<ReviveNetwork, Arc<EthereumWallet>>,
 }
 
-impl<F: TxFiller<ReviveNetwork>, P: Provider<ReviveNetwork>> ResolverApi
-    for SubstrateNodeResolver<F, P>
-{
+impl ResolverApi for SubstrateNodeResolver {
     #[instrument(level = "info", skip_all, fields(substrate_node_id = self.id))]
     fn chain_id(
         &self,

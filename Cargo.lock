@@ -4672,6 +4672,7 @@ dependencies = [
  "sp-runtime",
  "temp-dir",
  "tokio",
+ "tower",
  "tracing",
 ]
 
@@ -6270,8 +6271,10 @@ dependencies = [
  "pin-project-lite",
  "sync_wrapper",
  "tokio",
+ "tokio-util",
  "tower-layer",
  "tower-service",
+ "tracing",
 ]
 
 [[package]]

@@ -31,23 +31,16 @@ use alloy::{
         Address, BlockHash, BlockNumber, BlockTimestamp, StorageKey, TxHash, U256, address,
     },
     providers::{
-        Identity, Provider, ProviderBuilder, RootProvider,
+        Provider,
         ext::DebugApi,
-        fillers::{
-            CachedNonceManager, ChainIdFiller, FillProvider, JoinFill, NonceFiller, TxFiller,
-            WalletFiller,
+        fillers::{CachedNonceManager, ChainIdFiller, FillProvider, NonceFiller, TxFiller},
+    },
+    rpc::types::{
+        EIP1186AccountProofResponse, TransactionReceipt, TransactionRequest,
+        trace::geth::{
+            DiffMode, GethDebugTracingOptions, GethTrace, PreStateConfig, PreStateFrame,
         },
     },
-    rpc::{
-        client::{BuiltInConnectionString, ClientBuilder, RpcClient},
-        types::{
-            EIP1186AccountProofResponse, TransactionReceipt, TransactionRequest,
-            trace::geth::{
-                DiffMode, GethDebugTracingOptions, GethTrace, PreStateConfig, PreStateFrame,
-            },
-        },
-    },
-    transports::layers::RetryBackoffLayer,
 };
 use anyhow::Context as _;
 use futures::{Stream, StreamExt};
@@ -67,9 +60,9 @@ use revive_dt_node_interaction::{EthereumNode, MinedBlockInformation};
 
 use crate::{
     Node,
-    common::FallbackGasFiller,
-    constants::INITIAL_BALANCE,
-    process::{Process, ProcessReadinessWaitBehavior},
+    constants::{CHAIN_ID, INITIAL_BALANCE},
+    helpers::{Process, ProcessReadinessWaitBehavior},
+    provider_utils::{ConcreteProvider, FallbackGasFiller, construct_concurrency_limited_provider},
 };
 
 static NODE_COUNT: AtomicU32 = AtomicU32::new(0);
@@ -110,30 +103,8 @@ pub struct LighthouseGethNode {
     wallet: Arc<EthereumWallet>,
     nonce_manager: CachedNonceManager,
 
-    persistent_http_provider: OnceCell<
-        FillProvider<
-            JoinFill<
-                JoinFill<
-                    JoinFill<JoinFill<Identity, FallbackGasFiller>, ChainIdFiller>,
-                    NonceFiller,
-                >,
-                WalletFiller<Arc<EthereumWallet>>,
-            >,
-            RootProvider,
-        >,
-    >,
-    persistent_ws_provider: OnceCell<
-        FillProvider<
-            JoinFill<
-                JoinFill<
-                    JoinFill<JoinFill<Identity, FallbackGasFiller>, ChainIdFiller>,
-                    NonceFiller,
-                >,
-                WalletFiller<Arc<EthereumWallet>>,
-            >,
-            RootProvider,
-        >,
-    >,
+    persistent_http_provider: OnceCell<ConcreteProvider<Ethereum, Arc<EthereumWallet>>>,
+    persistent_ws_provider: OnceCell<ConcreteProvider<Ethereum, Arc<EthereumWallet>>>,
     http_provider_requests_semaphore: LazyLock<Semaphore>,
 }
 
@@ -262,7 +233,7 @@ impl LighthouseGethNode {
             network_parameters: NetworkParameters {
                 preset: NetworkPreset::Mainnet,
                 seconds_per_slot: 12,
-                network_id: 420420420,
+                network_id: CHAIN_ID,
                 deposit_contract_address: address!("0x00000000219ab540356cBB839Cbe05303d7705Fa"),
                 altair_fork_epoch: 0,
                 bellatrix_fork_epoch: 0,
@@ -395,31 +366,18 @@ impl LighthouseGethNode {
         err(Debug),
     )]
     #[allow(clippy::type_complexity)]
-    async fn ws_provider(
-        &self,
-    ) -> anyhow::Result<
-        FillProvider<
-            JoinFill<
-                JoinFill<
-                    JoinFill<JoinFill<Identity, FallbackGasFiller>, ChainIdFiller>,
-                    NonceFiller,
-                >,
-                WalletFiller<Arc<EthereumWallet>>,
-            >,
-            RootProvider,
-        >,
-    > {
+    async fn ws_provider(&self) -> anyhow::Result<ConcreteProvider<Ethereum, Arc<EthereumWallet>>> {
         self.persistent_ws_provider
             .get_or_try_init(|| async move {
-                info!("Initializing the WS provider of the lighthouse node");
-                let client = ClientBuilder::default()
-                    .layer(RetryBackoffLayer::new(10, 1000, 100))
-                    .connect_with(BuiltInConnectionString::Ws(
-                        self.ws_connection_string.as_str().parse().unwrap(),
-                        None,
-                    ))
-                    .await?;
-                Ok(self.provider(client)).inspect(|_| info!("Initialized the WS provider"))
+                construct_concurrency_limited_provider::<Ethereum, _>(
+                    self.ws_connection_string.as_str(),
+                    FallbackGasFiller::default(),
+                    ChainIdFiller::new(Some(CHAIN_ID)),
+                    NonceFiller::new(self.nonce_manager.clone()),
+                    self.wallet.clone(),
+                )
+                .await
+                .context("Failed to construct the provider")
             })
             .await
             .cloned()
@@ -434,55 +392,21 @@ impl LighthouseGethNode {
     #[allow(clippy::type_complexity)]
     async fn http_provider(
         &self,
-    ) -> anyhow::Result<
-        FillProvider<
-            JoinFill<
-                JoinFill<
-                    JoinFill<JoinFill<Identity, FallbackGasFiller>, ChainIdFiller>,
-                    NonceFiller,
-                >,
-                WalletFiller<Arc<EthereumWallet>>,
-            >,
-            RootProvider,
-        >,
-    > {
+    ) -> anyhow::Result<ConcreteProvider<Ethereum, Arc<EthereumWallet>>> {
         self.persistent_http_provider
             .get_or_try_init(|| async move {
-                info!("Initializing the HTTP provider of the lighthouse node");
-                let client = ClientBuilder::default()
-                    .layer(RetryBackoffLayer::new(10, 1000, 100))
-                    .connect_with(BuiltInConnectionString::Http(
-                        self.http_connection_string.as_str().parse().unwrap(),
-                    ))
-                    .await?;
-                Ok(self.provider(client))
+                construct_concurrency_limited_provider::<Ethereum, _>(
+                    self.http_connection_string.as_str(),
+                    FallbackGasFiller::default(),
+                    ChainIdFiller::new(Some(CHAIN_ID)),
+                    NonceFiller::new(self.nonce_manager.clone()),
+                    self.wallet.clone(),
+                )
+                .await
+                .context("Failed to construct the provider")
             })
             .await
             .cloned()
-    }
-
-    #[allow(clippy::type_complexity)]
-    fn provider(
-        &self,
-        rpc_client: RpcClient,
-    ) -> FillProvider<
-        JoinFill<
-            JoinFill<JoinFill<JoinFill<Identity, FallbackGasFiller>, ChainIdFiller>, NonceFiller>,
-            WalletFiller<Arc<EthereumWallet>>,
-        >,
-        RootProvider,
-    > {
-        ProviderBuilder::new()
-            .disable_recommended_fillers()
-            .filler(FallbackGasFiller::new(
-                25_000_000,
-                1_000_000_000,
-                1_000_000_000,
-            ))
-            .filler(ChainIdFiller::new(Some(420420420)))
-            .filler(NonceFiller::new(self.nonce_manager.clone()))
-            .wallet(self.wallet.clone())
-            .connect_client(rpc_client)
     }
 
     /// Funds all of the accounts in the Ethereum wallet from the initially funded account.
@@ -511,7 +435,7 @@ impl LighthouseGethNode {
                         .to(address)
                         .nonce(nonce as _)
                         .value(INITIAL_BALANCE.try_into().unwrap());
-                    transaction.chain_id = Some(420420420);
+                    transaction.chain_id = Some(CHAIN_ID);
                     self.submit_transaction(transaction).await
                 }),
         )

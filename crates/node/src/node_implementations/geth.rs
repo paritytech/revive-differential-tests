@@ -20,12 +20,9 @@ use alloy::{
     network::{Ethereum, EthereumWallet, NetworkWallet},
     primitives::{Address, BlockHash, BlockNumber, BlockTimestamp, StorageKey, TxHash, U256},
     providers::{
-        Identity, Provider, ProviderBuilder, RootProvider,
+        Provider,
         ext::DebugApi,
-        fillers::{
-            CachedNonceManager, ChainIdFiller, FillProvider, JoinFill, NonceFiller, TxFiller,
-            WalletFiller,
-        },
+        fillers::{CachedNonceManager, ChainIdFiller, NonceFiller},
     },
     rpc::types::{
         EIP1186AccountProofResponse, TransactionReceipt, TransactionRequest,
@@ -50,9 +47,9 @@ use revive_dt_node_interaction::{EthereumNode, MinedBlockInformation};
 
 use crate::{
     Node,
-    common::FallbackGasFiller,
-    constants::INITIAL_BALANCE,
-    process::{Process, ProcessReadinessWaitBehavior},
+    constants::{CHAIN_ID, INITIAL_BALANCE},
+    helpers::{Process, ProcessReadinessWaitBehavior},
+    provider_utils::{ConcreteProvider, FallbackGasFiller, construct_concurrency_limited_provider},
 };
 
 static NODE_COUNT: AtomicU32 = AtomicU32::new(0);
@@ -77,19 +74,7 @@ pub struct GethNode {
     start_timeout: Duration,
     wallet: Arc<EthereumWallet>,
     nonce_manager: CachedNonceManager,
-    chain_id_filler: ChainIdFiller,
-    provider: OnceCell<
-        FillProvider<
-            JoinFill<
-                JoinFill<
-                    JoinFill<JoinFill<Identity, FallbackGasFiller>, ChainIdFiller>,
-                    NonceFiller,
-                >,
-                WalletFiller<Arc<EthereumWallet>>,
-            >,
-            RootProvider,
-        >,
-    >,
+    provider: OnceCell<ConcreteProvider<Ethereum, Arc<EthereumWallet>>>,
 }
 
 impl GethNode {
@@ -138,7 +123,6 @@ impl GethNode {
             handle: None,
             start_timeout: geth_configuration.start_timeout_ms,
             wallet: wallet.clone(),
-            chain_id_filler: Default::default(),
             nonce_manager: Default::default(),
             provider: Default::default(),
         }
@@ -265,26 +249,18 @@ impl GethNode {
         Ok(self)
     }
 
-    async fn provider(
-        &self,
-    ) -> anyhow::Result<
-        FillProvider<impl TxFiller<Ethereum>, impl Provider<Ethereum> + Clone, Ethereum>,
-    > {
+    async fn provider(&self) -> anyhow::Result<ConcreteProvider<Ethereum, Arc<EthereumWallet>>> {
         self.provider
             .get_or_try_init(|| async move {
-                ProviderBuilder::new()
-                    .disable_recommended_fillers()
-                    .filler(FallbackGasFiller::new(
-                        25_000_000,
-                        1_000_000_000,
-                        1_000_000_000,
-                    ))
-                    .filler(self.chain_id_filler.clone())
-                    .filler(NonceFiller::new(self.nonce_manager.clone()))
-                    .wallet(self.wallet.clone())
-                    .connect(&self.connection_string)
-                    .await
-                    .map_err(Into::into)
+                construct_concurrency_limited_provider::<Ethereum, _>(
+                    self.connection_string.as_str(),
+                    FallbackGasFiller::default(),
+                    ChainIdFiller::new(Some(CHAIN_ID)),
+                    NonceFiller::new(self.nonce_manager.clone()),
+                    self.wallet.clone(),
+                )
+                .await
+                .context("Failed to construct the provider")
             })
             .await
             .cloned()
@@ -568,12 +544,12 @@ impl EthereumNode for GethNode {
     }
 }
 
-pub struct GethNodeResolver<F: TxFiller<Ethereum>, P: Provider<Ethereum>> {
+pub struct GethNodeResolver {
     id: u32,
-    provider: FillProvider<F, P, Ethereum>,
+    provider: ConcreteProvider<Ethereum, Arc<EthereumWallet>>,
 }
 
-impl<F: TxFiller<Ethereum>, P: Provider<Ethereum>> ResolverApi for GethNodeResolver<F, P> {
+impl ResolverApi for GethNodeResolver {
     #[instrument(level = "info", skip_all, fields(geth_node_id = self.id))]
     fn chain_id(
         &self,

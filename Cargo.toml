@@ -57,6 +57,7 @@ tokio = { version = "1.47.0", default-features = false, features = [
     "process",
     "rt",
 ] }
+tower = { version = "0.5.2", features = ["limit"] }
 uuid = { version = "1.8", features = ["v4"] }
 tracing = { version = "0.1.41" }
 tracing-appender = { version = "0.2.3" }

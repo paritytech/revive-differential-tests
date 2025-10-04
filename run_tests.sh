@@ -90,7 +90,7 @@ echo ""
 
 # Run the tool
 RUST_LOG="info,alloy_pubsub::service=error" cargo run --release -- test \
-    --platform revive-dev-node-polkavm-resolc \
+    --platform revive-dev-node-revm-solc \
     --corpus "$CORPUS_FILE" \
     --working-directory "$WORKDIR" \
     --concurrency.number-of-nodes 5 \
