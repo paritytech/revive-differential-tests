@@ -59,6 +59,10 @@ where
                 .acquire()
                 .await
                 .expect("Semaphore has been closed");
+            tracing::debug!(
+                available_permits = semaphore.available_permits(),
+                "Acquired Semaphore Permit"
+            );
             future.await
         })
     }

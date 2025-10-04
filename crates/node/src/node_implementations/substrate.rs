@@ -345,7 +345,7 @@ impl SubstrateNode {
             .get_or_try_init(|| async move {
                 construct_concurrency_limited_provider::<ReviveNetwork, _>(
                     self.rpc_url.as_str(),
-                    FallbackGasFiller::default(),
+                    FallbackGasFiller::new(250_000_000, 5_000_000_000, 1_000_000_000),
                     ChainIdFiller::new(Some(CHAIN_ID)),
                     NonceFiller::new(self.nonce_manager.clone()),
                     self.wallet.clone(),

@@ -75,7 +75,11 @@ ABSOLUTE_PATH=$(realpath "$TEST_REPO_DIR/fixtures/solidity/")
 cat > "$CORPUS_FILE" << EOF
 {
   "name": "MatterLabs Solidity Simple, Complex, and Semantic Tests",
-  "path": "$ABSOLUTE_PATH"
+  "paths": [
+    "$(realpath "$TEST_REPO_DIR/fixtures/solidity/translated_semantic_tests")",
+    "$(realpath "$TEST_REPO_DIR/fixtures/solidity/complex")",
+    "$(realpath "$TEST_REPO_DIR/fixtures/solidity/simple")"
+  ]
 }
 EOF
 
@@ -89,7 +93,9 @@ echo "This may take a while..."
 echo ""
 
 # Run the tool
-RUST_LOG="info,alloy_pubsub::service=error" cargo run --release -- test \
+cargo build --release;
+RUST_LOG="info,alloy_pubsub::service=error" ./target/release/retester test \
+    --platform geth-evm-solc \
     --platform revive-dev-node-revm-solc \
     --corpus "$CORPUS_FILE" \
     --working-directory "$WORKDIR" \
