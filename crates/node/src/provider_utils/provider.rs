@@ -38,11 +38,11 @@ where
     WalletFiller<W>: TxFiller<N>,
 {
     // This is a global limit on the RPC concurrency that applies to all of the providers created
-    // by the framework. With this limit, it means that we can have a maximum of 1500 concurrent
+    // by the framework. With this limit, it means that we can have a maximum of N concurrent
     // requests at any point of time and no more than that. This is done in an effort to stabilize
     // the framework from some of the interment issues that we've been seeing related to RPC calls.
     static GLOBAL_CONCURRENCY_LIMITER_LAYER: LazyLock<ConcurrencyLimiterLayer> =
-        LazyLock::new(|| ConcurrencyLimiterLayer::new(1500));
+        LazyLock::new(|| ConcurrencyLimiterLayer::new(500));
 
     let client = ClientBuilder::default()
         .layer(GLOBAL_CONCURRENCY_LIMITER_LAYER.clone())

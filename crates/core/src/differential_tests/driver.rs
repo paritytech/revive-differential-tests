@@ -330,7 +330,6 @@ where
     )]
     pub async fn execute_next_step(&mut self) -> Option<Result<()>> {
         let (step_path, step) = self.steps_iterator.next()?;
-
         info!(%step_path, "Executing Step");
         Some(
             self.execute_step(&step_path, &step)
