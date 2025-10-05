@@ -13,7 +13,7 @@ revive-dt-config = { workspace = true }
 revive-dt-format = { workspace = true }
 revive-dt-compiler = { workspace = true }
 
-alloy-primitives = { workspace = true }
+alloy = { workspace = true }
 anyhow = { workspace = true }
 paste = { workspace = true }
 indexmap = { workspace = true, features = ["serde"] }

@@ -14,8 +14,6 @@ revive-dt-common = { workspace = true }
 revive-common = { workspace = true }
 
 alloy = { workspace = true }
-alloy-primitives = { workspace = true }
-alloy-sol-types = { workspace = true }
 anyhow = { workspace = true }
 futures = { workspace = true }
 regex = { workspace = true }

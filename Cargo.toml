@@ -22,8 +22,6 @@ revive-dt-node-pool = { version = "0.1.0", path = "crates/node-pool" }
 revive-dt-report = { version = "0.1.0", path = "crates/report" }
 revive-dt-solc-binaries = { version = "0.1.0", path = "crates/solc-binaries" }
 
-alloy-primitives = "1.2.1"
-alloy-sol-types = "1.2.1"
 anyhow = "1.0"
 bson = { version = "2.15.0" }
 cacache = { version = "13.1.0" }
@@ -59,6 +57,7 @@ tokio = { version = "1.47.0", default-features = false, features = [
     "process",
     "rt",
 ] }
+tower = { version = "0.5.2", features = ["limit"] }
 uuid = { version = "1.8", features = ["v4"] }
 tracing = { version = "0.1.41" }
 tracing-appender = { version = "0.2.3" }
@@ -75,13 +74,14 @@ revive-common = { git = "https://github.com/paritytech/revive", rev = "3389865af
 revive-differential = { git = "https://github.com/paritytech/revive", rev = "3389865af7c3ff6f29a586d82157e8bc573c1a8e" }
 
 [workspace.dependencies.alloy]
-version = "1.0.22"
+version = "1.0.37"
 default-features = false
 features = [
     "json-abi",
     "providers",
-    "provider-ipc",
     "provider-ws",
+    "provider-ipc",
+    "provider-http",
     "provider-debug-api",
     "reqwest",
     "rpc-types",
@@ -91,6 +91,7 @@ features = [
     "serde",
     "rpc-types-eth",
     "genesis",
+    "sol-types",
 ]
 
 [profile.bench]

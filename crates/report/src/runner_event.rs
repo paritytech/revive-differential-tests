@@ -3,7 +3,7 @@
 
 use std::{collections::BTreeMap, path::PathBuf, sync::Arc};
 
-use alloy_primitives::Address;
+use alloy::primitives::Address;
 use anyhow::Context as _;
 use indexmap::IndexMap;
 use revive_dt_common::types::PlatformIdentifier;
@@ -613,6 +613,8 @@ define_event! {
             /// The address of the contract.
             address: Address
         },
+        /// Reports the completion of the run.
+        Completion {}
     }
 }
 
