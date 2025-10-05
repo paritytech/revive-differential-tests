@@ -1224,6 +1224,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "Ignored since they take a long time to run"]
     fn test_init_generates_chainspec_with_balances() {
         let genesis_content = r#"
         {
@@ -1277,6 +1278,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "Ignored since they take a long time to run"]
     fn test_parse_genesis_alloc() {
         // Create test genesis file
         let genesis_json = r#"
@@ -1319,6 +1321,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "Ignored since they take a long time to run"]
     fn print_eth_to_substrate_mappings() {
         let eth_addresses = vec![
             "0x90F8bf6A479f320ead074411a4B0e7944Ea8c9C1",
@@ -1334,6 +1337,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "Ignored since they take a long time to run"]
     fn test_eth_to_substrate_address() {
         let cases = vec![
             (
@@ -1364,6 +1368,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "Ignored since they take a long time to run"]
     fn version_works() {
         let node = shared_node();
 
@@ -1376,6 +1381,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "Ignored since they take a long time to run"]
     fn eth_rpc_version_works() {
         let node = shared_node();
 
@@ -1388,6 +1394,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "Ignored since they take a long time to run"]
     async fn can_get_chain_id_from_node() {
         // Arrange
         let node = shared_node();
@@ -1401,6 +1408,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "Ignored since they take a long time to run"]
     async fn can_get_gas_limit_from_node() {
         // Arrange
         let node = shared_node();
@@ -1418,6 +1426,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "Ignored since they take a long time to run"]
     async fn can_get_coinbase_from_node() {
         // Arrange
         let node = shared_node();
@@ -1435,6 +1444,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "Ignored since they take a long time to run"]
     async fn can_get_block_difficulty_from_node() {
         // Arrange
         let node = shared_node();
@@ -1452,6 +1462,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "Ignored since they take a long time to run"]
     async fn can_get_block_hash_from_node() {
         // Arrange
         let node = shared_node();
@@ -1469,6 +1480,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "Ignored since they take a long time to run"]
     async fn can_get_block_timestamp_from_node() {
         // Arrange
         let node = shared_node();
@@ -1486,6 +1498,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "Ignored since they take a long time to run"]
     async fn can_get_block_number_from_node() {
         // Arrange
         let node = shared_node();

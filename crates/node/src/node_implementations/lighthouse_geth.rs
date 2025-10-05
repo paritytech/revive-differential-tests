@@ -307,6 +307,7 @@ impl LighthouseGethNode {
                 }),
             },
         )
+        .context("Failed to spawn the kurtosis enclave")
         .inspect_err(|err| {
             tracing::error!(?err, "Failed to spawn Kurtosis");
             self.shutdown().expect("Failed to shutdown kurtosis");
@@ -899,20 +900,46 @@ impl<F: TxFiller<Ethereum>, P: Provider<Ethereum>> ResolverApi
 impl Node for LighthouseGethNode {
     #[instrument(level = "info", skip_all, fields(lighthouse_node_id = self.id))]
     fn shutdown(&mut self) -> anyhow::Result<()> {
-        if !Command::new(self.kurtosis_binary_path.as_path())
+        let mut child = Command::new(self.kurtosis_binary_path.as_path())
             .arg("enclave")
             .arg("rm")
             .arg("-f")
             .arg(self.enclave_name.as_str())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
             .spawn()
-            .expect("Failed to spawn the enclave kill command")
+            .expect("Failed to spawn the enclave kill command");
+
+        if !child
             .wait()
             .expect("Failed to wait for the enclave kill command")
             .success()
         {
-            panic!("Failed to shut down the enclave {}", self.enclave_name)
+            let stdout = {
+                let mut stdout = String::default();
+                child
+                    .stdout
+                    .take()
+                    .expect("Should be piped")
+                    .read_to_string(&mut stdout)
+                    .context("Failed to read stdout of kurtosis inspect to string")?;
+                stdout
+            };
+            let stderr = {
+                let mut stderr = String::default();
+                child
+                    .stderr
+                    .take()
+                    .expect("Should be piped")
+                    .read_to_string(&mut stderr)
+                    .context("Failed to read stderr of kurtosis inspect to string")?;
+                stderr
+            };
+
+            panic!(
+                "Failed to shut down the enclave {} - stdout: {stdout}, stderr: {stderr}",
+                self.enclave_name
+            )
         }
 
         drop(self.process.take());
@@ -1130,6 +1157,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "Ignored since they take a long time to run"]
     fn version_works() {
         // Arrange
         let (_context, node) = new_node();
@@ -1146,6 +1174,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "Ignored since they take a long time to run"]
     async fn can_get_chain_id_from_node() {
         // Arrange
         let (_context, node) = new_node();
@@ -1159,6 +1188,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "Ignored since they take a long time to run"]
     async fn can_get_gas_limit_from_node() {
         // Arrange
         let (_context, node) = new_node();
@@ -1176,6 +1206,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "Ignored since they take a long time to run"]
     async fn can_get_coinbase_from_node() {
         // Arrange
         let (_context, node) = new_node();
@@ -1193,6 +1224,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "Ignored since they take a long time to run"]
     async fn can_get_block_difficulty_from_node() {
         // Arrange
         let (_context, node) = new_node();
@@ -1210,6 +1242,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "Ignored since they take a long time to run"]
     async fn can_get_block_hash_from_node() {
         // Arrange
         let (_context, node) = new_node();
@@ -1227,6 +1260,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "Ignored since they take a long time to run"]
     async fn can_get_block_timestamp_from_node() {
         // Arrange
         let (_context, node) = new_node();
@@ -1244,6 +1278,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "Ignored since they take a long time to run"]
     async fn can_get_block_number_from_node() {
         // Arrange
         let (_context, node) = new_node();

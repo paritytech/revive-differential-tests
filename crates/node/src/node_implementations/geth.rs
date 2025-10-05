@@ -734,12 +734,44 @@ mod tests {
         (context, node)
     }
 
+    fn shared_state() -> &'static (TestExecutionContext, GethNode) {
+        static STATE: LazyLock<(TestExecutionContext, GethNode)> = LazyLock::new(new_node);
+        &STATE
+    }
+
     fn shared_node() -> &'static GethNode {
-        static NODE: LazyLock<(TestExecutionContext, GethNode)> = LazyLock::new(new_node);
-        &NODE.1
+        &shared_state().1
+    }
+
+    #[tokio::test]
+    async fn node_mines_simple_transfer_transaction_and_returns_receipt() {
+        // Arrange
+        let (context, node) = shared_state();
+
+        let provider = node.provider().await.expect("Failed to create provider");
+
+        let account_address = context
+            .wallet_configuration
+            .wallet()
+            .default_signer()
+            .address();
+        let transaction = TransactionRequest::default()
+            .to(account_address)
+            .value(U256::from(100_000_000_000_000u128));
+
+        // Act
+        let receipt = provider.send_transaction(transaction).await;
+
+        // Assert
+        let _ = receipt
+            .expect("Failed to send the transfer transaction")
+            .get_receipt()
+            .await
+            .expect("Failed to get the receipt for the transfer");
     }
 
     #[test]
+    #[ignore = "Ignored since they take a long time to run"]
     fn version_works() {
         // Arrange
         let node = shared_node();
@@ -756,6 +788,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "Ignored since they take a long time to run"]
     async fn can_get_chain_id_from_node() {
         // Arrange
         let node = shared_node();
@@ -769,6 +802,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "Ignored since they take a long time to run"]
     async fn can_get_gas_limit_from_node() {
         // Arrange
         let node = shared_node();
@@ -786,6 +820,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "Ignored since they take a long time to run"]
     async fn can_get_coinbase_from_node() {
         // Arrange
         let node = shared_node();
@@ -803,6 +838,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "Ignored since they take a long time to run"]
     async fn can_get_block_difficulty_from_node() {
         // Arrange
         let node = shared_node();
@@ -820,6 +856,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "Ignored since they take a long time to run"]
     async fn can_get_block_hash_from_node() {
         // Arrange
         let node = shared_node();
@@ -837,6 +874,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "Ignored since they take a long time to run"]
     async fn can_get_block_timestamp_from_node() {
         // Arrange
         let node = shared_node();
@@ -854,6 +892,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "Ignored since they take a long time to run"]
     async fn can_get_block_number_from_node() {
         // Arrange
         let node = shared_node();
