@@ -602,10 +602,6 @@ pub struct KitchensinkConfiguration {
         value_parser = parse_duration
     )]
     pub start_timeout_ms: Duration,
-
-    /// This configures the tool to use Kitchensink instead of using the revive-dev-node.
-    #[clap(long = "kitchensink.dont-use-dev-node")]
-    pub use_kitchensink: bool,
 }
 
 /// A set of configuration parameters for the revive dev node.

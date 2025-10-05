@@ -149,6 +149,7 @@ impl SubstrateNode {
             .arg(self.export_chainspec_command.as_str())
             .arg("--chain")
             .arg("dev")
+            .env_remove("RUST_LOG")
             .output()
             .context("Failed to export the chain-spec")?;
 
@@ -520,11 +521,13 @@ impl EthereumNode for SubstrateNode {
                 .provider()
                 .await
                 .context("Failed to create the provider for block subscription")?;
-            let block_subscription = provider.subscribe_full_blocks();
-            let block_stream = block_subscription
-                .into_stream()
+            let mut block_subscription = provider
+                .watch_full_blocks()
                 .await
-                .context("Failed to create the block stream")?;
+                .context("Failed to create the blocks stream")?;
+            block_subscription.set_channel_size(0xFFFF);
+            block_subscription.set_poll_interval(Duration::from_secs(1));
+            let block_stream = block_subscription.into_stream();
 
             let mined_block_information_stream = block_stream.filter_map(|block| async {
                 let block = block.ok()?;
@@ -1149,9 +1152,7 @@ mod tests {
     use crate::Node;
 
     fn test_config() -> TestExecutionContext {
-        let mut context = TestExecutionContext::default();
-        context.kitchensink_configuration.use_kitchensink = true;
-        context
+        TestExecutionContext::default()
     }
 
     fn new_node() -> (TestExecutionContext, SubstrateNode) {

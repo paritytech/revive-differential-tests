@@ -33,7 +33,6 @@ impl NodePool {
                     .join()
                     .map_err(|error| anyhow::anyhow!("failed to spawn node: {:?}", error))
                     .context("Failed to join node spawn thread")?
-                    .map_err(|error| anyhow::anyhow!("node failed to spawn: {error}"))
                     .context("Node failed to spawn")?,
             );
         }
