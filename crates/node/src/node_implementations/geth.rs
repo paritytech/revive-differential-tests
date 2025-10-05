@@ -748,8 +748,6 @@ mod tests {
         // Arrange
         let (context, node) = shared_state();
 
-        let provider = node.provider().await.expect("Failed to create provider");
-
         let account_address = context
             .wallet_configuration
             .wallet()
@@ -760,14 +758,10 @@ mod tests {
             .value(U256::from(100_000_000_000_000u128));
 
         // Act
-        let receipt = provider.send_transaction(transaction).await;
+        let receipt = node.execute_transaction(transaction).await;
 
         // Assert
-        let _ = receipt
-            .expect("Failed to send the transfer transaction")
-            .get_receipt()
-            .await
-            .expect("Failed to get the receipt for the transfer");
+        let _ = receipt.expect("Failed to get the receipt for the transfer");
     }
 
     #[test]
