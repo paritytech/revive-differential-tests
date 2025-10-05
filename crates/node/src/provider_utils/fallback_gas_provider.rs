@@ -30,6 +30,12 @@ impl FallbackGasFiller {
     }
 }
 
+impl Default for FallbackGasFiller {
+    fn default() -> Self {
+        FallbackGasFiller::new(25_000_000, 1_000_000_000, 1_000_000_000)
+    }
+}
+
 impl<N> TxFiller<N> for FallbackGasFiller
 where
     N: Network,

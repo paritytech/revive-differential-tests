@@ -1,5 +1,6 @@
 use std::{collections::HashMap, fmt::Display, str::FromStr};
 
+use alloy::primitives::{FixedBytes, utils::parse_units};
 use alloy::{
     eips::BlockNumberOrTag,
     json_abi::Function,
@@ -7,7 +8,6 @@ use alloy::{
     primitives::{Address, Bytes, U256},
     rpc::types::TransactionRequest,
 };
-use alloy_primitives::{FixedBytes, utils::parse_units};
 use anyhow::Context as _;
 use futures::{FutureExt, StreamExt, TryFutureExt, TryStreamExt, stream};
 use schemars::JsonSchema;
@@ -537,7 +537,7 @@ impl FunctionCallStep {
     }
 
     /// Parse this input into a legacy transaction.
-    pub async fn legacy_transaction(
+    pub async fn as_transaction(
         &self,
         resolver: &(impl ResolverApi + ?Sized),
         context: ResolutionContext<'_>,
@@ -959,9 +959,9 @@ impl<'de> Deserialize<'de> for EtherValue {
 #[cfg(test)]
 mod tests {
 
+    use alloy::primitives::{BlockHash, BlockNumber, BlockTimestamp, ChainId, TxHash, address};
+    use alloy::sol_types::SolValue;
     use alloy::{eips::BlockNumberOrTag, json_abi::JsonAbi};
-    use alloy_primitives::{BlockHash, BlockNumber, BlockTimestamp, ChainId, TxHash, address};
-    use alloy_sol_types::SolValue;
     use std::{collections::HashMap, pin::Pin};
 
     use super::*;
@@ -1115,7 +1115,7 @@ mod tests {
         let encoded = input.encoded_input(&resolver, context).await.unwrap();
         assert!(encoded.0.starts_with(&selector));
 
-        type T = (alloy_primitives::Address,);
+        type T = (alloy::primitives::Address,);
         let decoded: T = T::abi_decode(&encoded.0[4..]).unwrap();
         assert_eq!(
             decoded.0,
@@ -1162,7 +1162,7 @@ mod tests {
         let encoded = input.encoded_input(&resolver, context).await.unwrap();
         assert!(encoded.0.starts_with(&selector));
 
-        type T = (alloy_primitives::Address,);
+        type T = (alloy::primitives::Address,);
         let decoded: T = T::abi_decode(&encoded.0[4..]).unwrap();
         assert_eq!(
             decoded.0,

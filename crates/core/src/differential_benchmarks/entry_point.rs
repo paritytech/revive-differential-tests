@@ -1,0 +1,177 @@
+//! The main entry point for differential benchmarking.
+
+use std::{collections::BTreeMap, sync::Arc};
+
+use anyhow::Context as _;
+use futures::{FutureExt, StreamExt};
+use revive_dt_common::types::PrivateKeyAllocator;
+use revive_dt_core::Platform;
+use revive_dt_format::steps::{Step, StepIdx, StepPath};
+use tokio::sync::Mutex;
+use tracing::{error, info, info_span, instrument, warn};
+
+use revive_dt_config::{BenchmarkingContext, Context};
+use revive_dt_report::Reporter;
+
+use crate::{
+    differential_benchmarks::{Driver, Watcher, WatcherEvent},
+    helpers::{CachedCompiler, NodePool, collect_metadata_files, create_test_definitions_stream},
+};
+
+/// Handles the differential testing executing it according to the information defined in the
+/// context
+#[instrument(level = "info", err(Debug), skip_all)]
+pub async fn handle_differential_benchmarks(
+    mut context: BenchmarkingContext,
+    reporter: Reporter,
+) -> anyhow::Result<()> {
+    // A bit of a hack but we need to override the number of nodes specified through the CLI since
+    // benchmarks can only be run on a single node. Perhaps in the future we'd have a cleaner way to
+    // do this. But, for the time being, we need to override the cli arguments.
+    if context.concurrency_configuration.number_of_nodes != 1 {
+        warn!(
+            specified_number_of_nodes = context.concurrency_configuration.number_of_nodes,
+            updated_number_of_nodes = 1,
+            "Invalid number of nodes specified through the CLI. Benchmarks can only be run on a single node. Updated the arguments."
+        );
+        context.concurrency_configuration.number_of_nodes = 1;
+    };
+    let full_context = Context::Benchmark(Box::new(context.clone()));
+
+    // Discover all of the metadata files that are defined in the context.
+    let metadata_files = collect_metadata_files(&context)
+        .context("Failed to collect metadata files for differential testing")?;
+    info!(len = metadata_files.len(), "Discovered metadata files");
+
+    // Discover the list of platforms that the tests should run on based on the context.
+    let platforms = context
+        .platforms
+        .iter()
+        .copied()
+        .map(Into::<&dyn Platform>::into)
+        .collect::<Vec<_>>();
+
+    // Starting the nodes of the various platforms specified in the context. Note that we use the
+    // node pool since it contains all of the code needed to spawn nodes from A to Z and therefore
+    // it's the preferred way for us to start nodes even when we're starting just a single node. The
+    // added overhead from it is quite small (performance wise) since it's involved only when we're
+    // creating the test definitions, but it might have other maintenance overhead as it obscures
+    // the fact that only a single node is spawned.
+    let platforms_and_nodes = {
+        let mut map = BTreeMap::new();
+
+        for platform in platforms.iter() {
+            let platform_identifier = platform.platform_identifier();
+
+            let node_pool = NodePool::new(full_context.clone(), *platform)
+                .await
+                .inspect_err(|err| {
+                    error!(
+                        ?err,
+                        %platform_identifier,
+                        "Failed to initialize the node pool for the platform."
+                    )
+                })
+                .context("Failed to initialize the node pool")?;
+
+            map.insert(platform_identifier, (*platform, node_pool));
+        }
+
+        map
+    };
+    info!("Spawned the platform nodes");
+
+    // Preparing test definitions for the execution.
+    let test_definitions = create_test_definitions_stream(
+        &full_context,
+        metadata_files.iter(),
+        &platforms_and_nodes,
+        reporter.clone(),
+    )
+    .await
+    .collect::<Vec<_>>()
+    .await;
+    info!(len = test_definitions.len(), "Created test definitions");
+
+    // Creating the objects that will be shared between the various runs. The cached compiler is the
+    // only one at the current moment of time that's safe to share between runs.
+    let cached_compiler = CachedCompiler::new(
+        context
+            .working_directory
+            .as_path()
+            .join("compilation_cache"),
+        context
+            .compilation_configuration
+            .invalidate_compilation_cache,
+    )
+    .await
+    .map(Arc::new)
+    .context("Failed to initialize cached compiler")?;
+
+    // Note: we do not want to run all of the workloads concurrently on all platforms. Rather, we'd
+    // like to run all of the workloads for one platform, and then the next sequentially as we'd
+    // like for the effect of concurrency to be minimized when we're doing the benchmarking.
+    for platform in platforms.iter() {
+        let platform_identifier = platform.platform_identifier();
+
+        let span = info_span!("Benchmarking for the platform", %platform_identifier);
+        let _guard = span.enter();
+
+        for test_definition in test_definitions.iter() {
+            let platform_information = &test_definition.platforms[&platform_identifier];
+
+            let span = info_span!(
+                "Executing workload",
+                metadata_file_path = %test_definition.metadata_file_path.display(),
+                case_idx = %test_definition.case_idx,
+                mode = %test_definition.mode,
+            );
+            let _guard = span.enter();
+
+            // Initializing all of the components requires to execute this particular workload.
+            let private_key_allocator = Arc::new(Mutex::new(PrivateKeyAllocator::new(
+                context.wallet_configuration.highest_private_key_exclusive(),
+            )));
+            let (watcher, watcher_tx) = Watcher::new(
+                platform_identifier,
+                platform_information
+                    .node
+                    .subscribe_to_full_blocks_information()
+                    .await
+                    .context("Failed to subscribe to full blocks information from the node")?,
+            );
+            let driver = Driver::new(
+                platform_information,
+                test_definition,
+                private_key_allocator,
+                cached_compiler.as_ref(),
+                watcher_tx.clone(),
+                test_definition
+                    .case
+                    .steps_iterator_for_benchmarks(context.default_repetition_count)
+                    .enumerate()
+                    .map(|(step_idx, step)| -> (StepPath, Step) {
+                        (StepPath::new(vec![StepIdx::new(step_idx)]), step)
+                    }),
+            )
+            .await
+            .context("Failed to create the benchmarks driver")?;
+
+            futures::future::try_join(
+                watcher.run(),
+                driver.execute_all().inspect(|_| {
+                    info!("All transactions submitted - driver completed execution");
+                    watcher_tx
+                        .send(WatcherEvent::AllTransactionsSubmitted)
+                        .unwrap()
+                }),
+            )
+            .await
+            .context("Failed to run the driver and executor")
+            .inspect(|(_, steps_executed)| info!(steps_executed, "Workload Execution Succeeded"))
+            .inspect_err(|err| error!(?err, "Workload Execution Failed"))?;
+        }
+    }
+
+    Ok(())
+}

@@ -110,8 +110,11 @@ impl Process {
                     }
 
                     let check_result =
-                        check_function(stdout_line.as_deref(), stderr_line.as_deref())
-                            .context("Failed to wait for the process to be ready")?;
+                        check_function(stdout_line.as_deref(), stderr_line.as_deref()).context(
+                            format!(
+                                "Failed to wait for the process to be ready - {stdout} - {stderr}"
+                            ),
+                        )?;
 
                     if check_result {
                         break;
@@ -127,10 +130,10 @@ impl Process {
             ProcessReadinessWaitBehavior::WaitForCommandToExit => {
                 if !child
                     .wait()
-                    .context("Failed waiting for kurtosis run process to finish")?
+                    .context("Failed waiting for process to finish")?
                     .success()
                 {
-                    anyhow::bail!("Failed to initialize kurtosis network",);
+                    anyhow::bail!("Failed to spawn command");
                 }
             }
         }
