@@ -261,7 +261,7 @@ impl LighthouseGethNode {
                 consensus_layer_port_publisher_parameters: Some(
                     PortPublisherSingleItemParameters {
                         enabled: Some(true),
-                        public_port_start: Some(59010 + self.id as u16 * 1000),
+                        public_port_start: Some(59010 + self.id as u16 * 50),
                     },
                 ),
             }),
