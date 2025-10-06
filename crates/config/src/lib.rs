@@ -107,8 +107,8 @@ impl AsRef<KurtosisConfiguration> for Context {
     }
 }
 
-impl AsRef<ZombienetConfiguration> for Context {
-    fn as_ref(&self) -> &ZombienetConfiguration {
+impl AsRef<PolkadotParachainConfiguration> for Context {
+    fn as_ref(&self) -> &PolkadotParachainConfiguration {
         match self {
             Self::Test(context) => context.as_ref().as_ref(),
             Self::Benchmark(context) => context.as_ref().as_ref(),
@@ -235,9 +235,9 @@ pub struct TestExecutionContext {
     #[clap(flatten, next_help_heading = "Resolc Configuration")]
     pub resolc_configuration: ResolcConfiguration,
 
-    /// Configuration parameters for the Zombienet.
-    #[clap(flatten, next_help_heading = "Zombienet Configuration")]
-    pub zombienet_configuration: ZombienetConfiguration,
+    /// Configuration parameters for the Polkadot Parachain.
+    #[clap(flatten, next_help_heading = "Polkadot Parachain Configuration")]
+    pub polkadot_parachain_configuration: PolkadotParachainConfiguration,
 
     /// Configuration parameters for the geth node.
     #[clap(flatten, next_help_heading = "Geth Configuration")]
@@ -332,9 +332,9 @@ pub struct BenchmarkingContext {
     #[clap(flatten, next_help_heading = "Kitchensink Configuration")]
     pub kitchensink_configuration: KitchensinkConfiguration,
 
-    /// Configuration parameters for the Zombienet.
-    #[clap(flatten, next_help_heading = "Zombienet Configuration")]
-    pub zombienet_configuration: ZombienetConfiguration,
+    /// Configuration parameters for the Polkadot Parachain.
+    #[clap(flatten, next_help_heading = "Polkadot Parachain Configuration")]
+    pub polkadot_parachain_configuration: PolkadotParachainConfiguration,
 
     /// Configuration parameters for the Revive Dev Node.
     #[clap(flatten, next_help_heading = "Revive Dev Node Configuration")]
@@ -397,9 +397,9 @@ impl AsRef<GethConfiguration> for TestExecutionContext {
     }
 }
 
-impl AsRef<ZombienetConfiguration> for TestExecutionContext {
-    fn as_ref(&self) -> &ZombienetConfiguration {
-        &self.zombienet_configuration
+impl AsRef<PolkadotParachainConfiguration> for TestExecutionContext {
+    fn as_ref(&self) -> &PolkadotParachainConfiguration {
+        &self.polkadot_parachain_configuration
     }
 }
 
@@ -499,9 +499,9 @@ impl AsRef<KurtosisConfiguration> for BenchmarkingContext {
     }
 }
 
-impl AsRef<ZombienetConfiguration> for BenchmarkingContext {
-    fn as_ref(&self) -> &ZombienetConfiguration {
-        &self.zombienet_configuration
+impl AsRef<PolkadotParachainConfiguration> for BenchmarkingContext {
+    fn as_ref(&self) -> &PolkadotParachainConfiguration {
+        &self.polkadot_parachain_configuration
     }
 }
 
@@ -575,24 +575,24 @@ pub struct ResolcConfiguration {
     pub path: PathBuf,
 }
 
-/// A set of configuration parameters for Zombienet.
+/// A set of configuration parameters for Polkadot Parachain.
 #[derive(Clone, Debug, Parser, Serialize)]
-pub struct ZombienetConfiguration {
-    /// Specifies the path of the zombienet node to be used by the tool.
+pub struct PolkadotParachainConfiguration {
+    /// Specifies the path of the polkadot-parachain node to be used by the tool.
     ///
-    /// If this is not specified, then the tool assumes that it should use the zombienet binary
+    /// If this is not specified, then the tool assumes that it should use the polkadot-parachain binary
     /// that's provided in the user's $PATH.
     #[clap(
-        id = "zombienet.path",
-        long = "zombienet.path",
+        id = "polkadot-parachain.path",
+        long = "polkadot-parachain.path",
         default_value = "polkadot-parachain"
     )]
     pub path: PathBuf,
 
     /// The amount of time to wait upon startup before considering that the node timed out.
     #[clap(
-        id = "zombienet.start-timeout-ms",
-        long = "zombienet.start-timeout-ms",
+        id = "polkadot-parachain.start-timeout-ms",
+        long = "polkadot-parachain.start-timeout-ms",
         default_value = "5000",
         value_parser = parse_duration
     )]

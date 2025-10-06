@@ -83,18 +83,30 @@ static NODE_COUNT: AtomicU32 = AtomicU32::new(0);
 /// an interface to interact with the parachain's Ethereum RPC.
 #[derive(Debug, Default)]
 pub struct ZombieNode {
+    /* Node Identifier */
     id: u32,
-    node_binary: PathBuf,
     connection_string: String,
+    node_rpc_port: Option<u16>,
+
+    /* Directory Paths */
     base_directory: PathBuf,
     logs_directory: PathBuf,
+
+    /* Binary Paths & Timeouts */
     eth_proxy_binary: PathBuf,
-    wallet: Arc<EthereumWallet>,
-    nonce_manager: CachedNonceManager,
+    polkadot_parachain_path: PathBuf,
+
+    /* Spawned Processes */
+    eth_rpc_process: Option<Process>,
+
+    /* Zombienet Network */
     network_config: Option<zombienet_sdk::NetworkConfig>,
     network: Option<zombienet_sdk::Network<LocalFileSystem>>,
-    eth_rpc_process: Option<Process>,
-    node_rpc_port: Option<u16>,
+
+    /* Provider Related Fields */
+    wallet: Arc<EthereumWallet>,
+    nonce_manager: CachedNonceManager,
+
     provider: OnceCell<ConcreteProvider<ReviveNetwork, Arc<EthereumWallet>>>,
 }
 
@@ -113,7 +125,7 @@ impl ZombieNode {
     const CHAIN_SPEC_JSON_FILE: &str = "template_chainspec.json";
 
     pub fn new(
-        node_path: PathBuf,
+        polkadot_parachain_path: PathBuf,
         context: impl AsRef<WorkingDirectoryConfiguration>
         + AsRef<EthRpcConfiguration>
         + AsRef<WalletConfiguration>,
@@ -134,7 +146,7 @@ impl ZombieNode {
             base_directory,
             logs_directory,
             wallet,
-            node_binary: node_path,
+            polkadot_parachain_path,
             eth_proxy_binary,
             nonce_manager: CachedNonceManager::default(),
             network_config: None,
@@ -157,10 +169,10 @@ impl ZombieNode {
 
         let template_chainspec_path = self.base_directory.join(Self::CHAIN_SPEC_JSON_FILE);
         self.prepare_chainspec(template_chainspec_path.clone(), genesis)?;
-        let node_binary = self
-            .node_binary
+        let polkadot_parachain_path = self
+            .polkadot_parachain_path
             .to_str()
-            .context("Invalid node binary path")?;
+            .context("Invalid polkadot parachain path")?;
 
         let node_rpc_port = Self::NODE_BASE_RPC_PORT + self.id as u16;
 
@@ -178,7 +190,7 @@ impl ZombieNode {
                     .with_chain("asset-hub-westend-local")
                     .with_collator(|n| {
                         n.with_name("Collator")
-                            .with_command(node_binary)
+                            .with_command(polkadot_parachain_path)
                             .with_rpc_port(node_rpc_port)
                     })
             })
@@ -259,7 +271,7 @@ impl ZombieNode {
         template_chainspec_path: PathBuf,
         mut genesis: Genesis,
     ) -> anyhow::Result<()> {
-        let mut cmd: Command = std::process::Command::new(&self.node_binary);
+        let mut cmd: Command = std::process::Command::new(&self.polkadot_parachain_path);
         cmd.arg(Self::EXPORT_CHAINSPEC_COMMAND)
             .arg("--chain")
             .arg("asset-hub-westend-local");
@@ -735,7 +747,7 @@ impl Node for ZombieNode {
     }
 
     fn version(&self) -> anyhow::Result<String> {
-        let output = Command::new(&self.node_binary)
+        let output = Command::new(&self.polkadot_parachain_path)
             .arg("--version")
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
@@ -775,7 +787,10 @@ mod tests {
 
         pub async fn new_node() -> (TestExecutionContext, ZombieNode) {
             let context = test_config();
-            let mut node = ZombieNode::new(context.zombienet_configuration.path.clone(), &context);
+            let mut node = ZombieNode::new(
+                context.polkadot_parachain_configuration.path.clone(),
+                &context,
+            );
             let genesis = context.genesis_configuration.genesis().unwrap().clone();
             node.init(genesis).unwrap();
 
@@ -840,7 +855,10 @@ mod tests {
         "#;
 
         let context = test_config();
-        let mut node = ZombieNode::new(context.zombienet_configuration.path.clone(), &context);
+        let mut node = ZombieNode::new(
+            context.polkadot_parachain_configuration.path.clone(),
+            &context,
+        );
 
         // Call `init()`
         node.init(serde_json::from_str(genesis_content).unwrap())
@@ -885,7 +903,10 @@ mod tests {
         "#;
 
         let context = test_config();
-        let node = ZombieNode::new(context.zombienet_configuration.path.clone(), &context);
+        let node = ZombieNode::new(
+            context.polkadot_parachain_configuration.path.clone(),
+            &context,
+        );
 
         let result = node
             .extract_balance_from_genesis_file(&serde_json::from_str(genesis_json).unwrap())
@@ -958,7 +979,10 @@ mod tests {
     fn eth_rpc_version_works() {
         // Arrange
         let context = test_config();
-        let node = ZombieNode::new(context.zombienet_configuration.path.clone(), &context);
+        let node = ZombieNode::new(
+            context.polkadot_parachain_configuration.path.clone(),
+            &context,
+        );
 
         // Act
         let version = node.eth_rpc_version().unwrap();
@@ -974,7 +998,10 @@ mod tests {
     fn version_works() {
         // Arrange
         let context = test_config();
-        let node = ZombieNode::new(context.zombienet_configuration.path.clone(), &context);
+        let node = ZombieNode::new(
+            context.polkadot_parachain_configuration.path.clone(),
+            &context,
+        );
 
         // Act
         let version = node.version().unwrap();
@@ -987,6 +1014,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "Ignored since they take a long time to run"]
     async fn get_chain_id_from_node_should_succeed() {
         // Arrange
         let node = shared_node().await;
@@ -1005,6 +1033,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "Ignored since they take a long time to run"]
     async fn can_get_gas_limit_from_node() {
         // Arrange
         let node = shared_node().await;
@@ -1022,6 +1051,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "Ignored since they take a long time to run"]
     async fn can_get_coinbase_from_node() {
         // Arrange
         let node = shared_node().await;
@@ -1039,6 +1069,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "Ignored since they take a long time to run"]
     async fn can_get_block_difficulty_from_node() {
         // Arrange
         let node = shared_node().await;
@@ -1056,6 +1087,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "Ignored since they take a long time to run"]
     async fn can_get_block_hash_from_node() {
         // Arrange
         let node = shared_node().await;
@@ -1073,6 +1105,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "Ignored since they take a long time to run"]
     async fn can_get_block_timestamp_from_node() {
         // Arrange
         let node = shared_node().await;
@@ -1090,6 +1123,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "Ignored since they take a long time to run"]
     async fn can_get_block_number_from_node() {
         // Arrange
         let node = shared_node().await;

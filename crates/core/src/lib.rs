@@ -384,12 +384,12 @@ impl Platform for ZombienetPolkavmResolcPlatform {
         context: Context,
     ) -> anyhow::Result<JoinHandle<anyhow::Result<Box<dyn EthereumNode + Send + Sync>>>> {
         let genesis_configuration = AsRef::<GenesisConfiguration>::as_ref(&context);
-        let zombienet_path = AsRef::<ZombienetConfiguration>::as_ref(&context)
+        let polkadot_parachain_path = AsRef::<PolkadotParachainConfiguration>::as_ref(&context)
             .path
             .clone();
         let genesis = genesis_configuration.genesis()?.clone();
         Ok(thread::spawn(move || {
-            let node = ZombieNode::new(zombienet_path, context);
+            let node = ZombieNode::new(polkadot_parachain_path, context);
             let node = spawn_node(node, genesis)?;
             Ok(Box::new(node) as Box<_>)
         }))
@@ -432,12 +432,12 @@ impl Platform for ZombienetRevmSolcPlatform {
         context: Context,
     ) -> anyhow::Result<JoinHandle<anyhow::Result<Box<dyn EthereumNode + Send + Sync>>>> {
         let genesis_configuration = AsRef::<GenesisConfiguration>::as_ref(&context);
-        let zombie_net_path = AsRef::<ZombienetConfiguration>::as_ref(&context)
+        let polkadot_parachain_path = AsRef::<PolkadotParachainConfiguration>::as_ref(&context)
             .path
             .clone();
         let genesis = genesis_configuration.genesis()?.clone();
         Ok(thread::spawn(move || {
-            let node = ZombieNode::new(zombie_net_path, context);
+            let node = ZombieNode::new(polkadot_parachain_path, context);
             let node = spawn_node(node, genesis)?;
             Ok(Box::new(node) as Box<_>)
         }))
