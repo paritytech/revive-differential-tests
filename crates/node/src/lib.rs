@@ -4,11 +4,6 @@ use alloy::genesis::Genesis;
 use revive_dt_node_interaction::EthereumNode;
 
 pub mod constants;
-pub mod geth;
-pub mod lighthouse_geth;
-pub mod process;
-pub mod substrate;
-pub mod zombie;
 pub mod helpers;
 pub mod node_implementations;
 pub mod provider_utils;

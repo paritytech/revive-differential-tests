@@ -110,7 +110,8 @@ impl AsRef<KurtosisConfiguration> for Context {
 impl AsRef<ZombienetConfiguration> for Context {
     fn as_ref(&self) -> &ZombienetConfiguration {
         match self {
-            Self::ExecuteTests(context) => context.as_ref().as_ref(),
+            Self::Test(context) => context.as_ref().as_ref(),
+            Self::Benchmark(context) => context.as_ref().as_ref(),
             Self::ExportJsonSchema => unreachable!(),
         }
     }
@@ -331,6 +332,10 @@ pub struct BenchmarkingContext {
     #[clap(flatten, next_help_heading = "Kitchensink Configuration")]
     pub kitchensink_configuration: KitchensinkConfiguration,
 
+    /// Configuration parameters for the Zombienet.
+    #[clap(flatten, next_help_heading = "Zombienet Configuration")]
+    pub zombienet_configuration: ZombienetConfiguration,
+
     /// Configuration parameters for the Revive Dev Node.
     #[clap(flatten, next_help_heading = "Revive Dev Node Configuration")]
     pub revive_dev_node_configuration: ReviveDevNodeConfiguration,
@@ -491,6 +496,12 @@ impl AsRef<GethConfiguration> for BenchmarkingContext {
 impl AsRef<KurtosisConfiguration> for BenchmarkingContext {
     fn as_ref(&self) -> &KurtosisConfiguration {
         &self.lighthouse_configuration
+    }
+}
+
+impl AsRef<ZombienetConfiguration> for BenchmarkingContext {
+    fn as_ref(&self) -> &ZombienetConfiguration {
+        &self.zombienet_configuration
     }
 }
 

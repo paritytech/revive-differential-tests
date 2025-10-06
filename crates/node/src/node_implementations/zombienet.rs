@@ -44,25 +44,25 @@ use alloy::{
     network::{Ethereum, EthereumWallet, NetworkWallet},
     primitives::{Address, BlockHash, BlockNumber, BlockTimestamp, StorageKey, TxHash, U256},
     providers::{
-        Identity, Provider, ProviderBuilder, RootProvider,
+         Provider,
         ext::DebugApi,
         fillers::{
-            CachedNonceManager, ChainIdFiller, FillProvider, JoinFill, NonceFiller, TxFiller,
-            WalletFiller,
+            CachedNonceManager, ChainIdFiller, FillProvider, NonceFiller, TxFiller,
         },
     },
     rpc::types::{
-        EIP1186AccountProofResponse, TransactionReceipt,
+        EIP1186AccountProofResponse, TransactionReceipt,TransactionRequest,
         trace::geth::{DiffMode, GethDebugTracingOptions, PreStateConfig, PreStateFrame},
     },
 };
 
 use anyhow::Context as _;
+use futures::{Stream, StreamExt};
 use revive_common::EVMVersion;
 use revive_dt_common::fs::clear_directory;
 use revive_dt_config::*;
 use revive_dt_format::traits::ResolverApi;
-use revive_dt_node_interaction::EthereumNode;
+use revive_dt_node_interaction::{EthereumNode, MinedBlockInformation};
 use serde_json::{Value as JsonValue, json};
 use sp_core::crypto::Ss58Codec;
 use sp_runtime::AccountId32;
@@ -72,10 +72,10 @@ use zombienet_sdk::{LocalFileSystem, NetworkConfigBuilder, NetworkConfigExt};
 
 use crate::{
     Node,
-    common::FallbackGasFiller,
-    constants::INITIAL_BALANCE,
-    process::{Process, ProcessReadinessWaitBehavior},
-    substrate::ReviveNetwork,
+    constants::{CHAIN_ID, INITIAL_BALANCE},
+    helpers::{Process, ProcessReadinessWaitBehavior},
+    provider_utils::{ConcreteProvider, FallbackGasFiller, construct_concurrency_limited_provider},
+    node_implementations::substrate::ReviveNetwork,
 };
 
 static NODE_COUNT: AtomicU32 = AtomicU32::new(0);
@@ -93,25 +93,11 @@ pub struct ZombieNode {
     eth_proxy_binary: PathBuf,
     wallet: Arc<EthereumWallet>,
     nonce_manager: CachedNonceManager,
-    chain_id_filler: ChainIdFiller,
     network_config: Option<zombienet_sdk::NetworkConfig>,
     network: Option<zombienet_sdk::Network<LocalFileSystem>>,
     eth_rpc_process: Option<Process>,
     node_rpc_port: Option<u16>,
-    #[allow(clippy::type_complexity)]
-    provider: OnceCell<
-        FillProvider<
-            JoinFill<
-                JoinFill<
-                    JoinFill<JoinFill<Identity, FallbackGasFiller>, ChainIdFiller>,
-                    NonceFiller,
-                >,
-                WalletFiller<Arc<EthereumWallet>>,
-            >,
-            RootProvider<ReviveNetwork>,
-            ReviveNetwork,
-        >,
-    >,
+    provider: OnceCell<ConcreteProvider<ReviveNetwork, Arc<EthereumWallet>>>,
 }
 
 impl ZombieNode {
@@ -153,7 +139,6 @@ impl ZombieNode {
             node_binary: node_path,
             eth_proxy_binary,
             nonce_manager: CachedNonceManager::default(),
-            chain_id_filler: ChainIdFiller::default(),
             network_config: None,
             network: None,
             eth_rpc_process: None,
@@ -252,6 +237,8 @@ impl ZombieNode {
                 }),
             },
         );
+
+      
 
         match eth_rpc_process {
             Ok(process) => self.eth_rpc_process = Some(process),
@@ -382,31 +369,20 @@ impl ZombieNode {
         Ok(String::from_utf8_lossy(&output).trim().to_string())
     }
 
-    async fn provider(
+     async fn provider(
         &self,
-    ) -> anyhow::Result<
-        FillProvider<
-            impl TxFiller<ReviveNetwork>,
-            impl Provider<ReviveNetwork> + Clone,
-            ReviveNetwork,
-        >,
-    > {
+    ) -> anyhow::Result<ConcreteProvider<ReviveNetwork, Arc<EthereumWallet>>> {
         self.provider
             .get_or_try_init(|| async move {
-                ProviderBuilder::new()
-                    .disable_recommended_fillers()
-                    .network::<ReviveNetwork>()
-                    .filler(FallbackGasFiller::new(
-                        1_000_000_000,
-                        1_000_000_000,
-                        1_000_000_000,
-                    ))
-                    .filler(self.chain_id_filler.clone())
-                    .filler(NonceFiller::new(self.nonce_manager.clone()))
-                    .wallet(self.wallet.clone())
-                    .connect(&self.connection_string)
-                    .await
-                    .map_err(Into::into)
+                construct_concurrency_limited_provider::<ReviveNetwork, _>(
+                    self.connection_string.as_str(),
+                    FallbackGasFiller::new(250_000_000, 5_000_000_000, 1_000_000_000),
+                    ChainIdFiller::new(Some(CHAIN_ID)),
+                    NonceFiller::new(self.nonce_manager.clone()),
+                    self.wallet.clone(),
+                )
+                .await
+                .context("Failed to construct the provider")
             })
             .await
             .cloned()
@@ -414,12 +390,48 @@ impl ZombieNode {
 }
 
 impl EthereumNode for ZombieNode {
+    fn pre_transactions(&mut self) -> Pin<Box<dyn Future<Output = anyhow::Result<()>> + '_>> {
+        Box::pin(async move { Ok(()) })
+    }
+
     fn id(&self) -> usize {
         self.id as _
     }
 
     fn connection_string(&self) -> &str {
         &self.connection_string
+    }
+
+    fn submit_transaction(
+        &self,
+        transaction: TransactionRequest,
+    ) -> Pin<Box<dyn Future<Output = anyhow::Result<TxHash>> + '_>> {
+        Box::pin(async move {
+            let provider = self
+                .provider()
+                .await
+                .context("Failed to create the provider for transaction submission")?;
+            let pending_transaction = provider
+                .send_transaction(transaction)
+                .await
+                .context("Failed to submit the transaction through the provider")?;
+            Ok(*pending_transaction.tx_hash())
+        })
+    }
+
+    fn get_receipt(
+        &self,
+        tx_hash: TxHash,
+    ) -> Pin<Box<dyn Future<Output = anyhow::Result<TransactionReceipt>> + '_>> {
+        Box::pin(async move {
+            self.provider()
+                .await
+                .context("Failed to create provider for getting the receipt")?
+                .get_transaction_receipt(tx_hash)
+                .await
+                .context("Failed to get the receipt of the transaction")?
+                .context("Failed to get the receipt of the transaction")
+        })
     }
 
     fn execute_transaction(
@@ -521,6 +533,48 @@ impl EthereumNode for ZombieNode {
 
     fn evm_version(&self) -> EVMVersion {
         EVMVersion::Cancun
+    }
+
+    fn subscribe_to_full_blocks_information(
+        &self,
+    ) -> Pin<
+        Box<
+            dyn Future<Output = anyhow::Result<Pin<Box<dyn Stream<Item = MinedBlockInformation>>>>>
+                + '_,
+        >,
+    > {
+        Box::pin(async move {
+            let provider = self
+                .provider()
+                .await
+                .context("Failed to create the provider for block subscription")?;
+            let mut block_subscription = provider
+                .watch_full_blocks()
+                .await
+                .context("Failed to create the blocks stream")?;
+            block_subscription.set_channel_size(0xFFFF);
+            block_subscription.set_poll_interval(Duration::from_secs(1));
+            let block_stream = block_subscription.into_stream();
+
+            let mined_block_information_stream = block_stream.filter_map(|block| async {
+                let block = block.ok()?;
+                Some(MinedBlockInformation {
+                    block_number: block.number(),
+                    block_timestamp: block.header.timestamp,
+                    mined_gas: block.header.gas_used as _,
+                    block_gas_limit: block.header.gas_limit,
+                    transaction_hashes: block
+                        .transactions
+                        .into_hashes()
+                        .as_hashes()
+                        .expect("Must be hashes")
+                        .to_vec(),
+                })
+            });
+
+            Ok(Box::pin(mined_block_information_stream)
+                as Pin<Box<dyn Stream<Item = MinedBlockInformation>>>)
+        })
     }
 }
 
@@ -709,7 +763,7 @@ impl Drop for ZombieNode {
 mod tests {
     use alloy::rpc::types::TransactionRequest;
 
-    use crate::zombie::tests::utils::shared_node;
+    use crate::node_implementations::zombienet::tests::utils::shared_node;
 
     use super::*;
 
