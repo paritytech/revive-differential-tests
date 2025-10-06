@@ -15,6 +15,7 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
+  POLKADOT_VERSION: polkadot-stable2506-2
 
 jobs:
   cache-polkadot:
@@ -65,6 +66,37 @@ jobs:
         run: |
           cd polkadot-sdk
           cargo install --path substrate/frame/revive/rpc --bin eth-rpc
+      
+      - name: Cache downloaded Polkadot binaries
+        id: cache-polkadot
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/polkadot-cache/polkadot
+            ~/polkadot-cache/polkadot-execute-worker
+            ~/polkadot-cache/polkadot-prepare-worker
+            ~/polkadot-cache/polkadot-parachain
+          key: polkadot-downloaded-${{ matrix.os }}-${{ env.POLKADOT_VERSION }}
+
+      - name: Download Polkadot binaries on macOS
+        if: matrix.os == 'macos-14' && steps.cache-polkadot.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p ~/polkadot-cache
+          curl -sL https://github.com/paritytech/polkadot-sdk/releases/download/${{ env.POLKADOT_VERSION }}/polkadot-aarch64-apple-darwin -o ~/polkadot-cache/polkadot
+          curl -sL https://github.com/paritytech/polkadot-sdk/releases/download/${{ env.POLKADOT_VERSION }}/polkadot-execute-worker-aarch64-apple-darwin -o ~/polkadot-cache/polkadot-execute-worker
+          curl -sL https://github.com/paritytech/polkadot-sdk/releases/download/${{ env.POLKADOT_VERSION }}/polkadot-prepare-worker-aarch64-apple-darwin -o ~/polkadot-cache/polkadot-prepare-worker
+          curl -sL https://github.com/paritytech/polkadot-sdk/releases/download/${{ env.POLKADOT_VERSION }}/polkadot-parachain-aarch64-apple-darwin -o ~/polkadot-cache/polkadot-parachain
+          chmod +x ~/polkadot-cache/*
+
+      - name: Download Polkadot binaries on Ubuntu
+        if: matrix.os == 'ubuntu-24.04' && steps.cache-polkadot.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p ~/polkadot-cache
+          curl -sL https://github.com/paritytech/polkadot-sdk/releases/download/${{ env.POLKADOT_VERSION }}/polkadot -o ~/polkadot-cache/polkadot
+          curl -sL https://github.com/paritytech/polkadot-sdk/releases/download/${{ env.POLKADOT_VERSION }}/polkadot-execute-worker -o ~/polkadot-cache/polkadot-execute-worker
+          curl -sL https://github.com/paritytech/polkadot-sdk/releases/download/${{ env.POLKADOT_VERSION }}/polkadot-prepare-worker -o ~/polkadot-cache/polkadot-prepare-worker
+          curl -sL https://github.com/paritytech/polkadot-sdk/releases/download/${{ env.POLKADOT_VERSION }}/polkadot-parachain -o ~/polkadot-cache/polkadot-parachain
+          chmod +x ~/polkadot-cache/*
 
   ci:
     name: CI on ${{ matrix.os }}
@@ -86,6 +118,24 @@ jobs:
             ~/.cargo/bin/eth-rpc
           key: polkadot-binaries-${{ matrix.os }}-${{ hashFiles('polkadot-sdk/.git') }}
 
+      - name: Restore downloaded Polkadot binaries from cache
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/polkadot-cache/polkadot
+            ~/polkadot-cache/polkadot-execute-worker
+            ~/polkadot-cache/polkadot-prepare-worker
+            ~/polkadot-cache/polkadot-parachain
+          key: polkadot-downloaded-${{ matrix.os }}-${{ env.POLKADOT_VERSION }}
+
+      - name: Install Polkadot binaries
+        run: |
+          sudo cp ~/polkadot-cache/polkadot /usr/local/bin/
+          sudo cp ~/polkadot-cache/polkadot-execute-worker /usr/local/bin/
+          sudo cp ~/polkadot-cache/polkadot-prepare-worker /usr/local/bin/
+          sudo cp ~/polkadot-cache/polkadot-parachain /usr/local/bin/
+          sudo chmod +x /usr/local/bin/polkadot*
+
       - name: Setup Rust toolchain
         uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
@@ -95,44 +145,6 @@ jobs:
         run: |
           rustup target add wasm32-unknown-unknown
           rustup component add rust-src rustfmt clippy
-
-      - name : Install Polkadot binaries on macOS
-        if: matrix.os == 'macos-14'
-        run: |
-          curl -sL https://github.com/paritytech/polkadot-sdk/releases/download/polkadot-stable2506-2/polkadot-aarch64-apple-darwin -o polkadot
-          chmod +x polkadot
-          sudo mv polkadot /usr/local/bin
-
-          curl -sL https://github.com/paritytech/polkadot-sdk/releases/download/polkadot-stable2506-2/polkadot-execute-worker-aarch64-apple-darwin -o  polkadot-execute-worker
-          chmod +x polkadot-execute-worker
-          sudo mv polkadot-execute-worker /usr/local/bin
-
-          curl -sL https://github.com/paritytech/polkadot-sdk/releases/download/polkadot-stable2506-2/polkadot-prepare-worker-aarch64-apple-darwin -o  polkadot-prepare-worker
-          chmod +x polkadot-prepare-worker
-          sudo mv polkadot-prepare-worker /usr/local/bin
-
-          curl -sL https://github.com/paritytech/polkadot-sdk/releases/download/polkadot-stable2506-2/polkadot-parachain-aarch64-apple-darwin -o polkadot-parachain
-          chmod +x polkadot-parachain
-          sudo mv polkadot-parachain /usr/local/bin  
-
-      - name : Install Polkadot binaries on Ubuntu
-        if: matrix.os == 'ubuntu-24.04'
-        run: |
-          curl -sL https://github.com/paritytech/polkadot-sdk/releases/download/polkadot-stable2506-2/polkadot -o polkadot
-          chmod +x polkadot
-          sudo mv polkadot /usr/local/bin
-
-          curl -sL https://github.com/paritytech/polkadot-sdk/releases/download/polkadot-stable2506-2/polkadot-execute-worker -o  polkadot-execute-worker
-          chmod +x polkadot-execute-worker
-          sudo mv polkadot-execute-worker /usr/local/bin
-
-          curl -sL https://github.com/paritytech/polkadot-sdk/releases/download/polkadot-stable2506-2/polkadot-prepare-worker -o  polkadot-prepare-worker
-          chmod +x polkadot-prepare-worker
-          sudo mv polkadot-prepare-worker /usr/local/bin
-
-          curl -sL https://github.com/paritytech/polkadot-sdk/releases/download/polkadot-stable2506-2/polkadot-parachain -o polkadot-parachain
-          chmod +x polkadot-parachain
-          sudo mv polkadot-parachain /usr/local/bin
 
       - name: Install Geth on Ubuntu
         if: matrix.os == 'ubuntu-24.04'
