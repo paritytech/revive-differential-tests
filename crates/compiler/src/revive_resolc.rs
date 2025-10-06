@@ -16,6 +16,7 @@ use revive_solc_json_interface::{
     SolcStandardJsonInputSettingsOptimizer, SolcStandardJsonInputSettingsSelection,
     SolcStandardJsonOutput,
 };
+use tracing::{Span, field::display};
 
 use crate::{
     CompilerInput, CompilerOutput, ModeOptimizerSetting, ModePipeline, SolidityCompiler, solc::Solc,
@@ -80,6 +81,16 @@ impl SolidityCompiler for Resolc {
     }
 
     #[tracing::instrument(level = "debug", ret)]
+    #[tracing::instrument(
+        level = "error",
+        skip_all,
+        fields(
+            resolc_version = %self.version(),
+            solc_version = %self.0.solc.version(),
+            json_in = tracing::field::Empty
+        ),
+        err(Debug)
+    )]
     fn build(
         &self,
         CompilerInput {
@@ -141,6 +152,7 @@ impl SolidityCompiler for Resolc {
                     polkavm: None,
                 },
             };
+            Span::current().record("json_in", display(serde_json::to_string(&input).unwrap()));
 
             let path = &self.0.resolc_path;
             let mut command = AsyncCommand::new(path);
@@ -148,6 +160,8 @@ impl SolidityCompiler for Resolc {
                 .stdin(Stdio::piped())
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped())
+                .arg("--solc")
+                .arg(self.0.solc.path())
                 .arg("--standard-json");
 
             if let Some(ref base_path) = base_path {

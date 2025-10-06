@@ -16,7 +16,6 @@ revive-dt-solc-binaries = { workspace = true }
 revive-common = { workspace = true }
 
 alloy = { workspace = true }
-alloy-primitives = { workspace = true }
 anyhow = { workspace = true }
 dashmap = { workspace = true }
 foundry-compilers-artifacts = { workspace = true }

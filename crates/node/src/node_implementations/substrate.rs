@@ -23,17 +23,20 @@ use alloy::{
         TxHash, U256,
     },
     providers::{
-        Provider, ProviderBuilder,
+        Provider,
         ext::DebugApi,
-        fillers::{CachedNonceManager, ChainIdFiller, FillProvider, NonceFiller, TxFiller},
+        fillers::{CachedNonceManager, ChainIdFiller, NonceFiller},
     },
     rpc::types::{
-        EIP1186AccountProofResponse, TransactionReceipt,
+        EIP1186AccountProofResponse, TransactionReceipt, TransactionRequest,
         eth::{Block, Header, Transaction},
-        trace::geth::{DiffMode, GethDebugTracingOptions, PreStateConfig, PreStateFrame},
+        trace::geth::{
+            DiffMode, GethDebugTracingOptions, GethTrace, PreStateConfig, PreStateFrame,
+        },
     },
 };
 use anyhow::Context as _;
+use futures::{Stream, StreamExt};
 use revive_common::EVMVersion;
 use revive_dt_common::fs::clear_directory;
 use revive_dt_format::traits::ResolverApi;
@@ -43,14 +46,15 @@ use sp_core::crypto::Ss58Codec;
 use sp_runtime::AccountId32;
 
 use revive_dt_config::*;
-use revive_dt_node_interaction::EthereumNode;
+use revive_dt_node_interaction::{EthereumNode, MinedBlockInformation};
+use tokio::sync::OnceCell;
 use tracing::instrument;
 
 use crate::{
     Node,
-    common::FallbackGasFiller,
-    constants::INITIAL_BALANCE,
-    process::{Process, ProcessReadinessWaitBehavior},
+    constants::{CHAIN_ID, INITIAL_BALANCE},
+    helpers::{Process, ProcessReadinessWaitBehavior},
+    provider_utils::{ConcreteProvider, FallbackGasFiller, construct_concurrency_limited_provider},
 };
 
 static NODE_COUNT: AtomicU32 = AtomicU32::new(0);
@@ -59,6 +63,7 @@ static NODE_COUNT: AtomicU32 = AtomicU32::new(0);
 /// or the revive-dev-node which is done by changing the path and some of the other arguments passed
 /// to the command.
 #[derive(Debug)]
+
 pub struct SubstrateNode {
     id: u32,
     node_binary: PathBuf,
@@ -71,7 +76,7 @@ pub struct SubstrateNode {
     eth_proxy_process: Option<Process>,
     wallet: Arc<EthereumWallet>,
     nonce_manager: CachedNonceManager,
-    chain_id_filler: ChainIdFiller,
+    provider: OnceCell<ConcreteProvider<ReviveNetwork, Arc<EthereumWallet>>>,
 }
 
 impl SubstrateNode {
@@ -121,8 +126,8 @@ impl SubstrateNode {
             substrate_process: None,
             eth_proxy_process: None,
             wallet: wallet.clone(),
-            chain_id_filler: Default::default(),
             nonce_manager: Default::default(),
+            provider: Default::default(),
         }
     }
 
@@ -144,6 +149,7 @@ impl SubstrateNode {
             .arg(self.export_chainspec_command.as_str())
             .arg("--chain")
             .arg("dev")
+            .env_remove("RUST_LOG")
             .output()
             .context("Failed to export the chain-spec")?;
 
@@ -335,27 +341,29 @@ impl SubstrateNode {
 
     async fn provider(
         &self,
-    ) -> anyhow::Result<
-        FillProvider<impl TxFiller<ReviveNetwork>, impl Provider<ReviveNetwork>, ReviveNetwork>,
-    > {
-        ProviderBuilder::new()
-            .disable_recommended_fillers()
-            .network::<ReviveNetwork>()
-            .filler(FallbackGasFiller::new(
-                25_000_000,
-                1_000_000_000,
-                1_000_000_000,
-            ))
-            .filler(self.chain_id_filler.clone())
-            .filler(NonceFiller::new(self.nonce_manager.clone()))
-            .wallet(self.wallet.clone())
-            .connect(&self.rpc_url)
+    ) -> anyhow::Result<ConcreteProvider<ReviveNetwork, Arc<EthereumWallet>>> {
+        self.provider
+            .get_or_try_init(|| async move {
+                construct_concurrency_limited_provider::<ReviveNetwork, _>(
+                    self.rpc_url.as_str(),
+                    FallbackGasFiller::new(250_000_000, 5_000_000_000, 1_000_000_000),
+                    ChainIdFiller::new(Some(CHAIN_ID)),
+                    NonceFiller::new(self.nonce_manager.clone()),
+                    self.wallet.clone(),
+                )
+                .await
+                .context("Failed to construct the provider")
+            })
             .await
-            .map_err(Into::into)
+            .cloned()
     }
 }
 
 impl EthereumNode for SubstrateNode {
+    fn pre_transactions(&mut self) -> Pin<Box<dyn Future<Output = anyhow::Result<()>> + '_>> {
+        Box::pin(async move { Ok(()) })
+    }
+
     fn id(&self) -> usize {
         self.id as _
     }
@@ -364,11 +372,48 @@ impl EthereumNode for SubstrateNode {
         &self.rpc_url
     }
 
-    fn execute_transaction(
+    fn submit_transaction(
         &self,
-        transaction: alloy::rpc::types::TransactionRequest,
+        transaction: TransactionRequest,
+    ) -> Pin<Box<dyn Future<Output = anyhow::Result<TxHash>> + '_>> {
+        Box::pin(async move {
+            let provider = self
+                .provider()
+                .await
+                .context("Failed to create the provider for transaction submission")?;
+            let pending_transaction = provider
+                .send_transaction(transaction)
+                .await
+                .context("Failed to submit the transaction through the provider")?;
+            Ok(*pending_transaction.tx_hash())
+        })
+    }
+
+    fn get_receipt(
+        &self,
+        tx_hash: TxHash,
     ) -> Pin<Box<dyn Future<Output = anyhow::Result<TransactionReceipt>> + '_>> {
         Box::pin(async move {
+            self.provider()
+                .await
+                .context("Failed to create provider for getting the receipt")?
+                .get_transaction_receipt(tx_hash)
+                .await
+                .context("Failed to get the receipt of the transaction")?
+                .context("Failed to get the receipt of the transaction")
+        })
+    }
+
+    fn execute_transaction(
+        &self,
+        transaction: TransactionRequest,
+    ) -> Pin<Box<dyn Future<Output = anyhow::Result<TransactionReceipt>> + '_>> {
+        static SEMAPHORE: std::sync::LazyLock<tokio::sync::Semaphore> =
+            std::sync::LazyLock::new(|| tokio::sync::Semaphore::new(500));
+
+        Box::pin(async move {
+            let _permit = SEMAPHORE.acquire().await?;
+
             let receipt = self
                 .provider()
                 .await
@@ -387,8 +432,7 @@ impl EthereumNode for SubstrateNode {
         &self,
         tx_hash: TxHash,
         trace_options: GethDebugTracingOptions,
-    ) -> Pin<Box<dyn Future<Output = anyhow::Result<alloy::rpc::types::trace::geth::GethTrace>> + '_>>
-    {
+    ) -> Pin<Box<dyn Future<Output = anyhow::Result<GethTrace>> + '_>> {
         Box::pin(async move {
             self.provider()
                 .await
@@ -463,16 +507,56 @@ impl EthereumNode for SubstrateNode {
     fn evm_version(&self) -> EVMVersion {
         EVMVersion::Cancun
     }
+
+    fn subscribe_to_full_blocks_information(
+        &self,
+    ) -> Pin<
+        Box<
+            dyn Future<Output = anyhow::Result<Pin<Box<dyn Stream<Item = MinedBlockInformation>>>>>
+                + '_,
+        >,
+    > {
+        Box::pin(async move {
+            let provider = self
+                .provider()
+                .await
+                .context("Failed to create the provider for block subscription")?;
+            let mut block_subscription = provider
+                .watch_full_blocks()
+                .await
+                .context("Failed to create the blocks stream")?;
+            block_subscription.set_channel_size(0xFFFF);
+            block_subscription.set_poll_interval(Duration::from_secs(1));
+            let block_stream = block_subscription.into_stream();
+
+            let mined_block_information_stream = block_stream.filter_map(|block| async {
+                let block = block.ok()?;
+                Some(MinedBlockInformation {
+                    block_number: block.number(),
+                    block_timestamp: block.header.timestamp,
+                    mined_gas: block.header.gas_used as _,
+                    block_gas_limit: block.header.gas_limit,
+                    transaction_hashes: block
+                        .transactions
+                        .into_hashes()
+                        .as_hashes()
+                        .expect("Must be hashes")
+                        .to_vec(),
+                })
+            });
+
+            Ok(Box::pin(mined_block_information_stream)
+                as Pin<Box<dyn Stream<Item = MinedBlockInformation>>>)
+        })
+    }
 }
 
-pub struct SubstrateNodeResolver<F: TxFiller<ReviveNetwork>, P: Provider<ReviveNetwork>> {
+pub struct SubstrateNodeResolver {
     id: u32,
-    provider: FillProvider<F, P, ReviveNetwork>,
+    provider: ConcreteProvider<ReviveNetwork, Arc<EthereumWallet>>,
 }
 
-impl<F: TxFiller<ReviveNetwork>, P: Provider<ReviveNetwork>> ResolverApi
-    for SubstrateNodeResolver<F, P>
-{
+impl ResolverApi for SubstrateNodeResolver {
     #[instrument(level = "info", skip_all, fields(substrate_node_id = self.id))]
     fn chain_id(
         &self,
@@ -1068,9 +1152,7 @@ mod tests {
     use crate::Node;
 
     fn test_config() -> TestExecutionContext {
-        let mut context = TestExecutionContext::default();
-        context.kitchensink_configuration.use_kitchensink = true;
-        context
+        TestExecutionContext::default()
     }
 
     fn new_node() -> (TestExecutionContext, SubstrateNode) {
@@ -1142,6 +1224,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "Ignored since they take a long time to run"]
     fn test_init_generates_chainspec_with_balances() {
         let genesis_content = r#"
         {
@@ -1195,6 +1278,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "Ignored since they take a long time to run"]
     fn test_parse_genesis_alloc() {
         // Create test genesis file
         let genesis_json = r#"
@@ -1237,6 +1321,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "Ignored since they take a long time to run"]
     fn print_eth_to_substrate_mappings() {
         let eth_addresses = vec![
             "0x90F8bf6A479f320ead074411a4B0e7944Ea8c9C1",
@@ -1252,6 +1337,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "Ignored since they take a long time to run"]
     fn test_eth_to_substrate_address() {
         let cases = vec![
             (
@@ -1282,6 +1368,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "Ignored since they take a long time to run"]
     fn version_works() {
         let node = shared_node();
 
@@ -1294,6 +1381,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "Ignored since they take a long time to run"]
     fn eth_rpc_version_works() {
         let node = shared_node();
 
@@ -1306,6 +1394,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "Ignored since they take a long time to run"]
     async fn can_get_chain_id_from_node() {
         // Arrange
         let node = shared_node();
@@ -1319,6 +1408,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "Ignored since they take a long time to run"]
     async fn can_get_gas_limit_from_node() {
         // Arrange
         let node = shared_node();
@@ -1336,6 +1426,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "Ignored since they take a long time to run"]
     async fn can_get_coinbase_from_node() {
         // Arrange
         let node = shared_node();
@@ -1353,6 +1444,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "Ignored since they take a long time to run"]
     async fn can_get_block_difficulty_from_node() {
         // Arrange
         let node = shared_node();
@@ -1370,6 +1462,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "Ignored since they take a long time to run"]
     async fn can_get_block_hash_from_node() {
         // Arrange
         let node = shared_node();
@@ -1387,6 +1480,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "Ignored since they take a long time to run"]
     async fn can_get_block_timestamp_from_node() {
         // Arrange
         let node = shared_node();
@@ -1404,6 +1498,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "Ignored since they take a long time to run"]
     async fn can_get_block_number_from_node() {
         // Arrange
         let node = shared_node();

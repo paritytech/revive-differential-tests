@@ -11,7 +11,7 @@ use std::{
 };
 
 use alloy::json_abi::JsonAbi;
-use alloy_primitives::Address;
+use alloy::primitives::Address;
 use anyhow::{Context as _, Result};
 use semver::Version;
 use serde::{Deserialize, Serialize};

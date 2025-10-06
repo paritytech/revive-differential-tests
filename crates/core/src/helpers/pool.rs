@@ -16,7 +16,7 @@ pub struct NodePool {
 
 impl NodePool {
     /// Create a new Pool. This will start as many nodes as there are workers in `config`.
-    pub fn new(context: Context, platform: &dyn Platform) -> anyhow::Result<Self> {
+    pub async fn new(context: Context, platform: &dyn Platform) -> anyhow::Result<Self> {
         let concurrency_configuration = AsRef::<ConcurrencyConfiguration>::as_ref(&context);
         let nodes = concurrency_configuration.number_of_nodes;
 
@@ -33,10 +33,17 @@ impl NodePool {
                     .join()
                     .map_err(|error| anyhow::anyhow!("failed to spawn node: {:?}", error))
                     .context("Failed to join node spawn thread")?
-                    .map_err(|error| anyhow::anyhow!("node failed to spawn: {error}"))
                     .context("Node failed to spawn")?,
             );
         }
+
+        let pre_transactions_tasks = nodes
+            .iter_mut()
+            .map(|node| node.pre_transactions())
+            .collect::<Vec<_>>();
+        futures::future::try_join_all(pre_transactions_tasks)
+            .await
+            .context("Failed to run the pre-transactions task")?;
 
         Ok(Self {
             nodes,

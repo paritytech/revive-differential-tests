@@ -5,7 +5,7 @@ use std::{
     borrow::Cow,
     collections::HashMap,
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{Arc, LazyLock},
 };
 
 use futures::FutureExt;
@@ -19,7 +19,7 @@ use anyhow::{Context as _, Error, Result};
 use revive_dt_report::ExecutionSpecificReporter;
 use semver::Version;
 use serde::{Deserialize, Serialize};
-use tokio::sync::{Mutex, RwLock};
+use tokio::sync::{Mutex, RwLock, Semaphore};
 use tracing::{Instrument, debug, debug_span, instrument};
 
 pub struct CachedCompiler<'a> {
@@ -165,10 +165,22 @@ impl<'a> CachedCompiler<'a> {
                         cache_value.compiler_output
                     }
                     None => {
-                        compilation_callback()
+                        let compiler_output = compilation_callback()
                             .await
                             .context("Compilation callback failed (cache miss path)")?
-                            .compiler_output
+                            .compiler_output;
+                        self.artifacts_cache
+                            .insert(
+                                &cache_key,
+                                &CacheValue {
+                                    compiler_output: compiler_output.clone(),
+                                },
+                            )
+                            .await
+                            .context(
+                                "Failed to write the cached value of the compilation artifacts",
+                            )?;
+                        compiler_output
                     }
                 }
             }
@@ -186,6 +198,12 @@ async fn compile_contracts(
     compiler: &dyn SolidityCompiler,
     reporter: &ExecutionSpecificReporter,
 ) -> Result<CompilerOutput> {
+    // Puts a limit on how many compilations we can perform at any given instance which helps us
+    // with some of the errors we've been seeing with high concurrency on MacOS (we have not tried
+    // it on Linux so we don't know if these issues also persist there or not.)
+    static SPAWN_GATE: LazyLock<Semaphore> = LazyLock::new(|| Semaphore::new(5));
+    let _permit = SPAWN_GATE.acquire().await?;
+
     let all_sources_in_dir = FilesWithExtensionIterator::new(metadata_directory.as_ref())
         .with_allowed_extension("sol")
         .with_use_cached_fs(true)
