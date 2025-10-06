@@ -44,14 +44,12 @@ use alloy::{
     network::{Ethereum, EthereumWallet, NetworkWallet},
     primitives::{Address, BlockHash, BlockNumber, BlockTimestamp, StorageKey, TxHash, U256},
     providers::{
-         Provider,
+        Provider,
         ext::DebugApi,
-        fillers::{
-            CachedNonceManager, ChainIdFiller, FillProvider, NonceFiller, TxFiller,
-        },
+        fillers::{CachedNonceManager, ChainIdFiller, FillProvider, NonceFiller, TxFiller},
     },
     rpc::types::{
-        EIP1186AccountProofResponse, TransactionReceipt,TransactionRequest,
+        EIP1186AccountProofResponse, TransactionReceipt, TransactionRequest,
         trace::geth::{DiffMode, GethDebugTracingOptions, PreStateConfig, PreStateFrame},
     },
 };
@@ -72,10 +70,10 @@ use zombienet_sdk::{LocalFileSystem, NetworkConfigBuilder, NetworkConfigExt};
 
 use crate::{
     Node,
-    constants::{CHAIN_ID, INITIAL_BALANCE},
+    constants::INITIAL_BALANCE,
     helpers::{Process, ProcessReadinessWaitBehavior},
-    provider_utils::{ConcreteProvider, FallbackGasFiller, construct_concurrency_limited_provider},
     node_implementations::substrate::ReviveNetwork,
+    provider_utils::{ConcreteProvider, FallbackGasFiller, construct_concurrency_limited_provider},
 };
 
 static NODE_COUNT: AtomicU32 = AtomicU32::new(0);
@@ -238,8 +236,6 @@ impl ZombieNode {
             },
         );
 
-      
-
         match eth_rpc_process {
             Ok(process) => self.eth_rpc_process = Some(process),
             Err(err) => {
@@ -250,7 +246,7 @@ impl ZombieNode {
             }
         }
 
-        tracing::info!("eth-rpc is up");
+        tracing::debug!("eth-rpc is up");
 
         self.connection_string = format!("http://localhost:{}", eth_rpc_port);
         self.network = Some(network);
@@ -369,7 +365,7 @@ impl ZombieNode {
         Ok(String::from_utf8_lossy(&output).trim().to_string())
     }
 
-     async fn provider(
+    async fn provider(
         &self,
     ) -> anyhow::Result<ConcreteProvider<ReviveNetwork, Arc<EthereumWallet>>> {
         self.provider
@@ -377,7 +373,7 @@ impl ZombieNode {
                 construct_concurrency_limited_provider::<ReviveNetwork, _>(
                     self.connection_string.as_str(),
                     FallbackGasFiller::new(250_000_000, 5_000_000_000, 1_000_000_000),
-                    ChainIdFiller::new(Some(CHAIN_ID)),
+                    ChainIdFiller::default(), // TODO: use CHAIN_ID constant
                     NonceFiller::new(self.nonce_manager.clone()),
                     self.wallet.clone(),
                 )
@@ -774,8 +770,7 @@ mod tests {
         use tokio::sync::OnceCell;
 
         pub fn test_config() -> TestExecutionContext {
-            let context = TestExecutionContext::default();
-            context
+             TestExecutionContext::default()
         }
 
         pub async fn new_node() -> (TestExecutionContext, ZombieNode) {
@@ -795,15 +790,18 @@ mod tests {
             (context, node)
         }
 
-        pub async fn shared_node() -> Arc<ZombieNode> {
-            static NODE: OnceCell<Arc<ZombieNode>> = OnceCell::const_new();
+        pub async fn shared_state() -> &'static (TestExecutionContext, Arc<ZombieNode>) {
+            static NODE: OnceCell<(TestExecutionContext, Arc<ZombieNode>)> = OnceCell::const_new();
 
             NODE.get_or_init(|| async {
-                let (_context, node) = new_node().await;
-                Arc::new(node)
+                let (context, node) = new_node().await;
+                (context, Arc::new(node))
             })
             .await
-            .clone()
+        }
+
+        pub async fn shared_node() -> &'static Arc<ZombieNode> {
+            &shared_state().await.1
         }
     }
     use utils::{new_node, test_config};
