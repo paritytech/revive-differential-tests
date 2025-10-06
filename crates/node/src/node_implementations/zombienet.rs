@@ -770,7 +770,7 @@ mod tests {
         use tokio::sync::OnceCell;
 
         pub fn test_config() -> TestExecutionContext {
-             TestExecutionContext::default()
+            TestExecutionContext::default()
         }
 
         pub async fn new_node() -> (TestExecutionContext, ZombieNode) {
