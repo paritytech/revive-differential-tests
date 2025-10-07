@@ -31,7 +31,7 @@ use revive_dt_format::{
     traits::ResolutionContext,
 };
 use tokio::sync::Mutex;
-use tracing::{debug, error, info, instrument};
+use tracing::{error, info, instrument};
 
 use crate::{
     differential_tests::ExecutionState,
@@ -109,7 +109,6 @@ impl<'a> Driver<'a, StepsIterator> {
     // endregion:Constructors
 
     // region:Execution
-    #[instrument(level = "info", skip_all)]
     pub async fn execute_all(mut self) -> Result<usize> {
         let platform_drivers = std::mem::take(&mut self.platform_drivers);
         let results = futures::future::try_join_all(
@@ -218,8 +217,6 @@ where
             .flatten()
             .flat_map(|(_, map)| map.values())
         {
-            debug!(%library_instance, "Deploying Library Instance");
-
             let ContractPathAndIdent {
                 contract_source_path: library_source_path,
                 contract_ident: library_ident,
@@ -268,12 +265,6 @@ where
                     )
                 })?;
 
-            debug!(
-                ?library_instance,
-                platform_identifier = %platform_information.platform.platform_identifier(),
-                "Deployed library"
-            );
-
             let library_address = receipt
                 .contract_address
                 .expect("Failed to deploy the library");
@@ -312,7 +303,6 @@ where
     // endregion:Constructors & Initialization
 
     // region:Step Handling
-    #[instrument(level = "info", skip_all)]
     pub async fn execute_all(mut self) -> Result<usize> {
         while let Some(result) = self.execute_next_step().await {
             result?
@@ -320,14 +310,6 @@ where
         Ok(self.steps_executed)
     }
 
-    #[instrument(
-        level = "info",
-        skip_all,
-        fields(
-            platform_identifier = %self.platform_information.platform.platform_identifier(),
-            node_id = self.platform_information.node.id(),
-        ),
-    )]
     pub async fn execute_next_step(&mut self) -> Option<Result<()>> {
         let (step_path, step) = self.steps_iterator.next()?;
         info!(%step_path, "Executing Step");
@@ -344,6 +326,7 @@ where
         skip_all,
         fields(
             platform_identifier = %self.platform_information.platform.platform_identifier(),
+            node_id = self.platform_information.node.id(),
             %step_path,
         ),
         err(Debug),
@@ -402,6 +385,7 @@ where
         Ok(1)
     }
 
+    #[instrument(level = "debug", skip_all)]
     async fn handle_function_call_contract_deployment(
         &mut self,
         step: &FunctionCallStep,
@@ -447,6 +431,7 @@ where
         Ok(receipts)
     }
 
+    #[instrument(level = "debug", skip_all)]
     async fn handle_function_call_execution(
         &mut self,
         step: &FunctionCallStep,
@@ -470,14 +455,12 @@ where
                     }
                 };
 
-                match self.platform_information.node.execute_transaction(tx).await {
-                    Ok(receipt) => Ok(receipt),
-                    Err(err) => Err(err),
-                }
+                self.platform_information.node.execute_transaction(tx).await
             }
         }
     }
 
+    #[instrument(level = "debug", skip_all)]
     async fn handle_function_call_call_frame_tracing(
         &mut self,
         tx_hash: TxHash,
@@ -509,6 +492,7 @@ where
             })
     }
 
+    #[instrument(level = "debug", skip_all)]
     async fn handle_function_call_variable_assignment(
         &mut self,
         step: &FunctionCallStep,
@@ -541,6 +525,7 @@ where
         Ok(())
     }
 
+    #[instrument(level = "debug", skip_all)]
     async fn handle_function_call_assertions(
         &mut self,
         step: &FunctionCallStep,
@@ -583,6 +568,7 @@ where
             .await
     }
 
+    #[instrument(level = "debug", skip_all)]
     async fn handle_function_call_assertion_item(
         &self,
         receipt: &TransactionReceipt,
@@ -865,7 +851,6 @@ where
         level = "info",
         skip_all,
         fields(
-            platform_identifier = %self.platform_information.platform.platform_identifier(),
             %contract_instance,
             %deployer
         ),
@@ -907,7 +892,6 @@ where
     level = "info",
     skip_all,
         fields(
-            platform_identifier = %self.platform_information.platform.platform_identifier(),
             %contract_instance,
             %deployer
         ),

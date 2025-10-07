@@ -1,17 +1,17 @@
 //! The main entry point into differential testing.
 
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     io::{BufWriter, Write, stderr},
     sync::Arc,
-    time::Instant,
+    time::{Duration, Instant},
 };
 
 use anyhow::Context as _;
 use futures::{FutureExt, StreamExt};
 use revive_dt_common::types::PrivateKeyAllocator;
 use revive_dt_core::Platform;
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, RwLock, Semaphore};
 use tracing::{Instrument, error, info, info_span, instrument};
 
 use revive_dt_config::{Context, TestExecutionContext};
@@ -101,20 +101,40 @@ pub async fn handle_differential_tests(
     )));
 
     // Creating the driver and executing all of the steps.
-    let driver_task = futures::future::join_all(test_definitions.iter().map(|test_definition| {
-        let private_key_allocator = private_key_allocator.clone();
-        let cached_compiler = cached_compiler.clone();
-        let mode = test_definition.mode.clone();
-        let span = info_span!(
-            "Executing Test Case",
-            metadata_file_path = %test_definition.metadata_file_path.display(),
-            case_idx = %test_definition.case_idx,
-            mode = %mode
-        );
-        async move {
-            let driver =
-                match Driver::new_root(test_definition, private_key_allocator, &cached_compiler)
-                    .await
+    let semaphore = context
+        .concurrency_configuration
+        .concurrency_limit()
+        .map(Semaphore::new)
+        .map(Arc::new);
+    let running_task_list = Arc::new(RwLock::new(BTreeSet::<usize>::new()));
+    let driver_task = futures::future::join_all(test_definitions.iter().enumerate().map(
+        |(test_id, test_definition)| {
+            let running_task_list = running_task_list.clone();
+            let semaphore = semaphore.clone();
+
+            let private_key_allocator = private_key_allocator.clone();
+            let cached_compiler = cached_compiler.clone();
+            let mode = test_definition.mode.clone();
+            let span = info_span!(
+                "Executing Test Case",
+                test_id,
+                metadata_file_path = %test_definition.metadata_file_path.display(),
+                case_idx = %test_definition.case_idx,
+                mode = %mode,
+            );
+            async move {
+                let permit = match semaphore.as_ref() {
+                    Some(semaphore) => Some(semaphore.acquire().await.expect("Can't fail")),
+                    None => None,
+                };
+
+                running_task_list.write().await.insert(test_id);
+                let driver = match Driver::new_root(
+                    test_definition,
+                    private_key_allocator,
+                    &cached_compiler,
+                )
+                .await
                 {
                     Ok(driver) => driver,
                     Err(error) => {
@@ -123,28 +143,33 @@ pub async fn handle_differential_tests(
                             .report_test_failed_event(format!("{error:#}"))
                             .expect("Can't fail");
                         error!("Test Case Failed");
+                        drop(permit);
+                        running_task_list.write().await.remove(&test_id);
                         return;
                     }
                 };
-            info!("Created the driver for the test case");
+                info!("Created the driver for the test case");
 
-            match driver.execute_all().await {
-                Ok(steps_executed) => test_definition
-                    .reporter
-                    .report_test_succeeded_event(steps_executed)
-                    .expect("Can't fail"),
-                Err(error) => {
-                    test_definition
+                match driver.execute_all().await {
+                    Ok(steps_executed) => test_definition
                         .reporter
-                        .report_test_failed_event(format!("{error:#}"))
-                        .expect("Can't fail");
-                    error!("Test Case Failed");
-                }
-            };
-            info!("Finished the execution of the test case")
-        }
-        .instrument(span)
-    }))
+                        .report_test_succeeded_event(steps_executed)
+                        .expect("Can't fail"),
+                    Err(error) => {
+                        test_definition
+                            .reporter
+                            .report_test_failed_event(format!("{error:#}"))
+                            .expect("Can't fail");
+                        error!("Test Case Failed");
+                    }
+                };
+                info!("Finished the execution of the test case");
+                drop(permit);
+                running_task_list.write().await.remove(&test_id);
+            }
+            .instrument(span)
+        },
+    ))
     .inspect(|_| {
         info!("Finished executing all test cases");
         reporter_clone
@@ -152,6 +177,18 @@ pub async fn handle_differential_tests(
             .expect("Can't fail")
     });
     let cli_reporting_task = start_cli_reporting_task(reporter);
+
+    tokio::task::spawn(async move {
+        loop {
+            let remaining_tasks = running_task_list.read().await;
+            info!(
+                count = remaining_tasks.len(),
+                ?remaining_tasks,
+                "Remaining Tests"
+            );
+            tokio::time::sleep(Duration::from_secs(10)).await
+        }
+    });
 
     futures::future::join(driver_task, cli_reporting_task).await;
 

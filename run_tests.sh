@@ -97,6 +97,8 @@ RUST_LOG="info,alloy_pubsub::service=error" ./target/release/retester test \
     --corpus "$CORPUS_FILE" \
     --working-directory "$WORKDIR" \
     --concurrency.number-of-nodes 10 \
+    --concurrency.number-of-threads 5 \
+    --concurrency.number-of-concurrent-tasks 1000 \
     --wallet.additional-keys 100000 \
     --kitchensink.path "$SUBSTRATE_NODE_BIN" \
     --revive-dev-node.path "$REVIVE_DEV_NODE_BIN" \
