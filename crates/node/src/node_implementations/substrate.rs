@@ -54,7 +54,10 @@ use crate::{
     Node,
     constants::{CHAIN_ID, INITIAL_BALANCE},
     helpers::{Process, ProcessReadinessWaitBehavior},
-    provider_utils::{ConcreteProvider, FallbackGasFiller, construct_concurrency_limited_provider},
+    provider_utils::{
+        ConcreteProvider, FallbackGasFiller, construct_concurrency_limited_provider,
+        execute_transaction,
+    },
 };
 
 static NODE_COUNT: AtomicU32 = AtomicU32::new(0);
@@ -80,7 +83,7 @@ pub struct SubstrateNode {
 }
 
 impl SubstrateNode {
-    const BASE_DIRECTORY: &str = "Substrate";
+    const BASE_DIRECTORY: &str = "substrate";
     const LOGS_DIRECTORY: &str = "logs";
     const DATA_DIRECTORY: &str = "chains";
 
@@ -346,7 +349,7 @@ impl SubstrateNode {
             .get_or_try_init(|| async move {
                 construct_concurrency_limited_provider::<ReviveNetwork, _>(
                     self.rpc_url.as_str(),
-                    FallbackGasFiller::new(250_000_000, 5_000_000_000, 1_000_000_000),
+                    FallbackGasFiller::new(u64::MAX, 5_000_000_000, 1_000_000_000),
                     ChainIdFiller::new(Some(CHAIN_ID)),
                     NonceFiller::new(self.nonce_manager.clone()),
                     self.wallet.clone(),
@@ -408,23 +411,12 @@ impl EthereumNode for SubstrateNode {
         &self,
         transaction: TransactionRequest,
     ) -> Pin<Box<dyn Future<Output = anyhow::Result<TransactionReceipt>> + '_>> {
-        static SEMAPHORE: std::sync::LazyLock<tokio::sync::Semaphore> =
-            std::sync::LazyLock::new(|| tokio::sync::Semaphore::new(500));
-
         Box::pin(async move {
-            let _permit = SEMAPHORE.acquire().await?;
-
-            let receipt = self
+            let provider = self
                 .provider()
                 .await
-                .context("Failed to create provider for transaction submission")?
-                .send_transaction(transaction)
-                .await
-                .context("Failed to submit transaction to substrate proxy")?
-                .get_receipt()
-                .await
-                .context("Failed to fetch transaction receipt from substrate proxy")?;
-            Ok(receipt)
+                .context("Failed to create the provider")?;
+            execute_transaction(provider, transaction).await
         })
     }
 

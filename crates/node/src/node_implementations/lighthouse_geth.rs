@@ -17,7 +17,7 @@ use std::{
     pin::Pin,
     process::{Command, Stdio},
     sync::{
-        Arc, LazyLock,
+        Arc,
         atomic::{AtomicU32, Ordering},
     },
     time::{Duration, SystemTime, UNIX_EPOCH},
@@ -47,7 +47,7 @@ use futures::{Stream, StreamExt};
 use revive_common::EVMVersion;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_with::serde_as;
-use tokio::sync::{OnceCell, Semaphore};
+use tokio::sync::OnceCell;
 use tracing::{Instrument, info, instrument};
 
 use revive_dt_common::{
@@ -105,7 +105,6 @@ pub struct LighthouseGethNode {
 
     persistent_http_provider: OnceCell<ConcreteProvider<Ethereum, Arc<EthereumWallet>>>,
     persistent_ws_provider: OnceCell<ConcreteProvider<Ethereum, Arc<EthereumWallet>>>,
-    http_provider_requests_semaphore: LazyLock<Semaphore>,
 }
 
 impl LighthouseGethNode {
@@ -176,7 +175,6 @@ impl LighthouseGethNode {
             nonce_manager: Default::default(),
             persistent_http_provider: OnceCell::const_new(),
             persistent_ws_provider: OnceCell::const_new(),
-            http_provider_requests_semaphore: LazyLock::new(|| Semaphore::const_new(500)),
         }
     }
 
@@ -566,8 +564,6 @@ impl EthereumNode for LighthouseGethNode {
         transaction: TransactionRequest,
     ) -> Pin<Box<dyn Future<Output = anyhow::Result<TxHash>> + '_>> {
         Box::pin(async move {
-            let _permit = self.http_provider_requests_semaphore.acquire().await;
-
             let provider = self
                 .http_provider()
                 .await

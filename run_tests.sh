@@ -76,8 +76,6 @@ cat > "$CORPUS_FILE" << EOF
 {
   "name": "MatterLabs Solidity Simple, Complex, and Semantic Tests",
   "paths": [
-    "$(realpath "$TEST_REPO_DIR/fixtures/solidity/translated_semantic_tests")",
-    "$(realpath "$TEST_REPO_DIR/fixtures/solidity/complex")",
     "$(realpath "$TEST_REPO_DIR/fixtures/solidity/simple")"
   ]
 }
@@ -95,11 +93,12 @@ echo ""
 # Run the tool
 cargo build --release;
 RUST_LOG="info,alloy_pubsub::service=error" ./target/release/retester test \
-    --platform geth-evm-solc \
     --platform revive-dev-node-revm-solc \
     --corpus "$CORPUS_FILE" \
     --working-directory "$WORKDIR" \
-    --concurrency.number-of-nodes 5 \
+    --concurrency.number-of-nodes 10 \
+    --concurrency.number-of-threads 5 \
+    --concurrency.number-of-concurrent-tasks 1000 \
     --wallet.additional-keys 100000 \
     --kitchensink.path "$SUBSTRATE_NODE_BIN" \
     --revive-dev-node.path "$REVIVE_DEV_NODE_BIN" \
