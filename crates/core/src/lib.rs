@@ -16,7 +16,7 @@ use revive_dt_config::*;
 use revive_dt_node::{
     Node, node_implementations::geth::GethNode,
     node_implementations::lighthouse_geth::LighthouseGethNode,
-    node_implementations::substrate::SubstrateNode,
+    node_implementations::substrate::SubstrateNode, node_implementations::zombienet::ZombieNode,
 };
 use revive_dt_node_interaction::EthereumNode;
 use tracing::info;
@@ -359,6 +359,102 @@ impl Platform for ReviveDevNodeRevmSolcPlatform {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Default, Hash)]
+pub struct ZombienetPolkavmResolcPlatform;
+
+impl Platform for ZombienetPolkavmResolcPlatform {
+    fn platform_identifier(&self) -> PlatformIdentifier {
+        PlatformIdentifier::ZombienetPolkavmResolc
+    }
+
+    fn node_identifier(&self) -> NodeIdentifier {
+        NodeIdentifier::Zombienet
+    }
+
+    fn vm_identifier(&self) -> VmIdentifier {
+        VmIdentifier::PolkaVM
+    }
+
+    fn compiler_identifier(&self) -> CompilerIdentifier {
+        CompilerIdentifier::Resolc
+    }
+
+    fn new_node(
+        &self,
+        context: Context,
+    ) -> anyhow::Result<JoinHandle<anyhow::Result<Box<dyn EthereumNode + Send + Sync>>>> {
+        let genesis_configuration = AsRef::<GenesisConfiguration>::as_ref(&context);
+        let polkadot_parachain_path = AsRef::<PolkadotParachainConfiguration>::as_ref(&context)
+            .path
+            .clone();
+        let genesis = genesis_configuration.genesis()?.clone();
+        Ok(thread::spawn(move || {
+            let node = ZombieNode::new(polkadot_parachain_path, context);
+            let node = spawn_node(node, genesis)?;
+            Ok(Box::new(node) as Box<_>)
+        }))
+    }
+
+    fn new_compiler(
+        &self,
+        context: Context,
+        version: Option<VersionOrRequirement>,
+    ) -> Pin<Box<dyn Future<Output = anyhow::Result<Box<dyn SolidityCompiler>>>>> {
+        Box::pin(async move {
+            let compiler = Solc::new(context, version).await;
+            compiler.map(|compiler| Box::new(compiler) as Box<dyn SolidityCompiler>)
+        })
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Default, Hash)]
+pub struct ZombienetRevmSolcPlatform;
+
+impl Platform for ZombienetRevmSolcPlatform {
+    fn platform_identifier(&self) -> PlatformIdentifier {
+        PlatformIdentifier::ZombienetRevmSolc
+    }
+
+    fn node_identifier(&self) -> NodeIdentifier {
+        NodeIdentifier::Zombienet
+    }
+
+    fn vm_identifier(&self) -> VmIdentifier {
+        VmIdentifier::Evm
+    }
+
+    fn compiler_identifier(&self) -> CompilerIdentifier {
+        CompilerIdentifier::Solc
+    }
+
+    fn new_node(
+        &self,
+        context: Context,
+    ) -> anyhow::Result<JoinHandle<anyhow::Result<Box<dyn EthereumNode + Send + Sync>>>> {
+        let genesis_configuration = AsRef::<GenesisConfiguration>::as_ref(&context);
+        let polkadot_parachain_path = AsRef::<PolkadotParachainConfiguration>::as_ref(&context)
+            .path
+            .clone();
+        let genesis = genesis_configuration.genesis()?.clone();
+        Ok(thread::spawn(move || {
+            let node = ZombieNode::new(polkadot_parachain_path, context);
+            let node = spawn_node(node, genesis)?;
+            Ok(Box::new(node) as Box<_>)
+        }))
+    }
+
+    fn new_compiler(
+        &self,
+        context: Context,
+        version: Option<VersionOrRequirement>,
+    ) -> Pin<Box<dyn Future<Output = anyhow::Result<Box<dyn SolidityCompiler>>>>> {
+        Box::pin(async move {
+            let compiler = Solc::new(context, version).await;
+            compiler.map(|compiler| Box::new(compiler) as Box<dyn SolidityCompiler>)
+        })
+    }
+}
+
 impl From<PlatformIdentifier> for Box<dyn Platform> {
     fn from(value: PlatformIdentifier) -> Self {
         match value {
@@ -378,6 +474,10 @@ impl From<PlatformIdentifier> for Box<dyn Platform> {
             PlatformIdentifier::ReviveDevNodeRevmSolc => {
                 Box::new(ReviveDevNodeRevmSolcPlatform) as Box<_>
             }
+            PlatformIdentifier::ZombienetPolkavmResolc => {
+                Box::new(ZombienetPolkavmResolcPlatform) as Box<_>
+            }
+            PlatformIdentifier::ZombienetRevmSolc => Box::new(ZombienetRevmSolcPlatform) as Box<_>,
         }
     }
 }
@@ -401,6 +501,10 @@ impl From<PlatformIdentifier> for &dyn Platform {
             PlatformIdentifier::ReviveDevNodeRevmSolc => {
                 &ReviveDevNodeRevmSolcPlatform as &dyn Platform
             }
+            PlatformIdentifier::ZombienetPolkavmResolc => {
+                &ZombienetPolkavmResolcPlatform as &dyn Platform
+            }
+            PlatformIdentifier::ZombienetRevmSolc => &ZombienetRevmSolcPlatform as &dyn Platform,
         }
     }
 }

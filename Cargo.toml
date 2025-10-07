@@ -73,6 +73,8 @@ revive-solc-json-interface = { git = "https://github.com/paritytech/revive", rev
 revive-common = { git = "https://github.com/paritytech/revive", rev = "3389865af7c3ff6f29a586d82157e8bc573c1a8e" }
 revive-differential = { git = "https://github.com/paritytech/revive", rev = "3389865af7c3ff6f29a586d82157e8bc573c1a8e" }
 
+zombienet-sdk = { git = "https://github.com/paritytech/zombienet-sdk.git", rev ="891f6554354ce466abd496366dbf8b4f82141241" }
+
 [workspace.dependencies.alloy]
 version = "1.0.37"
 default-features = false

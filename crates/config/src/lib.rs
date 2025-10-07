@@ -107,6 +107,16 @@ impl AsRef<KurtosisConfiguration> for Context {
     }
 }
 
+impl AsRef<PolkadotParachainConfiguration> for Context {
+    fn as_ref(&self) -> &PolkadotParachainConfiguration {
+        match self {
+            Self::Test(context) => context.as_ref().as_ref(),
+            Self::Benchmark(context) => context.as_ref().as_ref(),
+            Self::ExportJsonSchema => unreachable!(),
+        }
+    }
+}
+
 impl AsRef<KitchensinkConfiguration> for Context {
     fn as_ref(&self) -> &KitchensinkConfiguration {
         match self {
@@ -225,6 +235,10 @@ pub struct TestExecutionContext {
     #[clap(flatten, next_help_heading = "Resolc Configuration")]
     pub resolc_configuration: ResolcConfiguration,
 
+    /// Configuration parameters for the Polkadot Parachain.
+    #[clap(flatten, next_help_heading = "Polkadot Parachain Configuration")]
+    pub polkadot_parachain_configuration: PolkadotParachainConfiguration,
+
     /// Configuration parameters for the geth node.
     #[clap(flatten, next_help_heading = "Geth Configuration")]
     pub geth_configuration: GethConfiguration,
@@ -318,6 +332,10 @@ pub struct BenchmarkingContext {
     #[clap(flatten, next_help_heading = "Kitchensink Configuration")]
     pub kitchensink_configuration: KitchensinkConfiguration,
 
+    /// Configuration parameters for the Polkadot Parachain.
+    #[clap(flatten, next_help_heading = "Polkadot Parachain Configuration")]
+    pub polkadot_parachain_configuration: PolkadotParachainConfiguration,
+
     /// Configuration parameters for the Revive Dev Node.
     #[clap(flatten, next_help_heading = "Revive Dev Node Configuration")]
     pub revive_dev_node_configuration: ReviveDevNodeConfiguration,
@@ -376,6 +394,12 @@ impl AsRef<ResolcConfiguration> for TestExecutionContext {
 impl AsRef<GethConfiguration> for TestExecutionContext {
     fn as_ref(&self) -> &GethConfiguration {
         &self.geth_configuration
+    }
+}
+
+impl AsRef<PolkadotParachainConfiguration> for TestExecutionContext {
+    fn as_ref(&self) -> &PolkadotParachainConfiguration {
+        &self.polkadot_parachain_configuration
     }
 }
 
@@ -475,6 +499,12 @@ impl AsRef<KurtosisConfiguration> for BenchmarkingContext {
     }
 }
 
+impl AsRef<PolkadotParachainConfiguration> for BenchmarkingContext {
+    fn as_ref(&self) -> &PolkadotParachainConfiguration {
+        &self.polkadot_parachain_configuration
+    }
+}
+
 impl AsRef<KitchensinkConfiguration> for BenchmarkingContext {
     fn as_ref(&self) -> &KitchensinkConfiguration {
         &self.kitchensink_configuration
@@ -543,6 +573,30 @@ pub struct ResolcConfiguration {
     /// provided in the user's $PATH.
     #[clap(id = "resolc.path", long = "resolc.path", default_value = "resolc")]
     pub path: PathBuf,
+}
+
+/// A set of configuration parameters for Polkadot Parachain.
+#[derive(Clone, Debug, Parser, Serialize)]
+pub struct PolkadotParachainConfiguration {
+    /// Specifies the path of the polkadot-parachain node to be used by the tool.
+    ///
+    /// If this is not specified, then the tool assumes that it should use the polkadot-parachain binary
+    /// that's provided in the user's $PATH.
+    #[clap(
+        id = "polkadot-parachain.path",
+        long = "polkadot-parachain.path",
+        default_value = "polkadot-parachain"
+    )]
+    pub path: PathBuf,
+
+    /// The amount of time to wait upon startup before considering that the node timed out.
+    #[clap(
+        id = "polkadot-parachain.start-timeout-ms",
+        long = "polkadot-parachain.start-timeout-ms",
+        default_value = "5000",
+        value_parser = parse_duration
+    )]
+    pub start_timeout_ms: Duration,
 }
 
 /// A set of configuration parameters for Geth.
@@ -893,4 +947,6 @@ pub enum TestingPlatform {
     Geth,
     /// The kitchensink runtime provides the PolkaVM (PVM) based node implementation.
     Kitchensink,
+    /// A polkadot/Substrate based network
+    Zombienet,
 }
