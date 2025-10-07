@@ -35,7 +35,7 @@ use revive_dt_format::{
     },
     traits::{ResolutionContext, ResolverApi},
 };
-use tokio::sync::{Mutex, mpsc::UnboundedSender};
+use tokio::sync::{Mutex, OnceCell, mpsc::UnboundedSender};
 use tracing::{Instrument, Span, debug, error, field::display, info, info_span, instrument};
 
 use crate::{
@@ -123,13 +123,7 @@ where
                 &self.platform_information.reporter,
             )
             .await
-            .inspect_err(|err| {
-                error!(
-                    ?err,
-                    platform_identifier = %self.platform_information.platform.platform_identifier(),
-                    "Pre-linking compilation failed"
-                )
-            })
+            .inspect_err(|err| error!(?err, "Pre-linking compilation failed"))
             .context("Failed to produce the pre-linking compiled contracts")?;
 
         let mut deployed_libraries = None::<HashMap<_, _>>;
@@ -137,13 +131,7 @@ where
             .test_definition
             .metadata
             .contract_sources()
-            .inspect_err(|err| {
-                error!(
-                    ?err,
-                    platform_identifier = %self.platform_information.platform.platform_identifier(),
-                    "Failed to retrieve contract sources from metadata"
-                )
-            })
+            .inspect_err(|err| error!(?err, "Failed to retrieve contract sources from metadata"))
             .context("Failed to get the contract instances from the metadata file")?;
         for library_instance in self
             .test_definition
@@ -195,16 +183,11 @@ where
                 error!(
                     ?err,
                     %library_instance,
-                    platform_identifier = %self.platform_information.platform.platform_identifier(),
                     "Failed to deploy the library"
                 )
             })?;
 
-            debug!(
-                ?library_instance,
-                platform_identifier = %self.platform_information.platform.platform_identifier(),
-                "Deployed library"
-            );
+            debug!(?library_instance, "Deployed library");
 
             let library_address = receipt
                 .contract_address
@@ -227,13 +210,7 @@ where
                 &self.platform_information.reporter,
             )
             .await
-            .inspect_err(|err| {
-                error!(
-                    ?err,
-                    platform_identifier = %self.platform_information.platform.platform_identifier(),
-                    "Post-linking compilation failed"
-                )
-            })
+            .inspect_err(|err| error!(?err, "Post-linking compilation failed"))
             .context("Failed to compile the post-link contracts")?;
 
         self.execution_state = ExecutionState::new(
@@ -269,7 +246,6 @@ where
         skip_all,
         fields(
             driver_id = self.driver_id,
-            platform_identifier = %self.platform_information.platform.platform_identifier(),
             %step_path,
         ),
         err(Debug),
@@ -309,11 +285,7 @@ where
             .handle_function_call_execution(step, deployment_receipts)
             .await
             .context("Failed to handle the function call execution")?;
-        let tracing_result = self
-            .handle_function_call_call_frame_tracing(execution_receipt.transaction_hash)
-            .await
-            .context("Failed to handle the function call call frame tracing")?;
-        self.handle_function_call_variable_assignment(step, &tracing_result)
+        self.handle_function_call_variable_assignment(step, execution_receipt.transaction_hash)
             .await
             .context("Failed to handle function call variable assignment")?;
         Ok(1)
@@ -417,15 +389,19 @@ where
     async fn handle_function_call_variable_assignment(
         &mut self,
         step: &FunctionCallStep,
-        tracing_result: &CallFrame,
+        tx_hash: TxHash,
     ) -> Result<()> {
         let Some(ref assignments) = step.variable_assignments else {
             return Ok(());
         };
 
         // Handling the return data variable assignments.
+        let callframe = OnceCell::new();
         for (variable_name, output_word) in assignments.return_data.iter().zip(
-            tracing_result
+            callframe
+                .get_or_try_init(|| self.handle_function_call_call_frame_tracing(tx_hash))
+                .await
+                .context("Failed to get the callframe trace for transaction")?
                 .output
                 .as_ref()
                 .unwrap_or_default()
@@ -547,7 +523,6 @@ where
         skip_all,
         fields(
             driver_id = self.driver_id,
-            platform_identifier = %self.platform_information.platform.platform_identifier(),
             %contract_instance,
             %deployer
         ),
@@ -590,7 +565,6 @@ where
     skip_all,
         fields(
             driver_id = self.driver_id,
-            platform_identifier = %self.platform_information.platform.platform_identifier(),
             %contract_instance,
             %deployer
         ),
@@ -764,7 +738,9 @@ where
                 .instrument(info_span!("Polling for receipt"))
             },
         )
+        .instrument(info_span!("Polling for receipt", %transaction_hash))
         .await
+        .inspect(|_| info!("Found the transaction receipt"))
     }
     // endregion:Transaction Execution
 }

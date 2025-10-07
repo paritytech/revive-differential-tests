@@ -10,7 +10,7 @@ use alloy::{
 };
 use anyhow::{Context, Result};
 use revive_dt_common::futures::{PollingWaitBehavior, poll};
-use tracing::debug;
+use tracing::{Instrument, debug, info, info_span};
 
 use crate::provider_utils::{ConcurrencyLimiterLayer, FallbackGasFiller};
 
@@ -44,7 +44,7 @@ where
     // requests at any point of time and no more than that. This is done in an effort to stabilize
     // the framework from some of the interment issues that we've been seeing related to RPC calls.
     static GLOBAL_CONCURRENCY_LIMITER_LAYER: LazyLock<ConcurrencyLimiterLayer> =
-        LazyLock::new(|| ConcurrencyLimiterLayer::new(10));
+        LazyLock::new(|| ConcurrencyLimiterLayer::new(500));
 
     let client = ClientBuilder::default()
         .layer(GLOBAL_CONCURRENCY_LIMITER_LAYER.clone())
@@ -117,12 +117,16 @@ where
 
             async move {
                 match provider.get_transaction_receipt(tx_hash).await {
-                    Ok(Some(receipt)) => Ok(ControlFlow::Break(receipt)),
+                    Ok(Some(receipt)) => {
+                        info!("Found the transaction receipt");
+                        Ok(ControlFlow::Break(receipt))
+                    }
                     _ => Ok(ControlFlow::Continue(())),
                 }
             }
         },
     )
+    .instrument(info_span!("Polling for receipt", %tx_hash))
     .await
     .context(format!("Polling for receipt failed for {tx_hash}"))
 }

@@ -118,8 +118,9 @@ impl Watcher {
                     }
 
                     info!(
-                        remaining_transactions = watch_for_transaction_hashes.read().await.len(),
+                        block_number = block.block_number,
                         block_tx_count = block.transaction_hashes.len(),
+                        remaining_transactions = watch_for_transaction_hashes.read().await.len(),
                         "Observed a block"
                     );
 
