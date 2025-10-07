@@ -73,16 +73,19 @@ use crate::{
     constants::INITIAL_BALANCE,
     helpers::{Process, ProcessReadinessWaitBehavior},
     node_implementations::substrate::ReviveNetwork,
-    provider_utils::{ConcreteProvider, FallbackGasFiller, construct_concurrency_limited_provider},
+    provider_utils::{
+        ConcreteProvider, FallbackGasFiller, construct_concurrency_limited_provider,
+        execute_transaction,
+    },
 };
 
 static NODE_COUNT: AtomicU32 = AtomicU32::new(0);
 
-/// A Zombienet network where collator is `polkadot-parachain` node with `eth-rpc`
-/// [`ZombieNode`] abstracts away the details of managing the zombienet network and provides
-/// an interface to interact with the parachain's Ethereum RPC.
+/// A Zombienet network where collator is `polkadot-parachain` node with `eth-rpc` [`ZombieNode`]
+/// abstracts away the details of managing the zombienet network and provides an interface to
+/// interact with the parachain's Ethereum RPC.
 #[derive(Debug, Default)]
-pub struct ZombieNode {
+pub struct ZombienetNode {
     /* Node Identifier */
     id: u32,
     connection_string: String,
@@ -110,7 +113,7 @@ pub struct ZombieNode {
     provider: OnceCell<ConcreteProvider<ReviveNetwork, Arc<EthereumWallet>>>,
 }
 
-impl ZombieNode {
+impl ZombienetNode {
     const BASE_DIRECTORY: &str = "zombienet";
     const DATA_DIRECTORY: &str = "data";
     const LOGS_DIRECTORY: &str = "logs";
@@ -177,25 +180,30 @@ impl ZombieNode {
         let node_rpc_port = Self::NODE_BASE_RPC_PORT + self.id as u16;
 
         let network_config = NetworkConfigBuilder::new()
-            .with_relaychain(|r| {
-                r.with_chain("westend-local")
+            .with_relaychain(|relay_chain| {
+                relay_chain
+                    .with_chain("westend-local")
                     .with_default_command("polkadot")
                     .with_node(|node| node.with_name("alice"))
                     .with_node(|node| node.with_name("bob"))
             })
-            .with_global_settings(|g| g.with_base_dir(&self.base_directory))
-            .with_parachain(|p| {
-                p.with_id(Self::PARACHAIN_ID)
+            .with_global_settings(|global_settings| {
+                global_settings.with_base_dir(&self.base_directory)
+            })
+            .with_parachain(|parachain| {
+                parachain
+                    .with_id(Self::PARACHAIN_ID)
                     .with_chain_spec_path(template_chainspec_path.to_str().unwrap())
                     .with_chain("asset-hub-westend-local")
-                    .with_collator(|n| {
-                        n.with_name("Collator")
+                    .with_collator(|node_config| {
+                        node_config
+                            .with_name("Collator")
                             .with_command(polkadot_parachain_path)
                             .with_rpc_port(node_rpc_port)
                     })
             })
             .build()
-            .map_err(|e| anyhow::anyhow!("Failed to build zombienet network config: {e:?}"))?;
+            .map_err(|err| anyhow::anyhow!("Failed to build zombienet network config: {err:?}"))?;
 
         self.node_rpc_port = Some(node_rpc_port);
         self.network_config = Some(network_config);
@@ -209,6 +217,9 @@ impl ZombieNode {
             .clone()
             .context("Node not initialized, call init() first")?;
 
+        // TODO: Look into the possibility of removing this in the future, perhaps by reintroducing
+        // the blocking runtime abstraction and making it available to the entire program so that we
+        // don't need to be spawning multiple different runtimes.
         let rt = tokio::runtime::Runtime::new().unwrap();
         let network = rt.block_on(async {
             network_config
@@ -271,12 +282,13 @@ impl ZombieNode {
         template_chainspec_path: PathBuf,
         mut genesis: Genesis,
     ) -> anyhow::Result<()> {
-        let mut cmd: Command = std::process::Command::new(&self.polkadot_parachain_path);
-        cmd.arg(Self::EXPORT_CHAINSPEC_COMMAND)
+        let output = Command::new(self.polkadot_parachain_path.as_path())
+            .arg(Self::EXPORT_CHAINSPEC_COMMAND)
             .arg("--chain")
-            .arg("asset-hub-westend-local");
-
-        let output = cmd.output().context("Failed to export the chain-spec")?;
+            .arg("asset-hub-westend-local")
+            .env_remove("RUST_LOG")
+            .output()
+            .context("Failed to export the chainspec of the chain")?;
 
         if !output.status.success() {
             anyhow::bail!(
@@ -384,7 +396,7 @@ impl ZombieNode {
             .get_or_try_init(|| async move {
                 construct_concurrency_limited_provider::<ReviveNetwork, _>(
                     self.connection_string.as_str(),
-                    FallbackGasFiller::new(250_000_000, 5_000_000_000, 1_000_000_000),
+                    FallbackGasFiller::new(u64::MAX, 5_000_000_000, 1_000_000_000),
                     ChainIdFiller::default(), // TODO: use CHAIN_ID constant
                     NonceFiller::new(self.nonce_manager.clone()),
                     self.wallet.clone(),
@@ -397,7 +409,7 @@ impl ZombieNode {
     }
 }
 
-impl EthereumNode for ZombieNode {
+impl EthereumNode for ZombienetNode {
     fn pre_transactions(&mut self) -> Pin<Box<dyn Future<Output = anyhow::Result<()>> + '_>> {
         Box::pin(async move { Ok(()) })
     }
@@ -447,17 +459,11 @@ impl EthereumNode for ZombieNode {
         transaction: alloy::rpc::types::TransactionRequest,
     ) -> Pin<Box<dyn Future<Output = anyhow::Result<TransactionReceipt>> + '_>> {
         Box::pin(async move {
-            let receipt = self
+            let provider = self
                 .provider()
                 .await
-                .context("Failed to create provider for transaction submission")?
-                .send_transaction(transaction)
-                .await
-                .context("Failed to submit transaction to proxy")?
-                .get_receipt()
-                .await
-                .context("Failed to fetch transaction receipt from proxy")?;
-            Ok(receipt)
+                .context("Failed to create the provider")?;
+            execute_transaction(provider, transaction).await
         })
     }
 
@@ -716,7 +722,7 @@ impl<F: TxFiller<ReviveNetwork>, P: Provider<ReviveNetwork>> ResolverApi
     }
 }
 
-impl Node for ZombieNode {
+impl Node for ZombienetNode {
     fn shutdown(&mut self) -> anyhow::Result<()> {
         // Kill the eth_rpc process
         drop(self.eth_rpc_process.take());
@@ -761,7 +767,7 @@ impl Node for ZombieNode {
     }
 }
 
-impl Drop for ZombieNode {
+impl Drop for ZombienetNode {
     fn drop(&mut self) {
         let _ = self.shutdown();
     }
@@ -785,9 +791,9 @@ mod tests {
             TestExecutionContext::default()
         }
 
-        pub async fn new_node() -> (TestExecutionContext, ZombieNode) {
+        pub async fn new_node() -> (TestExecutionContext, ZombienetNode) {
             let context = test_config();
-            let mut node = ZombieNode::new(
+            let mut node = ZombienetNode::new(
                 context.polkadot_parachain_configuration.path.clone(),
                 &context,
             );
@@ -805,8 +811,9 @@ mod tests {
             (context, node)
         }
 
-        pub async fn shared_state() -> &'static (TestExecutionContext, Arc<ZombieNode>) {
-            static NODE: OnceCell<(TestExecutionContext, Arc<ZombieNode>)> = OnceCell::const_new();
+        pub async fn shared_state() -> &'static (TestExecutionContext, Arc<ZombienetNode>) {
+            static NODE: OnceCell<(TestExecutionContext, Arc<ZombienetNode>)> =
+                OnceCell::const_new();
 
             NODE.get_or_init(|| async {
                 let (context, node) = new_node().await;
@@ -815,7 +822,7 @@ mod tests {
             .await
         }
 
-        pub async fn shared_node() -> &'static Arc<ZombieNode> {
+        pub async fn shared_node() -> &'static Arc<ZombienetNode> {
             &shared_state().await.1
         }
     }
@@ -855,7 +862,7 @@ mod tests {
         "#;
 
         let context = test_config();
-        let mut node = ZombieNode::new(
+        let mut node = ZombienetNode::new(
             context.polkadot_parachain_configuration.path.clone(),
             &context,
         );
@@ -865,17 +872,19 @@ mod tests {
             .expect("init failed");
 
         // Check that the patched chainspec file was generated
-        let final_chainspec_path = node.base_directory.join(ZombieNode::CHAIN_SPEC_JSON_FILE);
+        let final_chainspec_path = node
+            .base_directory
+            .join(ZombienetNode::CHAIN_SPEC_JSON_FILE);
         assert!(final_chainspec_path.exists(), "Chainspec file should exist");
 
         let contents =
             std::fs::read_to_string(&final_chainspec_path).expect("Failed to read chainspec");
 
         // Validate that the Polkadot addresses derived from the Ethereum addresses are in the file
-        let first_eth_addr = ZombieNode::eth_to_polkadot_address(
+        let first_eth_addr = ZombienetNode::eth_to_polkadot_address(
             &"90F8bf6A479f320ead074411a4B0e7944Ea8c9C1".parse().unwrap(),
         );
-        let second_eth_addr = ZombieNode::eth_to_polkadot_address(
+        let second_eth_addr = ZombienetNode::eth_to_polkadot_address(
             &"Ab8483F64d9C6d1EcF9b849Ae677dD3315835cb2".parse().unwrap(),
         );
 
@@ -903,7 +912,7 @@ mod tests {
         "#;
 
         let context = test_config();
-        let node = ZombieNode::new(
+        let node = ZombienetNode::new(
             context.polkadot_parachain_configuration.path.clone(),
             &context,
         );
@@ -939,7 +948,7 @@ mod tests {
         ];
 
         for eth_addr in eth_addresses {
-            let ss58 = ZombieNode::eth_to_polkadot_address(&eth_addr.parse().unwrap());
+            let ss58 = ZombienetNode::eth_to_polkadot_address(&eth_addr.parse().unwrap());
 
             println!("Ethereum: {eth_addr} -> Polkadot SS58: {ss58}");
         }
@@ -967,7 +976,7 @@ mod tests {
         ];
 
         for (eth_addr, expected_ss58) in cases {
-            let result = ZombieNode::eth_to_polkadot_address(&eth_addr.parse().unwrap());
+            let result = ZombienetNode::eth_to_polkadot_address(&eth_addr.parse().unwrap());
             assert_eq!(
                 result, expected_ss58,
                 "Mismatch for Ethereum address {eth_addr}"
@@ -979,7 +988,7 @@ mod tests {
     fn eth_rpc_version_works() {
         // Arrange
         let context = test_config();
-        let node = ZombieNode::new(
+        let node = ZombienetNode::new(
             context.polkadot_parachain_configuration.path.clone(),
             &context,
         );
@@ -998,7 +1007,7 @@ mod tests {
     fn version_works() {
         // Arrange
         let context = test_config();
-        let node = ZombieNode::new(
+        let node = ZombienetNode::new(
             context.polkadot_parachain_configuration.path.clone(),
             &context,
         );

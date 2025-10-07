@@ -16,7 +16,7 @@ use revive_dt_config::*;
 use revive_dt_node::{
     Node, node_implementations::geth::GethNode,
     node_implementations::lighthouse_geth::LighthouseGethNode,
-    node_implementations::substrate::SubstrateNode, node_implementations::zombienet::ZombieNode,
+    node_implementations::substrate::SubstrateNode, node_implementations::zombienet::ZombienetNode,
 };
 use revive_dt_node_interaction::EthereumNode;
 use tracing::info;
@@ -389,7 +389,7 @@ impl Platform for ZombienetPolkavmResolcPlatform {
             .clone();
         let genesis = genesis_configuration.genesis()?.clone();
         Ok(thread::spawn(move || {
-            let node = ZombieNode::new(polkadot_parachain_path, context);
+            let node = ZombienetNode::new(polkadot_parachain_path, context);
             let node = spawn_node(node, genesis)?;
             Ok(Box::new(node) as Box<_>)
         }))
@@ -401,7 +401,7 @@ impl Platform for ZombienetPolkavmResolcPlatform {
         version: Option<VersionOrRequirement>,
     ) -> Pin<Box<dyn Future<Output = anyhow::Result<Box<dyn SolidityCompiler>>>>> {
         Box::pin(async move {
-            let compiler = Solc::new(context, version).await;
+            let compiler = Resolc::new(context, version).await;
             compiler.map(|compiler| Box::new(compiler) as Box<dyn SolidityCompiler>)
         })
     }
@@ -437,7 +437,7 @@ impl Platform for ZombienetRevmSolcPlatform {
             .clone();
         let genesis = genesis_configuration.genesis()?.clone();
         Ok(thread::spawn(move || {
-            let node = ZombieNode::new(polkadot_parachain_path, context);
+            let node = ZombienetNode::new(polkadot_parachain_path, context);
             let node = spawn_node(node, genesis)?;
             Ok(Box::new(node) as Box<_>)
         }))
