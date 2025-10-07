@@ -541,6 +541,23 @@ impl EthereumNode for SubstrateNode {
                 as Pin<Box<dyn Stream<Item = MinedBlockInformation>>>)
         })
     }
+
+    fn new_existing() -> Self {
+        Self {
+            id: 0,
+            node_binary: PathBuf::new(),
+            eth_proxy_binary: PathBuf::new(),
+            export_chainspec_command: String::new(),
+            rpc_url: "http://localhost:8545".to_string(),
+            base_directory: PathBuf::new(),
+            logs_directory: PathBuf::new(),
+            substrate_process: None,
+            eth_proxy_process: None,
+            wallet: Arc::new(EthereumWallet::default()),
+            nonce_manager: Default::default(),
+            provider: Default::default(),
+        }
+    }
 }
 
 pub struct SubstrateNodeResolver {

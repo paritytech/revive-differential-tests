@@ -10,7 +10,7 @@ use std::{
 use anyhow::Context as _;
 use futures::{FutureExt, StreamExt};
 use revive_dt_common::types::PrivateKeyAllocator;
-use revive_dt_core::Platform;
+use crate::Platform;
 use tokio::sync::{Mutex, RwLock, Semaphore};
 use tracing::{Instrument, error, info, info_span, instrument};
 

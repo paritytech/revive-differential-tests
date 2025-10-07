@@ -1,0 +1,34 @@
+[package]
+name = "ml-test-runner"
+description = "ML-based test runner for executing differential tests file by file"
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+edition.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "ml-test-runner"
+path = "src/main.rs"
+
+[dependencies]
+revive-dt-common = { workspace = true }
+revive-dt-compiler = { workspace = true }
+revive-dt-config = { workspace = true }
+revive-dt-core = { workspace = true }
+revive-dt-format = { workspace = true }
+revive-dt-node = { workspace = true }
+revive-dt-node-interaction = { workspace = true }
+revive-dt-report = { workspace = true }
+
+alloy = { workspace = true }
+anyhow = { workspace = true }
+clap = { workspace = true }
+tokio = { workspace = true }
+temp-dir = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+[lints]
+workspace = true

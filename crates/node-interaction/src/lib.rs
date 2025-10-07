@@ -74,6 +74,14 @@ pub trait EthereumNode {
                 + '_,
         >,
     >;
+
+    /// Creates a node instance from an existing running node.
+    fn new_existing() -> Self
+    where
+        Self: Sized,
+    {
+        panic!("new_existing is not implemented for this node type")
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]

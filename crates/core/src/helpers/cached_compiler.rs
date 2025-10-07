@@ -11,7 +11,7 @@ use std::{
 use futures::FutureExt;
 use revive_dt_common::{iterators::FilesWithExtensionIterator, types::CompilerIdentifier};
 use revive_dt_compiler::{Compiler, CompilerOutput, Mode, SolidityCompiler};
-use revive_dt_core::Platform;
+use crate::Platform;
 use revive_dt_format::metadata::{ContractIdent, ContractInstance, Metadata};
 
 use alloy::{hex::ToHexExt, json_abi::JsonAbi, primitives::Address};

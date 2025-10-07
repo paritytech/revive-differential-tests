@@ -542,6 +542,22 @@ impl EthereumNode for GethNode {
                 as Pin<Box<dyn Stream<Item = MinedBlockInformation>>>)
         })
     }
+
+    fn new_existing() -> Self {
+        Self {
+            connection_string: "http://localhost:8545".to_string(),
+            base_directory: PathBuf::new(),
+            data_directory: PathBuf::new(),
+            logs_directory: PathBuf::new(),
+            geth: PathBuf::new(),
+            id: 0,
+            handle: None,
+            start_timeout: Duration::from_secs(0),
+            wallet: Arc::new(EthereumWallet::default()),
+            nonce_manager: Default::default(),
+            provider: Default::default(),
+        }
+    }
 }
 
 pub struct GethNodeResolver {
