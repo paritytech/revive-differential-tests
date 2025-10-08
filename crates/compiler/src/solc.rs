@@ -56,7 +56,9 @@ impl Solc {
         // resolution for us. Therefore, even if the download didn't proceed, this function will
         // resolve the version requirement into a canonical version of the compiler. It's then up
         // to us to either use the provided path or not.
-        let version = version.into().unwrap_or_else(|| solc_configuration.version.clone().into());
+        let version = version
+            .into()
+            .unwrap_or_else(|| solc_configuration.version.clone().into());
         let (version, path) =
             download_solc(working_directory_configuration.as_path(), version, false)
                 .await
@@ -250,7 +252,10 @@ impl SolidityCompiler for Solc {
                 let map = compiler_output
                     .contracts
                     .entry(contract_path.canonicalize().with_context(|| {
-                        format!("Failed to canonicalize contract path {}", contract_path.display())
+                        format!(
+                            "Failed to canonicalize contract path {}",
+                            contract_path.display()
+                        )
                     })?)
                     .or_default();
                 for (contract_name, contract_info) in contracts.into_iter() {

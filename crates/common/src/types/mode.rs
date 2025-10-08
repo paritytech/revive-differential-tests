@@ -76,7 +76,9 @@ impl FromStr for ModePipeline {
             // Don't go via Yul IR
             "E" => Ok(ModePipeline::ViaEVMAssembly),
             // Anything else that we see isn't a mode at all
-            _ => Err(anyhow::anyhow!("Unsupported pipeline '{s}': expected 'Y' or 'E'")),
+            _ => Err(anyhow::anyhow!(
+                "Unsupported pipeline '{s}': expected 'Y' or 'E'"
+            )),
         }
     }
 }

@@ -66,68 +66,72 @@ pub async fn create_test_definitions_stream<'a>(
             // Inform the reporter of each one of the test cases that were discovered which we expect to
             // run.
             .inspect(|(_, _, _, _, reporter)| {
-                reporter.report_test_case_discovery_event().expect("Can't fail");
+                reporter
+                    .report_test_case_discovery_event()
+                    .expect("Can't fail");
             }),
     )
     // Creating the Test Definition objects from all of the various objects we have and creating
     // their required dependencies (e.g., compiler).
-    .filter_map(move |(metadata_file, case_idx, case, mode, reporter)| async move {
-        let mut platforms = BTreeMap::new();
-        for (platform, node_pool) in platforms_and_nodes.values() {
-            let node = node_pool.round_robbin();
-            let compiler = platform
-                .new_compiler(context.clone(), mode.version.clone().map(Into::into))
-                .await
-                .inspect_err(|err| {
-                    error!(
-                        ?err,
-                        platform_identifier = %platform.platform_identifier(),
-                        "Failed to instantiate the compiler"
+    .filter_map(
+        move |(metadata_file, case_idx, case, mode, reporter)| async move {
+            let mut platforms = BTreeMap::new();
+            for (platform, node_pool) in platforms_and_nodes.values() {
+                let node = node_pool.round_robbin();
+                let compiler = platform
+                    .new_compiler(context.clone(), mode.version.clone().map(Into::into))
+                    .await
+                    .inspect_err(|err| {
+                        error!(
+                            ?err,
+                            platform_identifier = %platform.platform_identifier(),
+                            "Failed to instantiate the compiler"
+                        )
+                    })
+                    .ok()?;
+
+                reporter
+                    .report_node_assigned_event(
+                        node.id(),
+                        platform.platform_identifier(),
+                        node.connection_string(),
                     )
-                })
-                .ok()?;
+                    .expect("Can't fail");
 
-            reporter
-                .report_node_assigned_event(
-                    node.id(),
+                let reporter =
+                    reporter.execution_specific_reporter(node.id(), platform.platform_identifier());
+
+                platforms.insert(
                     platform.platform_identifier(),
-                    node.connection_string(),
-                )
-                .expect("Can't fail");
+                    TestPlatformInformation {
+                        platform: *platform,
+                        node,
+                        compiler,
+                        reporter,
+                    },
+                );
+            }
 
-            let reporter =
-                reporter.execution_specific_reporter(node.id(), platform.platform_identifier());
+            Some(TestDefinition {
+                /* Metadata file information */
+                metadata: metadata_file,
+                metadata_file_path: metadata_file.metadata_file_path.as_path(),
 
-            platforms.insert(
-                platform.platform_identifier(),
-                TestPlatformInformation {
-                    platform: *platform,
-                    node,
-                    compiler,
-                    reporter,
-                },
-            );
-        }
+                /* Mode Information */
+                mode: mode.clone(),
 
-        Some(TestDefinition {
-            /* Metadata file information */
-            metadata: metadata_file,
-            metadata_file_path: metadata_file.metadata_file_path.as_path(),
+                /* Case Information */
+                case_idx: CaseIdx::new(case_idx),
+                case,
 
-            /* Mode Information */
-            mode: mode.clone(),
+                /* Platform and Node Assignment Information */
+                platforms,
 
-            /* Case Information */
-            case_idx: CaseIdx::new(case_idx),
-            case,
-
-            /* Platform and Node Assignment Information */
-            platforms,
-
-            /* Reporter */
-            reporter,
-        })
-    })
+                /* Reporter */
+                reporter,
+            })
+        },
+    )
     // Filter out the test cases which are incompatible or that can't run in the current setup.
     .filter_map(move |test| async move {
         match test.check_compatibility() {
@@ -270,7 +274,10 @@ impl<'a> TestDefinition<'a> {
         if is_allowed {
             Ok(())
         } else {
-            Err(("EVM version is incompatible for the platforms specified", error_map))
+            Err((
+                "EVM version is incompatible for the platforms specified",
+                error_map,
+            ))
         }
     }
 

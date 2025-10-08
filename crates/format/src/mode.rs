@@ -93,11 +93,7 @@ impl Display for ParsedMode {
         if let Some(pipeline) = self.pipeline {
             pipeline.fmt(f)?;
             if let Some(optimize_flag) = self.optimize_flag {
-                f.write_str(if optimize_flag {
-                    "+"
-                } else {
-                    "-"
-                })?;
+                f.write_str(if optimize_flag { "+" } else { "-" })?;
             }
             has_written = true;
         }
@@ -161,11 +157,13 @@ impl ParsedMode {
         );
 
         pipeline_iter.flat_map(move |pipeline| {
-            optimize_settings_iter.clone().map(move |optimize_setting| Mode {
-                pipeline,
-                optimize_setting,
-                version: self.version.clone(),
-            })
+            optimize_settings_iter
+                .clone()
+                .map(move |optimize_setting| Mode {
+                    pipeline,
+                    optimize_setting,
+                    version: self.version.clone(),
+                })
         })
     }
 
@@ -237,7 +235,10 @@ mod tests {
             ("Y+", vec!["Y M3"]),
             ("Y-", vec!["Y M0"]),
             ("Y <=0.8", vec!["Y M0 <=0.8", "Y M3 <=0.8"]),
-            ("<=0.8", vec!["Y M0 <=0.8", "Y M3 <=0.8", "E M0 <=0.8", "E M3 <=0.8"]),
+            (
+                "<=0.8",
+                vec!["Y M0 <=0.8", "Y M3 <=0.8", "E M0 <=0.8", "E M3 <=0.8"],
+            ),
         ];
 
         for (actual, expected) in strings {

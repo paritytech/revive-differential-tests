@@ -44,8 +44,12 @@ pub async fn handle_differential_benchmarks(
     info!(len = metadata_files.len(), "Discovered metadata files");
 
     // Discover the list of platforms that the tests should run on based on the context.
-    let platforms =
-        context.platforms.iter().copied().map(Into::<&dyn Platform>::into).collect::<Vec<_>>();
+    let platforms = context
+        .platforms
+        .iter()
+        .copied()
+        .map(Into::<&dyn Platform>::into)
+        .collect::<Vec<_>>();
 
     // Starting the nodes of the various platforms specified in the context. Note that we use the
     // node pool since it contains all of the code needed to spawn nodes from A to Z and therefore
@@ -92,8 +96,13 @@ pub async fn handle_differential_benchmarks(
     // Creating the objects that will be shared between the various runs. The cached compiler is the
     // only one at the current moment of time that's safe to share between runs.
     let cached_compiler = CachedCompiler::new(
-        context.working_directory.as_path().join("compilation_cache"),
-        context.compilation_configuration.invalidate_compilation_cache,
+        context
+            .working_directory
+            .as_path()
+            .join("compilation_cache"),
+        context
+            .compilation_configuration
+            .invalidate_compilation_cache,
     )
     .await
     .map(Arc::new)
@@ -152,7 +161,9 @@ pub async fn handle_differential_benchmarks(
                 watcher.run(),
                 driver.execute_all().inspect(|_| {
                     info!("All transactions submitted - driver completed execution");
-                    watcher_tx.send(WatcherEvent::AllTransactionsSubmitted).unwrap()
+                    watcher_tx
+                        .send(WatcherEvent::AllTransactionsSubmitted)
+                        .unwrap()
                 }),
             )
             .await

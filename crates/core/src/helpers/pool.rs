@@ -37,8 +37,10 @@ impl NodePool {
             );
         }
 
-        let pre_transactions_tasks =
-            nodes.iter_mut().map(|node| node.pre_transactions()).collect::<Vec<_>>();
+        let pre_transactions_tasks = nodes
+            .iter_mut()
+            .map(|node| node.pre_transactions())
+            .collect::<Vec<_>>();
         futures::future::try_join_all(pre_transactions_tasks)
             .await
             .context("Failed to run the pre-transactions task")?;

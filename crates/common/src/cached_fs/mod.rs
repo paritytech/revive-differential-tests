@@ -27,7 +27,10 @@ pub fn read(path: impl AsRef<Path>) -> Result<Vec<u8>> {
 pub fn read_to_string(path: impl AsRef<Path>) -> Result<String> {
     let content = read(path)?;
     String::from_utf8(content).map_err(|_| {
-        Error::new(std::io::ErrorKind::InvalidData, "The contents of the file are not valid UTF8")
+        Error::new(
+            std::io::ErrorKind::InvalidData,
+            "The contents of the file are not valid UTF8",
+        )
     })
 }
 

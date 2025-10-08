@@ -206,7 +206,9 @@ where
                 "Deployed library"
             );
 
-            let library_address = receipt.contract_address.expect("Failed to deploy the library");
+            let library_address = receipt
+                .contract_address
+                .expect("Failed to deploy the library");
 
             deployed_libraries.get_or_insert_default().insert(
                 library_instance.clone(),
@@ -234,8 +236,10 @@ where
             })
             .context("Failed to compile the post-link contracts")?;
 
-        self.execution_state =
-            ExecutionState::new(compiler_output.contracts, deployed_libraries.unwrap_or_default());
+        self.execution_state = ExecutionState::new(
+            compiler_output.contracts,
+            deployed_libraries.unwrap_or_default(),
+        );
 
         Ok(())
     }
@@ -321,7 +325,11 @@ where
     ) -> Result<HashMap<ContractInstance, TransactionReceipt>> {
         let mut instances_we_must_deploy = IndexMap::<ContractInstance, bool>::new();
         for instance in step.find_all_contract_instances().into_iter() {
-            if !self.execution_state.deployed_contracts.contains_key(&instance) {
+            if !self
+                .execution_state
+                .deployed_contracts
+                .contains_key(&instance)
+            {
                 instances_we_must_deploy.entry(instance).or_insert(false);
             }
         }
@@ -333,11 +341,15 @@ where
         let mut receipts = HashMap::new();
         for (instance, deploy_with_constructor_arguments) in instances_we_must_deploy.into_iter() {
             let calldata = deploy_with_constructor_arguments.then_some(&step.calldata);
-            let value = deploy_with_constructor_arguments.then_some(step.value).flatten();
+            let value = deploy_with_constructor_arguments
+                .then_some(step.value)
+                .flatten();
 
             let caller = {
                 let context = self.default_resolution_context();
-                step.caller.resolve_address(self.resolver.as_ref(), context).await?
+                step.caller
+                    .resolve_address(self.resolver.as_ref(), context)
+                    .await?
             };
             if let (_, _, Some(receipt)) = self
                 .get_or_deploy_contract_instance(&instance, caller, calldata, value)
@@ -412,13 +424,18 @@ where
         };
 
         // Handling the return data variable assignments.
-        for (variable_name, output_word) in assignments
-            .return_data
-            .iter()
-            .zip(tracing_result.output.as_ref().unwrap_or_default().to_vec().chunks(32))
-        {
+        for (variable_name, output_word) in assignments.return_data.iter().zip(
+            tracing_result
+                .output
+                .as_ref()
+                .unwrap_or_default()
+                .to_vec()
+                .chunks(32),
+        ) {
             let value = U256::from_be_slice(output_word);
-            self.execution_state.variables.insert(variable_name.clone(), value);
+            self.execution_state
+                .variables
+                .insert(variable_name.clone(), value);
             tracing::info!(
                 variable_name,
                 variable_value = hex::encode(value.to_be_bytes::<32>()),
@@ -491,8 +508,9 @@ where
             })
             .context("Failed to send message on the watcher's tx")?;
 
-        let res =
-            futures::future::try_join_all(tasks).await.context("Repetition execution failed")?;
+        let res = futures::future::try_join_all(tasks)
+            .await
+            .context("Repetition execution failed")?;
         Ok(res.into_iter().sum())
     }
 
@@ -515,7 +533,9 @@ where
         let account = private_key.address();
         let variable = U256::from_be_slice(account.0.as_slice());
 
-        self.execution_state.variables.insert(variable_name.to_string(), variable);
+        self.execution_state
+            .variables
+            .insert(variable_name.to_string(), variable);
 
         Ok(1)
     }
@@ -540,8 +560,10 @@ where
         calldata: Option<&Calldata>,
         value: Option<EtherValue>,
     ) -> Result<(Address, JsonAbi, Option<TransactionReceipt>)> {
-        if let Some((_, address, abi)) =
-            self.execution_state.deployed_contracts.get(contract_instance)
+        if let Some((_, address, abi)) = self
+            .execution_state
+            .deployed_contracts
+            .get(contract_instance)
         {
             info!(
 
@@ -584,9 +606,16 @@ where
         let Some(ContractPathAndIdent {
             contract_source_path,
             contract_ident,
-        }) = self.test_definition.metadata.contract_sources()?.remove(contract_instance)
+        }) = self
+            .test_definition
+            .metadata
+            .contract_sources()?
+            .remove(contract_instance)
         else {
-            anyhow::bail!("Contract source not found for instance {:?}", contract_instance)
+            anyhow::bail!(
+                "Contract source not found for instance {:?}",
+                contract_instance
+            )
         };
 
         let Some((code, abi)) = self
@@ -596,7 +625,10 @@ where
             .and_then(|source_file_contracts| source_file_contracts.get(contract_ident.as_ref()))
             .cloned()
         else {
-            anyhow::bail!("Failed to find information for contract {:?}", contract_instance)
+            anyhow::bail!(
+                "Failed to find information for contract {:?}",
+                contract_instance
+            )
         };
 
         let mut code = match alloy::hex::decode(&code) {
@@ -648,9 +680,10 @@ where
             .reporter
             .report_contract_deployed_event(contract_instance.clone(), address)?;
 
-        self.execution_state
-            .deployed_contracts
-            .insert(contract_instance.clone(), (contract_ident, address, abi.clone()));
+        self.execution_state.deployed_contracts.insert(
+            contract_instance.clone(),
+            (contract_ident, address, abi.clone()),
+        );
 
         Ok((address, abi, receipt))
     }
@@ -663,7 +696,9 @@ where
         match step_address {
             StepAddress::Address(address) => Ok(*address),
             StepAddress::ResolvableAddress(resolvable) => {
-                let Some(instance) = resolvable.strip_suffix(".address").map(ContractInstance::new)
+                let Some(instance) = resolvable
+                    .strip_suffix(".address")
+                    .map(ContractInstance::new)
                 else {
                     bail!("Not an address variable");
                 };
@@ -701,15 +736,15 @@ where
         transaction: TransactionRequest,
     ) -> anyhow::Result<TransactionReceipt> {
         let node = self.platform_information.node;
-        let transaction_hash =
-            node.submit_transaction(transaction).await.context("Failed to submit transaction")?;
+        let transaction_hash = node
+            .submit_transaction(transaction)
+            .await
+            .context("Failed to submit transaction")?;
         Span::current().record("transaction_hash", display(transaction_hash));
 
         info!("Submitted transaction");
         self.watcher_tx
-            .send(WatcherEvent::SubmittedTransaction {
-                transaction_hash,
-            })
+            .send(WatcherEvent::SubmittedTransaction { transaction_hash })
             .context("Failed to send the transaction hash to the watcher")?;
 
         info!("Starting to poll for transaction receipt");

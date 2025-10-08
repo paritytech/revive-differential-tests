@@ -130,7 +130,11 @@ impl SolcDownloader {
             })?;
 
         let path = build.path.clone();
-        let expected_digest = build.sha256.strip_prefix("0x").unwrap_or(&build.sha256).to_string();
+        let expected_digest = build
+            .sha256
+            .strip_prefix("0x")
+            .unwrap_or(&build.sha256)
+            .to_string();
         let url = format!("{}/{}/{}", Self::BASE_URL, self.target, path.display());
 
         let file = reqwest::get(&url)
@@ -155,25 +159,54 @@ mod tests {
 
     #[tokio::test]
     async fn try_get_windows() {
-        let version = List::download(List::WINDOWS_URL).await.unwrap().latest_release;
-        SolcDownloader::windows(version).await.unwrap().download().await.unwrap();
+        let version = List::download(List::WINDOWS_URL)
+            .await
+            .unwrap()
+            .latest_release;
+        SolcDownloader::windows(version)
+            .await
+            .unwrap()
+            .download()
+            .await
+            .unwrap();
     }
 
     #[tokio::test]
     async fn try_get_macosx() {
-        let version = List::download(List::MACOSX_URL).await.unwrap().latest_release;
-        SolcDownloader::macosx(version).await.unwrap().download().await.unwrap();
+        let version = List::download(List::MACOSX_URL)
+            .await
+            .unwrap()
+            .latest_release;
+        SolcDownloader::macosx(version)
+            .await
+            .unwrap()
+            .download()
+            .await
+            .unwrap();
     }
 
     #[tokio::test]
     async fn try_get_linux() {
-        let version = List::download(List::LINUX_URL).await.unwrap().latest_release;
-        SolcDownloader::linux(version).await.unwrap().download().await.unwrap();
+        let version = List::download(List::LINUX_URL)
+            .await
+            .unwrap()
+            .latest_release;
+        SolcDownloader::linux(version)
+            .await
+            .unwrap()
+            .download()
+            .await
+            .unwrap();
     }
 
     #[tokio::test]
     async fn try_get_wasm() {
         let version = List::download(List::WASM_URL).await.unwrap().latest_release;
-        SolcDownloader::wasm(version).await.unwrap().download().await.unwrap();
+        SolcDownloader::wasm(version)
+            .await
+            .unwrap()
+            .download()
+            .await
+            .unwrap();
     }
 }

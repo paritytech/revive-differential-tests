@@ -129,7 +129,10 @@ async fn run(args: MlTestRunnerArgs) -> anyhow::Result<()> {
                 println!("test {} ... {RED}FAILED{COLOUR_RESET}", file_display);
                 println!("    Error loading metadata: {}", e);
                 failed_files += 1;
-                failures.push((file_display.clone(), format!("Error loading metadata: {}", e)));
+                failures.push((
+                    file_display.clone(),
+                    format!("Error loading metadata: {}", e),
+                ));
                 if args.bail {
                     break;
                 }
@@ -229,7 +232,10 @@ fn discover_test_files(path: &Path) -> anyhow::Result<Vec<PathBuf>> {
                     files.push(metadata.metadata_file_path);
                 }
             }
-            _ => anyhow::bail!("Unsupported file extension: {}. Expected .sol or .json", extension),
+            _ => anyhow::bail!(
+                "Unsupported file extension: {}. Expected .sol or .json",
+                extension
+            ),
         }
     } else if path.is_dir() {
         // Walk directory recursively for .sol files
@@ -286,8 +292,9 @@ async fn execute_test_file(
 
     let node: &'static dyn revive_dt_node_interaction::EthereumNode = if args.start_platform {
         info!("Starting blockchain node...");
-        let node_handle =
-            platform.new_node(context.clone()).context("Failed to spawn node thread")?;
+        let node_handle = platform
+            .new_node(context.clone())
+            .context("Failed to spawn node thread")?;
 
         info!("Waiting for node to start...");
         let node = node_handle
@@ -295,12 +302,18 @@ async fn execute_test_file(
             .map_err(|e| anyhow::anyhow!("Node thread panicked: {:?}", e))?
             .context("Failed to start node")?;
 
-        info!("Node started with ID: {}, connection: {}", node.id(), node.connection_string());
+        info!(
+            "Node started with ID: {}, connection: {}",
+            node.id(),
+            node.connection_string()
+        );
 
         // Run pre-transactions on the node
         let node = Box::leak(node); // Leak to get 'static lifetime for simplicity
         info!("Running pre-transactions...");
-        node.pre_transactions().await.context("Failed to run pre-transactions")?;
+        node.pre_transactions()
+            .await
+            .context("Failed to run pre-transactions")?;
         info!("Pre-transactions completed");
 
         node
@@ -325,8 +338,9 @@ async fn execute_test_file(
         .context("Failed to create cached compiler")?;
 
     // Create a private key allocator
-    let private_key_allocator =
-        Arc::new(Mutex::new(PrivateKeyAllocator::new(alloy::primitives::U256::from(100))));
+    let private_key_allocator = Arc::new(Mutex::new(PrivateKeyAllocator::new(
+        alloy::primitives::U256::from(100),
+    )));
 
     // Create reporter infrastructure (minimal, just for the Driver API)
     // Note: We need to keep the report_task alive, otherwise the reporter channel closes
@@ -336,7 +350,10 @@ async fn execute_test_file(
     // Spawn the report task in the background to keep the channel open
     tokio::spawn(report_task);
 
-    info!("Building test definitions for {} case(s)", metadata_file.cases.len());
+    info!(
+        "Building test definitions for {} case(s)",
+        metadata_file.cases.len()
+    );
     // Build all test definitions upfront
     let mut test_definitions = Vec::new();
     for (case_idx, case) in metadata_file.cases.iter().enumerate() {
@@ -385,17 +402,20 @@ async fn execute_test_file(
             test_definition.case.steps.len(),
             test_definition.case_idx
         );
-        let steps_executed = driver
-            .execute_all()
-            .await
-            .context(format!("Failed to execute case {}", test_definition.case_idx))?;
+        let steps_executed = driver.execute_all().await.context(format!(
+            "Failed to execute case {}",
+            test_definition.case_idx
+        ))?;
         info!(
             "✓ Case {} completed successfully, executed {} step(s)",
             test_definition.case_idx, steps_executed
         );
     }
     info!("─────────────────────────────────────────────────────────────────");
-    info!("All {} test case(s) executed successfully", test_definitions.len());
+    info!(
+        "All {} test case(s) executed successfully",
+        test_definitions.len()
+    );
 
     Ok(())
 }

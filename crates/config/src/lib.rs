@@ -626,7 +626,11 @@ pub struct KurtosisConfiguration {
     ///
     /// If this is not specified, then the tool assumes that it should use the kurtosis binary that's
     /// provided in the user's $PATH.
-    #[clap(id = "kurtosis.path", long = "kurtosis.path", default_value = "kurtosis")]
+    #[clap(
+        id = "kurtosis.path",
+        long = "kurtosis.path",
+        default_value = "kurtosis"
+    )]
     pub path: PathBuf,
 }
 
@@ -637,7 +641,11 @@ pub struct KitchensinkConfiguration {
     ///
     /// If this is not specified, then the tool assumes that it should use the kitchensink binary
     /// that's provided in the user's $PATH.
-    #[clap(id = "kitchensink.path", long = "kitchensink.path", default_value = "substrate-node")]
+    #[clap(
+        id = "kitchensink.path",
+        long = "kitchensink.path",
+        default_value = "substrate-node"
+    )]
     pub path: PathBuf,
 
     /// The amount of time to wait upon startup before considering that the node timed out.
@@ -829,7 +837,10 @@ impl ConcurrencyConfiguration {
     pub fn concurrency_limit(&self) -> Option<usize> {
         match self.ignore_concurrency_limit {
             true => None,
-            false => Some(self.number_concurrent_tasks.unwrap_or(20 * self.number_of_nodes)),
+            false => Some(
+                self.number_concurrent_tasks
+                    .unwrap_or(20 * self.number_of_nodes),
+            ),
         }
     }
 }
@@ -920,7 +931,9 @@ impl Serialize for WorkingDirectoryConfiguration {
 }
 
 fn parse_duration(s: &str) -> anyhow::Result<Duration> {
-    u64::from_str(s).map(Duration::from_millis).map_err(Into::into)
+    u64::from_str(s)
+        .map(Duration::from_millis)
+        .map_err(Into::into)
 }
 
 /// The Solidity compatible node implementation.

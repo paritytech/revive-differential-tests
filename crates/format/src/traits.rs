@@ -149,7 +149,8 @@ impl<'a> ResolutionContext<'a> {
         &self,
         instance: &ContractInstance,
     ) -> Option<&(ContractIdent, Address, JsonAbi)> {
-        self.deployed_contracts.and_then(|deployed_contracts| deployed_contracts.get(instance))
+        self.deployed_contracts
+            .and_then(|deployed_contracts| deployed_contracts.get(instance))
     }
 
     pub fn deployed_contract_address(&self, instance: &ContractInstance) -> Option<&Address> {
@@ -161,7 +162,8 @@ impl<'a> ResolutionContext<'a> {
     }
 
     pub fn variable(&self, name: impl AsRef<str>) -> Option<&U256> {
-        self.variables.and_then(|variables| variables.get(name.as_ref()))
+        self.variables
+            .and_then(|variables| variables.get(name.as_ref()))
     }
 
     pub fn tip_block_number(&self) -> Option<&'a BlockNumber> {

@@ -123,8 +123,12 @@ impl ReportAggregator {
             file_name.push_str(".json");
             file_name
         };
-        let file_path =
-            self.report.context.working_directory_configuration().as_path().join(file_name);
+        let file_path = self
+            .report
+            .context
+            .working_directory_configuration()
+            .as_path()
+            .join(file_name);
         let file = OpenOptions::new()
             .create(true)
             .write(true)
@@ -132,7 +136,10 @@ impl ReportAggregator {
             .read(false)
             .open(&file_path)
             .with_context(|| {
-                format!("Failed to open report file for writing: {}", file_path.display())
+                format!(
+                    "Failed to open report file for writing: {}",
+                    file_path.display()
+                )
             })?;
         serde_json::to_writer_pretty(&file, &self.report).with_context(|| {
             format!("Failed to serialize report JSON to {}", file_path.display())
@@ -234,7 +241,10 @@ impl ReportAggregator {
             .or_default()
             .iter()
             .map(|(case_idx, case_report)| {
-                (*case_idx, case_report.status.clone().expect("Can't be uninitialized"))
+                (
+                    *case_idx,
+                    case_report.status.clone().expect("Can't be uninitialized"),
+                )
             })
             .collect::<BTreeMap<_, _>>();
         let event = ReporterEvent::MetadataFileSolcModeCombinationExecutionCompleted {
@@ -266,8 +276,16 @@ impl ReportAggregator {
         &mut self,
         event: PreLinkContractsCompilationSucceededEvent,
     ) {
-        let include_input = self.report.context.report_configuration().include_compiler_input;
-        let include_output = self.report.context.report_configuration().include_compiler_output;
+        let include_input = self
+            .report
+            .context
+            .report_configuration()
+            .include_compiler_input;
+        let include_output = self
+            .report
+            .context
+            .report_configuration()
+            .include_compiler_output;
 
         let execution_information = self.execution_information(&event.execution_specifier);
 
@@ -295,8 +313,16 @@ impl ReportAggregator {
         &mut self,
         event: PostLinkContractsCompilationSucceededEvent,
     ) {
-        let include_input = self.report.context.report_configuration().include_compiler_input;
-        let include_output = self.report.context.report_configuration().include_compiler_output;
+        let include_input = self
+            .report
+            .context
+            .report_configuration()
+            .include_compiler_input;
+        let include_output = self
+            .report
+            .context
+            .report_configuration()
+            .include_compiler_output;
 
         let execution_information = self.execution_information(&event.execution_specifier);
 
@@ -349,8 +375,8 @@ impl ReportAggregator {
     }
 
     fn handle_libraries_deployed_event(&mut self, event: LibrariesDeployedEvent) {
-        self.execution_information(&event.execution_specifier).deployed_libraries =
-            Some(event.libraries);
+        self.execution_information(&event.execution_specifier)
+            .deployed_libraries = Some(event.libraries);
     }
 
     fn handle_contract_deployed_event(&mut self, event: ContractDeployedEvent) {
