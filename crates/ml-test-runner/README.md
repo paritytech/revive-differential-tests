@@ -48,16 +48,6 @@ RUST_LOG=trace ./ml-test-runner path/to/tests/ --start-platform
 - `--platform <PLATFORM>` - Platform to test against (`geth`, `kitchensink`, or `zombienet`, default: `geth`)
 - `--start-platform` - Start the platform and execute tests (default: `false`, compile-only mode)
 
-## Logging
-
-The ml-test-runner uses the `tracing` crate for logging. Set the `RUST_LOG` environment variable to control log output:
-
-- `RUST_LOG=info` - Shows high-level progress (file discovery, node startup, test execution)
-- `RUST_LOG=debug` - Shows detailed execution flow (compilation, driver creation, step execution)
-- `RUST_LOG=trace` - Shows very detailed tracing (mostly from dependencies)
-
-Logs are written to stderr, while test results are written to stdout for easy filtering.
-
 ## Output Format
 
 The runner produces cargo-test-style output:
@@ -74,46 +64,6 @@ Error: ...
 
 test result: FAILED. 1 passed; 1 failed; 1 cached; finished in 2.34s
 ```
-
-## Implementation Status
-
-### ✅ Completed
-- CLI argument parsing with full configuration options
-- File discovery (single file, corpus, recursive directory walk)
-- Cached-passed tracking system
-- Cargo-test-style output formatting
-- Contract compilation with caching
-- Platform node management and spawning
-- Library deployment and linking
-- Full case execution using Driver pattern
-- Test file discovery and metadata loading
-- Pass/fail tracking and caching
-- Output formatting and summary generation
-- Error handling and bail behavior
-- Optional node startup with `--start-platform` flag
-- Compile-only mode (default) for fast validation
-- Full execution mode (with `--start-platform`) for actual testing
-- Tracing/logging support via `RUST_LOG`
-
-### 🚧 TODO
-- Additional optimizations and performance tuning
-- Support for custom working directories
-
-## Implementation Details
-
-The ml-test-runner is a **simplified, single-platform test runner** that shares core components with the main differential testing tool:
-
-- **Compilation**: Uses the shared `CachedCompiler` from `revive-dt-core` that stores compilation artifacts to avoid recompiling
-- **Library Deployment**: Automatically deploys library contracts when needed and links them
-- **Test Execution**: Uses the shared `Driver` from `revive-dt-core::differential_tests` to execute test cases on the configured platform
-- **Node Management**: Optionally spawns and manages blockchain nodes (when `--start-platform` is used)
-- **Single Platform**: Unlike the main tool which does differential testing (comparing multiple platforms), `ml-test-runner` executes against a single platform
-- **Two Modes**:
-  - **Compile-only mode** (default): Fast validation that contracts compile correctly, no node required
-  - **Full execution mode** (`--start-platform`): Spawns a node and executes all test steps with assertions
-- **Tracing**: Full logging support via `tracing` and `tracing-subscriber` crates
-
-The implementation is clean, focused code that reuses battle-tested components from `revive-dt-core`. This ensures consistency while maintaining a lean codebase optimized for ML pipeline integration.
 
 ## Building
 

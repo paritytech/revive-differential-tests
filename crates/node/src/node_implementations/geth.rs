@@ -130,9 +130,26 @@ impl GethNode {
 		}
 	}
 
-	pub fn new_existing() -> Self {
-		let wallet_config = revive_dt_config::WalletConfiguration::default();
-		Self {
+	pub fn new_existing(private_key: &str) -> anyhow::Result<Self> {
+		use alloy::{primitives::FixedBytes, signers::local::PrivateKeySigner};
+
+		let key_str = private_key.trim().strip_prefix("0x").unwrap_or(private_key.trim());
+		let key_bytes = alloy::hex::decode(key_str)
+			.map_err(|e| anyhow::anyhow!("Failed to decode private key hex: {}", e))?;
+
+		if key_bytes.len() != 32 {
+			anyhow::bail!("Private key must be 32 bytes (64 hex characters), got {}", key_bytes.len());
+		}
+
+		let mut bytes = [0u8; 32];
+		bytes.copy_from_slice(&key_bytes);
+
+		let signer = PrivateKeySigner::from_bytes(&FixedBytes(bytes))
+			.map_err(|e| anyhow::anyhow!("Failed to create signer from private key: {}", e))?;
+
+		let wallet = Arc::new(EthereumWallet::new(signer));
+
+		Ok(Self {
 			connection_string: "http://localhost:8545".to_string(),
 			base_directory: PathBuf::new(),
 			data_directory: PathBuf::new(),
@@ -142,10 +159,10 @@ impl GethNode {
 			chain_id: 1337,
 			handle: None,
 			start_timeout: Duration::from_secs(0),
-			wallet: wallet_config.wallet(),
+			wallet,
 			nonce_manager: Default::default(),
 			provider: Default::default(),
-		}
+		})
 	}
 
 	/// Create the node directory and call `geth init` to configure the genesis.

@@ -48,6 +48,10 @@ struct MlTestRunnerArgs {
 	/// Start the platform and wait for RPC readiness
 	#[arg(long = "start-platform", default_value = "false")]
 	start_platform: bool,
+
+	/// Private key to use for wallet initialization (hex string with or without 0x prefix)
+	#[arg(long = "private-key", default_value = "0x4f3edf983ac636a65a842ce7c78d9aa706d3b113bce9c46f30d7d21715b23b1d")]
+	private_key: String,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -308,9 +312,9 @@ async fn execute_test_file(
 		info!("Using existing node");
 		let existing_node: Box<dyn revive_dt_node_interaction::EthereumNode> = match args.platform {
 			TestingPlatform::Geth =>
-				Box::new(revive_dt_node::node_implementations::geth::GethNode::new_existing()),
+				Box::new(revive_dt_node::node_implementations::geth::GethNode::new_existing(&args.private_key)?),
 			TestingPlatform::Kitchensink | TestingPlatform::Zombienet => Box::new(
-				revive_dt_node::node_implementations::substrate::SubstrateNode::new_existing(),
+				revive_dt_node::node_implementations::substrate::SubstrateNode::new_existing(&args.private_key)?,
 			),
 		};
 		Box::leak(existing_node)

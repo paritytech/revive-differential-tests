@@ -777,20 +777,6 @@ impl WalletConfiguration {
 	}
 }
 
-impl Default for WalletConfiguration {
-	fn default() -> Self {
-		let mut config = Self::parse_from::<[&str; 0], &str>([]);
-		config.additional_keys = 0;
-		config
-		// config.default_key = PrivateKeySigner::from_bytes(
-		//     &FixedBytes::from_hex_str(
-		//         "0x4f3edf983ac636a65a842ce7c78d9aa706d3b113bce9c46f30d7d21715b23b1d",
-		//     )
-		//     .unwrap(),
-		// )
-	}
-}
-
 fn serialize_private_key<S>(value: &PrivateKeySigner, serializer: S) -> Result<S::Ok, S::Error>
 where
 	S: Serializer,

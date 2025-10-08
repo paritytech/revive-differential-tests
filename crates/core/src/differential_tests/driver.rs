@@ -846,7 +846,6 @@ where
 			Ok((*address, abi.clone(), None))
 		} else {
 			info!("Contract instance requires deployment.");
-
 			let (address, abi, receipt) = self
 				.deploy_contract(contract_instance, deployer, calldata, value)
 				.await
