@@ -138,7 +138,10 @@ impl GethNode {
 			.map_err(|e| anyhow::anyhow!("Failed to decode private key hex: {}", e))?;
 
 		if key_bytes.len() != 32 {
-			anyhow::bail!("Private key must be 32 bytes (64 hex characters), got {}", key_bytes.len());
+			anyhow::bail!(
+				"Private key must be 32 bytes (64 hex characters), got {}",
+				key_bytes.len()
+			);
 		}
 
 		let mut bytes = [0u8; 32];
@@ -177,13 +180,9 @@ impl GethNode {
 			providers::{Provider, ProviderBuilder},
 		};
 
-		// Create a simple HTTP provider without wallet for balance check
-		let simple_provider =
-			ProviderBuilder::new().connect_http(self.connection_string.parse()?);
-
-		// Check current balance
-		let balance = simple_provider.get_balance(address).await?;
-		let min_balance = parse_ether("1000")?; // 1000 ETH
+		let provider = ProviderBuilder::new().connect_http(self.connection_string.parse()?);
+		let balance = provider.get_balance(address).await?;
+		let min_balance = parse_ether("1000")?;
 
 		if balance >= min_balance {
 			tracing::info!(
@@ -200,20 +199,21 @@ impl GethNode {
 			format_ether(balance)
 		);
 
-		// Need to fund the account - get the node's managed account
-		let accounts = simple_provider.get_accounts().await?;
+		// Get the node's managed account
+		let accounts = provider.get_accounts().await?;
 		if accounts.is_empty() {
 			anyhow::bail!("No managed accounts available on the node to fund wallet");
 		}
 
 		let from_account = accounts[0];
 
-		// Send funding transaction from managed account (unsigned, node will sign)
 		let funding_amount = min_balance - balance;
-		let tx =
-			TransactionRequest::default().from(from_account).to(address).value(funding_amount);
+		let tx = TransactionRequest::default()
+			.from(from_account)
+			.to(address)
+			.value(funding_amount);
 
-		simple_provider
+		provider
 			.send_transaction(tx)
 			.await?
 			.get_receipt()
@@ -221,7 +221,6 @@ impl GethNode {
 			.context("Failed to get receipt for funding transaction")?;
 
 		tracing::info!("Successfully funded wallet {}", address);
-
 		Ok(())
 	}
 

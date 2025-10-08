@@ -50,12 +50,14 @@ struct MlTestRunnerArgs {
 	start_platform: bool,
 
 	/// Private key to use for wallet initialization (hex string with or without 0x prefix)
-	#[arg(long = "private-key", default_value = "0x4f3edf983ac636a65a842ce7c78d9aa706d3b113bce9c46f30d7d21715b23b1d")]
+	#[arg(
+		long = "private-key",
+		default_value = "0x4f3edf983ac636a65a842ce7c78d9aa706d3b113bce9c46f30d7d21715b23b1d"
+	)]
 	private_key: String,
 }
 
 fn main() -> anyhow::Result<()> {
-	// Initialize tracing subscriber
 	let subscriber = FmtSubscriber::builder()
 		.with_env_filter(EnvFilter::from_default_env())
 		.with_writer(std::io::stderr)
@@ -68,7 +70,6 @@ fn main() -> anyhow::Result<()> {
 	info!("Platform: {:?}", args.platform);
 	info!("Start platform: {}", args.start_platform);
 
-	// Run the async body
 	tokio::runtime::Builder::new_multi_thread()
 		.enable_all()
 		.build()
@@ -79,12 +80,10 @@ fn main() -> anyhow::Result<()> {
 async fn run(args: MlTestRunnerArgs) -> anyhow::Result<()> {
 	let start_time = Instant::now();
 
-	// Discover test files
 	info!("Discovering test files from: {}", args.path.display());
 	let test_files = discover_test_files(&args.path)?;
 	info!("Found {} test file(s)", test_files.len());
 
-	// Load cached passed tests if provided
 	let cached_passed = if let Some(cache_file) = &args.cached_passed {
 		let cached = load_cached_passed(cache_file)?;
 		info!("Loaded {} cached passed test(s)", cached.len());
@@ -95,7 +94,6 @@ async fn run(args: MlTestRunnerArgs) -> anyhow::Result<()> {
 
 	let cached_passed = Arc::new(Mutex::new(cached_passed));
 
-	// Statistics
 	let mut passed_files = 0;
 	let mut failed_files = 0;
 	let mut skipped_files = 0;
@@ -108,7 +106,6 @@ async fn run(args: MlTestRunnerArgs) -> anyhow::Result<()> {
 	const BOLD: &str = "\x1B[1m";
 	const BOLD_RESET: &str = "\x1B[22m";
 
-	// Process each file
 	for test_file in test_files {
 		let file_display = test_file.display().to_string();
 
@@ -122,7 +119,6 @@ async fn run(args: MlTestRunnerArgs) -> anyhow::Result<()> {
 			}
 		}
 
-		// Load metadata from file
 		info!("Loading metadata from: {}", test_file.display());
 		let metadata_file = match load_metadata_file(&test_file) {
 			Ok(mf) => {
@@ -141,7 +137,6 @@ async fn run(args: MlTestRunnerArgs) -> anyhow::Result<()> {
 			},
 		};
 
-		// Execute test cases for this file
 		info!("Executing test file: {}", file_display);
 		match execute_test_file(&args, &metadata_file).await {
 			Ok(_) => {
@@ -149,7 +144,6 @@ async fn run(args: MlTestRunnerArgs) -> anyhow::Result<()> {
 				info!("Test file passed: {}", file_display);
 				passed_files += 1;
 
-				// Add to cache
 				{
 					let mut cache = cached_passed.lock().await;
 					cache.insert(file_display);
@@ -157,7 +151,6 @@ async fn run(args: MlTestRunnerArgs) -> anyhow::Result<()> {
 			},
 			Err(e) => {
 				println!("test {} ... {RED}FAILED{COLOUR_RESET}", file_display);
-				info!("Test file failed: {}", file_display);
 				failed_files += 1;
 				failures.push((file_display, format!("{:?}", e)));
 
@@ -169,7 +162,6 @@ async fn run(args: MlTestRunnerArgs) -> anyhow::Result<()> {
 		}
 	}
 
-	// Save cached passed tests
 	if let Some(cache_file) = &args.cached_passed {
 		let cache = cached_passed.lock().await;
 		info!("Saving {} cached passed test(s)", cache.len());
@@ -280,11 +272,9 @@ async fn execute_test_file(
 		TestingPlatform::Zombienet => &revive_dt_core::ZombienetPolkavmResolcPlatform,
 	};
 
-	// Create temporary working directory
 	let temp_dir = TempDir::new()?;
 	info!("Created temporary directory: {}", temp_dir.path().display());
 
-	// Create a test execution context (with defaults)
 	let test_context = TestExecutionContext::default();
 	let context = revive_dt_config::Context::Test(Box::new(test_context));
 
@@ -300,9 +290,8 @@ async fn execute_test_file(
 			.context("Failed to start node")?;
 
 		info!("Node started with ID: {}, connection: {}", node.id(), node.connection_string());
+		let node = Box::leak(node);
 
-		// Run pre-transactions on the node
-		let node = Box::leak(node); // Leak to get 'static lifetime for simplicity
 		info!("Running pre-transactions...");
 		node.pre_transactions().await.context("Failed to run pre-transactions")?;
 		info!("Pre-transactions completed");
@@ -311,36 +300,37 @@ async fn execute_test_file(
 	} else {
 		info!("Using existing node");
 		let existing_node: Box<dyn revive_dt_node_interaction::EthereumNode> = match args.platform {
-			TestingPlatform::Geth =>
-				Box::new(revive_dt_node::node_implementations::geth::GethNode::new_existing(&args.private_key).await?),
+			TestingPlatform::Geth => Box::new(
+				revive_dt_node::node_implementations::geth::GethNode::new_existing(
+					&args.private_key,
+				)
+				.await?,
+			),
 			TestingPlatform::Kitchensink | TestingPlatform::Zombienet => Box::new(
-				revive_dt_node::node_implementations::substrate::SubstrateNode::new_existing(&args.private_key).await?,
+				revive_dt_node::node_implementations::substrate::SubstrateNode::new_existing(
+					&args.private_key,
+				)
+				.await?,
 			),
 		};
 		Box::leak(existing_node)
 	};
 
-	// Create a cached compiler for this file (wrapped in Arc like the main code does)
 	info!("Initializing cached compiler");
 	let cached_compiler = CachedCompiler::new(temp_dir.path().join("compilation_cache"), false)
 		.await
 		.map(Arc::new)
 		.context("Failed to create cached compiler")?;
 
-	// Create a private key allocator
 	let private_key_allocator =
 		Arc::new(Mutex::new(PrivateKeyAllocator::new(alloy::primitives::U256::from(100))));
 
-	// Create reporter infrastructure (minimal, just for the Driver API)
-	// Note: We need to keep the report_task alive, otherwise the reporter channel closes
 	let (reporter, report_task) =
 		revive_dt_report::ReportAggregator::new(context.clone()).into_task();
 
-	// Spawn the report task in the background to keep the channel open
 	tokio::spawn(report_task);
 
 	info!("Building test definitions for {} case(s)", metadata_file.cases.len());
-	// Build all test definitions upfront
 	let mut test_definitions = Vec::new();
 	for (case_idx, case) in metadata_file.cases.iter().enumerate() {
 		info!("Building test definition for case {}", case_idx);
@@ -361,7 +351,6 @@ async fn execute_test_file(
 		}
 	}
 
-	// Execute each test case
 	info!("Executing {} test definition(s)", test_definitions.len());
 	for (idx, test_definition) in test_definitions.iter().enumerate() {
 		info!("─────────────────────────────────────────────────────────────────");
@@ -413,7 +402,6 @@ async fn build_test_definition<'a>(
 	context: &revive_dt_config::Context,
 	reporter: &revive_dt_report::Reporter,
 ) -> anyhow::Result<Option<TestDefinition<'a>>> {
-	// Determine mode - use case mode if specified, otherwise use default
 	let mode = case
 		.modes
 		.as_ref()
@@ -424,13 +412,11 @@ async fn build_test_definition<'a>(
 		.or_else(|| revive_dt_compiler::Mode::all().next().map(Cow::Borrowed))
 		.unwrap();
 
-	// Create a compiler for this mode
 	let compiler = platform
 		.new_compiler(context.clone(), mode.version.clone().map(Into::into))
 		.await
 		.context("Failed to create compiler")?;
 
-	// Create test-specific reporter
 	let test_reporter =
 		reporter.test_specific_reporter(Arc::new(revive_dt_report::TestSpecifier {
 			solc_mode: mode.as_ref().clone(),
@@ -438,18 +424,15 @@ async fn build_test_definition<'a>(
 			case_idx: CaseIdx::new(case_idx),
 		}));
 
-	// Create execution-specific reporter
 	let execution_reporter =
 		test_reporter.execution_specific_reporter(node.id(), platform.platform_identifier());
 
-	// Build platform information
 	let mut platforms = BTreeMap::new();
 	platforms.insert(
 		platform.platform_identifier(),
 		TestPlatformInformation { platform, node, compiler, reporter: execution_reporter },
 	);
 
-	// Build test definition
 	let test_definition = TestDefinition {
 		metadata: metadata_file,
 		metadata_file_path: &metadata_file.metadata_file_path,
@@ -460,7 +443,6 @@ async fn build_test_definition<'a>(
 		reporter: test_reporter,
 	};
 
-	// Check compatibility
 	if let Err((reason, _)) = test_definition.check_compatibility() {
 		println!("    Skipping case {}: {}", case_idx, reason);
 		return Ok(None);
