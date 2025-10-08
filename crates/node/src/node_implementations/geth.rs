@@ -131,7 +131,11 @@ impl GethNode {
 	}
 
 	pub async fn new_existing(private_key: &str, rpc_port: u16) -> anyhow::Result<Self> {
-		use alloy::{primitives::FixedBytes, signers::local::PrivateKeySigner};
+		use alloy::{
+			primitives::FixedBytes,
+			providers::{Provider, ProviderBuilder},
+			signers::local::PrivateKeySigner,
+		};
 
 		let key_str = private_key.trim().strip_prefix("0x").unwrap_or(private_key.trim());
 		let key_bytes = alloy::hex::decode(key_str)
@@ -152,6 +156,13 @@ impl GethNode {
 
 		let address = signer.address();
 		let wallet = Arc::new(EthereumWallet::new(signer));
+		let connection_string = format!("http://localhost:{}", rpc_port);
+
+		let chain_id = ProviderBuilder::new()
+			.connect_http(connection_string.parse()?)
+			.get_chain_id()
+			.await
+			.context("Failed to query chain ID from RPC")?;
 
 		let node = Self {
 			connection_string: format!("http://localhost:{}", rpc_port),
@@ -160,7 +171,7 @@ impl GethNode {
 			logs_directory: PathBuf::new(),
 			geth: PathBuf::new(),
 			id: 0,
-			chain_id: 1337,
+			chain_id,
 			handle: None,
 			start_timeout: Duration::from_secs(0),
 			wallet,
@@ -174,6 +185,8 @@ impl GethNode {
 		Ok(node)
 	}
 
+	/// Ensure that the given address has at least 1000 ETH, funding it from the node's managed
+	/// account if necessary.
 	async fn ensure_funded(&self, address: Address) -> anyhow::Result<()> {
 		use alloy::{
 			primitives::utils::{format_ether, parse_ether},
