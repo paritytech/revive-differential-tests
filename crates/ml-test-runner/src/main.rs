@@ -1,7 +1,10 @@
 use anyhow::Context;
 use clap::Parser;
-use revive_dt_common::{iterators::FilesWithExtensionIterator, types::PrivateKeyAllocator};
-use revive_dt_config::{TestExecutionContext, TestingPlatform};
+use revive_dt_common::{
+	iterators::FilesWithExtensionIterator,
+	types::{PlatformIdentifier, PrivateKeyAllocator},
+};
+use revive_dt_config::TestExecutionContext;
 use revive_dt_core::{
 	CachedCompiler, Platform,
 	helpers::{TestDefinition, TestPlatformInformation},
@@ -41,9 +44,9 @@ struct MlTestRunnerArgs {
 	#[arg(long = "bail")]
 	bail: bool,
 
-	/// Platform to test against (geth or kitchensink)
-	#[arg(long = "platform", default_value = "geth")]
-	platform: TestingPlatform,
+	/// Platform to test against (e.g., geth-evm-solc, kitchensink-polkavm-resolc)
+	#[arg(long = "platform", default_value = "geth-evm-solc")]
+	platform: PlatformIdentifier,
 
 	/// Start the platform and wait for RPC readiness
 	#[arg(long = "start-platform", default_value = "false")]
@@ -267,9 +270,18 @@ async fn execute_test_file(
 
 	// Get the platform based on CLI args
 	let platform: &dyn Platform = match args.platform {
-		TestingPlatform::Geth => &revive_dt_core::GethEvmSolcPlatform,
-		TestingPlatform::Kitchensink => &revive_dt_core::KitchensinkPolkavmResolcPlatform,
-		TestingPlatform::Zombienet => &revive_dt_core::ZombienetPolkavmResolcPlatform,
+		PlatformIdentifier::GethEvmSolc => &revive_dt_core::GethEvmSolcPlatform,
+		PlatformIdentifier::LighthouseGethEvmSolc => &revive_dt_core::LighthouseGethEvmSolcPlatform,
+		PlatformIdentifier::KitchensinkPolkavmResolc => {
+			&revive_dt_core::KitchensinkPolkavmResolcPlatform
+		},
+		PlatformIdentifier::KitchensinkRevmSolc => &revive_dt_core::KitchensinkRevmSolcPlatform,
+		PlatformIdentifier::ReviveDevNodePolkavmResolc => {
+			&revive_dt_core::ReviveDevNodePolkavmResolcPlatform
+		},
+		PlatformIdentifier::ReviveDevNodeRevmSolc => &revive_dt_core::ReviveDevNodeRevmSolcPlatform,
+		PlatformIdentifier::ZombienetPolkavmResolc => &revive_dt_core::ZombienetPolkavmResolcPlatform,
+		PlatformIdentifier::ZombienetRevmSolc => &revive_dt_core::ZombienetRevmSolcPlatform,
 	};
 
 	let temp_dir = TempDir::new()?;
@@ -300,13 +312,18 @@ async fn execute_test_file(
 	} else {
 		info!("Using existing node");
 		let existing_node: Box<dyn revive_dt_node_interaction::EthereumNode> = match args.platform {
-			TestingPlatform::Geth => Box::new(
+			PlatformIdentifier::GethEvmSolc | PlatformIdentifier::LighthouseGethEvmSolc => Box::new(
 				revive_dt_node::node_implementations::geth::GethNode::new_existing(
 					&args.private_key,
 				)
 				.await?,
 			),
-			TestingPlatform::Kitchensink | TestingPlatform::Zombienet => Box::new(
+			PlatformIdentifier::KitchensinkPolkavmResolc
+			| PlatformIdentifier::KitchensinkRevmSolc
+			| PlatformIdentifier::ReviveDevNodePolkavmResolc
+			| PlatformIdentifier::ReviveDevNodeRevmSolc
+			| PlatformIdentifier::ZombienetPolkavmResolc
+			| PlatformIdentifier::ZombienetRevmSolc => Box::new(
 				revive_dt_node::node_implementations::substrate::SubstrateNode::new_existing(
 					&args.private_key,
 				)
