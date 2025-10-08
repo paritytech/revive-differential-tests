@@ -1,5 +1,4 @@
-use std::ops::ControlFlow;
-use std::time::Duration;
+use std::{ops::ControlFlow, time::Duration};
 
 use anyhow::{Context as _, Result, anyhow};
 
@@ -18,55 +17,51 @@ const EXPONENTIAL_BACKOFF_MAX_WAIT_DURATION: Duration = Duration::from_secs(60);
 /// [`Break`]: ControlFlow::Break
 /// [`Continue`]: ControlFlow::Continue
 pub async fn poll<F, O>(
-    polling_duration: Duration,
-    polling_wait_behavior: PollingWaitBehavior,
-    mut future: impl FnMut() -> F,
+	polling_duration: Duration,
+	polling_wait_behavior: PollingWaitBehavior,
+	mut future: impl FnMut() -> F,
 ) -> Result<O>
 where
-    F: Future<Output = Result<ControlFlow<O, ()>>>,
+	F: Future<Output = Result<ControlFlow<O, ()>>>,
 {
-    let mut retries = 0;
-    let mut total_wait_duration = Duration::ZERO;
-    let max_allowed_wait_duration = polling_duration;
+	let mut retries = 0;
+	let mut total_wait_duration = Duration::ZERO;
+	let max_allowed_wait_duration = polling_duration;
 
-    loop {
-        if total_wait_duration >= max_allowed_wait_duration {
-            break Err(anyhow!(
-                "Polling failed after {} retries and a total of {:?} of wait time",
-                retries,
-                total_wait_duration
-            ));
-        }
+	loop {
+		if total_wait_duration >= max_allowed_wait_duration {
+			break Err(anyhow!(
+				"Polling failed after {} retries and a total of {:?} of wait time",
+				retries,
+				total_wait_duration
+			));
+		}
 
-        match future()
-            .await
-            .context("Polled future returned an error during polling loop")?
-        {
-            ControlFlow::Continue(()) => {
-                let next_wait_duration = match polling_wait_behavior {
-                    PollingWaitBehavior::Constant(duration) => duration,
-                    PollingWaitBehavior::ExponentialBackoff => {
-                        Duration::from_secs(2u64.pow(retries))
-                            .min(EXPONENTIAL_BACKOFF_MAX_WAIT_DURATION)
-                    }
-                };
-                let next_wait_duration =
-                    next_wait_duration.min(max_allowed_wait_duration - total_wait_duration);
-                total_wait_duration += next_wait_duration;
-                retries += 1;
+		match future().await.context("Polled future returned an error during polling loop")? {
+			ControlFlow::Continue(()) => {
+				let next_wait_duration = match polling_wait_behavior {
+					PollingWaitBehavior::Constant(duration) => duration,
+					PollingWaitBehavior::ExponentialBackoff =>
+						Duration::from_secs(2u64.pow(retries))
+							.min(EXPONENTIAL_BACKOFF_MAX_WAIT_DURATION),
+				};
+				let next_wait_duration =
+					next_wait_duration.min(max_allowed_wait_duration - total_wait_duration);
+				total_wait_duration += next_wait_duration;
+				retries += 1;
 
-                tokio::time::sleep(next_wait_duration).await;
-            }
-            ControlFlow::Break(output) => {
-                break Ok(output);
-            }
-        }
-    }
+				tokio::time::sleep(next_wait_duration).await;
+			},
+			ControlFlow::Break(output) => {
+				break Ok(output);
+			},
+		}
+	}
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 pub enum PollingWaitBehavior {
-    Constant(Duration),
-    #[default]
-    ExponentialBackoff,
+	Constant(Duration),
+	#[default]
+	ExponentialBackoff,
 }

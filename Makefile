@@ -1,7 +1,7 @@
 .PHONY: format clippy test machete
 
 format:
-	cargo fmt --all -- --check
+	cargo +nightly fmt --all -- --check
 
 clippy:
 	cargo clippy --all-features --workspace -- --deny warnings

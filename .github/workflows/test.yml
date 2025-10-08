@@ -144,7 +144,9 @@ jobs:
       - name: Add wasm32 target and formatting
         run: |
           rustup target add wasm32-unknown-unknown
-          rustup component add rust-src rustfmt clippy
+          rustup component add rust-src clippy
+          rustup toolchain install nightly
+          rustup component add rustfmt --toolchain nightly
 
       - name: Install Geth on Ubuntu
         if: matrix.os == 'ubuntu-24.04'
@@ -251,3 +253,4 @@ jobs:
         if: matrix.os == 'macos-14'
         run: |
           cargo test --workspace -- --nocapture --skip lighthouse_geth::tests::
+

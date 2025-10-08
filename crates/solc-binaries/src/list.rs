@@ -7,20 +7,20 @@ use serde::Deserialize;
 
 #[derive(Debug, Deserialize, Clone, Eq, PartialEq)]
 pub struct List {
-    pub builds: Vec<Build>,
-    pub releases: HashMap<Version, String>,
-    #[serde(rename = "latestRelease")]
-    pub latest_release: Version,
+	pub builds: Vec<Build>,
+	pub releases: HashMap<Version, String>,
+	#[serde(rename = "latestRelease")]
+	pub latest_release: Version,
 }
 
 #[derive(Debug, Deserialize, Clone, Eq, PartialEq)]
 pub struct Build {
-    pub path: PathBuf,
-    pub version: Version,
-    pub build: String,
-    #[serde(rename = "longVersion")]
-    pub long_version: String,
-    pub keccak256: String,
-    pub sha256: String,
-    pub urls: Vec<String>,
+	pub path: PathBuf,
+	pub version: Version,
+	pub build: String,
+	#[serde(rename = "longVersion")]
+	pub long_version: String,
+	pub keccak256: String,
+	pub sha256: String,
+	pub urls: Vec<String>,
 }
