@@ -8,8 +8,10 @@ use anyhow::Context as _;
 use indexmap::IndexMap;
 use revive_dt_common::types::PlatformIdentifier;
 use revive_dt_compiler::{CompilerInput, CompilerOutput};
-use revive_dt_format::metadata::Metadata;
-use revive_dt_format::{corpus::Corpus, metadata::ContractInstance};
+use revive_dt_format::{
+    corpus::Corpus,
+    metadata::{ContractInstance, Metadata},
+};
 use semver::Version;
 use tokio::sync::{broadcast, oneshot};
 

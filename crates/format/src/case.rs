@@ -54,39 +54,33 @@ pub struct Case {
 impl Case {
     pub fn steps_iterator(&self) -> impl Iterator<Item = Step> {
         let steps_len = self.steps.len();
-        self.steps
-            .clone()
-            .into_iter()
-            .enumerate()
-            .map(move |(idx, mut step)| {
-                let Step::FunctionCall(ref mut input) = step else {
-                    return step;
-                };
+        self.steps.clone().into_iter().enumerate().map(move |(idx, mut step)| {
+            let Step::FunctionCall(ref mut input) = step else {
+                return step;
+            };
 
-                if idx + 1 == steps_len {
-                    if input.expected.is_none() {
-                        input.expected = self.expected.clone();
-                    }
-
-                    // TODO: What does it mean for us to have an `expected` field on the case itself
-                    // but the final input also has an expected field that doesn't match the one on
-                    // the case? What are we supposed to do with that final expected field on the
-                    // case?
-
-                    step
-                } else {
-                    step
+            if idx + 1 == steps_len {
+                if input.expected.is_none() {
+                    input.expected = self.expected.clone();
                 }
-            })
+
+                // TODO: What does it mean for us to have an `expected` field on the case itself
+                // but the final input also has an expected field that doesn't match the one on
+                // the case? What are we supposed to do with that final expected field on the
+                // case?
+
+                step
+            } else {
+                step
+            }
+        })
     }
 
     pub fn steps_iterator_for_benchmarks(
         &self,
         default_repeat_count: usize,
     ) -> Box<dyn Iterator<Item = Step> + '_> {
-        let contains_repeat = self
-            .steps_iterator()
-            .any(|step| matches!(&step, Step::Repeat(..)));
+        let contains_repeat = self.steps_iterator().any(|step| matches!(&step, Step::Repeat(..)));
         if contains_repeat {
             Box::new(self.steps_iterator()) as Box<_>
         } else {

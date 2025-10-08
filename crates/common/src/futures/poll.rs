@@ -1,5 +1,4 @@
-use std::ops::ControlFlow;
-use std::time::Duration;
+use std::{ops::ControlFlow, time::Duration};
 
 use anyhow::{Context as _, Result, anyhow};
 
@@ -38,10 +37,7 @@ where
             ));
         }
 
-        match future()
-            .await
-            .context("Polled future returned an error during polling loop")?
-        {
+        match future().await.context("Polled future returned an error during polling loop")? {
             ControlFlow::Continue(()) => {
                 let next_wait_duration = match polling_wait_behavior {
                     PollingWaitBehavior::Constant(duration) => duration,

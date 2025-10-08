@@ -80,10 +80,8 @@ where
     NonceFiller: TxFiller<N>,
     WalletFiller<W>: TxFiller<N>,
 {
-    let sendable_transaction = provider
-        .fill(transaction)
-        .await
-        .context("Failed to fill transaction")?;
+    let sendable_transaction =
+        provider.fill(transaction).await.context("Failed to fill transaction")?;
 
     let transaction_envelope = sendable_transaction
         .try_into_envelope()
@@ -105,24 +103,21 @@ where
     debug!(%tx_hash, "Submitted Transaction");
 
     pending_transaction.set_timeout(Some(Duration::from_secs(120)));
-    let tx_hash = pending_transaction.watch().await.context(format!(
-        "Transaction inclusion watching timeout for {tx_hash}"
-    ))?;
+    let tx_hash = pending_transaction
+        .watch()
+        .await
+        .context(format!("Transaction inclusion watching timeout for {tx_hash}"))?;
 
-    poll(
-        Duration::from_secs(60),
-        PollingWaitBehavior::Constant(Duration::from_secs(3)),
-        || {
-            let provider = provider.clone();
+    poll(Duration::from_secs(60), PollingWaitBehavior::Constant(Duration::from_secs(3)), || {
+        let provider = provider.clone();
 
-            async move {
-                match provider.get_transaction_receipt(tx_hash).await {
-                    Ok(Some(receipt)) => Ok(ControlFlow::Break(receipt)),
-                    _ => Ok(ControlFlow::Continue(())),
-                }
+        async move {
+            match provider.get_transaction_receipt(tx_hash).await {
+                Ok(Some(receipt)) => Ok(ControlFlow::Break(receipt)),
+                _ => Ok(ControlFlow::Continue(())),
             }
-        },
-    )
+        }
+    })
     .await
     .context(format!("Polling for receipt failed for {tx_hash}"))
 }

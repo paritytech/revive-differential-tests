@@ -76,7 +76,9 @@ impl<'a> Driver<'a, StepsIterator> {
         .into_iter()
         .collect::<BTreeMap<_, _>>();
 
-        Ok(Self { platform_drivers })
+        Ok(Self {
+            platform_drivers,
+        })
     }
 
     async fn create_platform_driver(
@@ -112,9 +114,7 @@ impl<'a> Driver<'a, StepsIterator> {
     pub async fn execute_all(mut self) -> Result<usize> {
         let platform_drivers = std::mem::take(&mut self.platform_drivers);
         let results = futures::future::try_join_all(
-            platform_drivers
-                .into_values()
-                .map(|driver| driver.execute_all()),
+            platform_drivers.into_values().map(|driver| driver.execute_all()),
         )
         .await
         .context("Failed to execute all of the steps on the driver")?;
@@ -210,12 +210,8 @@ where
                 )
             })
             .context("Failed to get the contract instances from the metadata file")?;
-        for library_instance in test_definition
-            .metadata
-            .libraries
-            .iter()
-            .flatten()
-            .flat_map(|(_, map)| map.values())
+        for library_instance in
+            test_definition.metadata.libraries.iter().flatten().flat_map(|(_, map)| map.values())
         {
             let ContractPathAndIdent {
                 contract_source_path: library_source_path,
@@ -252,11 +248,8 @@ where
                 TransactionRequest::default().from(deployer_address),
                 code,
             );
-            let receipt = platform_information
-                .node
-                .execute_transaction(tx)
-                .await
-                .inspect_err(|err| {
+            let receipt =
+                platform_information.node.execute_transaction(tx).await.inspect_err(|err| {
                     error!(
                         ?err,
                         %library_instance,
@@ -265,9 +258,7 @@ where
                     )
                 })?;
 
-            let library_address = receipt
-                .contract_address
-                .expect("Failed to deploy the library");
+            let library_address = receipt.contract_address.expect("Failed to deploy the library");
 
             deployed_libraries.get_or_insert_default().insert(
                 library_instance.clone(),
@@ -295,10 +286,7 @@ where
             })
             .context("Failed to compile the post-link contracts")?;
 
-        Ok(ExecutionState::new(
-            compiler_output.contracts,
-            deployed_libraries.unwrap_or_default(),
-        ))
+        Ok(ExecutionState::new(compiler_output.contracts, deployed_libraries.unwrap_or_default()))
     }
     // endregion:Constructors & Initialization
 
@@ -392,11 +380,7 @@ where
     ) -> Result<HashMap<ContractInstance, TransactionReceipt>> {
         let mut instances_we_must_deploy = IndexMap::<ContractInstance, bool>::new();
         for instance in step.find_all_contract_instances().into_iter() {
-            if !self
-                .execution_state
-                .deployed_contracts
-                .contains_key(&instance)
-            {
+            if !self.execution_state.deployed_contracts.contains_key(&instance) {
                 instances_we_must_deploy.entry(instance).or_insert(false);
             }
         }
@@ -408,16 +392,13 @@ where
         let mut receipts = HashMap::new();
         for (instance, deploy_with_constructor_arguments) in instances_we_must_deploy.into_iter() {
             let calldata = deploy_with_constructor_arguments.then_some(&step.calldata);
-            let value = deploy_with_constructor_arguments
-                .then_some(step.value)
-                .flatten();
+            let value = deploy_with_constructor_arguments.then_some(step.value).flatten();
 
             let caller = {
                 let context = self.default_resolution_context();
                 let resolver = self.platform_information.node.resolver().await?;
-                step.caller
-                    .resolve_address(resolver.as_ref(), context)
-                    .await?
+                let resolved = step.caller.resolve_address(resolver.as_ref(), context).await?;
+                self.platform_information.node.resolve_signer_or_default(resolved)
             };
             if let (_, _, Some(receipt)) = self
                 .get_or_deploy_contract_instance(&instance, caller, calldata, value)
@@ -445,7 +426,7 @@ where
                 .context("Failed to find deployment receipt for constructor call"),
             Method::Fallback | Method::FunctionName(_) => {
                 let resolver = self.platform_information.node.resolver().await?;
-                let tx = match step
+                let mut tx = match step
                     .as_transaction(resolver.as_ref(), self.default_resolution_context())
                     .await
                 {
@@ -454,6 +435,11 @@ where
                         return Err(err);
                     }
                 };
+
+                // Resolve the signer to ensure we use an address that has keys
+                if let Some(from) = tx.from {
+                    tx.from = Some(self.platform_information.node.resolve_signer_or_default(from));
+                }
 
                 self.platform_information.node.execute_transaction(tx).await
             }
@@ -503,18 +489,13 @@ where
         };
 
         // Handling the return data variable assignments.
-        for (variable_name, output_word) in assignments.return_data.iter().zip(
-            tracing_result
-                .output
-                .as_ref()
-                .unwrap_or_default()
-                .to_vec()
-                .chunks(32),
-        ) {
+        for (variable_name, output_word) in assignments
+            .return_data
+            .iter()
+            .zip(tracing_result.output.as_ref().unwrap_or_default().to_vec().chunks(32))
+        {
             let value = U256::from_be_slice(output_word);
-            self.execution_state
-                .variables
-                .insert(variable_name.clone(), value);
+            self.execution_state.variables.insert(variable_name.clone(), value);
             tracing::info!(
                 variable_name,
                 variable_value = hex::encode(value.to_be_bytes::<32>()),
@@ -546,7 +527,10 @@ where
                 expected: Some(Expected::ExpectedMany(expected)),
                 ..
             } => expected.clone(),
-            FunctionCallStep { expected: None, .. } => vec![ExpectedOutput::new().with_success()],
+            FunctionCallStep {
+                expected: None,
+                ..
+            } => vec![ExpectedOutput::new().with_success()],
         };
 
         // This is a bit of a special case and we have to support it separately on it's own. If it's
@@ -562,8 +546,7 @@ where
 
         futures::stream::iter(expectations.into_iter().map(Ok))
             .try_for_each_concurrent(None, |expectation| async {
-                self.handle_function_call_assertion_item(receipt, tracing_result, expectation)
-                    .await
+                self.handle_function_call_assertion_item(receipt, tracing_result, expectation).await
             })
             .await
     }
@@ -664,11 +647,8 @@ where
                 }
 
                 // Handling the topics assertion.
-                for (expected, actual) in expected_event
-                    .topics
-                    .as_slice()
-                    .iter()
-                    .zip(actual_event.topics())
+                for (expected, actual) in
+                    expected_event.topics.as_slice().iter().zip(actual_event.topics())
                 {
                     let expected = Calldata::new_compound([expected]);
                     if !expected
@@ -764,11 +744,8 @@ where
             .resolve_address(resolver.as_ref(), self.default_resolution_context())
             .await?;
 
-        let storage = self
-            .platform_information
-            .node
-            .latest_state_proof(address, Default::default())
-            .await?;
+        let storage =
+            self.platform_information.node.latest_state_proof(address, Default::default()).await?;
         let is_empty = storage.storage_hash == EMPTY_ROOT_HASH;
 
         let expected = step.is_storage_empty;
@@ -818,9 +795,8 @@ where
             })
             .map(|driver| driver.execute_all())
             .collect::<Vec<_>>();
-        let res = futures::future::try_join_all(tasks)
-            .await
-            .context("Repetition execution failed")?;
+        let res =
+            futures::future::try_join_all(tasks).await.context("Repetition execution failed")?;
         Ok(res.first().copied().unwrap_or_default())
     }
 
@@ -838,9 +814,7 @@ where
         let account = private_key.address();
         let variable = U256::from_be_slice(account.0.as_slice());
 
-        self.execution_state
-            .variables
-            .insert(variable_name.to_string(), variable);
+        self.execution_state.variables.insert(variable_name.to_string(), variable);
 
         Ok(1)
     }
@@ -863,10 +837,8 @@ where
         calldata: Option<&Calldata>,
         value: Option<EtherValue>,
     ) -> Result<(Address, JsonAbi, Option<TransactionReceipt>)> {
-        if let Some((_, address, abi)) = self
-            .execution_state
-            .deployed_contracts
-            .get(contract_instance)
+        if let Some((_, address, abi)) =
+            self.execution_state.deployed_contracts.get(contract_instance)
         {
             info!(
 
@@ -876,6 +848,7 @@ where
             Ok((*address, abi.clone(), None))
         } else {
             info!("Contract instance requires deployment.");
+
             let (address, abi, receipt) = self
                 .deploy_contract(contract_instance, deployer, calldata, value)
                 .await
@@ -907,16 +880,9 @@ where
         let Some(ContractPathAndIdent {
             contract_source_path,
             contract_ident,
-        }) = self
-            .test_definition
-            .metadata
-            .contract_sources()?
-            .remove(contract_instance)
+        }) = self.test_definition.metadata.contract_sources()?.remove(contract_instance)
         else {
-            anyhow::bail!(
-                "Contract source not found for instance {:?}",
-                contract_instance
-            )
+            anyhow::bail!("Contract source not found for instance {:?}", contract_instance)
         };
 
         let Some((code, abi)) = self
@@ -926,10 +892,7 @@ where
             .and_then(|source_file_contracts| source_file_contracts.get(contract_ident.as_ref()))
             .cloned()
         else {
-            anyhow::bail!(
-                "Failed to find information for contract {:?}",
-                contract_instance
-            )
+            anyhow::bail!("Failed to find information for contract {:?}", contract_instance)
         };
 
         let mut code = match alloy::hex::decode(&code) {
@@ -947,13 +910,13 @@ where
 
         if let Some(calldata) = calldata {
             let resolver = self.platform_information.node.resolver().await?;
-            let calldata = calldata
-                .calldata(resolver.as_ref(), self.default_resolution_context())
-                .await?;
+            let calldata =
+                calldata.calldata(resolver.as_ref(), self.default_resolution_context()).await?;
             code.extend(calldata);
         }
 
         let tx = {
+            let deployer = self.platform_information.node.resolve_signer_or_default(deployer);
             let tx = TransactionRequest::default().from(deployer);
             let tx = match value {
                 Some(ref value) => tx.value(value.into_inner()),
@@ -982,10 +945,9 @@ where
             .reporter
             .report_contract_deployed_event(contract_instance.clone(), address)?;
 
-        self.execution_state.deployed_contracts.insert(
-            contract_instance.clone(),
-            (contract_ident, address, abi.clone()),
-        );
+        self.execution_state
+            .deployed_contracts
+            .insert(contract_instance.clone(), (contract_ident, address, abi.clone()));
 
         Ok((address, abi, receipt))
     }
@@ -998,9 +960,7 @@ where
         match step_address {
             StepAddress::Address(address) => Ok(*address),
             StepAddress::ResolvableAddress(resolvable) => {
-                let Some(instance) = resolvable
-                    .strip_suffix(".address")
-                    .map(ContractInstance::new)
+                let Some(instance) = resolvable.strip_suffix(".address").map(ContractInstance::new)
                 else {
                     bail!("Not an address variable");
                 };

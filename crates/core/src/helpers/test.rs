@@ -1,28 +1,22 @@
-use std::collections::BTreeMap;
-use std::sync::Arc;
-use std::{borrow::Cow, path::Path};
+use std::{borrow::Cow, collections::BTreeMap, path::Path, sync::Arc};
 
 use futures::{Stream, StreamExt, stream};
 use indexmap::{IndexMap, indexmap};
-use revive_dt_common::iterators::EitherIter;
-use revive_dt_common::types::PlatformIdentifier;
+use revive_dt_common::{iterators::EitherIter, types::PlatformIdentifier};
 use revive_dt_config::Context;
 use revive_dt_format::mode::ParsedMode;
 use serde_json::{Value, json};
 
-use revive_dt_compiler::Mode;
-use revive_dt_compiler::SolidityCompiler;
+use revive_dt_compiler::{Mode, SolidityCompiler};
 use revive_dt_format::{
     case::{Case, CaseIdx},
     metadata::MetadataFile,
 };
 use revive_dt_node_interaction::EthereumNode;
-use revive_dt_report::{ExecutionSpecificReporter, Reporter};
-use revive_dt_report::{TestSpecificReporter, TestSpecifier};
+use revive_dt_report::{ExecutionSpecificReporter, Reporter, TestSpecificReporter, TestSpecifier};
 use tracing::{debug, error, info};
 
-use crate::Platform;
-use crate::helpers::NodePool;
+use crate::{Platform, helpers::NodePool};
 
 pub async fn create_test_definitions_stream<'a>(
     // This is only required for creating the compiler objects and is not used anywhere else in the
@@ -72,72 +66,68 @@ pub async fn create_test_definitions_stream<'a>(
             // Inform the reporter of each one of the test cases that were discovered which we expect to
             // run.
             .inspect(|(_, _, _, _, reporter)| {
-                reporter
-                    .report_test_case_discovery_event()
-                    .expect("Can't fail");
+                reporter.report_test_case_discovery_event().expect("Can't fail");
             }),
     )
     // Creating the Test Definition objects from all of the various objects we have and creating
     // their required dependencies (e.g., compiler).
-    .filter_map(
-        move |(metadata_file, case_idx, case, mode, reporter)| async move {
-            let mut platforms = BTreeMap::new();
-            for (platform, node_pool) in platforms_and_nodes.values() {
-                let node = node_pool.round_robbin();
-                let compiler = platform
-                    .new_compiler(context.clone(), mode.version.clone().map(Into::into))
-                    .await
-                    .inspect_err(|err| {
-                        error!(
-                            ?err,
-                            platform_identifier = %platform.platform_identifier(),
-                            "Failed to instantiate the compiler"
-                        )
-                    })
-                    .ok()?;
-
-                reporter
-                    .report_node_assigned_event(
-                        node.id(),
-                        platform.platform_identifier(),
-                        node.connection_string(),
+    .filter_map(move |(metadata_file, case_idx, case, mode, reporter)| async move {
+        let mut platforms = BTreeMap::new();
+        for (platform, node_pool) in platforms_and_nodes.values() {
+            let node = node_pool.round_robbin();
+            let compiler = platform
+                .new_compiler(context.clone(), mode.version.clone().map(Into::into))
+                .await
+                .inspect_err(|err| {
+                    error!(
+                        ?err,
+                        platform_identifier = %platform.platform_identifier(),
+                        "Failed to instantiate the compiler"
                     )
-                    .expect("Can't fail");
+                })
+                .ok()?;
 
-                let reporter =
-                    reporter.execution_specific_reporter(node.id(), platform.platform_identifier());
-
-                platforms.insert(
+            reporter
+                .report_node_assigned_event(
+                    node.id(),
                     platform.platform_identifier(),
-                    TestPlatformInformation {
-                        platform: *platform,
-                        node,
-                        compiler,
-                        reporter,
-                    },
-                );
-            }
+                    node.connection_string(),
+                )
+                .expect("Can't fail");
 
-            Some(TestDefinition {
-                /* Metadata file information */
-                metadata: metadata_file,
-                metadata_file_path: metadata_file.metadata_file_path.as_path(),
+            let reporter =
+                reporter.execution_specific_reporter(node.id(), platform.platform_identifier());
 
-                /* Mode Information */
-                mode: mode.clone(),
+            platforms.insert(
+                platform.platform_identifier(),
+                TestPlatformInformation {
+                    platform: *platform,
+                    node,
+                    compiler,
+                    reporter,
+                },
+            );
+        }
 
-                /* Case Information */
-                case_idx: CaseIdx::new(case_idx),
-                case,
+        Some(TestDefinition {
+            /* Metadata file information */
+            metadata: metadata_file,
+            metadata_file_path: metadata_file.metadata_file_path.as_path(),
 
-                /* Platform and Node Assignment Information */
-                platforms,
+            /* Mode Information */
+            mode: mode.clone(),
 
-                /* Reporter */
-                reporter,
-            })
-        },
-    )
+            /* Case Information */
+            case_idx: CaseIdx::new(case_idx),
+            case,
+
+            /* Platform and Node Assignment Information */
+            platforms,
+
+            /* Reporter */
+            reporter,
+        })
+    })
     // Filter out the test cases which are incompatible or that can't run in the current setup.
     .filter_map(move |test| async move {
         match test.check_compatibility() {
@@ -280,10 +270,7 @@ impl<'a> TestDefinition<'a> {
         if is_allowed {
             Ok(())
         } else {
-            Err((
-                "EVM version is incompatible for the platforms specified",
-                error_map,
-            ))
+            Err(("EVM version is incompatible for the platforms specified", error_map))
         }
     }
 

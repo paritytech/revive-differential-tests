@@ -130,14 +130,10 @@ impl ZombieNode {
         + AsRef<EthRpcConfiguration>
         + AsRef<WalletConfiguration>,
     ) -> Self {
-        let eth_proxy_binary = AsRef::<EthRpcConfiguration>::as_ref(&context)
-            .path
-            .to_owned();
+        let eth_proxy_binary = AsRef::<EthRpcConfiguration>::as_ref(&context).path.to_owned();
         let working_directory_path = AsRef::<WorkingDirectoryConfiguration>::as_ref(&context);
         let id = NODE_COUNT.fetch_add(1, Ordering::SeqCst);
-        let base_directory = working_directory_path
-            .join(Self::BASE_DIRECTORY)
-            .join(id.to_string());
+        let base_directory = working_directory_path.join(Self::BASE_DIRECTORY).join(id.to_string());
         let logs_directory = base_directory.join(Self::LOGS_DIRECTORY);
         let wallet = AsRef::<WalletConfiguration>::as_ref(&context).wallet();
 
@@ -169,10 +165,8 @@ impl ZombieNode {
 
         let template_chainspec_path = self.base_directory.join(Self::CHAIN_SPEC_JSON_FILE);
         self.prepare_chainspec(template_chainspec_path.clone(), genesis)?;
-        let polkadot_parachain_path = self
-            .polkadot_parachain_path
-            .to_str()
-            .context("Invalid polkadot parachain path")?;
+        let polkadot_parachain_path =
+            self.polkadot_parachain_path.to_str().context("Invalid polkadot parachain path")?;
 
         let node_rpc_port = Self::NODE_BASE_RPC_PORT + self.id as u16;
 
@@ -204,10 +198,8 @@ impl ZombieNode {
     }
 
     fn spawn_process(&mut self) -> anyhow::Result<()> {
-        let network_config = self
-            .network_config
-            .clone()
-            .context("Node not initialized, call init() first")?;
+        let network_config =
+            self.network_config.clone().context("Node not initialized, call init() first")?;
 
         let rt = tokio::runtime::Runtime::new().unwrap();
         let network = rt.block_on(async {
@@ -272,17 +264,12 @@ impl ZombieNode {
         mut genesis: Genesis,
     ) -> anyhow::Result<()> {
         let mut cmd: Command = std::process::Command::new(&self.polkadot_parachain_path);
-        cmd.arg(Self::EXPORT_CHAINSPEC_COMMAND)
-            .arg("--chain")
-            .arg("asset-hub-westend-local");
+        cmd.arg(Self::EXPORT_CHAINSPEC_COMMAND).arg("--chain").arg("asset-hub-westend-local");
 
         let output = cmd.output().context("Failed to export the chain-spec")?;
 
         if !output.status.success() {
-            anyhow::bail!(
-                "Build chain-spec failed: {}",
-                String::from_utf8_lossy(&output.stderr)
-            );
+            anyhow::bail!("Build chain-spec failed: {}", String::from_utf8_lossy(&output.stderr));
         }
 
         let content = String::from_utf8(output.stdout)
@@ -343,15 +330,12 @@ impl ZombieNode {
         &self,
         genesis: &Genesis,
     ) -> anyhow::Result<Vec<(String, u128)>> {
-        genesis
-            .alloc
-            .iter()
-            .try_fold(Vec::new(), |mut vec, (address, acc)| {
-                let polkadot_address = Self::eth_to_polkadot_address(address);
-                let balance = acc.balance.try_into()?;
-                vec.push((polkadot_address, balance));
-                Ok(vec)
-            })
+        genesis.alloc.iter().try_fold(Vec::new(), |mut vec, (address, acc)| {
+            let polkadot_address = Self::eth_to_polkadot_address(address);
+            let balance = acc.balance.try_into()?;
+            vec.push((polkadot_address, balance));
+            Ok(vec)
+        })
     }
 
     fn eth_to_polkadot_address(address: &Address) -> String {
@@ -535,7 +519,10 @@ impl EthereumNode for ZombieNode {
             let id = self.id;
             let provider = self.provider().await?;
 
-            Ok(Arc::new(ZombieNodeResolver { id, provider }) as Arc<dyn ResolverApi>)
+            Ok(Arc::new(ZombieNodeResolver {
+                id,
+                provider,
+            }) as Arc<dyn ResolverApi>)
         })
     }
 
@@ -556,10 +543,8 @@ impl EthereumNode for ZombieNode {
                 .provider()
                 .await
                 .context("Failed to create the provider for block subscription")?;
-            let mut block_subscription = provider
-                .watch_full_blocks()
-                .await
-                .context("Failed to create the blocks stream")?;
+            let mut block_subscription =
+                provider.watch_full_blocks().await.context("Failed to create the blocks stream")?;
             block_subscription.set_channel_size(0xFFFF);
             block_subscription.set_poll_interval(Duration::from_secs(1));
             let block_stream = block_subscription.into_stream();
@@ -583,6 +568,16 @@ impl EthereumNode for ZombieNode {
             Ok(Box::pin(mined_block_information_stream)
                 as Pin<Box<dyn Stream<Item = MinedBlockInformation>>>)
         })
+    }
+
+    fn resolve_signer_or_default(&self, address: Address) -> Address {
+        let signer_addresses: Vec<_> =
+            <EthereumWallet as NetworkWallet<Ethereum>>::signer_addresses(&self.wallet).collect();
+        if signer_addresses.contains(&address) {
+            address
+        } else {
+            self.wallet.default_signer().address()
+        }
     }
 }
 
@@ -672,10 +667,7 @@ impl<F: TxFiller<ReviveNetwork>, P: Provider<ReviveNetwork>> ResolverApi
                 .context("Failed to get the zombie block")?
                 .context("Failed to get the zombie block, perhaps the chain has no blocks?")
                 .and_then(|block| {
-                    block
-                        .header
-                        .base_fee_per_gas
-                        .context("Failed to get the base fee per gas")
+                    block.header.base_fee_per_gas.context("Failed to get the base fee per gas")
                 })
         })
     }
@@ -787,10 +779,8 @@ mod tests {
 
         pub async fn new_node() -> (TestExecutionContext, ZombieNode) {
             let context = test_config();
-            let mut node = ZombieNode::new(
-                context.polkadot_parachain_configuration.path.clone(),
-                &context,
-            );
+            let mut node =
+                ZombieNode::new(context.polkadot_parachain_configuration.path.clone(), &context);
             let genesis = context.genesis_configuration.genesis().unwrap().clone();
             node.init(genesis).unwrap();
 
@@ -855,14 +845,11 @@ mod tests {
         "#;
 
         let context = test_config();
-        let mut node = ZombieNode::new(
-            context.polkadot_parachain_configuration.path.clone(),
-            &context,
-        );
+        let mut node =
+            ZombieNode::new(context.polkadot_parachain_configuration.path.clone(), &context);
 
         // Call `init()`
-        node.init(serde_json::from_str(genesis_content).unwrap())
-            .expect("init failed");
+        node.init(serde_json::from_str(genesis_content).unwrap()).expect("init failed");
 
         // Check that the patched chainspec file was generated
         let final_chainspec_path = node.base_directory.join(ZombieNode::CHAIN_SPEC_JSON_FILE);
@@ -903,10 +890,7 @@ mod tests {
         "#;
 
         let context = test_config();
-        let node = ZombieNode::new(
-            context.polkadot_parachain_configuration.path.clone(),
-            &context,
-        );
+        let node = ZombieNode::new(context.polkadot_parachain_configuration.path.clone(), &context);
 
         let result = node
             .extract_balance_from_genesis_file(&serde_json::from_str(genesis_json).unwrap())
@@ -968,10 +952,7 @@ mod tests {
 
         for (eth_addr, expected_ss58) in cases {
             let result = ZombieNode::eth_to_polkadot_address(&eth_addr.parse().unwrap());
-            assert_eq!(
-                result, expected_ss58,
-                "Mismatch for Ethereum address {eth_addr}"
-            );
+            assert_eq!(result, expected_ss58, "Mismatch for Ethereum address {eth_addr}");
         }
     }
 
@@ -979,10 +960,7 @@ mod tests {
     fn eth_rpc_version_works() {
         // Arrange
         let context = test_config();
-        let node = ZombieNode::new(
-            context.polkadot_parachain_configuration.path.clone(),
-            &context,
-        );
+        let node = ZombieNode::new(context.polkadot_parachain_configuration.path.clone(), &context);
 
         // Act
         let version = node.eth_rpc_version().unwrap();
@@ -998,10 +976,7 @@ mod tests {
     fn version_works() {
         // Arrange
         let context = test_config();
-        let node = ZombieNode::new(
-            context.polkadot_parachain_configuration.path.clone(),
-            &context,
-        );
+        let node = ZombieNode::new(context.polkadot_parachain_configuration.path.clone(), &context);
 
         // Act
         let version = node.version().unwrap();
@@ -1039,12 +1014,8 @@ mod tests {
         let node = shared_node().await;
 
         // Act
-        let gas_limit = node
-            .resolver()
-            .await
-            .unwrap()
-            .block_gas_limit(BlockNumberOrTag::Latest)
-            .await;
+        let gas_limit =
+            node.resolver().await.unwrap().block_gas_limit(BlockNumberOrTag::Latest).await;
 
         // Assert
         let _ = gas_limit.expect("Failed to get the gas limit");
@@ -1057,12 +1028,8 @@ mod tests {
         let node = shared_node().await;
 
         // Act
-        let coinbase = node
-            .resolver()
-            .await
-            .unwrap()
-            .block_coinbase(BlockNumberOrTag::Latest)
-            .await;
+        let coinbase =
+            node.resolver().await.unwrap().block_coinbase(BlockNumberOrTag::Latest).await;
 
         // Assert
         let _ = coinbase.expect("Failed to get the coinbase");
@@ -1075,12 +1042,8 @@ mod tests {
         let node = shared_node().await;
 
         // Act
-        let block_difficulty = node
-            .resolver()
-            .await
-            .unwrap()
-            .block_difficulty(BlockNumberOrTag::Latest)
-            .await;
+        let block_difficulty =
+            node.resolver().await.unwrap().block_difficulty(BlockNumberOrTag::Latest).await;
 
         // Assert
         let _ = block_difficulty.expect("Failed to get the block difficulty");
@@ -1093,12 +1056,7 @@ mod tests {
         let node = shared_node().await;
 
         // Act
-        let block_hash = node
-            .resolver()
-            .await
-            .unwrap()
-            .block_hash(BlockNumberOrTag::Latest)
-            .await;
+        let block_hash = node.resolver().await.unwrap().block_hash(BlockNumberOrTag::Latest).await;
 
         // Assert
         let _ = block_hash.expect("Failed to get the block hash");
@@ -1111,12 +1069,8 @@ mod tests {
         let node = shared_node().await;
 
         // Act
-        let block_timestamp = node
-            .resolver()
-            .await
-            .unwrap()
-            .block_timestamp(BlockNumberOrTag::Latest)
-            .await;
+        let block_timestamp =
+            node.resolver().await.unwrap().block_timestamp(BlockNumberOrTag::Latest).await;
 
         // Assert
         let _ = block_timestamp.expect("Failed to get the block timestamp");

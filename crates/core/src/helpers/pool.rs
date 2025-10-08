@@ -2,9 +2,9 @@
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+use crate::Platform;
 use anyhow::Context as _;
 use revive_dt_config::*;
-use crate::Platform;
 use revive_dt_node_interaction::EthereumNode;
 
 /// The node pool starts one or more [Node] which then can be accessed
@@ -37,10 +37,8 @@ impl NodePool {
             );
         }
 
-        let pre_transactions_tasks = nodes
-            .iter_mut()
-            .map(|node| node.pre_transactions())
-            .collect::<Vec<_>>();
+        let pre_transactions_tasks =
+            nodes.iter_mut().map(|node| node.pre_transactions()).collect::<Vec<_>>();
         futures::future::try_join_all(pre_transactions_tasks)
             .await
             .context("Failed to run the pre-transactions task")?;

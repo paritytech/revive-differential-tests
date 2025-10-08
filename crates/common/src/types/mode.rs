@@ -1,9 +1,7 @@
 use crate::types::VersionOrRequirement;
 use semver::Version;
 use serde::{Deserialize, Serialize};
-use std::fmt::Display;
-use std::str::FromStr;
-use std::sync::LazyLock;
+use std::{fmt::Display, str::FromStr, sync::LazyLock};
 
 /// This represents a mode that a given test should be run with, if possible.
 ///
@@ -78,9 +76,7 @@ impl FromStr for ModePipeline {
             // Don't go via Yul IR
             "E" => Ok(ModePipeline::ViaEVMAssembly),
             // Anything else that we see isn't a mode at all
-            _ => Err(anyhow::anyhow!(
-                "Unsupported pipeline '{s}': expected 'Y' or 'E'"
-            )),
+            _ => Err(anyhow::anyhow!("Unsupported pipeline '{s}': expected 'Y' or 'E'")),
         }
     }
 }

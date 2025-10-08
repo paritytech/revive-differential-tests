@@ -80,12 +80,13 @@ impl Watcher {
                         // Subsequent repetition starts are ignored since certain workloads can
                         // contain nested repetitions and therefore there's no use in doing any
                         // action if the repetitions are nested.
-                        WatcherEvent::RepetitionStartEvent { .. } => {}
-                        WatcherEvent::SubmittedTransaction { transaction_hash } => {
-                            watch_for_transaction_hashes
-                                .write()
-                                .await
-                                .insert(transaction_hash);
+                        WatcherEvent::RepetitionStartEvent {
+                            ..
+                        } => {}
+                        WatcherEvent::SubmittedTransaction {
+                            transaction_hash,
+                        } => {
+                            watch_for_transaction_hashes.write().await.insert(transaction_hash);
                         }
                         WatcherEvent::AllTransactionsSubmitted => {
                             *all_transactions_submitted.write().await = true;
@@ -151,15 +152,8 @@ impl Watcher {
             use std::io::Write;
 
             let mut stderr = std::io::stderr().lock();
-            writeln!(
-                stderr,
-                "Watcher information for {}",
-                self.platform_identifier
-            )?;
-            writeln!(
-                stderr,
-                "block_number,block_timestamp,mined_gas,block_gas_limit,tx_count"
-            )?;
+            writeln!(stderr, "Watcher information for {}", self.platform_identifier)?;
+            writeln!(stderr, "block_number,block_timestamp,mined_gas,block_gas_limit,tx_count")?;
             for block in mined_blocks_information {
                 writeln!(
                     stderr,

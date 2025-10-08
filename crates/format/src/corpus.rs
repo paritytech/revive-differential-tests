@@ -13,8 +13,14 @@ use anyhow::Context as _;
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum Corpus {
-    SinglePath { name: String, path: PathBuf },
-    MultiplePaths { name: String, paths: Vec<PathBuf> },
+    SinglePath {
+        name: String,
+        path: PathBuf,
+    },
+    MultiplePaths {
+        name: String,
+        paths: Vec<PathBuf>,
+    },
 }
 
 impl Corpus {
@@ -86,46 +92,58 @@ impl Corpus {
             .collect::<Vec<_>>();
         tests.sort_by(|a, b| a.metadata_file_path.cmp(&b.metadata_file_path));
         tests.dedup_by(|a, b| a.metadata_file_path == b.metadata_file_path);
-        info!(
-            len = tests.len(),
-            corpus_name = self.name(),
-            "Found tests in Corpus"
-        );
+        info!(len = tests.len(), corpus_name = self.name(), "Found tests in Corpus");
         tests
     }
 
     pub fn name(&self) -> &str {
         match self {
-            Corpus::SinglePath { name, .. } | Corpus::MultiplePaths { name, .. } => name.as_str(),
+            Corpus::SinglePath {
+                name,
+                ..
+            }
+            | Corpus::MultiplePaths {
+                name,
+                ..
+            } => name.as_str(),
         }
     }
 
     pub fn paths_iter(&self) -> impl Iterator<Item = &Path> {
         match self {
-            Corpus::SinglePath { path, .. } => {
-                Box::new(std::iter::once(path.as_path())) as Box<dyn Iterator<Item = _>>
-            }
-            Corpus::MultiplePaths { paths, .. } => {
-                Box::new(paths.iter().map(|path| path.as_path())) as Box<dyn Iterator<Item = _>>
-            }
+            Corpus::SinglePath {
+                path,
+                ..
+            } => Box::new(std::iter::once(path.as_path())) as Box<dyn Iterator<Item = _>>,
+            Corpus::MultiplePaths {
+                paths,
+                ..
+            } => Box::new(paths.iter().map(|path| path.as_path())) as Box<dyn Iterator<Item = _>>,
         }
     }
 
     pub fn paths_iter_mut(&mut self) -> impl Iterator<Item = &mut PathBuf> {
         match self {
-            Corpus::SinglePath { path, .. } => {
-                Box::new(std::iter::once(path)) as Box<dyn Iterator<Item = _>>
-            }
-            Corpus::MultiplePaths { paths, .. } => {
-                Box::new(paths.iter_mut()) as Box<dyn Iterator<Item = _>>
-            }
+            Corpus::SinglePath {
+                path,
+                ..
+            } => Box::new(std::iter::once(path)) as Box<dyn Iterator<Item = _>>,
+            Corpus::MultiplePaths {
+                paths,
+                ..
+            } => Box::new(paths.iter_mut()) as Box<dyn Iterator<Item = _>>,
         }
     }
 
     pub fn path_count(&self) -> usize {
         match self {
-            Corpus::SinglePath { .. } => 1,
-            Corpus::MultiplePaths { paths, .. } => paths.len(),
+            Corpus::SinglePath {
+                ..
+            } => 1,
+            Corpus::MultiplePaths {
+                paths,
+                ..
+            } => paths.len(),
         }
     }
 }

@@ -10,8 +10,7 @@ use std::{
     pin::Pin,
 };
 
-use alloy::json_abi::JsonAbi;
-use alloy::primitives::Address;
+use alloy::{json_abi::JsonAbi, primitives::Address};
 use anyhow::{Context as _, Result};
 use semver::Version;
 use serde::{Deserialize, Serialize};

@@ -18,7 +18,9 @@ use alloy::{
     eips::BlockNumberOrTag,
     genesis::{Genesis, GenesisAccount},
     network::{Ethereum, EthereumWallet, NetworkWallet},
-    primitives::{Address, BlockHash, BlockNumber, BlockTimestamp, StorageKey, TxHash, U256},
+    primitives::{
+        Address, BlockHash, BlockNumber, BlockTimestamp, ChainId, StorageKey, TxHash, U256,
+    },
     providers::{
         Provider,
         ext::DebugApi,
@@ -75,6 +77,7 @@ pub struct GethNode {
     wallet: Arc<EthereumWallet>,
     nonce_manager: CachedNonceManager,
     provider: OnceCell<ConcreteProvider<Ethereum, Arc<EthereumWallet>>>,
+    chain_id: ChainId,
 }
 
 impl GethNode {
@@ -105,9 +108,7 @@ impl GethNode {
         let wallet_configuration = AsRef::<WalletConfiguration>::as_ref(&context);
         let geth_configuration = AsRef::<GethConfiguration>::as_ref(&context);
 
-        let geth_directory = working_directory_configuration
-            .as_path()
-            .join(Self::BASE_DIRECTORY);
+        let geth_directory = working_directory_configuration.as_path().join(Self::BASE_DIRECTORY);
         let id = NODE_COUNT.fetch_add(1, Ordering::SeqCst);
         let base_directory = geth_directory.join(id.to_string());
 
@@ -123,6 +124,25 @@ impl GethNode {
             handle: None,
             start_timeout: geth_configuration.start_timeout_ms,
             wallet: wallet.clone(),
+            nonce_manager: Default::default(),
+            provider: Default::default(),
+            chain_id: CHAIN_ID,
+        }
+    }
+
+    pub fn new_existing() -> Self {
+        let wallet_config = revive_dt_config::WalletConfiguration::default();
+        Self {
+            connection_string: "http://localhost:8545".to_string(),
+            base_directory: PathBuf::new(),
+            data_directory: PathBuf::new(),
+            logs_directory: PathBuf::new(),
+            geth: PathBuf::new(),
+            id: 0,
+            chain_id: 1337,
+            handle: None,
+            start_timeout: Duration::from_secs(0),
+            wallet: wallet_config.wallet(),
             nonce_manager: Default::default(),
             provider: Default::default(),
         }
@@ -176,11 +196,7 @@ impl GethNode {
             .read_to_string(&mut stderr)
             .context("Failed to read geth --init stderr")?;
 
-        if !child
-            .wait()
-            .context("Failed waiting for geth --init process to finish")?
-            .success()
-        {
+        if !child.wait().context("Failed waiting for geth --init process to finish")?.success() {
             anyhow::bail!("failed to initialize geth node #{:?}: {stderr}", &self.id);
         }
 
@@ -240,8 +256,7 @@ impl GethNode {
             Ok(process) => self.handle = Some(process),
             Err(err) => {
                 error!(?err, "Failed to start geth, shutting down gracefully");
-                self.shutdown()
-                    .context("Failed to gracefully shutdown after geth start error")?;
+                self.shutdown().context("Failed to gracefully shutdown after geth start error")?;
                 return Err(err);
             }
         }
@@ -255,7 +270,7 @@ impl GethNode {
                 construct_concurrency_limited_provider::<Ethereum, _>(
                     self.connection_string.as_str(),
                     FallbackGasFiller::default(),
-                    ChainIdFiller::new(Some(CHAIN_ID)),
+                    ChainIdFiller::new(Some(self.chain_id)),
                     NonceFiller::new(self.nonce_manager.clone()),
                     self.wallet.clone(),
                 )
@@ -386,10 +401,7 @@ impl EthereumNode for GethNode {
                     }
                 },
             )
-            .instrument(tracing::info_span!(
-                "Awaiting transaction receipt",
-                ?transaction_hash
-            ))
+            .instrument(tracing::info_span!("Awaiting transaction receipt", ?transaction_hash))
             .await
         })
     }
@@ -401,10 +413,8 @@ impl EthereumNode for GethNode {
         trace_options: GethDebugTracingOptions,
     ) -> Pin<Box<dyn Future<Output = anyhow::Result<GethTrace>> + '_>> {
         Box::pin(async move {
-            let provider = self
-                .provider()
-                .await
-                .context("Failed to create provider for tracing")?;
+            let provider =
+                self.provider().await.context("Failed to create provider for tracing")?;
             poll(
                 Self::TRACE_POLLING_DURATION,
                 PollingWaitBehavior::Constant(Duration::from_millis(200)),
@@ -412,10 +422,7 @@ impl EthereumNode for GethNode {
                     let provider = provider.clone();
                     let trace_options = trace_options.clone();
                     async move {
-                        match provider
-                            .debug_trace_transaction(tx_hash, trace_options)
-                            .await
-                        {
+                        match provider.debug_trace_transaction(tx_hash, trace_options).await {
                             Ok(trace) => Ok(ControlFlow::Break(trace)),
                             Err(error) => {
                                 let error_string = error.to_string();
@@ -495,7 +502,10 @@ impl EthereumNode for GethNode {
         Box::pin(async move {
             let id = self.id;
             let provider = self.provider().await?;
-            Ok(Arc::new(GethNodeResolver { id, provider }) as Arc<dyn ResolverApi>)
+            Ok(Arc::new(GethNodeResolver {
+                id,
+                provider,
+            }) as Arc<dyn ResolverApi>)
         })
     }
 
@@ -543,19 +553,13 @@ impl EthereumNode for GethNode {
         })
     }
 
-    fn new_existing() -> Self {
-        Self {
-            connection_string: "http://localhost:8545".to_string(),
-            base_directory: PathBuf::new(),
-            data_directory: PathBuf::new(),
-            logs_directory: PathBuf::new(),
-            geth: PathBuf::new(),
-            id: 0,
-            handle: None,
-            start_timeout: Duration::from_secs(0),
-            wallet: Arc::new(EthereumWallet::default()),
-            nonce_manager: Default::default(),
-            provider: Default::default(),
+    fn resolve_signer_or_default(&self, address: Address) -> Address {
+        let signer_addresses: Vec<_> =
+            <EthereumWallet as NetworkWallet<Ethereum>>::signer_addresses(&self.wallet).collect();
+        if signer_addresses.contains(&address) {
+            address
+        } else {
+            self.wallet.default_signer().address()
         }
     }
 }
@@ -644,10 +648,7 @@ impl ResolverApi for GethNodeResolver {
                 .context("Failed to get the geth block")?
                 .context("Failed to get the Geth block, perhaps there are no blocks?")
                 .and_then(|block| {
-                    block
-                        .header
-                        .base_fee_per_gas
-                        .context("Failed to get the base fee per gas")
+                    block.header.base_fee_per_gas.context("Failed to get the base fee per gas")
                 })
         })
     }
@@ -764,11 +765,7 @@ mod tests {
         // Arrange
         let (context, node) = shared_state();
 
-        let account_address = context
-            .wallet_configuration
-            .wallet()
-            .default_signer()
-            .address();
+        let account_address = context.wallet_configuration.wallet().default_signer().address();
         let transaction = TransactionRequest::default()
             .to(account_address)
             .value(U256::from(100_000_000_000_000u128));
@@ -791,10 +788,7 @@ mod tests {
 
         // Assert
         let version = version.expect("Failed to get the version");
-        assert!(
-            version.starts_with("geth version"),
-            "expected version string, got: '{version}'"
-        );
+        assert!(version.starts_with("geth version"), "expected version string, got: '{version}'");
     }
 
     #[tokio::test]
@@ -818,12 +812,8 @@ mod tests {
         let node = shared_node();
 
         // Act
-        let gas_limit = node
-            .resolver()
-            .await
-            .unwrap()
-            .block_gas_limit(BlockNumberOrTag::Latest)
-            .await;
+        let gas_limit =
+            node.resolver().await.unwrap().block_gas_limit(BlockNumberOrTag::Latest).await;
 
         // Assert
         let _ = gas_limit.expect("Failed to get the gas limit");
@@ -836,12 +826,8 @@ mod tests {
         let node = shared_node();
 
         // Act
-        let coinbase = node
-            .resolver()
-            .await
-            .unwrap()
-            .block_coinbase(BlockNumberOrTag::Latest)
-            .await;
+        let coinbase =
+            node.resolver().await.unwrap().block_coinbase(BlockNumberOrTag::Latest).await;
 
         // Assert
         let _ = coinbase.expect("Failed to get the coinbase");
@@ -854,12 +840,8 @@ mod tests {
         let node = shared_node();
 
         // Act
-        let block_difficulty = node
-            .resolver()
-            .await
-            .unwrap()
-            .block_difficulty(BlockNumberOrTag::Latest)
-            .await;
+        let block_difficulty =
+            node.resolver().await.unwrap().block_difficulty(BlockNumberOrTag::Latest).await;
 
         // Assert
         let _ = block_difficulty.expect("Failed to get the block difficulty");
@@ -872,12 +854,7 @@ mod tests {
         let node = shared_node();
 
         // Act
-        let block_hash = node
-            .resolver()
-            .await
-            .unwrap()
-            .block_hash(BlockNumberOrTag::Latest)
-            .await;
+        let block_hash = node.resolver().await.unwrap().block_hash(BlockNumberOrTag::Latest).await;
 
         // Assert
         let _ = block_hash.expect("Failed to get the block hash");
@@ -890,12 +867,8 @@ mod tests {
         let node = shared_node();
 
         // Act
-        let block_timestamp = node
-            .resolver()
-            .await
-            .unwrap()
-            .block_timestamp(BlockNumberOrTag::Latest)
-            .await;
+        let block_timestamp =
+            node.resolver().await.unwrap().block_timestamp(BlockNumberOrTag::Latest).await;
 
         // Assert
         let _ = block_timestamp.expect("Failed to get the block timestamp");

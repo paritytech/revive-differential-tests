@@ -1,10 +1,10 @@
-use std::collections::HashMap;
-use std::pin::Pin;
+use std::{collections::HashMap, pin::Pin};
 
-use alloy::eips::BlockNumberOrTag;
-use alloy::json_abi::JsonAbi;
-use alloy::primitives::TxHash;
-use alloy::primitives::{Address, BlockHash, BlockNumber, BlockTimestamp, ChainId, U256};
+use alloy::{
+    eips::BlockNumberOrTag,
+    json_abi::JsonAbi,
+    primitives::{Address, BlockHash, BlockNumber, BlockTimestamp, ChainId, TxHash, U256},
+};
 use anyhow::Result;
 
 use crate::metadata::{ContractIdent, ContractInstance};
@@ -149,8 +149,7 @@ impl<'a> ResolutionContext<'a> {
         &self,
         instance: &ContractInstance,
     ) -> Option<&(ContractIdent, Address, JsonAbi)> {
-        self.deployed_contracts
-            .and_then(|deployed_contracts| deployed_contracts.get(instance))
+        self.deployed_contracts.and_then(|deployed_contracts| deployed_contracts.get(instance))
     }
 
     pub fn deployed_contract_address(&self, instance: &ContractInstance) -> Option<&Address> {
@@ -162,8 +161,7 @@ impl<'a> ResolutionContext<'a> {
     }
 
     pub fn variable(&self, name: impl AsRef<str>) -> Option<&U256> {
-        self.variables
-            .and_then(|variables| variables.get(name.as_ref()))
+        self.variables.and_then(|variables| variables.get(name.as_ref()))
     }
 
     pub fn tip_block_number(&self) -> Option<&'a BlockNumber> {

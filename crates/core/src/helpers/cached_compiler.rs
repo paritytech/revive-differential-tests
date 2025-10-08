@@ -8,10 +8,10 @@ use std::{
     sync::{Arc, LazyLock},
 };
 
+use crate::Platform;
 use futures::FutureExt;
 use revive_dt_common::{iterators::FilesWithExtensionIterator, types::CompilerIdentifier};
 use revive_dt_compiler::{Compiler, CompilerOutput, Mode, SolidityCompiler};
-use crate::Platform;
 use revive_dt_format::metadata::{ContractIdent, ContractInstance, Metadata};
 
 use alloy::{hex::ToHexExt, json_abi::JsonAbi, primitives::Address};
@@ -225,9 +225,7 @@ async fn compile_contracts(
                 .flat_map(|value| value.iter())
                 .map(|(instance, (ident, address, abi))| (instance, ident, address, abi))
                 .flat_map(|(_, ident, address, _)| {
-                    all_sources_in_dir
-                        .iter()
-                        .map(move |path| (ident, address, path))
+                    all_sources_in_dir.iter().map(move |path| (ident, address, path))
                 })
                 .fold(compiler, |compiler, (ident, address, path)| {
                     compiler.with_library(path, ident.as_str(), *address)
@@ -309,19 +307,15 @@ impl ArtifactsCache {
     pub async fn insert(&self, key: &CacheKey<'_>, value: &CacheValue) -> Result<()> {
         let key = bson::to_vec(key).context("Failed to serialize cache key (bson)")?;
         let value = bson::to_vec(value).context("Failed to serialize cache value (bson)")?;
-        cacache::write(self.path.as_path(), key.encode_hex(), value)
-            .await
-            .with_context(|| {
-                format!("Failed to write cache entry under {}", self.path.display())
-            })?;
+        cacache::write(self.path.as_path(), key.encode_hex(), value).await.with_context(|| {
+            format!("Failed to write cache entry under {}", self.path.display())
+        })?;
         Ok(())
     }
 
     pub async fn get(&self, key: &CacheKey<'_>) -> Option<CacheValue> {
         let key = bson::to_vec(key).ok()?;
-        let value = cacache::read(self.path.as_path(), key.encode_hex())
-            .await
-            .ok()?;
+        let value = cacache::read(self.path.as_path(), key.encode_hex()).await.ok()?;
         let value = bson::from_slice::<CacheValue>(&value).ok()?;
         Some(value)
     }
@@ -370,6 +364,8 @@ struct CacheValue {
 
 impl CacheValue {
     pub fn new(compiler_output: CompilerOutput) -> Self {
-        Self { compiler_output }
+        Self {
+            compiler_output,
+        }
     }
 }

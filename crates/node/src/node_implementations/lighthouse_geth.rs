@@ -132,9 +132,7 @@ impl LighthouseGethNode {
         let wallet_configuration = AsRef::<WalletConfiguration>::as_ref(&context);
         let kurtosis_configuration = AsRef::<KurtosisConfiguration>::as_ref(&context);
 
-        let geth_directory = working_directory_configuration
-            .as_path()
-            .join(Self::BASE_DIRECTORY);
+        let geth_directory = working_directory_configuration.as_path().join(Self::BASE_DIRECTORY);
         let id = NODE_COUNT.fetch_add(1, Ordering::SeqCst);
         let base_directory = geth_directory.join(id.to_string());
 
@@ -147,10 +145,7 @@ impl LighthouseGethNode {
             http_connection_string: String::default(),
             enclave_name: format!(
                 "enclave-{}-{}",
-                SystemTime::now()
-                    .duration_since(UNIX_EPOCH)
-                    .expect("Must not fail")
-                    .as_nanos(),
+                SystemTime::now().duration_since(UNIX_EPOCH).expect("Must not fail").as_nanos(),
                 id
             ),
 
@@ -183,8 +178,7 @@ impl LighthouseGethNode {
     fn init(&mut self, _: Genesis) -> anyhow::Result<&mut Self> {
         self.init_directories()
             .context("Failed to initialize the directories of the Lighthouse Geth node.")?;
-        self.init_kurtosis_config_file()
-            .context("Failed to write the config file to the FS")?;
+        self.init_kurtosis_config_file().context("Failed to write the config file to the FS")?;
 
         Ok(self)
     }
@@ -426,9 +420,8 @@ impl LighthouseGethNode {
             .context("Full block subscriber")?;
 
         let mut tx_hashes = futures::future::try_join_all(
-            NetworkWallet::<Ethereum>::signer_addresses(self.wallet.as_ref())
-                .enumerate()
-                .map(|(nonce, address)| async move {
+            NetworkWallet::<Ethereum>::signer_addresses(self.wallet.as_ref()).enumerate().map(
+                |(nonce, address)| async move {
                     let mut transaction = TransactionRequest::default()
                         .from(self.prefunded_account_address)
                         .to(address)
@@ -436,7 +429,8 @@ impl LighthouseGethNode {
                         .value(INITIAL_BALANCE.try_into().unwrap());
                     transaction.chain_id = Some(CHAIN_ID);
                     self.submit_transaction(transaction).await
-                }),
+                },
+            ),
         )
         .await
         .context("Failed to submit all transactions")?
@@ -531,10 +525,7 @@ impl LighthouseGethNode {
                     }
                 },
             )
-            .instrument(tracing::info_span!(
-                "Awaiting transaction receipt",
-                ?transaction_hash
-            ))
+            .instrument(tracing::info_span!("Awaiting transaction receipt", ?transaction_hash))
             .await
         })
     }
@@ -623,9 +614,7 @@ impl EthereumNode for LighthouseGethNode {
     ) -> Pin<Box<dyn Future<Output = anyhow::Result<GethTrace>> + '_>> {
         Box::pin(async move {
             let provider = Arc::new(
-                self.http_provider()
-                    .await
-                    .context("Failed to create provider for tracing")?,
+                self.http_provider().await.context("Failed to create provider for tracing")?,
             );
             poll(
                 Self::TRACE_POLLING_DURATION,
@@ -634,10 +623,7 @@ impl EthereumNode for LighthouseGethNode {
                     let provider = provider.clone();
                     let trace_options = trace_options.clone();
                     async move {
-                        match provider
-                            .debug_trace_transaction(tx_hash, trace_options)
-                            .await
-                        {
+                        match provider.debug_trace_transaction(tx_hash, trace_options).await {
                             Ok(trace) => Ok(ControlFlow::Break(trace)),
                             Err(error) => {
                                 let error_string = error.to_string();
@@ -717,7 +703,10 @@ impl EthereumNode for LighthouseGethNode {
         Box::pin(async move {
             let id = self.id;
             let provider = self.ws_provider().await?;
-            Ok(Arc::new(LighthouseGethNodeResolver { id, provider }) as Arc<dyn ResolverApi>)
+            Ok(Arc::new(LighthouseGethNodeResolver {
+                id,
+                provider,
+            }) as Arc<dyn ResolverApi>)
         })
     }
 
@@ -760,6 +749,16 @@ impl EthereumNode for LighthouseGethNode {
             Ok(Box::pin(mined_block_information_stream)
                 as Pin<Box<dyn Stream<Item = MinedBlockInformation>>>)
         })
+    }
+
+    fn resolve_signer_or_default(&self, address: Address) -> Address {
+        let signer_addresses: Vec<_> =
+            <EthereumWallet as NetworkWallet<Ethereum>>::signer_addresses(&self.wallet).collect();
+        if signer_addresses.contains(&address) {
+            address
+        } else {
+            self.wallet.default_signer().address()
+        }
     }
 }
 
@@ -849,10 +848,7 @@ impl<F: TxFiller<Ethereum>, P: Provider<Ethereum>> ResolverApi
                 .context("Failed to get the geth block")?
                 .context("Failed to get the Geth block, perhaps there are no blocks?")
                 .and_then(|block| {
-                    block
-                        .header
-                        .base_fee_per_gas
-                        .context("Failed to get the base fee per gas")
+                    block.header.base_fee_per_gas.context("Failed to get the base fee per gas")
                 })
         })
     }
@@ -906,11 +902,7 @@ impl Node for LighthouseGethNode {
             .spawn()
             .expect("Failed to spawn the enclave kill command");
 
-        if !child
-            .wait()
-            .expect("Failed to wait for the enclave kill command")
-            .success()
-        {
+        if !child.wait().expect("Failed to wait for the enclave kill command").success() {
             let stdout = {
                 let mut stdout = String::default();
                 child
@@ -1136,11 +1128,7 @@ mod tests {
         let (context, node) = new_node();
         node.fund_all_accounts().await.expect("Failed");
 
-        let account_address = context
-            .wallet_configuration
-            .wallet()
-            .default_signer()
-            .address();
+        let account_address = context.wallet_configuration.wallet().default_signer().address();
         let transaction = TransactionRequest::default()
             .to(account_address)
             .value(U256::from(100_000_000_000_000u128));
@@ -1163,10 +1151,7 @@ mod tests {
 
         // Assert
         let version = version.expect("Failed to get the version");
-        assert!(
-            version.starts_with("CLI Version"),
-            "expected version string, got: '{version}'"
-        );
+        assert!(version.starts_with("CLI Version"), "expected version string, got: '{version}'");
     }
 
     #[tokio::test]
@@ -1190,12 +1175,8 @@ mod tests {
         let (_context, node) = new_node();
 
         // Act
-        let gas_limit = node
-            .resolver()
-            .await
-            .unwrap()
-            .block_gas_limit(BlockNumberOrTag::Latest)
-            .await;
+        let gas_limit =
+            node.resolver().await.unwrap().block_gas_limit(BlockNumberOrTag::Latest).await;
 
         // Assert
         let _ = gas_limit.expect("Failed to get the gas limit");
@@ -1208,12 +1189,8 @@ mod tests {
         let (_context, node) = new_node();
 
         // Act
-        let coinbase = node
-            .resolver()
-            .await
-            .unwrap()
-            .block_coinbase(BlockNumberOrTag::Latest)
-            .await;
+        let coinbase =
+            node.resolver().await.unwrap().block_coinbase(BlockNumberOrTag::Latest).await;
 
         // Assert
         let _ = coinbase.expect("Failed to get the coinbase");
@@ -1226,12 +1203,8 @@ mod tests {
         let (_context, node) = new_node();
 
         // Act
-        let block_difficulty = node
-            .resolver()
-            .await
-            .unwrap()
-            .block_difficulty(BlockNumberOrTag::Latest)
-            .await;
+        let block_difficulty =
+            node.resolver().await.unwrap().block_difficulty(BlockNumberOrTag::Latest).await;
 
         // Assert
         let _ = block_difficulty.expect("Failed to get the block difficulty");
@@ -1244,12 +1217,7 @@ mod tests {
         let (_context, node) = new_node();
 
         // Act
-        let block_hash = node
-            .resolver()
-            .await
-            .unwrap()
-            .block_hash(BlockNumberOrTag::Latest)
-            .await;
+        let block_hash = node.resolver().await.unwrap().block_hash(BlockNumberOrTag::Latest).await;
 
         // Assert
         let _ = block_hash.expect("Failed to get the block hash");
@@ -1262,12 +1230,8 @@ mod tests {
         let (_context, node) = new_node();
 
         // Act
-        let block_timestamp = node
-            .resolver()
-            .await
-            .unwrap()
-            .block_timestamp(BlockNumberOrTag::Latest)
-            .await;
+        let block_timestamp =
+            node.resolver().await.unwrap().block_timestamp(BlockNumberOrTag::Latest).await;
 
         // Assert
         let _ = block_timestamp.expect("Failed to get the block timestamp");

@@ -7,10 +7,10 @@ use std::{
     time::{Duration, Instant},
 };
 
+use crate::Platform;
 use anyhow::Context as _;
 use futures::{FutureExt, StreamExt};
 use revive_dt_common::types::PrivateKeyAllocator;
-use crate::Platform;
 use tokio::sync::{Mutex, RwLock, Semaphore};
 use tracing::{Instrument, error, info, info_span, instrument};
 
@@ -37,12 +37,8 @@ pub async fn handle_differential_tests(
     info!(len = metadata_files.len(), "Discovered metadata files");
 
     // Discover the list of platforms that the tests should run on based on the context.
-    let platforms = context
-        .platforms
-        .iter()
-        .copied()
-        .map(Into::<&dyn Platform>::into)
-        .collect::<Vec<_>>();
+    let platforms =
+        context.platforms.iter().copied().map(Into::<&dyn Platform>::into).collect::<Vec<_>>();
 
     // Starting the nodes of the various platforms specified in the context.
     let platforms_and_nodes = {
@@ -85,13 +81,8 @@ pub async fn handle_differential_tests(
 
     // Creating everything else required for the driver to run.
     let cached_compiler = CachedCompiler::new(
-        context
-            .working_directory
-            .as_path()
-            .join("compilation_cache"),
-        context
-            .compilation_configuration
-            .invalidate_compilation_cache,
+        context.working_directory.as_path().join("compilation_cache"),
+        context.compilation_configuration.invalidate_compilation_cache,
     )
     .await
     .map(Arc::new)
@@ -101,11 +92,8 @@ pub async fn handle_differential_tests(
     )));
 
     // Creating the driver and executing all of the steps.
-    let semaphore = context
-        .concurrency_configuration
-        .concurrency_limit()
-        .map(Semaphore::new)
-        .map(Arc::new);
+    let semaphore =
+        context.concurrency_configuration.concurrency_limit().map(Semaphore::new).map(Arc::new);
     let running_task_list = Arc::new(RwLock::new(BTreeSet::<usize>::new()));
     let driver_task = futures::future::join_all(test_definitions.iter().enumerate().map(
         |(test_id, test_definition)| {
@@ -172,20 +160,14 @@ pub async fn handle_differential_tests(
     ))
     .inspect(|_| {
         info!("Finished executing all test cases");
-        reporter_clone
-            .report_completion_event()
-            .expect("Can't fail")
+        reporter_clone.report_completion_event().expect("Can't fail")
     });
     let cli_reporting_task = start_cli_reporting_task(reporter);
 
     tokio::task::spawn(async move {
         loop {
             let remaining_tasks = running_task_list.read().await;
-            info!(
-                count = remaining_tasks.len(),
-                ?remaining_tasks,
-                "Remaining Tests"
-            );
+            info!(count = remaining_tasks.len(), ?remaining_tasks, "Remaining Tests");
             tokio::time::sleep(Duration::from_secs(10)).await
         }
     });
@@ -227,7 +209,9 @@ async fn start_cli_reporting_task(reporter: Reporter) {
         for (case_idx, case_status) in case_status.into_iter() {
             let _ = write!(buf, "\tCase Index {case_idx:>3}: ");
             let _ = match case_status {
-                TestCaseStatus::Succeeded { steps_executed } => {
+                TestCaseStatus::Succeeded {
+                    steps_executed,
+                } => {
                     number_of_successes += 1;
                     writeln!(
                         buf,
@@ -235,7 +219,9 @@ async fn start_cli_reporting_task(reporter: Reporter) {
                         GREEN, BOLD, BOLD_RESET, steps_executed, COLOR_RESET
                     )
                 }
-                TestCaseStatus::Failed { reason } => {
+                TestCaseStatus::Failed {
+                    reason,
+                } => {
                     number_of_failures += 1;
                     writeln!(
                         buf,
@@ -247,7 +233,10 @@ async fn start_cli_reporting_task(reporter: Reporter) {
                         COLOR_RESET,
                     )
                 }
-                TestCaseStatus::Ignored { reason, .. } => writeln!(
+                TestCaseStatus::Ignored {
+                    reason,
+                    ..
+                } => writeln!(
                     buf,
                     "{}{}Case Ignored{} - Reason: {}{}",
                     GREY,

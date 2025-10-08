@@ -3,8 +3,8 @@
 //! This crate defines the testing configuration and
 //! provides a helper utility to execute tests.
 
-pub mod helpers;
 pub mod differential_tests;
+pub mod helpers;
 
 use std::{
     pin::Pin,
@@ -17,9 +17,11 @@ use revive_dt_common::types::*;
 use revive_dt_compiler::{SolidityCompiler, revive_resolc::Resolc, solc::Solc};
 use revive_dt_config::*;
 use revive_dt_node::{
-    Node, node_implementations::geth::GethNode,
-    node_implementations::lighthouse_geth::LighthouseGethNode,
-    node_implementations::substrate::SubstrateNode, node_implementations::zombienet::ZombieNode,
+    Node,
+    node_implementations::{
+        geth::GethNode, lighthouse_geth::LighthouseGethNode, substrate::SubstrateNode,
+        zombienet::ZombieNode,
+    },
 };
 use revive_dt_node_interaction::EthereumNode;
 use tracing::info;
@@ -36,11 +38,7 @@ pub trait Platform {
 
     /// Returns a full identifier for the platform.
     fn full_identifier(&self) -> (NodeIdentifier, VmIdentifier, CompilerIdentifier) {
-        (
-            self.node_identifier(),
-            self.vm_identifier(),
-            self.compiler_identifier(),
-        )
+        (self.node_identifier(), self.vm_identifier(), self.compiler_identifier())
     }
 
     /// Returns the identifier of the node used.
@@ -182,9 +180,7 @@ impl Platform for KitchensinkPolkavmResolcPlatform {
         context: Context,
     ) -> anyhow::Result<JoinHandle<anyhow::Result<Box<dyn EthereumNode + Send + Sync>>>> {
         let genesis_configuration = AsRef::<GenesisConfiguration>::as_ref(&context);
-        let kitchensink_path = AsRef::<KitchensinkConfiguration>::as_ref(&context)
-            .path
-            .clone();
+        let kitchensink_path = AsRef::<KitchensinkConfiguration>::as_ref(&context).path.clone();
         let genesis = genesis_configuration.genesis()?.clone();
         Ok(thread::spawn(move || {
             let node = SubstrateNode::new(
@@ -234,9 +230,7 @@ impl Platform for KitchensinkRevmSolcPlatform {
         context: Context,
     ) -> anyhow::Result<JoinHandle<anyhow::Result<Box<dyn EthereumNode + Send + Sync>>>> {
         let genesis_configuration = AsRef::<GenesisConfiguration>::as_ref(&context);
-        let kitchensink_path = AsRef::<KitchensinkConfiguration>::as_ref(&context)
-            .path
-            .clone();
+        let kitchensink_path = AsRef::<KitchensinkConfiguration>::as_ref(&context).path.clone();
         let genesis = genesis_configuration.genesis()?.clone();
         Ok(thread::spawn(move || {
             let node = SubstrateNode::new(
@@ -286,9 +280,8 @@ impl Platform for ReviveDevNodePolkavmResolcPlatform {
         context: Context,
     ) -> anyhow::Result<JoinHandle<anyhow::Result<Box<dyn EthereumNode + Send + Sync>>>> {
         let genesis_configuration = AsRef::<GenesisConfiguration>::as_ref(&context);
-        let revive_dev_node_path = AsRef::<ReviveDevNodeConfiguration>::as_ref(&context)
-            .path
-            .clone();
+        let revive_dev_node_path =
+            AsRef::<ReviveDevNodeConfiguration>::as_ref(&context).path.clone();
         let genesis = genesis_configuration.genesis()?.clone();
         Ok(thread::spawn(move || {
             let node = SubstrateNode::new(
@@ -338,9 +331,8 @@ impl Platform for ReviveDevNodeRevmSolcPlatform {
         context: Context,
     ) -> anyhow::Result<JoinHandle<anyhow::Result<Box<dyn EthereumNode + Send + Sync>>>> {
         let genesis_configuration = AsRef::<GenesisConfiguration>::as_ref(&context);
-        let revive_dev_node_path = AsRef::<ReviveDevNodeConfiguration>::as_ref(&context)
-            .path
-            .clone();
+        let revive_dev_node_path =
+            AsRef::<ReviveDevNodeConfiguration>::as_ref(&context).path.clone();
         let genesis = genesis_configuration.genesis()?.clone();
         Ok(thread::spawn(move || {
             let node = SubstrateNode::new(
@@ -390,9 +382,8 @@ impl Platform for ZombienetPolkavmResolcPlatform {
         context: Context,
     ) -> anyhow::Result<JoinHandle<anyhow::Result<Box<dyn EthereumNode + Send + Sync>>>> {
         let genesis_configuration = AsRef::<GenesisConfiguration>::as_ref(&context);
-        let polkadot_parachain_path = AsRef::<PolkadotParachainConfiguration>::as_ref(&context)
-            .path
-            .clone();
+        let polkadot_parachain_path =
+            AsRef::<PolkadotParachainConfiguration>::as_ref(&context).path.clone();
         let genesis = genesis_configuration.genesis()?.clone();
         Ok(thread::spawn(move || {
             let node = ZombieNode::new(polkadot_parachain_path, context);
@@ -438,9 +429,8 @@ impl Platform for ZombienetRevmSolcPlatform {
         context: Context,
     ) -> anyhow::Result<JoinHandle<anyhow::Result<Box<dyn EthereumNode + Send + Sync>>>> {
         let genesis_configuration = AsRef::<GenesisConfiguration>::as_ref(&context);
-        let polkadot_parachain_path = AsRef::<PolkadotParachainConfiguration>::as_ref(&context)
-            .path
-            .clone();
+        let polkadot_parachain_path =
+            AsRef::<PolkadotParachainConfiguration>::as_ref(&context).path.clone();
         let genesis = genesis_configuration.genesis()?.clone();
         Ok(thread::spawn(move || {
             let node = ZombieNode::new(polkadot_parachain_path, context);
@@ -519,17 +509,8 @@ fn spawn_node<T: Node + EthereumNode + Send + Sync>(
     mut node: T,
     genesis: Genesis,
 ) -> anyhow::Result<T> {
-    info!(
-        id = node.id(),
-        connection_string = node.connection_string(),
-        "Spawning node"
-    );
-    node.spawn(genesis)
-        .context("Failed to spawn node process")?;
-    info!(
-        id = node.id(),
-        connection_string = node.connection_string(),
-        "Spawned node"
-    );
+    info!(id = node.id(), connection_string = node.connection_string(), "Spawning node");
+    node.spawn(genesis).context("Failed to spawn node process")?;
+    info!(id = node.id(), connection_string = node.connection_string(), "Spawned node");
     Ok(node)
 }

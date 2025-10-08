@@ -1,9 +1,11 @@
 //! This module implements a cached file system allowing for results to be stored in-memory rather
 //! rather being queried from the file system again.
 
-use std::fs;
-use std::io::{Error, Result};
-use std::path::{Path, PathBuf};
+use std::{
+    fs,
+    io::{Error, Result},
+    path::{Path, PathBuf},
+};
 
 use moka::sync::Cache;
 use once_cell::sync::Lazy;
@@ -25,10 +27,7 @@ pub fn read(path: impl AsRef<Path>) -> Result<Vec<u8>> {
 pub fn read_to_string(path: impl AsRef<Path>) -> Result<String> {
     let content = read(path)?;
     String::from_utf8(content).map_err(|_| {
-        Error::new(
-            std::io::ErrorKind::InvalidData,
-            "The contents of the file are not valid UTF8",
-        )
+        Error::new(std::io::ErrorKind::InvalidData, "The contents of the file are not valid UTF8")
     })
 }
 

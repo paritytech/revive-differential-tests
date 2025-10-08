@@ -9,9 +9,8 @@ use semver::Version;
 async fn contracts_can_be_compiled_with_solc() {
     // Arrange
     let args = TestExecutionContext::default();
-    let solc = Solc::new(&args, VersionOrRequirement::Version(Version::new(0, 8, 30)))
-        .await
-        .unwrap();
+    let solc =
+        Solc::new(&args, VersionOrRequirement::Version(Version::new(0, 8, 30))).await.unwrap();
 
     // Act
     let output = Compiler::new()
@@ -28,18 +27,12 @@ async fn contracts_can_be_compiled_with_solc() {
 
     let main_file_contracts = output
         .contracts
-        .get(
-            &PathBuf::from("./tests/assets/array_one_element/main.sol")
-                .canonicalize()
-                .unwrap(),
-        )
+        .get(&PathBuf::from("./tests/assets/array_one_element/main.sol").canonicalize().unwrap())
         .unwrap();
     let callable_file_contracts = output
         .contracts
         .get(
-            &PathBuf::from("./tests/assets/array_one_element/callable.sol")
-                .canonicalize()
-                .unwrap(),
+            &PathBuf::from("./tests/assets/array_one_element/callable.sol").canonicalize().unwrap(),
         )
         .unwrap();
     assert!(main_file_contracts.contains_key("Main"));
@@ -50,9 +43,8 @@ async fn contracts_can_be_compiled_with_solc() {
 async fn contracts_can_be_compiled_with_resolc() {
     // Arrange
     let args = TestExecutionContext::default();
-    let resolc = Resolc::new(&args, VersionOrRequirement::Version(Version::new(0, 8, 30)))
-        .await
-        .unwrap();
+    let resolc =
+        Resolc::new(&args, VersionOrRequirement::Version(Version::new(0, 8, 30))).await.unwrap();
 
     // Act
     let output = Compiler::new()
@@ -69,18 +61,12 @@ async fn contracts_can_be_compiled_with_resolc() {
 
     let main_file_contracts = output
         .contracts
-        .get(
-            &PathBuf::from("./tests/assets/array_one_element/main.sol")
-                .canonicalize()
-                .unwrap(),
-        )
+        .get(&PathBuf::from("./tests/assets/array_one_element/main.sol").canonicalize().unwrap())
         .unwrap();
     let callable_file_contracts = output
         .contracts
         .get(
-            &PathBuf::from("./tests/assets/array_one_element/callable.sol")
-                .canonicalize()
-                .unwrap(),
+            &PathBuf::from("./tests/assets/array_one_element/callable.sol").canonicalize().unwrap(),
         )
         .unwrap();
     assert!(main_file_contracts.contains_key("Main"));

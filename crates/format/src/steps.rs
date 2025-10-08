@@ -1,11 +1,10 @@
 use std::{collections::HashMap, fmt::Display, str::FromStr};
 
-use alloy::primitives::{FixedBytes, utils::parse_units};
 use alloy::{
     eips::BlockNumberOrTag,
     json_abi::Function,
     network::TransactionBuilder,
-    primitives::{Address, Bytes, U256},
+    primitives::{Address, Bytes, FixedBytes, U256, utils::parse_units},
     rpc::types::TransactionRequest,
 };
 use anyhow::Context as _;
@@ -17,8 +16,10 @@ use serde::{Deserialize, Serialize};
 use revive_dt_common::macros::define_wrapper_type;
 use tracing::{Instrument, info_span, instrument};
 
-use crate::traits::ResolverApi;
-use crate::{metadata::ContractInstance, traits::ResolutionContext};
+use crate::{
+    metadata::ContractInstance,
+    traits::{ResolutionContext, ResolverApi},
+};
 
 /// A test step.
 ///
@@ -77,12 +78,7 @@ impl StepPath {
 
 impl Display for StepPath {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.0
-            .iter()
-            .map(|idx| idx.to_string())
-            .collect::<Vec<_>>()
-            .join(".")
-            .fmt(f)
+        self.0.iter().map(|idx| idx.to_string()).collect::<Vec<_>>().join(".").fmt(f)
     }
 }
 
@@ -90,10 +86,7 @@ impl FromStr for StepPath {
     type Err = anyhow::Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        s.split(".")
-            .map(StepIdx::from_str)
-            .collect::<anyhow::Result<Vec<_>>>()
-            .map(Self)
+        s.split(".").map(StepIdx::from_str).collect::<anyhow::Result<Vec<_>>>().map(Self)
     }
 }
 
@@ -455,9 +448,7 @@ impl StepAddress {
 
 impl FunctionCallStep {
     pub const fn default_caller_address() -> Address {
-        Address(FixedBytes(alloy::hex!(
-            "0x90F8bf6A479f320ead074411a4B0e7944Ea8c9C1"
-        )))
+        Address(FixedBytes(alloy::hex!("0x90F8bf6A479f320ead074411a4B0e7944Ea8c9C1")))
     }
 
     pub const fn default_caller() -> StepAddress {
@@ -547,11 +538,9 @@ impl FunctionCallStep {
             .await
             .context("Failed to encode input bytes for transaction request")?;
         let caller = self.caller.resolve_address(resolver, context).await?;
-        let transaction_request = TransactionRequest::default().from(caller).value(
-            self.value
-                .map(|value| value.into_inner())
-                .unwrap_or_default(),
-        );
+        let transaction_request = TransactionRequest::default()
+            .from(caller)
+            .value(self.value.map(|value| value.into_inner()).unwrap_or_default());
         match self.method {
             Method::Deployer => Ok(transaction_request.with_deploy_code(input_data)),
             _ => Ok(transaction_request
@@ -607,11 +596,7 @@ impl Calldata {
 
     pub fn new_compound(items: impl IntoIterator<Item = impl AsRef<str>>) -> Self {
         Self::Compound(
-            items
-                .into_iter()
-                .map(|item| item.as_ref().to_owned())
-                .map(CalldataItem::new)
-                .collect(),
+            items.into_iter().map(|item| item.as_ref().to_owned()).map(CalldataItem::new).collect(),
         )
     }
 
@@ -633,8 +618,7 @@ impl Calldata {
         context: ResolutionContext<'_>,
     ) -> anyhow::Result<Vec<u8>> {
         let mut buffer = Vec::<u8>::with_capacity(self.size_requirement());
-        self.calldata_into_slice(&mut buffer, resolver, context)
-            .await?;
+        self.calldata_into_slice(&mut buffer, resolver, context).await?;
         Ok(buffer)
     }
 
@@ -725,10 +709,7 @@ impl CalldataItem {
     ) -> anyhow::Result<U256> {
         let mut stack = Vec::<CalldataToken<U256>>::new();
 
-        for token in self
-            .calldata_tokens()
-            .map(|token| token.resolve(resolver, context))
-        {
+        for token in self.calldata_tokens().map(|token| token.resolve(resolver, context)) {
             let token = token.await?;
             let new_token = match token {
                 CalldataToken::Item(_) => token,
@@ -769,9 +750,7 @@ impl CalldataItem {
             // Empty stack means that we got an empty compound calldata which we resolve to zero.
             [] => Ok(U256::ZERO),
             [CalldataToken::Item(item)] => Ok(*item),
-            _ => Err(anyhow::anyhow!(
-                "Invalid calldata arithmetic operation - Invalid stack"
-            )),
+            _ => Err(anyhow::anyhow!("Invalid calldata arithmetic operation - Invalid stack")),
         }
     }
 
@@ -915,10 +894,7 @@ impl<T: AsRef<str>> CalldataToken<T> {
                         .await
                         .map(U256::from)
                 } else if let Some(variable_name) = item.strip_prefix(Self::VARIABLE_PREFIX) {
-                    context
-                        .variable(variable_name)
-                        .context("Variable lookup failed")
-                        .copied()
+                    context.variable(variable_name).context("Variable lookup failed").copied()
                 } else {
                     U256::from_str_radix(item, 10)
                         .map_err(|error| anyhow::anyhow!("Invalid decimal literal: {}", error))
@@ -959,9 +935,12 @@ impl<'de> Deserialize<'de> for EtherValue {
 #[cfg(test)]
 mod tests {
 
-    use alloy::primitives::{BlockHash, BlockNumber, BlockTimestamp, ChainId, TxHash, address};
-    use alloy::sol_types::SolValue;
-    use alloy::{eips::BlockNumberOrTag, json_abi::JsonAbi};
+    use alloy::{
+        eips::BlockNumberOrTag,
+        json_abi::JsonAbi,
+        primitives::{BlockHash, BlockNumber, BlockTimestamp, ChainId, TxHash, address},
+        sol_types::SolValue,
+    };
     use std::{collections::HashMap, pin::Pin};
 
     use super::*;
@@ -1045,13 +1024,7 @@ mod tests {
         "#;
 
         let parsed_abi: JsonAbi = serde_json::from_str(raw_metadata).unwrap();
-        let selector = parsed_abi
-            .function("store")
-            .unwrap()
-            .first()
-            .unwrap()
-            .selector()
-            .0;
+        let selector = parsed_abi.function("store").unwrap().first().unwrap().selector().0;
 
         let input = FunctionCallStep {
             instance: ContractInstance::new("Contract"),
@@ -1089,13 +1062,7 @@ mod tests {
         ]"#;
 
         let parsed_abi: JsonAbi = serde_json::from_str(raw_abi).unwrap();
-        let selector = parsed_abi
-            .function("send")
-            .unwrap()
-            .first()
-            .unwrap()
-            .selector()
-            .0;
+        let selector = parsed_abi.function("send").unwrap().first().unwrap().selector().0;
 
         let input: FunctionCallStep = FunctionCallStep {
             instance: "Contract".to_owned().into(),
@@ -1117,10 +1084,7 @@ mod tests {
 
         type T = (alloy::primitives::Address,);
         let decoded: T = T::abi_decode(&encoded.0[4..]).unwrap();
-        assert_eq!(
-            decoded.0,
-            address!("0x1000000000000000000000000000000000000001")
-        );
+        assert_eq!(decoded.0, address!("0x1000000000000000000000000000000000000001"));
     }
 
     #[tokio::test]
@@ -1136,13 +1100,7 @@ mod tests {
         ]"#;
 
         let parsed_abi: JsonAbi = serde_json::from_str(raw_abi).unwrap();
-        let selector = parsed_abi
-            .function("send")
-            .unwrap()
-            .first()
-            .unwrap()
-            .selector()
-            .0;
+        let selector = parsed_abi.function("send").unwrap().first().unwrap().selector().0;
 
         let input: FunctionCallStep = FunctionCallStep {
             instance: ContractInstance::new("Contract"),
@@ -1164,10 +1122,7 @@ mod tests {
 
         type T = (alloy::primitives::Address,);
         let decoded: T = T::abi_decode(&encoded.0[4..]).unwrap();
-        assert_eq!(
-            decoded.0,
-            address!("0x1000000000000000000000000000000000000001")
-        );
+        assert_eq!(decoded.0, address!("0x1000000000000000000000000000000000000001"));
     }
 
     async fn resolve_calldata_item(
@@ -1204,12 +1159,7 @@ mod tests {
         let resolved = resolved.expect("Failed to resolve argument");
         assert_eq!(
             resolved,
-            U256::from(
-                MockResolver
-                    .block_gas_limit(Default::default())
-                    .await
-                    .unwrap()
-            )
+            U256::from(MockResolver.block_gas_limit(Default::default()).await.unwrap())
         )
     }
 
@@ -1226,11 +1176,7 @@ mod tests {
         assert_eq!(
             resolved,
             U256::from_be_slice(
-                MockResolver
-                    .block_coinbase(Default::default())
-                    .await
-                    .unwrap()
-                    .as_ref()
+                MockResolver.block_coinbase(Default::default()).await.unwrap().as_ref()
             )
         )
     }
@@ -1245,13 +1191,7 @@ mod tests {
 
         // Assert
         let resolved = resolved.expect("Failed to resolve argument");
-        assert_eq!(
-            resolved,
-            MockResolver
-                .block_difficulty(Default::default())
-                .await
-                .unwrap()
-        )
+        assert_eq!(resolved, MockResolver.block_difficulty(Default::default()).await.unwrap())
     }
 
     #[tokio::test]
@@ -1266,11 +1206,7 @@ mod tests {
         let resolved = resolved.expect("Failed to resolve argument");
         assert_eq!(
             resolved,
-            MockResolver
-                .block_base_fee(Default::default())
-                .await
-                .map(U256::from)
-                .unwrap()
+            MockResolver.block_base_fee(Default::default()).await.map(U256::from).unwrap()
         )
     }
 
@@ -1300,10 +1236,7 @@ mod tests {
 
         // Assert
         let resolved = resolved.expect("Failed to resolve argument");
-        assert_eq!(
-            resolved,
-            U256::from(MockResolver.last_block_number().await.unwrap())
-        )
+        assert_eq!(resolved, U256::from(MockResolver.last_block_number().await.unwrap()))
     }
 
     #[tokio::test]
@@ -1318,12 +1251,7 @@ mod tests {
         let resolved = resolved.expect("Failed to resolve argument");
         assert_eq!(
             resolved,
-            U256::from(
-                MockResolver
-                    .block_timestamp(Default::default())
-                    .await
-                    .unwrap()
-            )
+            U256::from(MockResolver.block_timestamp(Default::default()).await.unwrap())
         )
     }
 
@@ -1401,10 +1329,7 @@ mod tests {
 
         // Assert
         let resolved = resolved.expect("Failed to resolve argument");
-        assert_eq!(
-            resolved,
-            U256::from(MockResolver.last_block_number().await.unwrap() + 10)
-        );
+        assert_eq!(resolved, U256::from(MockResolver.last_block_number().await.unwrap() + 10));
     }
 
     #[tokio::test]

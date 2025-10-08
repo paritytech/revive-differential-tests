@@ -108,9 +108,7 @@ impl SubstrateNode {
     ) -> Self {
         let working_directory_path =
             AsRef::<WorkingDirectoryConfiguration>::as_ref(&context).as_path();
-        let eth_rpc_path = AsRef::<EthRpcConfiguration>::as_ref(&context)
-            .path
-            .as_path();
+        let eth_rpc_path = AsRef::<EthRpcConfiguration>::as_ref(&context).path.as_path();
         let wallet = AsRef::<WalletConfiguration>::as_ref(&context).wallet();
 
         let substrate_directory = working_directory_path.join(Self::BASE_DIRECTORY);
@@ -129,6 +127,24 @@ impl SubstrateNode {
             substrate_process: None,
             eth_proxy_process: None,
             wallet: wallet.clone(),
+            nonce_manager: Default::default(),
+            provider: Default::default(),
+        }
+    }
+
+    pub fn new_existing() -> Self {
+        let wallet_config = revive_dt_config::WalletConfiguration::default();
+        Self {
+            id: 0,
+            node_binary: PathBuf::new(),
+            eth_proxy_binary: PathBuf::new(),
+            export_chainspec_command: String::new(),
+            rpc_url: "http://localhost:8545".to_string(),
+            base_directory: PathBuf::new(),
+            logs_directory: PathBuf::new(),
+            substrate_process: None,
+            eth_proxy_process: None,
+            wallet: wallet_config.wallet(),
             nonce_manager: Default::default(),
             provider: Default::default(),
         }
@@ -309,15 +325,12 @@ impl SubstrateNode {
         &self,
         genesis: &Genesis,
     ) -> anyhow::Result<Vec<(String, u128)>> {
-        genesis
-            .alloc
-            .iter()
-            .try_fold(Vec::new(), |mut vec, (address, acc)| {
-                let substrate_address = Self::eth_to_substrate_address(address);
-                let balance = acc.balance.try_into()?;
-                vec.push((substrate_address, balance));
-                Ok(vec)
-            })
+        genesis.alloc.iter().try_fold(Vec::new(), |mut vec, (address, acc)| {
+            let substrate_address = Self::eth_to_substrate_address(address);
+            let balance = acc.balance.try_into()?;
+            vec.push((substrate_address, balance));
+            Ok(vec)
+        })
     }
 
     fn eth_to_substrate_address(address: &Address) -> String {
@@ -412,10 +425,7 @@ impl EthereumNode for SubstrateNode {
         transaction: TransactionRequest,
     ) -> Pin<Box<dyn Future<Output = anyhow::Result<TransactionReceipt>> + '_>> {
         Box::pin(async move {
-            let provider = self
-                .provider()
-                .await
-                .context("Failed to create the provider")?;
+            let provider = self.provider().await.context("Failed to create the provider")?;
             execute_transaction(provider, transaction).await
         })
     }
@@ -492,7 +502,10 @@ impl EthereumNode for SubstrateNode {
         Box::pin(async move {
             let id = self.id;
             let provider = self.provider().await?;
-            Ok(Arc::new(SubstrateNodeResolver { id, provider }) as Arc<dyn ResolverApi>)
+            Ok(Arc::new(SubstrateNodeResolver {
+                id,
+                provider,
+            }) as Arc<dyn ResolverApi>)
         })
     }
 
@@ -513,10 +526,8 @@ impl EthereumNode for SubstrateNode {
                 .provider()
                 .await
                 .context("Failed to create the provider for block subscription")?;
-            let mut block_subscription = provider
-                .watch_full_blocks()
-                .await
-                .context("Failed to create the blocks stream")?;
+            let mut block_subscription =
+                provider.watch_full_blocks().await.context("Failed to create the blocks stream")?;
             block_subscription.set_channel_size(0xFFFF);
             block_subscription.set_poll_interval(Duration::from_secs(1));
             let block_stream = block_subscription.into_stream();
@@ -542,20 +553,13 @@ impl EthereumNode for SubstrateNode {
         })
     }
 
-    fn new_existing() -> Self {
-        Self {
-            id: 0,
-            node_binary: PathBuf::new(),
-            eth_proxy_binary: PathBuf::new(),
-            export_chainspec_command: String::new(),
-            rpc_url: "http://localhost:8545".to_string(),
-            base_directory: PathBuf::new(),
-            logs_directory: PathBuf::new(),
-            substrate_process: None,
-            eth_proxy_process: None,
-            wallet: Arc::new(EthereumWallet::default()),
-            nonce_manager: Default::default(),
-            provider: Default::default(),
+    fn resolve_signer_or_default(&self, address: Address) -> Address {
+        let signer_addresses: Vec<_> =
+            <EthereumWallet as NetworkWallet<Ethereum>>::signer_addresses(&self.wallet).collect();
+        if signer_addresses.contains(&address) {
+            address
+        } else {
+            self.wallet.default_signer().address()
         }
     }
 }
@@ -644,10 +648,7 @@ impl ResolverApi for SubstrateNodeResolver {
                 .context("Failed to get the substrate block")?
                 .context("Failed to get the substrate block, perhaps the chain has no blocks?")
                 .and_then(|block| {
-                    block
-                        .header
-                        .base_fee_per_gas
-                        .context("Failed to get the base fee per gas")
+                    block.header.base_fee_per_gas.context("Failed to get the base fee per gas")
                 })
         })
     }
@@ -926,25 +927,26 @@ impl TransactionBuilder<ReviveNetwork> for <Ethereum as Network>::TransactionReq
         );
         match result {
             Ok(unsigned_tx) => Ok(unsigned_tx),
-            Err(UnbuiltTransactionError { request, error }) => {
-                Err(UnbuiltTransactionError::<ReviveNetwork> {
-                    request,
-                    error: match error {
-                        TransactionBuilderError::InvalidTransactionRequest(tx_type, items) => {
-                            TransactionBuilderError::InvalidTransactionRequest(tx_type, items)
-                        }
-                        TransactionBuilderError::UnsupportedSignatureType => {
-                            TransactionBuilderError::UnsupportedSignatureType
-                        }
-                        TransactionBuilderError::Signer(error) => {
-                            TransactionBuilderError::Signer(error)
-                        }
-                        TransactionBuilderError::Custom(error) => {
-                            TransactionBuilderError::Custom(error)
-                        }
-                    },
-                })
-            }
+            Err(UnbuiltTransactionError {
+                request,
+                error,
+            }) => Err(UnbuiltTransactionError::<ReviveNetwork> {
+                request,
+                error: match error {
+                    TransactionBuilderError::InvalidTransactionRequest(tx_type, items) => {
+                        TransactionBuilderError::InvalidTransactionRequest(tx_type, items)
+                    }
+                    TransactionBuilderError::UnsupportedSignatureType => {
+                        TransactionBuilderError::UnsupportedSignatureType
+                    }
+                    TransactionBuilderError::Signer(error) => {
+                        TransactionBuilderError::Signer(error)
+                    }
+                    TransactionBuilderError::Custom(error) => {
+                        TransactionBuilderError::Custom(error)
+                    }
+                },
+            }),
         }
     }
 
@@ -1212,11 +1214,7 @@ mod tests {
 
         let provider = node.provider().await.expect("Failed to create provider");
 
-        let account_address = context
-            .wallet_configuration
-            .wallet()
-            .default_signer()
-            .address();
+        let account_address = context.wallet_configuration.wallet().default_signer().address();
         let transaction = TransactionRequest::default()
             .to(account_address)
             .value(U256::from(100_000_000_000_000u128));
@@ -1256,14 +1254,11 @@ mod tests {
         );
 
         // Call `init()`
-        dummy_node
-            .init(serde_json::from_str(genesis_content).unwrap())
-            .expect("init failed");
+        dummy_node.init(serde_json::from_str(genesis_content).unwrap()).expect("init failed");
 
         // Check that the patched chainspec file was generated
-        let final_chainspec_path = dummy_node
-            .base_directory
-            .join(SubstrateNode::CHAIN_SPEC_JSON_FILE);
+        let final_chainspec_path =
+            dummy_node.base_directory.join(SubstrateNode::CHAIN_SPEC_JSON_FILE);
         assert!(final_chainspec_path.exists(), "Chainspec file should exist");
 
         let contents = fs::read_to_string(&final_chainspec_path).expect("Failed to read chainspec");
@@ -1369,10 +1364,7 @@ mod tests {
 
         for (eth_addr, expected_ss58) in cases {
             let result = SubstrateNode::eth_to_substrate_address(&eth_addr.parse().unwrap());
-            assert_eq!(
-                result, expected_ss58,
-                "Mismatch for Ethereum address {eth_addr}"
-            );
+            assert_eq!(result, expected_ss58, "Mismatch for Ethereum address {eth_addr}");
         }
     }
 
@@ -1423,12 +1415,8 @@ mod tests {
         let node = shared_node();
 
         // Act
-        let gas_limit = node
-            .resolver()
-            .await
-            .unwrap()
-            .block_gas_limit(BlockNumberOrTag::Latest)
-            .await;
+        let gas_limit =
+            node.resolver().await.unwrap().block_gas_limit(BlockNumberOrTag::Latest).await;
 
         // Assert
         let _ = gas_limit.expect("Failed to get the gas limit");
@@ -1441,12 +1429,8 @@ mod tests {
         let node = shared_node();
 
         // Act
-        let coinbase = node
-            .resolver()
-            .await
-            .unwrap()
-            .block_coinbase(BlockNumberOrTag::Latest)
-            .await;
+        let coinbase =
+            node.resolver().await.unwrap().block_coinbase(BlockNumberOrTag::Latest).await;
 
         // Assert
         let _ = coinbase.expect("Failed to get the coinbase");
@@ -1459,12 +1443,8 @@ mod tests {
         let node = shared_node();
 
         // Act
-        let block_difficulty = node
-            .resolver()
-            .await
-            .unwrap()
-            .block_difficulty(BlockNumberOrTag::Latest)
-            .await;
+        let block_difficulty =
+            node.resolver().await.unwrap().block_difficulty(BlockNumberOrTag::Latest).await;
 
         // Assert
         let _ = block_difficulty.expect("Failed to get the block difficulty");
@@ -1477,12 +1457,7 @@ mod tests {
         let node = shared_node();
 
         // Act
-        let block_hash = node
-            .resolver()
-            .await
-            .unwrap()
-            .block_hash(BlockNumberOrTag::Latest)
-            .await;
+        let block_hash = node.resolver().await.unwrap().block_hash(BlockNumberOrTag::Latest).await;
 
         // Assert
         let _ = block_hash.expect("Failed to get the block hash");
@@ -1495,12 +1470,8 @@ mod tests {
         let node = shared_node();
 
         // Act
-        let block_timestamp = node
-            .resolver()
-            .await
-            .unwrap()
-            .block_timestamp(BlockNumberOrTag::Latest)
-            .await;
+        let block_timestamp =
+            node.resolver().await.unwrap().block_timestamp(BlockNumberOrTag::Latest).await;
 
         // Assert
         let _ = block_timestamp.expect("Failed to get the block timestamp");

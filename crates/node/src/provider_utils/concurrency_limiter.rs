@@ -55,10 +55,7 @@ where
         let future = self.service.call(req);
 
         Box::pin(async move {
-            let _permit = semaphore
-                .acquire()
-                .await
-                .expect("Semaphore has been closed");
+            let _permit = semaphore.acquire().await.expect("Semaphore has been closed");
             tracing::debug!(
                 available_permits = semaphore.available_permits(),
                 "Acquired Semaphore Permit"

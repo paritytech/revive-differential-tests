@@ -12,10 +12,7 @@ pub fn clear_directory(path: impl AsRef<Path>) -> Result<()> {
         .with_context(|| format!("Failed to read directory: {}", path.as_ref().display()))?
     {
         let entry = entry.with_context(|| {
-            format!(
-                "Failed to read an entry in directory: {}",
-                path.as_ref().display()
-            )
+            format!("Failed to read an entry in directory: {}", path.as_ref().display())
         })?;
         let entry_path = entry.path();
 

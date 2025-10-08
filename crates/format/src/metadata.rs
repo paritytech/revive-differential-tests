@@ -44,9 +44,7 @@ impl MetadataFile {
         if self.corpus_file_path.is_file() {
             &self.corpus_file_path
         } else {
-            self.metadata_file_path
-                .strip_prefix(&self.corpus_file_path)
-                .unwrap()
+            self.metadata_file_path.strip_prefix(&self.corpus_file_path).unwrap()
         }
     }
 }
@@ -167,10 +165,8 @@ impl Metadata {
         ) in contracts
         {
             let alias = alias.clone();
-            let absolute_path = directory
-                .join(contract_source_path)
-                .canonicalize()
-                .map_err(|error| {
+            let absolute_path =
+                directory.join(contract_source_path).canonicalize().map_err(|error| {
                     anyhow::anyhow!(
                         "Failed to canonicalize contract source path '{}': {error}",
                         directory.join(contract_source_path).display()
@@ -335,12 +331,7 @@ pub struct ContractPathAndIdent {
 
 impl Display for ContractPathAndIdent {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "{}:{}",
-            self.contract_source_path.display(),
-            self.contract_ident.as_ref()
-        )
+        write!(f, "{}:{}", self.contract_source_path.display(), self.contract_ident.as_ref())
     }
 }
 
@@ -596,10 +587,7 @@ mod test {
 
         // Assert
         let identifier = identifier.expect("Failed to parse");
-        assert_eq!(
-            identifier.contract_source_path.display().to_string(),
-            "ERC20/ERC20.sol"
-        );
+        assert_eq!(identifier.contract_source_path.display().to_string(), "ERC20/ERC20.sol");
         assert_eq!(identifier.contract_ident, "ERC20".to_owned().into());
 
         // Act

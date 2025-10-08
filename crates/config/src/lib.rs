@@ -626,11 +626,7 @@ pub struct KurtosisConfiguration {
     ///
     /// If this is not specified, then the tool assumes that it should use the kurtosis binary that's
     /// provided in the user's $PATH.
-    #[clap(
-        id = "kurtosis.path",
-        long = "kurtosis.path",
-        default_value = "kurtosis"
-    )]
+    #[clap(id = "kurtosis.path", long = "kurtosis.path", default_value = "kurtosis")]
     pub path: PathBuf,
 }
 
@@ -641,11 +637,7 @@ pub struct KitchensinkConfiguration {
     ///
     /// If this is not specified, then the tool assumes that it should use the kitchensink binary
     /// that's provided in the user's $PATH.
-    #[clap(
-        id = "kitchensink.path",
-        long = "kitchensink.path",
-        default_value = "substrate-node"
-    )]
+    #[clap(id = "kitchensink.path", long = "kitchensink.path", default_value = "substrate-node")]
     pub path: PathBuf,
 
     /// The amount of time to wait upon startup before considering that the node timed out.
@@ -785,6 +777,20 @@ impl WalletConfiguration {
     }
 }
 
+impl Default for WalletConfiguration {
+    fn default() -> Self {
+        let mut config = Self::parse_from::<[&str; 0], &str>([]);
+        config.additional_keys = 0;
+        config
+        // config.default_key = PrivateKeySigner::from_bytes(
+        //     &FixedBytes::from_hex_str(
+        //         "0x4f3edf983ac636a65a842ce7c78d9aa706d3b113bce9c46f30d7d21715b23b1d",
+        //     )
+        //     .unwrap(),
+        // )
+    }
+}
+
 fn serialize_private_key<S>(value: &PrivateKeySigner, serializer: S) -> Result<S::Ok, S::Error>
 where
     S: Serializer,
@@ -823,10 +829,7 @@ impl ConcurrencyConfiguration {
     pub fn concurrency_limit(&self) -> Option<usize> {
         match self.ignore_concurrency_limit {
             true => None,
-            false => Some(
-                self.number_concurrent_tasks
-                    .unwrap_or(20 * self.number_of_nodes),
-            ),
+            false => Some(self.number_concurrent_tasks.unwrap_or(20 * self.number_of_nodes)),
         }
     }
 }
@@ -917,9 +920,7 @@ impl Serialize for WorkingDirectoryConfiguration {
 }
 
 fn parse_duration(s: &str) -> anyhow::Result<Duration> {
-    u64::from_str(s)
-        .map(Duration::from_millis)
-        .map_err(Into::into)
+    u64::from_str(s).map(Duration::from_millis).map_err(Into::into)
 }
 
 /// The Solidity compatible node implementation.

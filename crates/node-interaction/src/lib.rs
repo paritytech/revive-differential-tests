@@ -1,11 +1,14 @@
 //! This crate implements all node interactions.
 
-use std::pin::Pin;
-use std::sync::Arc;
+use std::{pin::Pin, sync::Arc};
 
-use alloy::primitives::{Address, BlockNumber, BlockTimestamp, StorageKey, TxHash, U256};
-use alloy::rpc::types::trace::geth::{DiffMode, GethDebugTracingOptions, GethTrace};
-use alloy::rpc::types::{EIP1186AccountProofResponse, TransactionReceipt, TransactionRequest};
+use alloy::{
+    primitives::{Address, BlockNumber, BlockTimestamp, StorageKey, TxHash, U256},
+    rpc::types::{
+        EIP1186AccountProofResponse, TransactionReceipt, TransactionRequest,
+        trace::geth::{DiffMode, GethDebugTracingOptions, GethTrace},
+    },
+};
 use anyhow::Result;
 
 use futures::Stream;
@@ -75,13 +78,9 @@ pub trait EthereumNode {
         >,
     >;
 
-    /// Creates a node instance from an existing running node.
-    fn new_existing() -> Self
-    where
-        Self: Sized,
-    {
-        panic!("new_existing is not implemented for this node type")
-    }
+    /// Checks if the provided address is in the wallet. If it is, returns the address.
+    /// Otherwise, returns the default signer's address.
+    fn resolve_signer_or_default(&self, address: Address) -> Address;
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]

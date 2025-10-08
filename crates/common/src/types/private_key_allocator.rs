@@ -1,5 +1,4 @@
-use alloy::primitives::U256;
-use alloy::signers::local::PrivateKeySigner;
+use alloy::{primitives::U256, signers::local::PrivateKeySigner};
 use anyhow::{Context, Result, bail};
 
 /// This is a sequential private key allocator. When instantiated, it allocated private keys in

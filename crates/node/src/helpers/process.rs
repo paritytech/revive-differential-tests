@@ -33,10 +33,7 @@ impl Process {
         let log_file_prefix = log_file_prefix.into();
 
         let (stdout_file_name, stderr_file_name) = match log_file_prefix {
-            Some(prefix) => (
-                format!("{prefix}_stdout.log"),
-                format!("{prefix}_stderr.log"),
-            ),
+            Some(prefix) => (format!("{prefix}_stdout.log"), format!("{prefix}_stderr.log")),
             None => ("stdout.log".to_string(), "stderr.log".to_string()),
         };
 
@@ -57,20 +54,16 @@ impl Process {
             .context("Failed to open the stderr logs file")?;
 
         let mut command = {
-            let stdout_logs_file = stdout_logs_file
-                .try_clone()
-                .context("Failed to clone the stdout logs file")?;
-            let stderr_logs_file = stderr_logs_file
-                .try_clone()
-                .context("Failed to clone the stderr logs file")?;
+            let stdout_logs_file =
+                stdout_logs_file.try_clone().context("Failed to clone the stdout logs file")?;
+            let stderr_logs_file =
+                stderr_logs_file.try_clone().context("Failed to clone the stderr logs file")?;
 
             let mut command = Command::new(binary_path.as_ref());
             command_building_callback(&mut command, stdout_logs_file, stderr_logs_file);
             command
         };
-        let mut child = command
-            .spawn()
-            .context("Failed to spawn the built command")?;
+        let mut child = command.spawn().context("Failed to spawn the built command")?;
 
         match process_readiness_wait_behavior {
             ProcessReadinessWaitBehavior::NoStartupWait => {}
@@ -128,11 +121,7 @@ impl Process {
                 }
             }
             ProcessReadinessWaitBehavior::WaitForCommandToExit => {
-                if !child
-                    .wait()
-                    .context("Failed waiting for process to finish")?
-                    .success()
-                {
+                if !child.wait().context("Failed waiting for process to finish")?.success() {
                     anyhow::bail!("Failed to spawn command");
                 }
             }
@@ -149,12 +138,8 @@ impl Process {
 impl Drop for Process {
     fn drop(&mut self) {
         self.child.kill().expect("Failed to kill the process");
-        self.stdout_logs_file
-            .flush()
-            .expect("Failed to flush the stdout logs file");
-        self.stderr_logs_file
-            .flush()
-            .expect("Failed to flush the stderr logs file");
+        self.stdout_logs_file.flush().expect("Failed to flush the stdout logs file");
+        self.stderr_logs_file.flush().expect("Failed to flush the stderr logs file");
     }
 }
 

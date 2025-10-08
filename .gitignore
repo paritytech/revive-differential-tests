@@ -14,3 +14,4 @@ workdir
 
 !/schema.json
 !/dev-genesis.json
+geth-dev/

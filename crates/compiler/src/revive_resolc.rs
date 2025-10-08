@@ -141,9 +141,7 @@ impl SolidityCompiler for Resolc {
                     output_selection: Some(SolcStandardJsonInputSettingsSelection::new_required()),
                     via_ir: Some(true),
                     optimizer: SolcStandardJsonInputSettingsOptimizer::new(
-                        optimization
-                            .unwrap_or(ModeOptimizerSetting::M0)
-                            .optimizations_enabled(),
+                        optimization.unwrap_or(ModeOptimizerSetting::M0).optimizations_enabled(),
                         None,
                         &Version::new(0, 0, 0),
                         false,
