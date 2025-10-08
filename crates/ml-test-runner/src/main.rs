@@ -58,6 +58,10 @@ struct MlTestRunnerArgs {
 		default_value = "0x5fb92d6e98884f76de468fa3f6278f8807c48bebc13595d45af5bdc4da702133"
 	)]
 	private_key: String,
+
+	/// RPC port to connect to when using existing node
+	#[arg(long = "rpc-port", default_value = "8545")]
+	rpc_port: u16,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -315,6 +319,7 @@ async fn execute_test_file(
 			PlatformIdentifier::GethEvmSolc | PlatformIdentifier::LighthouseGethEvmSolc => Box::new(
 				revive_dt_node::node_implementations::geth::GethNode::new_existing(
 					&args.private_key,
+					args.rpc_port,
 				)
 				.await?,
 			),
@@ -326,6 +331,7 @@ async fn execute_test_file(
 			| PlatformIdentifier::ZombienetRevmSolc => Box::new(
 				revive_dt_node::node_implementations::substrate::SubstrateNode::new_existing(
 					&args.private_key,
+					args.rpc_port,
 				)
 				.await?,
 			),

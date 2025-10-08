@@ -132,7 +132,7 @@ impl SubstrateNode {
 		}
 	}
 
-	pub async fn new_existing(private_key: &str) -> anyhow::Result<Self> {
+	pub async fn new_existing(private_key: &str, rpc_port: u16) -> anyhow::Result<Self> {
 		use alloy::{primitives::FixedBytes, signers::local::PrivateKeySigner};
 
 		let key_str = private_key.trim().strip_prefix("0x").unwrap_or(private_key.trim());
@@ -159,7 +159,7 @@ impl SubstrateNode {
 			node_binary: PathBuf::new(),
 			eth_proxy_binary: PathBuf::new(),
 			export_chainspec_command: String::new(),
-			rpc_url: "http://localhost:8545".to_string(),
+			rpc_url: format!("http://localhost:{}", rpc_port),
 			base_directory: PathBuf::new(),
 			logs_directory: PathBuf::new(),
 			substrate_process: None,

@@ -130,7 +130,7 @@ impl GethNode {
 		}
 	}
 
-	pub async fn new_existing(private_key: &str) -> anyhow::Result<Self> {
+	pub async fn new_existing(private_key: &str, rpc_port: u16) -> anyhow::Result<Self> {
 		use alloy::{primitives::FixedBytes, signers::local::PrivateKeySigner};
 
 		let key_str = private_key.trim().strip_prefix("0x").unwrap_or(private_key.trim());
@@ -154,7 +154,7 @@ impl GethNode {
 		let wallet = Arc::new(EthereumWallet::new(signer));
 
 		let node = Self {
-			connection_string: "http://localhost:8545".to_string(),
+			connection_string: format!("http://localhost:{}", rpc_port),
 			base_directory: PathBuf::new(),
 			data_directory: PathBuf::new(),
 			logs_directory: PathBuf::new(),
