@@ -145,7 +145,9 @@ jobs:
         run: |
           rustup target add wasm32-unknown-unknown
           rustup component add rust-src
+          rustup component add rust-src clippy
           rustup toolchain install nightly
+          rustup component add rustfmt --toolchain nightly
 
       - name: Install Geth on Ubuntu
         if: matrix.os == 'ubuntu-24.04'
