@@ -101,6 +101,70 @@ async fn run(args: MlTestRunnerArgs) -> anyhow::Result<()> {
 
 	let cached_passed = Arc::new(Mutex::new(cached_passed));
 
+	// Get the platform based on CLI args
+	let platform: &dyn Platform = match args.platform {
+		PlatformIdentifier::GethEvmSolc => &revive_dt_core::GethEvmSolcPlatform,
+		PlatformIdentifier::LighthouseGethEvmSolc => &revive_dt_core::LighthouseGethEvmSolcPlatform,
+		PlatformIdentifier::KitchensinkPolkavmResolc =>
+			&revive_dt_core::KitchensinkPolkavmResolcPlatform,
+		PlatformIdentifier::KitchensinkRevmSolc => &revive_dt_core::KitchensinkRevmSolcPlatform,
+		PlatformIdentifier::ReviveDevNodePolkavmResolc =>
+			&revive_dt_core::ReviveDevNodePolkavmResolcPlatform,
+		PlatformIdentifier::ReviveDevNodeRevmSolc => &revive_dt_core::ReviveDevNodeRevmSolcPlatform,
+		PlatformIdentifier::ZombienetPolkavmResolc =>
+			&revive_dt_core::ZombienetPolkavmResolcPlatform,
+		PlatformIdentifier::ZombienetRevmSolc => &revive_dt_core::ZombienetRevmSolcPlatform,
+	};
+
+	let test_context = TestExecutionContext::default();
+	let context = revive_dt_config::Context::Test(Box::new(test_context));
+
+	let node: &'static dyn revive_dt_node_interaction::EthereumNode = if args.start_platform {
+		info!("Starting blockchain node...");
+		let node_handle =
+			platform.new_node(context.clone()).context("Failed to spawn node thread")?;
+
+		info!("Waiting for node to start...");
+		let node = node_handle
+			.join()
+			.map_err(|e| anyhow::anyhow!("Node thread panicked: {:?}", e))?
+			.context("Failed to start node")?;
+
+		info!("Node started with ID: {}, connection: {}", node.id(), node.connection_string());
+		let node = Box::leak(node);
+
+		info!("Running pre-transactions...");
+		node.pre_transactions().await.context("Failed to run pre-transactions")?;
+		info!("Pre-transactions completed");
+
+		node
+	} else {
+		info!("Using existing node");
+		let existing_node: Box<dyn revive_dt_node_interaction::EthereumNode> = match args.platform {
+			PlatformIdentifier::GethEvmSolc | PlatformIdentifier::LighthouseGethEvmSolc =>
+				Box::new(
+					revive_dt_node::node_implementations::geth::GethNode::new_existing(
+						&args.private_key,
+						args.rpc_port,
+					)
+					.await?,
+				),
+			PlatformIdentifier::KitchensinkPolkavmResolc |
+			PlatformIdentifier::KitchensinkRevmSolc |
+			PlatformIdentifier::ReviveDevNodePolkavmResolc |
+			PlatformIdentifier::ReviveDevNodeRevmSolc |
+			PlatformIdentifier::ZombienetPolkavmResolc |
+			PlatformIdentifier::ZombienetRevmSolc => Box::new(
+				revive_dt_node::node_implementations::substrate::SubstrateNode::new_existing(
+					&args.private_key,
+					args.rpc_port,
+				)
+				.await?,
+			),
+		};
+		Box::leak(existing_node)
+	};
+
 	let mut passed_files = 0;
 	let mut failed_files = 0;
 	let mut skipped_files = 0;
@@ -116,11 +180,12 @@ async fn run(args: MlTestRunnerArgs) -> anyhow::Result<()> {
 	for test_file in test_files {
 		let file_display = test_file.display().to_string();
 
+		info!("\n\n == Executing test file: {file_display} == \n\n");
 		// Check if already passed
 		{
 			let cache = cached_passed.lock().await;
 			if cache.contains(&file_display) {
-				println!("test {} ... {YELLOW}cached{COLOUR_RESET}", file_display);
+				println!("test {file_display} ... {YELLOW}cached{COLOUR_RESET}");
 				skipped_files += 1;
 				continue;
 			}
@@ -144,11 +209,9 @@ async fn run(args: MlTestRunnerArgs) -> anyhow::Result<()> {
 			},
 		};
 
-		info!("Executing test file: {}", file_display);
-		match execute_test_file(&args, &metadata_file).await {
+		match execute_test_file(&metadata_file, platform, node, &context).await {
 			Ok(_) => {
-				println!("test {} ... {GREEN}ok{COLOUR_RESET}", file_display);
-				info!("Test file passed: {}", file_display);
+				println!("test {file_display} ... {GREEN}ok{COLOUR_RESET}");
 				passed_files += 1;
 
 				{
@@ -157,7 +220,7 @@ async fn run(args: MlTestRunnerArgs) -> anyhow::Result<()> {
 				}
 			},
 			Err(e) => {
-				println!("test {} ... {RED}FAILED{COLOUR_RESET}", file_display);
+				println!("test {file_display} ... {RED}FAILED{COLOUR_RESET}");
 				failed_files += 1;
 				failures.push((file_display, format!("{:?}", e)));
 
@@ -263,8 +326,10 @@ fn load_metadata_file(path: &Path) -> anyhow::Result<MetadataFile> {
 
 /// Execute all test cases in a metadata file
 async fn execute_test_file(
-	args: &MlTestRunnerArgs,
 	metadata_file: &MetadataFile,
+	platform: &dyn Platform,
+	node: &'static dyn revive_dt_node_interaction::EthereumNode,
+	context: &revive_dt_config::Context,
 ) -> anyhow::Result<()> {
 	if metadata_file.cases.is_empty() {
 		anyhow::bail!("No test cases found in file");
@@ -272,72 +337,8 @@ async fn execute_test_file(
 
 	info!("Processing {} test case(s)", metadata_file.cases.len());
 
-	// Get the platform based on CLI args
-	let platform: &dyn Platform = match args.platform {
-		PlatformIdentifier::GethEvmSolc => &revive_dt_core::GethEvmSolcPlatform,
-		PlatformIdentifier::LighthouseGethEvmSolc => &revive_dt_core::LighthouseGethEvmSolcPlatform,
-		PlatformIdentifier::KitchensinkPolkavmResolc => {
-			&revive_dt_core::KitchensinkPolkavmResolcPlatform
-		},
-		PlatformIdentifier::KitchensinkRevmSolc => &revive_dt_core::KitchensinkRevmSolcPlatform,
-		PlatformIdentifier::ReviveDevNodePolkavmResolc => {
-			&revive_dt_core::ReviveDevNodePolkavmResolcPlatform
-		},
-		PlatformIdentifier::ReviveDevNodeRevmSolc => &revive_dt_core::ReviveDevNodeRevmSolcPlatform,
-		PlatformIdentifier::ZombienetPolkavmResolc => &revive_dt_core::ZombienetPolkavmResolcPlatform,
-		PlatformIdentifier::ZombienetRevmSolc => &revive_dt_core::ZombienetRevmSolcPlatform,
-	};
-
 	let temp_dir = TempDir::new()?;
 	info!("Created temporary directory: {}", temp_dir.path().display());
-
-	let test_context = TestExecutionContext::default();
-	let context = revive_dt_config::Context::Test(Box::new(test_context));
-
-	let node: &'static dyn revive_dt_node_interaction::EthereumNode = if args.start_platform {
-		info!("Starting blockchain node...");
-		let node_handle =
-			platform.new_node(context.clone()).context("Failed to spawn node thread")?;
-
-		info!("Waiting for node to start...");
-		let node = node_handle
-			.join()
-			.map_err(|e| anyhow::anyhow!("Node thread panicked: {:?}", e))?
-			.context("Failed to start node")?;
-
-		info!("Node started with ID: {}, connection: {}", node.id(), node.connection_string());
-		let node = Box::leak(node);
-
-		info!("Running pre-transactions...");
-		node.pre_transactions().await.context("Failed to run pre-transactions")?;
-		info!("Pre-transactions completed");
-
-		node
-	} else {
-		info!("Using existing node");
-		let existing_node: Box<dyn revive_dt_node_interaction::EthereumNode> = match args.platform {
-			PlatformIdentifier::GethEvmSolc | PlatformIdentifier::LighthouseGethEvmSolc => Box::new(
-				revive_dt_node::node_implementations::geth::GethNode::new_existing(
-					&args.private_key,
-					args.rpc_port,
-				)
-				.await?,
-			),
-			PlatformIdentifier::KitchensinkPolkavmResolc
-			| PlatformIdentifier::KitchensinkRevmSolc
-			| PlatformIdentifier::ReviveDevNodePolkavmResolc
-			| PlatformIdentifier::ReviveDevNodeRevmSolc
-			| PlatformIdentifier::ZombienetPolkavmResolc
-			| PlatformIdentifier::ZombienetRevmSolc => Box::new(
-				revive_dt_node::node_implementations::substrate::SubstrateNode::new_existing(
-					&args.private_key,
-					args.rpc_port,
-				)
-				.await?,
-			),
-		};
-		Box::leak(existing_node)
-	};
 
 	info!("Initializing cached compiler");
 	let cached_compiler = CachedCompiler::new(temp_dir.path().join("compilation_cache"), false)

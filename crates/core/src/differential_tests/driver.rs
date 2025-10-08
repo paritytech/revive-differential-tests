@@ -366,32 +366,31 @@ where
 			.await
 			.context("Failed to deploy contracts for the function call step")?;
 
-		let execution_receipt = match self
-			.handle_function_call_execution(step, deployment_receipts)
-			.await
-		{
-			Ok(receipt) => receipt,
-			Err(err) => {
-				// If we expect an exception and got an error during transaction submission/execution,
-				// this is the expected behavior for this test case
-				if expects_exception {
-					tracing::info!("Transaction failed as expected: {:?}", err);
-					return Ok(1);
-				}
-				return Err(err).context("Failed to handle the function call execution");
-			}
-		};
+		let execution_receipt =
+			match self.handle_function_call_execution(step, deployment_receipts).await {
+				Ok(receipt) => Some(receipt),
+				Err(err) => {
+					if !expects_exception {
+						return Err(err).context("Failed to handle the function call execution");
+					}
+					tracing::info!("Transaction failed as expected: {err:?}");
+					None
+				},
+			};
 
-		let tracing_result = self
-			.handle_function_call_call_frame_tracing(execution_receipt.transaction_hash)
-			.await
-			.context("Failed to handle the function call call frame tracing")?;
-		self.handle_function_call_variable_assignment(step, &tracing_result)
-			.await
-			.context("Failed to handle function call variable assignment")?;
-		self.handle_function_call_assertions(step, &execution_receipt, &tracing_result)
-			.await
-			.context("Failed to handle function call assertions")?;
+		if let Some(execution_receipt) = execution_receipt {
+			let tracing_result = self
+				.handle_function_call_call_frame_tracing(execution_receipt.transaction_hash)
+				.await
+				.context("Failed to handle the function call call frame tracing")?;
+			self.handle_function_call_variable_assignment(step, &tracing_result)
+				.await
+				.context("Failed to handle function call variable assignment")?;
+			self.handle_function_call_assertions(step, &execution_receipt, &tracing_result)
+				.await
+				.context("Failed to handle function call assertions")?;
+		}
+
 		Ok(1)
 	}
 
