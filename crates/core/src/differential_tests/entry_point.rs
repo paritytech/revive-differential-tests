@@ -7,6 +7,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+use ansi_term::{ANSIStrings, Color};
 use anyhow::Context as _;
 use futures::{FutureExt, StreamExt};
 use revive_dt_common::types::PrivateKeyAllocator;
@@ -14,7 +15,7 @@ use revive_dt_core::Platform;
 use tokio::sync::{Mutex, RwLock, Semaphore};
 use tracing::{Instrument, error, info, info_span, instrument};
 
-use revive_dt_config::{Context, TestExecutionContext};
+use revive_dt_config::{Context, OutputFormat, TestExecutionContext};
 use revive_dt_report::{Reporter, ReporterEvent, TestCaseStatus};
 
 use crate::{
@@ -176,7 +177,7 @@ pub async fn handle_differential_tests(
             .report_completion_event()
             .expect("Can't fail")
     });
-    let cli_reporting_task = start_cli_reporting_task(reporter);
+    let cli_reporting_task = start_cli_reporting_task(context.output_format, reporter);
 
     tokio::task::spawn(async move {
         loop {
@@ -196,21 +197,15 @@ pub async fn handle_differential_tests(
 }
 
 #[allow(irrefutable_let_patterns, clippy::uninlined_format_args)]
-async fn start_cli_reporting_task(reporter: Reporter) {
+async fn start_cli_reporting_task(output_format: OutputFormat, reporter: Reporter) {
     let mut aggregator_events_rx = reporter.subscribe().await.expect("Can't fail");
     drop(reporter);
 
     let start = Instant::now();
 
-    const GREEN: &str = "\x1B[32m";
-    const RED: &str = "\x1B[31m";
-    const GREY: &str = "\x1B[90m";
-    const COLOR_RESET: &str = "\x1B[0m";
-    const BOLD: &str = "\x1B[1m";
-    const BOLD_RESET: &str = "\x1B[22m";
-
-    let mut number_of_successes = 0;
-    let mut number_of_failures = 0;
+    let mut global_success_count = 0;
+    let mut global_failure_count = 0;
+    let mut global_ignore_count = 0;
 
     let mut buf = BufWriter::new(stderr());
     while let Ok(event) = aggregator_events_rx.recv().await {
@@ -223,55 +218,124 @@ async fn start_cli_reporting_task(reporter: Reporter) {
             continue;
         };
 
-        let _ = writeln!(buf, "{} - {}", mode, metadata_file_path.display());
-        for (case_idx, case_status) in case_status.into_iter() {
-            let _ = write!(buf, "\tCase Index {case_idx:>3}: ");
-            let _ = match case_status {
-                TestCaseStatus::Succeeded { steps_executed } => {
-                    number_of_successes += 1;
-                    writeln!(
-                        buf,
-                        "{}{}Case Succeeded{} - Steps Executed: {}{}",
-                        GREEN, BOLD, BOLD_RESET, steps_executed, COLOR_RESET
-                    )
+        match output_format {
+            OutputFormat::Legacy => {
+                let _ = writeln!(buf, "{} - {}", mode, metadata_file_path.display());
+                for (case_idx, case_status) in case_status.into_iter() {
+                    let _ = write!(buf, "\tCase Index {case_idx:>3}: ");
+                    let _ = match case_status {
+                        TestCaseStatus::Succeeded { steps_executed } => {
+                            global_success_count += 1;
+                            writeln!(
+                                buf,
+                                "{}",
+                                ANSIStrings(&[
+                                    Color::Green.bold().paint("Case Succeeded"),
+                                    Color::Green
+                                        .paint(format!(" - Steps Executed: {steps_executed}")),
+                                ])
+                            )
+                        }
+                        TestCaseStatus::Failed { reason } => {
+                            global_failure_count += 1;
+                            writeln!(
+                                buf,
+                                "{}",
+                                ANSIStrings(&[
+                                    Color::Red.bold().paint("Case Failed"),
+                                    Color::Red.paint(format!(" - Reason: {}", reason.trim())),
+                                ])
+                            )
+                        }
+                        TestCaseStatus::Ignored { reason, .. } => {
+                            global_ignore_count += 1;
+                            writeln!(
+                                buf,
+                                "{}",
+                                ANSIStrings(&[
+                                    Color::Yellow.bold().paint("Case Ignored"),
+                                    Color::Yellow.paint(format!(" - Reason: {}", reason.trim())),
+                                ])
+                            )
+                        }
+                    };
                 }
-                TestCaseStatus::Failed { reason } => {
-                    number_of_failures += 1;
-                    writeln!(
-                        buf,
-                        "{}{}Case Failed{} - Reason: {}{}",
-                        RED,
-                        BOLD,
-                        BOLD_RESET,
-                        reason.trim(),
-                        COLOR_RESET,
-                    )
-                }
-                TestCaseStatus::Ignored { reason, .. } => writeln!(
+                let _ = writeln!(buf);
+            }
+            OutputFormat::CargoTestLike => {
+                writeln!(
                     buf,
-                    "{}{}Case Ignored{} - Reason: {}{}",
-                    GREY,
-                    BOLD,
-                    BOLD_RESET,
-                    reason.trim(),
-                    COLOR_RESET,
-                ),
-            };
+                    "\t{} {}\n",
+                    Color::Green.paint("Running"),
+                    metadata_file_path.display()
+                )
+                .unwrap();
+
+                let mut success_count = 0;
+                let mut failure_count = 0;
+                let mut ignored_count = 0;
+                writeln!(buf, "running {} tests", case_status.len()).unwrap();
+                for (case_idx, case_result) in case_status.iter() {
+                    let status = match case_result {
+                        TestCaseStatus::Succeeded { .. } => {
+                            success_count += 1;
+                            global_success_count += 1;
+                            Color::Green.paint("ok")
+                        }
+                        TestCaseStatus::Failed { reason } => {
+                            failure_count += 1;
+                            global_failure_count += 1;
+                            Color::Red.paint(format!("FAILED, {reason}"))
+                        }
+                        TestCaseStatus::Ignored { reason, .. } => {
+                            ignored_count += 1;
+                            global_ignore_count += 1;
+                            Color::Yellow.paint(format!("ignored, {reason:?}"))
+                        }
+                    };
+                    writeln!(buf, "test case_idx_{} ... {}", case_idx, status).unwrap();
+                }
+                writeln!(buf).unwrap();
+
+                let status = if failure_count > 0 {
+                    Color::Red.paint("FAILED")
+                } else {
+                    Color::Green.paint("ok")
+                };
+                writeln!(
+                    buf,
+                    "test result: {}. {} passed; {} failed; {} ignored",
+                    status, success_count, failure_count, ignored_count,
+                )
+                .unwrap();
+                writeln!(buf).unwrap()
+            }
         }
-        let _ = writeln!(buf);
     }
 
     // Summary at the end.
-    let _ = writeln!(
-        buf,
-        "{} cases: {}{}{} cases succeeded, {}{}{} cases failed in {} seconds",
-        number_of_successes + number_of_failures,
-        GREEN,
-        number_of_successes,
-        COLOR_RESET,
-        RED,
-        number_of_failures,
-        COLOR_RESET,
-        start.elapsed().as_secs()
-    );
+    match output_format {
+        OutputFormat::Legacy => {
+            writeln!(
+                buf,
+                "{} cases: {} cases succeeded, {} cases failed in {} seconds",
+                global_success_count + global_failure_count + global_ignore_count,
+                Color::Green.paint(global_success_count.to_string()),
+                Color::Red.paint(global_failure_count.to_string()),
+                start.elapsed().as_secs()
+            )
+            .unwrap();
+        }
+        OutputFormat::CargoTestLike => {
+            writeln!(
+                buf,
+                "run finished. {} passed; {} failed; {} ignored; finished in {}",
+                global_success_count,
+                global_failure_count,
+                global_ignore_count,
+                start.elapsed().as_secs()
+            )
+            .unwrap();
+        }
+    }
 }
