@@ -8,8 +8,10 @@ use anyhow::Context as _;
 use indexmap::IndexMap;
 use revive_dt_common::types::PlatformIdentifier;
 use revive_dt_compiler::{CompilerInput, CompilerOutput};
-use revive_dt_format::metadata::Metadata;
-use revive_dt_format::{corpus::Corpus, metadata::ContractInstance};
+use revive_dt_format::{
+	corpus::Corpus,
+	metadata::{ContractInstance, Metadata},
+};
 use semver::Version;
 use tokio::sync::{broadcast, oneshot};
 
@@ -472,160 +474,160 @@ macro_rules! define_event {
 }
 
 define_event! {
-    /// An event type that's sent by the test runners/drivers to the report aggregator.
-    pub(crate) enum RunnerEvent {
-        /// An event emitted by the reporter when it wishes to listen to events emitted by the
-        /// aggregator.
-        SubscribeToEvents {
-            /// The channel that the aggregator is to send the receive side of the channel on.
-            tx: oneshot::Sender<broadcast::Receiver<ReporterEvent>>
-        },
-        /// An event emitted by runners when they've discovered a corpus file.
-        CorpusFileDiscovery {
-            /// The contents of the corpus file.
-            corpus: Corpus
-        },
-        /// An event emitted by runners when they've discovered a metadata file.
-        MetadataFileDiscovery {
-            /// The path of the metadata file discovered.
-            path: MetadataFilePath,
-            /// The content of the metadata file.
-            metadata: Metadata
-        },
-        /// An event emitted by the runners when they discover a test case.
-        TestCaseDiscovery {
-            /// A specifier for the test that was discovered.
-            test_specifier: Arc<TestSpecifier>,
-        },
-        /// An event emitted by the runners when a test case is ignored.
-        TestIgnored {
-            /// A specifier for the test that's been ignored.
-            test_specifier: Arc<TestSpecifier>,
-            /// A reason for the test to be ignored.
-            reason: String,
-            /// Additional fields that describe more information on why the test was ignored.
-            additional_fields: IndexMap<String, serde_json::Value>
-        },
-        /// An event emitted by the runners when a test case has succeeded.
-        TestSucceeded {
-            /// A specifier for the test that succeeded.
-            test_specifier: Arc<TestSpecifier>,
-            /// The number of steps of the case that were executed by the driver.
-            steps_executed: usize,
-        },
-        /// An event emitted by the runners when a test case has failed.
-        TestFailed {
-            /// A specifier for the test that succeeded.
-            test_specifier: Arc<TestSpecifier>,
-            /// A reason for the failure of the test.
-            reason: String,
-        },
-        /// An event emitted when the test case is assigned a platform node.
-        NodeAssigned {
-            /// A specifier for the test that the assignment is for.
-            test_specifier: Arc<TestSpecifier>,
-            /// The ID of the node that this case is being executed on.
-            id: usize,
-            /// The identifier of the platform used.
-            platform_identifier: PlatformIdentifier,
-            /// The connection string of the node.
-            connection_string: String,
-        },
-        /// An event emitted by the runners when the compilation of the contracts has succeeded
-        /// on the pre-link contracts.
-        PreLinkContractsCompilationSucceeded {
-            /// A specifier for the execution that's taking place.
-            execution_specifier: Arc<ExecutionSpecifier>,
-            /// The version of the compiler used to compile the contracts.
-            compiler_version: Version,
-            /// The path of the compiler used to compile the contracts.
-            compiler_path: PathBuf,
-            /// A flag of whether the contract bytecode and ABI were cached or if they were compiled
-            /// anew.
-            is_cached: bool,
-            /// The input provided to the compiler - this is optional and not provided if the
-            /// contracts were obtained from the cache.
-            compiler_input: Option<CompilerInput>,
-            /// The output of the compiler.
-            compiler_output: CompilerOutput
-        },
-        /// An event emitted by the runners when the compilation of the contracts has succeeded
-        /// on the post-link contracts.
-        PostLinkContractsCompilationSucceeded {
-            /// A specifier for the execution that's taking place.
-            execution_specifier: Arc<ExecutionSpecifier>,
-            /// The version of the compiler used to compile the contracts.
-            compiler_version: Version,
-            /// The path of the compiler used to compile the contracts.
-            compiler_path: PathBuf,
-            /// A flag of whether the contract bytecode and ABI were cached or if they were compiled
-            /// anew.
-            is_cached: bool,
-            /// The input provided to the compiler - this is optional and not provided if the
-            /// contracts were obtained from the cache.
-            compiler_input: Option<CompilerInput>,
-            /// The output of the compiler.
-            compiler_output: CompilerOutput
-        },
-        /// An event emitted by the runners when the compilation of the pre-link contract has
-        /// failed.
-        PreLinkContractsCompilationFailed {
-            /// A specifier for the execution that's taking place.
-            execution_specifier: Arc<ExecutionSpecifier>,
-            /// The version of the compiler used to compile the contracts.
-            compiler_version: Option<Version>,
-            /// The path of the compiler used to compile the contracts.
-            compiler_path: Option<PathBuf>,
-            /// The input provided to the compiler - this is optional and not provided if the
-            /// contracts were obtained from the cache.
-            compiler_input: Option<CompilerInput>,
-            /// The failure reason.
-            reason: String,
-        },
-        /// An event emitted by the runners when the compilation of the post-link contract has
-        /// failed.
-        PostLinkContractsCompilationFailed {
-            /// A specifier for the execution that's taking place.
-            execution_specifier: Arc<ExecutionSpecifier>,
-            /// The version of the compiler used to compile the contracts.
-            compiler_version: Option<Version>,
-            /// The path of the compiler used to compile the contracts.
-            compiler_path: Option<PathBuf>,
-            /// The input provided to the compiler - this is optional and not provided if the
-            /// contracts were obtained from the cache.
-            compiler_input: Option<CompilerInput>,
-            /// The failure reason.
-            reason: String,
-        },
-        /// An event emitted by the runners when a library has been deployed.
-        LibrariesDeployed {
-            /// A specifier for the execution that's taking place.
-            execution_specifier: Arc<ExecutionSpecifier>,
-            /// The addresses of the libraries that were deployed.
-            libraries: BTreeMap<ContractInstance, Address>
-        },
-        /// An event emitted by the runners when they've deployed a new contract.
-        ContractDeployed {
-            /// A specifier for the execution that's taking place.
-            execution_specifier: Arc<ExecutionSpecifier>,
-            /// The instance name of the contract.
-            contract_instance: ContractInstance,
-            /// The address of the contract.
-            address: Address
-        },
-        /// Reports the completion of the run.
-        Completion {}
-    }
+	/// An event type that's sent by the test runners/drivers to the report aggregator.
+	pub(crate) enum RunnerEvent {
+		/// An event emitted by the reporter when it wishes to listen to events emitted by the
+		/// aggregator.
+		SubscribeToEvents {
+			/// The channel that the aggregator is to send the receive side of the channel on.
+			tx: oneshot::Sender<broadcast::Receiver<ReporterEvent>>
+		},
+		/// An event emitted by runners when they've discovered a corpus file.
+		CorpusFileDiscovery {
+			/// The contents of the corpus file.
+			corpus: Corpus
+		},
+		/// An event emitted by runners when they've discovered a metadata file.
+		MetadataFileDiscovery {
+			/// The path of the metadata file discovered.
+			path: MetadataFilePath,
+			/// The content of the metadata file.
+			metadata: Metadata
+		},
+		/// An event emitted by the runners when they discover a test case.
+		TestCaseDiscovery {
+			/// A specifier for the test that was discovered.
+			test_specifier: Arc<TestSpecifier>,
+		},
+		/// An event emitted by the runners when a test case is ignored.
+		TestIgnored {
+			/// A specifier for the test that's been ignored.
+			test_specifier: Arc<TestSpecifier>,
+			/// A reason for the test to be ignored.
+			reason: String,
+			/// Additional fields that describe more information on why the test was ignored.
+			additional_fields: IndexMap<String, serde_json::Value>
+		},
+		/// An event emitted by the runners when a test case has succeeded.
+		TestSucceeded {
+			/// A specifier for the test that succeeded.
+			test_specifier: Arc<TestSpecifier>,
+			/// The number of steps of the case that were executed by the driver.
+			steps_executed: usize,
+		},
+		/// An event emitted by the runners when a test case has failed.
+		TestFailed {
+			/// A specifier for the test that succeeded.
+			test_specifier: Arc<TestSpecifier>,
+			/// A reason for the failure of the test.
+			reason: String,
+		},
+		/// An event emitted when the test case is assigned a platform node.
+		NodeAssigned {
+			/// A specifier for the test that the assignment is for.
+			test_specifier: Arc<TestSpecifier>,
+			/// The ID of the node that this case is being executed on.
+			id: usize,
+			/// The identifier of the platform used.
+			platform_identifier: PlatformIdentifier,
+			/// The connection string of the node.
+			connection_string: String,
+		},
+		/// An event emitted by the runners when the compilation of the contracts has succeeded
+		/// on the pre-link contracts.
+		PreLinkContractsCompilationSucceeded {
+			/// A specifier for the execution that's taking place.
+			execution_specifier: Arc<ExecutionSpecifier>,
+			/// The version of the compiler used to compile the contracts.
+			compiler_version: Version,
+			/// The path of the compiler used to compile the contracts.
+			compiler_path: PathBuf,
+			/// A flag of whether the contract bytecode and ABI were cached or if they were compiled
+			/// anew.
+			is_cached: bool,
+			/// The input provided to the compiler - this is optional and not provided if the
+			/// contracts were obtained from the cache.
+			compiler_input: Option<CompilerInput>,
+			/// The output of the compiler.
+			compiler_output: CompilerOutput
+		},
+		/// An event emitted by the runners when the compilation of the contracts has succeeded
+		/// on the post-link contracts.
+		PostLinkContractsCompilationSucceeded {
+			/// A specifier for the execution that's taking place.
+			execution_specifier: Arc<ExecutionSpecifier>,
+			/// The version of the compiler used to compile the contracts.
+			compiler_version: Version,
+			/// The path of the compiler used to compile the contracts.
+			compiler_path: PathBuf,
+			/// A flag of whether the contract bytecode and ABI were cached or if they were compiled
+			/// anew.
+			is_cached: bool,
+			/// The input provided to the compiler - this is optional and not provided if the
+			/// contracts were obtained from the cache.
+			compiler_input: Option<CompilerInput>,
+			/// The output of the compiler.
+			compiler_output: CompilerOutput
+		},
+		/// An event emitted by the runners when the compilation of the pre-link contract has
+		/// failed.
+		PreLinkContractsCompilationFailed {
+			/// A specifier for the execution that's taking place.
+			execution_specifier: Arc<ExecutionSpecifier>,
+			/// The version of the compiler used to compile the contracts.
+			compiler_version: Option<Version>,
+			/// The path of the compiler used to compile the contracts.
+			compiler_path: Option<PathBuf>,
+			/// The input provided to the compiler - this is optional and not provided if the
+			/// contracts were obtained from the cache.
+			compiler_input: Option<CompilerInput>,
+			/// The failure reason.
+			reason: String,
+		},
+		/// An event emitted by the runners when the compilation of the post-link contract has
+		/// failed.
+		PostLinkContractsCompilationFailed {
+			/// A specifier for the execution that's taking place.
+			execution_specifier: Arc<ExecutionSpecifier>,
+			/// The version of the compiler used to compile the contracts.
+			compiler_version: Option<Version>,
+			/// The path of the compiler used to compile the contracts.
+			compiler_path: Option<PathBuf>,
+			/// The input provided to the compiler - this is optional and not provided if the
+			/// contracts were obtained from the cache.
+			compiler_input: Option<CompilerInput>,
+			/// The failure reason.
+			reason: String,
+		},
+		/// An event emitted by the runners when a library has been deployed.
+		LibrariesDeployed {
+			/// A specifier for the execution that's taking place.
+			execution_specifier: Arc<ExecutionSpecifier>,
+			/// The addresses of the libraries that were deployed.
+			libraries: BTreeMap<ContractInstance, Address>
+		},
+		/// An event emitted by the runners when they've deployed a new contract.
+		ContractDeployed {
+			/// A specifier for the execution that's taking place.
+			execution_specifier: Arc<ExecutionSpecifier>,
+			/// The instance name of the contract.
+			contract_instance: ContractInstance,
+			/// The address of the contract.
+			address: Address
+		},
+		/// Reports the completion of the run.
+		Completion {}
+	}
 }
 
 /// An extension to the [`Reporter`] implemented by the macro.
 impl RunnerEventReporter {
-    pub async fn subscribe(&self) -> anyhow::Result<broadcast::Receiver<ReporterEvent>> {
-        let (tx, rx) = oneshot::channel::<broadcast::Receiver<ReporterEvent>>();
-        self.report_subscribe_to_events_event(tx)
-            .context("Failed to send subscribe request to reporter task")?;
-        rx.await.map_err(Into::into)
-    }
+	pub async fn subscribe(&self) -> anyhow::Result<broadcast::Receiver<ReporterEvent>> {
+		let (tx, rx) = oneshot::channel::<broadcast::Receiver<ReporterEvent>>();
+		self.report_subscribe_to_events_event(tx)
+			.context("Failed to send subscribe request to reporter task")?;
+		rx.await.map_err(Into::into)
+	}
 }
 
 pub type Reporter = RunnerEventReporter;
