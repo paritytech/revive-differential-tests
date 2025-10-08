@@ -428,16 +428,20 @@ impl EthereumNode for ZombieNode {
 		transaction: alloy::rpc::types::TransactionRequest,
 	) -> Pin<Box<dyn Future<Output = anyhow::Result<TransactionReceipt>> + '_>> {
 		Box::pin(async move {
-			let receipt = self
+			let pending = self
 				.provider()
 				.await
 				.context("Failed to create provider for transaction submission")?
 				.send_transaction(transaction)
 				.await
-				.context("Failed to submit transaction to proxy")?
-				.get_receipt()
-				.await
-				.context("Failed to fetch transaction receipt from proxy")?;
+				.context("Failed to submit transaction to proxy")?;
+
+			let receipt =
+				tokio::time::timeout(std::time::Duration::from_secs(120), pending.get_receipt())
+					.await
+					.context("Timeout waiting for transaction receipt")?
+					.context("Failed to fetch transaction receipt from proxy")?;
+
 			Ok(receipt)
 		})
 	}

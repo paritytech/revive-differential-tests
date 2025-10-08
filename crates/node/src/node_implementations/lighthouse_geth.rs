@@ -116,7 +116,7 @@ impl LighthouseGethNode {
 	const TRANSACTION_INDEXING_ERROR: &str = "transaction indexing is in progress";
 	const TRANSACTION_TRACING_ERROR: &str = "historical state not available in path scheme yet";
 
-	const RECEIPT_POLLING_DURATION: Duration = Duration::from_secs(5 * 60);
+	const RECEIPT_POLLING_DURATION: Duration = Duration::from_secs(30);
 	const TRACE_POLLING_DURATION: Duration = Duration::from_secs(60);
 
 	const VALIDATOR_MNEMONIC: &str = "giant issue aisle success illegal bike spike question tent bar rely arctic volcano long crawl hungry vocal artwork sniff fantasy very lucky have athlete";

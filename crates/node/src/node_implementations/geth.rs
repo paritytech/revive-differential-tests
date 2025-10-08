@@ -94,8 +94,8 @@ impl GethNode {
 	const TRANSACTION_INDEXING_ERROR: &str = "transaction indexing is in progress";
 	const TRANSACTION_TRACING_ERROR: &str = "historical state not available in path scheme yet";
 
-	const RECEIPT_POLLING_DURATION: Duration = Duration::from_secs(5 * 60);
-	const TRACE_POLLING_DURATION: Duration = Duration::from_secs(60);
+	const RECEIPT_POLLING_DURATION: Duration = Duration::from_secs(10);
+	const TRACE_POLLING_DURATION: Duration = Duration::from_secs(10);
 
 	pub fn new(
 		context: impl AsRef<WorkingDirectoryConfiguration>

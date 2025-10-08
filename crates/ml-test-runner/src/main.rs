@@ -62,16 +62,24 @@ struct MlTestRunnerArgs {
 	/// RPC port to connect to when using existing node
 	#[arg(long = "rpc-port", default_value = "8545")]
 	rpc_port: u16,
+
+	/// Show verbose output including cached tests and detailed error messages
+	#[arg(long = "verbose", short = 'v')]
+	verbose: bool,
 }
 
 fn main() -> anyhow::Result<()> {
-	let subscriber = FmtSubscriber::builder()
-		.with_env_filter(EnvFilter::from_default_env())
-		.with_writer(std::io::stderr)
-		.finish();
-	tracing::subscriber::set_global_default(subscriber).expect("Failed to set tracing subscriber");
-
 	let args = MlTestRunnerArgs::parse();
+
+	// Only set up tracing if RUST_LOG is explicitly set or --verbose is passed
+	if std::env::var("RUST_LOG").is_ok() || args.verbose {
+		let subscriber = FmtSubscriber::builder()
+			.with_env_filter(EnvFilter::from_default_env())
+			.with_writer(std::io::stderr)
+			.finish();
+		tracing::subscriber::set_global_default(subscriber)
+			.expect("Failed to set tracing subscriber");
+	}
 
 	info!("ML test runner starting");
 	info!("Platform: {:?}", args.platform);
@@ -185,7 +193,9 @@ async fn run(args: MlTestRunnerArgs) -> anyhow::Result<()> {
 		{
 			let cache = cached_passed.lock().await;
 			if cache.contains(&file_display) {
-				println!("test {file_display} ... {YELLOW}cached{COLOUR_RESET}");
+				if args.verbose {
+					println!("test {file_display} ... {YELLOW}cached{COLOUR_RESET}");
+				}
 				skipped_files += 1;
 				continue;
 			}
@@ -214,15 +224,20 @@ async fn run(args: MlTestRunnerArgs) -> anyhow::Result<()> {
 				println!("test {file_display} ... {GREEN}ok{COLOUR_RESET}");
 				passed_files += 1;
 
-				{
+				// Update cache
+				if let Some(cache_file) = &args.cached_passed {
 					let mut cache = cached_passed.lock().await;
 					cache.insert(file_display);
+					if let Err(e) = save_cached_passed(cache_file, &cache) {
+						info!("Failed to save cache: {}", e);
+					}
 				}
 			},
 			Err(e) => {
 				println!("test {file_display} ... {RED}FAILED{COLOUR_RESET}");
 				failed_files += 1;
-				failures.push((file_display, format!("{:?}", e)));
+				let error_detail = if args.verbose { format!("{:?}", e) } else { format!("{}", e) };
+				failures.push((file_display, error_detail));
 
 				if args.bail {
 					info!("Bailing after first failure");
@@ -232,15 +247,9 @@ async fn run(args: MlTestRunnerArgs) -> anyhow::Result<()> {
 		}
 	}
 
-	if let Some(cache_file) = &args.cached_passed {
-		let cache = cached_passed.lock().await;
-		info!("Saving {} cached passed test(s)", cache.len());
-		save_cached_passed(cache_file, &cache)?;
-	}
-
 	// Print summary
 	println!();
-	if !failures.is_empty() {
+	if !failures.is_empty() && args.verbose {
 		println!("{BOLD}failures:{BOLD_RESET}");
 		println!();
 		for (file, error) in &failures {
@@ -298,12 +307,43 @@ fn discover_test_files(path: &Path) -> anyhow::Result<Vec<PathBuf>> {
 			_ => anyhow::bail!("Unsupported file extension: {}. Expected .sol or .json", extension),
 		}
 	} else if path.is_dir() {
-		// Walk directory recursively for .sol files
-		for entry in FilesWithExtensionIterator::new(path)
+		// First, find all test.json files
+		let mut test_json_dirs = HashSet::new();
+		for json_file in FilesWithExtensionIterator::new(path)
+			.with_allowed_extension("json")
+			.with_use_cached_fs(true)
+		{
+			if json_file.file_name().and_then(|s| s.to_str()) == Some("test.json") {
+				if let Some(parent) = json_file.parent() {
+					test_json_dirs.insert(parent.to_path_buf());
+				}
+
+				// Try to parse as corpus file first, then as metadata file
+				if let Ok(corpus) = Corpus::try_from_path(&json_file) {
+					// It's a corpus file - enumerate its tests
+					let metadata_files = corpus.enumerate_tests();
+					for metadata in metadata_files {
+						files.push(metadata.metadata_file_path);
+					}
+				} else {
+					// It's a metadata file - use it directly
+					files.push(json_file);
+				}
+			}
+		}
+
+		// Then, find .sol files that are NOT in directories with test.json
+		for sol_file in FilesWithExtensionIterator::new(path)
 			.with_allowed_extension("sol")
 			.with_use_cached_fs(true)
 		{
-			files.push(entry);
+			if let Some(parent) = sol_file.parent() {
+				if !test_json_dirs.contains(parent) {
+					files.push(sol_file);
+				}
+			} else {
+				files.push(sol_file);
+			}
 		}
 	} else {
 		anyhow::bail!("Path is neither a file nor a directory: {}", path.display());
@@ -468,7 +508,7 @@ async fn build_test_definition<'a>(
 	};
 
 	if let Err((reason, _)) = test_definition.check_compatibility() {
-		println!("    Skipping case {}: {}", case_idx, reason);
+		info!("Skipping case {}: {}", case_idx, reason);
 		return Ok(None);
 	}
 
