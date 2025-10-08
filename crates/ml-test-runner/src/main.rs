@@ -52,7 +52,7 @@ struct MlTestRunnerArgs {
 	/// Private key to use for wallet initialization (hex string with or without 0x prefix)
 	#[arg(
 		long = "private-key",
-		default_value = "0x4f3edf983ac636a65a842ce7c78d9aa706d3b113bce9c46f30d7d21715b23b1d"
+		default_value = "0x5fb92d6e98884f76de468fa3f6278f8807c48bebc13595d45af5bdc4da702133"
 	)]
 	private_key: String,
 }
