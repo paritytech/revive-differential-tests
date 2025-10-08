@@ -132,7 +132,7 @@ impl SubstrateNode {
 		}
 	}
 
-	pub fn new_existing(private_key: &str) -> anyhow::Result<Self> {
+	pub async fn new_existing(private_key: &str) -> anyhow::Result<Self> {
 		use alloy::{primitives::FixedBytes, signers::local::PrivateKeySigner};
 
 		let key_str = private_key.trim().strip_prefix("0x").unwrap_or(private_key.trim());
@@ -140,7 +140,10 @@ impl SubstrateNode {
 			.map_err(|e| anyhow::anyhow!("Failed to decode private key hex: {}", e))?;
 
 		if key_bytes.len() != 32 {
-			anyhow::bail!("Private key must be 32 bytes (64 hex characters), got {}", key_bytes.len());
+			anyhow::bail!(
+				"Private key must be 32 bytes (64 hex characters), got {}",
+				key_bytes.len()
+			);
 		}
 
 		let mut bytes = [0u8; 32];

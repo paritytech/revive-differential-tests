@@ -312,9 +312,9 @@ async fn execute_test_file(
 		info!("Using existing node");
 		let existing_node: Box<dyn revive_dt_node_interaction::EthereumNode> = match args.platform {
 			TestingPlatform::Geth =>
-				Box::new(revive_dt_node::node_implementations::geth::GethNode::new_existing(&args.private_key)?),
+				Box::new(revive_dt_node::node_implementations::geth::GethNode::new_existing(&args.private_key).await?),
 			TestingPlatform::Kitchensink | TestingPlatform::Zombienet => Box::new(
-				revive_dt_node::node_implementations::substrate::SubstrateNode::new_existing(&args.private_key)?,
+				revive_dt_node::node_implementations::substrate::SubstrateNode::new_existing(&args.private_key).await?,
 			),
 		};
 		Box::leak(existing_node)

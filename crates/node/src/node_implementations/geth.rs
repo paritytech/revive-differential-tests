@@ -130,7 +130,7 @@ impl GethNode {
 		}
 	}
 
-	pub fn new_existing(private_key: &str) -> anyhow::Result<Self> {
+	pub async fn new_existing(private_key: &str) -> anyhow::Result<Self> {
 		use alloy::{primitives::FixedBytes, signers::local::PrivateKeySigner};
 
 		let key_str = private_key.trim().strip_prefix("0x").unwrap_or(private_key.trim());
@@ -147,9 +147,10 @@ impl GethNode {
 		let signer = PrivateKeySigner::from_bytes(&FixedBytes(bytes))
 			.map_err(|e| anyhow::anyhow!("Failed to create signer from private key: {}", e))?;
 
+		let address = signer.address();
 		let wallet = Arc::new(EthereumWallet::new(signer));
 
-		Ok(Self {
+		let node = Self {
 			connection_string: "http://localhost:8545".to_string(),
 			base_directory: PathBuf::new(),
 			data_directory: PathBuf::new(),
@@ -162,7 +163,66 @@ impl GethNode {
 			wallet,
 			nonce_manager: Default::default(),
 			provider: Default::default(),
-		})
+		};
+
+		// Check balance and fund if needed
+		node.ensure_funded(address).await?;
+
+		Ok(node)
+	}
+
+	async fn ensure_funded(&self, address: Address) -> anyhow::Result<()> {
+		use alloy::{
+			primitives::utils::{format_ether, parse_ether},
+			providers::{Provider, ProviderBuilder},
+		};
+
+		// Create a simple HTTP provider without wallet for balance check
+		let simple_provider =
+			ProviderBuilder::new().connect_http(self.connection_string.parse()?);
+
+		// Check current balance
+		let balance = simple_provider.get_balance(address).await?;
+		let min_balance = parse_ether("1000")?; // 1000 ETH
+
+		if balance >= min_balance {
+			tracing::info!(
+				"Wallet {} already has sufficient balance: {} ETH",
+				address,
+				format_ether(balance)
+			);
+			return Ok(());
+		}
+
+		tracing::info!(
+			"Funding wallet {} (current: {} ETH, target: 1000 ETH)",
+			address,
+			format_ether(balance)
+		);
+
+		// Need to fund the account - get the node's managed account
+		let accounts = simple_provider.get_accounts().await?;
+		if accounts.is_empty() {
+			anyhow::bail!("No managed accounts available on the node to fund wallet");
+		}
+
+		let from_account = accounts[0];
+
+		// Send funding transaction from managed account (unsigned, node will sign)
+		let funding_amount = min_balance - balance;
+		let tx =
+			TransactionRequest::default().from(from_account).to(address).value(funding_amount);
+
+		simple_provider
+			.send_transaction(tx)
+			.await?
+			.get_receipt()
+			.await
+			.context("Failed to get receipt for funding transaction")?;
+
+		tracing::info!("Successfully funded wallet {}", address);
+
+		Ok(())
 	}
 
 	/// Create the node directory and call `geth init` to configure the genesis.
