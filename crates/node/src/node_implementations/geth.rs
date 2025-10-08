@@ -18,7 +18,9 @@ use alloy::{
 	eips::BlockNumberOrTag,
 	genesis::{Genesis, GenesisAccount},
 	network::{Ethereum, EthereumWallet, NetworkWallet},
-	primitives::{Address, BlockHash, BlockNumber, BlockTimestamp, StorageKey, TxHash, U256},
+	primitives::{
+		Address, BlockHash, BlockNumber, BlockTimestamp, ChainId, StorageKey, TxHash, U256,
+	},
 	providers::{
 		Provider,
 		ext::DebugApi,
@@ -75,6 +77,7 @@ pub struct GethNode {
 	wallet: Arc<EthereumWallet>,
 	nonce_manager: CachedNonceManager,
 	provider: OnceCell<ConcreteProvider<Ethereum, Arc<EthereumWallet>>>,
+	chain_id: ChainId,
 }
 
 impl GethNode {
@@ -91,8 +94,8 @@ impl GethNode {
 	const TRANSACTION_INDEXING_ERROR: &str = "transaction indexing is in progress";
 	const TRANSACTION_TRACING_ERROR: &str = "historical state not available in path scheme yet";
 
-	const RECEIPT_POLLING_DURATION: Duration = Duration::from_secs(5 * 60);
-	const TRACE_POLLING_DURATION: Duration = Duration::from_secs(60);
+	const RECEIPT_POLLING_DURATION: Duration = Duration::from_secs(10);
+	const TRACE_POLLING_DURATION: Duration = Duration::from_secs(10);
 
 	pub fn new(
 		context: impl AsRef<WorkingDirectoryConfiguration>
@@ -123,7 +126,115 @@ impl GethNode {
 			wallet: wallet.clone(),
 			nonce_manager: Default::default(),
 			provider: Default::default(),
+			chain_id: CHAIN_ID,
 		}
+	}
+
+	pub async fn new_existing(private_key: &str, rpc_port: u16) -> anyhow::Result<Self> {
+		use alloy::{
+			primitives::FixedBytes,
+			providers::{Provider, ProviderBuilder},
+			signers::local::PrivateKeySigner,
+		};
+
+		let key_str = private_key.trim().strip_prefix("0x").unwrap_or(private_key.trim());
+		let key_bytes = alloy::hex::decode(key_str)
+			.map_err(|e| anyhow::anyhow!("Failed to decode private key hex: {}", e))?;
+
+		if key_bytes.len() != 32 {
+			anyhow::bail!(
+				"Private key must be 32 bytes (64 hex characters), got {}",
+				key_bytes.len()
+			);
+		}
+
+		let mut bytes = [0u8; 32];
+		bytes.copy_from_slice(&key_bytes);
+
+		let signer = PrivateKeySigner::from_bytes(&FixedBytes(bytes))
+			.map_err(|e| anyhow::anyhow!("Failed to create signer from private key: {}", e))?;
+
+		let address = signer.address();
+		let wallet = Arc::new(EthereumWallet::new(signer));
+		let connection_string = format!("http://localhost:{}", rpc_port);
+
+		let chain_id = ProviderBuilder::new()
+			.connect_http(connection_string.parse()?)
+			.get_chain_id()
+			.await
+			.context("Failed to query chain ID from RPC")?;
+
+		let node = Self {
+			connection_string: format!("http://localhost:{}", rpc_port),
+			base_directory: PathBuf::new(),
+			data_directory: PathBuf::new(),
+			logs_directory: PathBuf::new(),
+			geth: PathBuf::new(),
+			id: 0,
+			chain_id,
+			handle: None,
+			start_timeout: Duration::from_secs(0),
+			wallet,
+			nonce_manager: Default::default(),
+			provider: Default::default(),
+		};
+
+		// Check balance and fund if needed
+		node.ensure_funded(address).await?;
+
+		Ok(node)
+	}
+
+	/// Ensure that the given address has at least 1000 ETH, funding it from the node's managed
+	/// account if necessary.
+	async fn ensure_funded(&self, address: Address) -> anyhow::Result<()> {
+		use alloy::{
+			primitives::utils::{format_ether, parse_ether},
+			providers::{Provider, ProviderBuilder},
+		};
+
+		let provider = ProviderBuilder::new().connect_http(self.connection_string.parse()?);
+		let balance = provider.get_balance(address).await?;
+		let min_balance = parse_ether("1000")?;
+
+		if balance >= min_balance {
+			tracing::info!(
+				"Wallet {} already has sufficient balance: {} ETH",
+				address,
+				format_ether(balance)
+			);
+			return Ok(());
+		}
+
+		tracing::info!(
+			"Funding wallet {} (current: {} ETH, target: 1000 ETH)",
+			address,
+			format_ether(balance)
+		);
+
+		// Get the node's managed account
+		let accounts = provider.get_accounts().await?;
+		if accounts.is_empty() {
+			anyhow::bail!("No managed accounts available on the node to fund wallet");
+		}
+
+		let from_account = accounts[0];
+
+		let funding_amount = min_balance - balance;
+		let tx = TransactionRequest::default()
+			.from(from_account)
+			.to(address)
+			.value(funding_amount);
+
+		provider
+			.send_transaction(tx)
+			.await?
+			.get_receipt()
+			.await
+			.context("Failed to get receipt for funding transaction")?;
+
+		tracing::info!("Successfully funded wallet {}", address);
+		Ok(())
 	}
 
 	/// Create the node directory and call `geth init` to configure the genesis.
@@ -252,7 +363,7 @@ impl GethNode {
 				construct_concurrency_limited_provider::<Ethereum, _>(
 					self.connection_string.as_str(),
 					FallbackGasFiller::default(),
-					ChainIdFiller::new(Some(CHAIN_ID)),
+					ChainIdFiller::new(Some(self.chain_id)),
 					NonceFiller::new(self.nonce_manager.clone()),
 					self.wallet.clone(),
 				)
@@ -532,6 +643,16 @@ impl EthereumNode for GethNode {
 			Ok(Box::pin(mined_block_information_stream)
 				as Pin<Box<dyn Stream<Item = MinedBlockInformation>>>)
 		})
+	}
+
+	fn resolve_signer_or_default(&self, address: Address) -> Address {
+		let signer_addresses: Vec<_> =
+			<EthereumWallet as NetworkWallet<Ethereum>>::signer_addresses(&self.wallet).collect();
+		if signer_addresses.contains(&address) {
+			address
+		} else {
+			self.wallet.default_signer().address()
+		}
 	}
 }
 

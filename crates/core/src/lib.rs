@@ -3,6 +3,9 @@
 //! This crate defines the testing configuration and
 //! provides a helper utility to execute tests.
 
+pub mod differential_tests;
+pub mod helpers;
+
 use std::{
 	pin::Pin,
 	thread::{self, JoinHandle},
@@ -22,6 +25,8 @@ use revive_dt_node::{
 };
 use revive_dt_node_interaction::EthereumNode;
 use tracing::info;
+
+pub use helpers::CachedCompiler;
 
 /// A trait that describes the interface for the platforms that are supported by the tool.
 #[allow(clippy::type_complexity)]

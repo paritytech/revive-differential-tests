@@ -80,6 +80,7 @@ pub struct SubstrateNode {
 	wallet: Arc<EthereumWallet>,
 	nonce_manager: CachedNonceManager,
 	provider: OnceCell<ConcreteProvider<ReviveNetwork, Arc<EthereumWallet>>>,
+	chain_id: alloy::primitives::ChainId,
 }
 
 impl SubstrateNode {
@@ -129,7 +130,59 @@ impl SubstrateNode {
 			wallet: wallet.clone(),
 			nonce_manager: Default::default(),
 			provider: Default::default(),
+			chain_id: CHAIN_ID,
 		}
+	}
+
+	pub async fn new_existing(private_key: &str, rpc_port: u16) -> anyhow::Result<Self> {
+		use alloy::{
+			primitives::FixedBytes,
+			providers::{Provider, ProviderBuilder},
+			signers::local::PrivateKeySigner,
+		};
+
+		let key_str = private_key.trim().strip_prefix("0x").unwrap_or(private_key.trim());
+		let key_bytes = alloy::hex::decode(key_str)
+			.map_err(|e| anyhow::anyhow!("Failed to decode private key hex: {}", e))?;
+
+		if key_bytes.len() != 32 {
+			anyhow::bail!(
+				"Private key must be 32 bytes (64 hex characters), got {}",
+				key_bytes.len()
+			);
+		}
+
+		let mut bytes = [0u8; 32];
+		bytes.copy_from_slice(&key_bytes);
+
+		let signer = PrivateKeySigner::from_bytes(&FixedBytes(bytes))
+			.map_err(|e| anyhow::anyhow!("Failed to create signer from private key: {}", e))?;
+
+		let wallet = Arc::new(EthereumWallet::new(signer));
+		let rpc_url = format!("http://localhost:{}", rpc_port);
+
+		// Query the chain ID from the RPC
+		let chain_id = ProviderBuilder::new()
+			.connect_http(rpc_url.parse()?)
+			.get_chain_id()
+			.await
+			.context("Failed to query chain ID from RPC")?;
+
+		Ok(Self {
+			id: 0,
+			node_binary: PathBuf::new(),
+			eth_proxy_binary: PathBuf::new(),
+			export_chainspec_command: String::new(),
+			rpc_url,
+			base_directory: PathBuf::new(),
+			logs_directory: PathBuf::new(),
+			substrate_process: None,
+			eth_proxy_process: None,
+			wallet,
+			nonce_manager: Default::default(),
+			provider: Default::default(),
+			chain_id,
+		})
 	}
 
 	fn init(&mut self, mut genesis: Genesis) -> anyhow::Result<&mut Self> {
@@ -345,7 +398,7 @@ impl SubstrateNode {
 				construct_concurrency_limited_provider::<ReviveNetwork, _>(
 					self.rpc_url.as_str(),
 					FallbackGasFiller::new(u64::MAX, 5_000_000_000, 1_000_000_000),
-					ChainIdFiller::new(Some(CHAIN_ID)),
+					ChainIdFiller::new(Some(self.chain_id)),
 					NonceFiller::new(self.nonce_manager.clone()),
 					self.wallet.clone(),
 				)
@@ -532,6 +585,16 @@ impl EthereumNode for SubstrateNode {
 			Ok(Box::pin(mined_block_information_stream)
 				as Pin<Box<dyn Stream<Item = MinedBlockInformation>>>)
 		})
+	}
+
+	fn resolve_signer_or_default(&self, address: Address) -> Address {
+		let signer_addresses: Vec<_> =
+			<EthereumWallet as NetworkWallet<Ethereum>>::signer_addresses(&self.wallet).collect();
+		if signer_addresses.contains(&address) {
+			address
+		} else {
+			self.wallet.default_signer().address()
+		}
 	}
 }
 

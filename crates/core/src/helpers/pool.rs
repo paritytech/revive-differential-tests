@@ -2,9 +2,9 @@
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+use crate::Platform;
 use anyhow::Context as _;
 use revive_dt_config::*;
-use revive_dt_core::Platform;
 use revive_dt_node_interaction::EthereumNode;
 
 /// The node pool starts one or more [Node] which then can be accessed
