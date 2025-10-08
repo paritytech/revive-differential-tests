@@ -30,7 +30,6 @@ use std::{
     fs::{create_dir_all, remove_dir_all},
     path::PathBuf,
     pin::Pin,
-    process::{Command, Stdio},
     sync::{
         Arc,
         atomic::{AtomicU32, Ordering},
@@ -40,8 +39,8 @@ use std::{
 
 use alloy::{
     eips::BlockNumberOrTag,
-    genesis::{Genesis, GenesisAccount},
-    network::{Ethereum, EthereumWallet, NetworkWallet},
+    genesis::Genesis,
+    network::EthereumWallet,
     primitives::{Address, BlockHash, BlockNumber, BlockTimestamp, StorageKey, TxHash, U256},
     providers::{
         Provider,
@@ -61,9 +60,6 @@ use revive_dt_common::fs::clear_directory;
 use revive_dt_config::*;
 use revive_dt_format::traits::ResolverApi;
 use revive_dt_node_interaction::{EthereumNode, MinedBlockInformation};
-use serde_json::{Value as JsonValue, json};
-use sp_core::crypto::Ss58Codec;
-use sp_runtime::AccountId32;
 use tokio::sync::OnceCell;
 use tracing::instrument;
 use zombienet_sdk::{LocalFileSystem, NetworkConfigBuilder, NetworkConfigExt};
@@ -71,8 +67,12 @@ use zombienet_sdk::{LocalFileSystem, NetworkConfigBuilder, NetworkConfigExt};
 use crate::{
     Node,
     constants::INITIAL_BALANCE,
-    helpers::{Process, ProcessReadinessWaitBehavior},
-    node_implementations::substrate::ReviveNetwork,
+    helpers::Process,
+    node_implementations::common::{
+        chainspec::export_and_patch_chainspec_json,
+        process::{command_version, spawn_eth_rpc_process},
+        revive::ReviveNetwork,
+    },
     provider_utils::{ConcreteProvider, FallbackGasFiller, construct_concurrency_limited_provider},
 };
 
@@ -159,7 +159,7 @@ impl ZombieNode {
         }
     }
 
-    fn init(&mut self, genesis: Genesis) -> anyhow::Result<&mut Self> {
+    fn init(&mut self, mut genesis: Genesis) -> anyhow::Result<&mut Self> {
         let _ = clear_directory(&self.base_directory);
         let _ = clear_directory(&self.logs_directory);
 
@@ -169,7 +169,16 @@ impl ZombieNode {
             .context("Failed to create logs directory for zombie node")?;
 
         let template_chainspec_path = self.base_directory.join(Self::CHAIN_SPEC_JSON_FILE);
-        self.prepare_chainspec(template_chainspec_path.clone(), genesis)?;
+        export_and_patch_chainspec_json(
+            &self.polkadot_parachain_path,
+            Self::EXPORT_CHAINSPEC_COMMAND,
+            "asset-hub-westend-local",
+            &template_chainspec_path,
+            &mut genesis,
+            &self.wallet,
+            INITIAL_BALANCE,
+        )?;
+
         let polkadot_parachain_path = self
             .polkadot_parachain_path
             .to_str()
@@ -223,30 +232,13 @@ impl ZombieNode {
         let node_url = format!("ws://localhost:{}", self.node_rpc_port.unwrap());
         let eth_rpc_port = Self::ETH_RPC_BASE_PORT + self.id as u16;
 
-        let eth_rpc_process = Process::new(
-            "proxy",
+        let eth_rpc_process = spawn_eth_rpc_process(
             self.logs_directory.as_path(),
             self.eth_proxy_binary.as_path(),
-            |command, stdout_file, stderr_file| {
-                command
-                    .arg("--node-rpc-url")
-                    .arg(node_url)
-                    .arg("--rpc-cors")
-                    .arg("all")
-                    .arg("--rpc-max-connections")
-                    .arg(u32::MAX.to_string())
-                    .arg("--rpc-port")
-                    .arg(eth_rpc_port.to_string())
-                    .stdout(stdout_file)
-                    .stderr(stderr_file);
-            },
-            ProcessReadinessWaitBehavior::TimeBoundedWaitFunction {
-                max_wait_duration: Duration::from_secs(30),
-                check_function: Box::new(|_, stderr_line| match stderr_line {
-                    Some(line) => Ok(line.contains(Self::ETH_RPC_READY_MARKER)),
-                    None => Ok(false),
-                }),
-            },
+            &node_url,
+            eth_rpc_port,
+            &[], // extra args
+            Self::ETH_RPC_READY_MARKER,
         );
 
         match eth_rpc_process {
@@ -267,115 +259,8 @@ impl ZombieNode {
         Ok(())
     }
 
-    fn prepare_chainspec(
-        &mut self,
-        template_chainspec_path: PathBuf,
-        mut genesis: Genesis,
-    ) -> anyhow::Result<()> {
-        let mut cmd: Command = std::process::Command::new(&self.polkadot_parachain_path);
-        cmd.arg(Self::EXPORT_CHAINSPEC_COMMAND)
-            .arg("--chain")
-            .arg("asset-hub-westend-local");
-
-        let output = cmd.output().context("Failed to export the chain-spec")?;
-
-        if !output.status.success() {
-            anyhow::bail!(
-                "Build chain-spec failed: {}",
-                String::from_utf8_lossy(&output.stderr)
-            );
-        }
-
-        let content = String::from_utf8(output.stdout)
-            .context("Failed to decode collators chain-spec output as UTF-8")?;
-        let mut chainspec_json: JsonValue =
-            serde_json::from_str(&content).context("Failed to parse collators chain spec JSON")?;
-
-        let existing_chainspec_balances =
-            chainspec_json["genesis"]["runtimeGenesis"]["patch"]["balances"]["balances"]
-                .as_array()
-                .cloned()
-                .unwrap_or_default();
-
-        let mut merged_balances: Vec<(String, u128)> = existing_chainspec_balances
-            .into_iter()
-            .filter_map(|val| {
-                if let Some(arr) = val.as_array() {
-                    if arr.len() == 2 {
-                        let account = arr[0].as_str()?.to_string();
-                        let balance = arr[1].as_f64()? as u128;
-                        return Some((account, balance));
-                    }
-                }
-                None
-            })
-            .collect();
-
-        let mut eth_balances = {
-            for signer_address in
-                <EthereumWallet as NetworkWallet<Ethereum>>::signer_addresses(&self.wallet)
-            {
-                // Note, the use of the entry API here means that we only modify the entries for any
-                // account that is not in the `alloc` field of the genesis state.
-                genesis
-                    .alloc
-                    .entry(signer_address)
-                    .or_insert(GenesisAccount::default().with_balance(U256::from(INITIAL_BALANCE)));
-            }
-            self.extract_balance_from_genesis_file(&genesis)
-                .context("Failed to extract balances from EVM genesis JSON")?
-        };
-
-        merged_balances.append(&mut eth_balances);
-
-        chainspec_json["genesis"]["runtimeGenesis"]["patch"]["balances"]["balances"] =
-            json!(merged_balances);
-
-        let writer = std::fs::File::create(&template_chainspec_path)
-            .context("Failed to create template chainspec file")?;
-
-        serde_json::to_writer_pretty(writer, &chainspec_json)
-            .context("Failed to write template chainspec JSON")?;
-
-        Ok(())
-    }
-
-    fn extract_balance_from_genesis_file(
-        &self,
-        genesis: &Genesis,
-    ) -> anyhow::Result<Vec<(String, u128)>> {
-        genesis
-            .alloc
-            .iter()
-            .try_fold(Vec::new(), |mut vec, (address, acc)| {
-                let polkadot_address = Self::eth_to_polkadot_address(address);
-                let balance = acc.balance.try_into()?;
-                vec.push((polkadot_address, balance));
-                Ok(vec)
-            })
-    }
-
-    fn eth_to_polkadot_address(address: &Address) -> String {
-        let eth_bytes = address.0.0;
-
-        let mut padded = [0xEEu8; 32];
-        padded[..20].copy_from_slice(&eth_bytes);
-
-        let account_id = AccountId32::from(padded);
-        account_id.to_ss58check()
-    }
-
     pub fn eth_rpc_version(&self) -> anyhow::Result<String> {
-        let output = Command::new(&self.eth_proxy_binary)
-            .arg("--version")
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .spawn()?
-            .wait_with_output()?
-            .stdout;
-
-        Ok(String::from_utf8_lossy(&output).trim().to_string())
+        command_version(&self.eth_proxy_binary)
     }
 
     async fn provider(
@@ -748,17 +633,7 @@ impl Node for ZombieNode {
     }
 
     fn version(&self) -> anyhow::Result<String> {
-        let output = Command::new(&self.polkadot_parachain_path)
-            .arg("--version")
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .spawn()
-            .context("Failed execute --version")?
-            .wait_with_output()
-            .context("Failed to wait --version")?
-            .stdout;
-        Ok(String::from_utf8_lossy(&output).into())
+        command_version(&self.polkadot_parachain_path)
     }
 }
 
@@ -772,7 +647,9 @@ impl Drop for ZombieNode {
 mod tests {
     use alloy::rpc::types::TransactionRequest;
 
-    use crate::node_implementations::zombienet::tests::utils::shared_node;
+    use crate::node_implementations::{
+        common::chainspec::eth_to_polkadot_address, zombienet::tests::utils::shared_node,
+    };
 
     use super::*;
 
@@ -873,12 +750,10 @@ mod tests {
             std::fs::read_to_string(&final_chainspec_path).expect("Failed to read chainspec");
 
         // Validate that the Polkadot addresses derived from the Ethereum addresses are in the file
-        let first_eth_addr = ZombieNode::eth_to_polkadot_address(
-            &"90F8bf6A479f320ead074411a4B0e7944Ea8c9C1".parse().unwrap(),
-        );
-        let second_eth_addr = ZombieNode::eth_to_polkadot_address(
-            &"Ab8483F64d9C6d1EcF9b849Ae677dD3315835cb2".parse().unwrap(),
-        );
+        let first_eth_addr =
+            eth_to_polkadot_address(&"90F8bf6A479f320ead074411a4B0e7944Ea8c9C1".parse().unwrap());
+        let second_eth_addr =
+            eth_to_polkadot_address(&"Ab8483F64d9C6d1EcF9b849Ae677dD3315835cb2".parse().unwrap());
 
         assert!(
             contents.contains(&first_eth_addr),
@@ -888,92 +763,6 @@ mod tests {
             contents.contains(&second_eth_addr),
             "Chainspec should contain Polkadot address for second Ethereum account"
         );
-    }
-
-    #[tokio::test]
-    async fn test_parse_genesis_alloc() {
-        // Create test genesis file
-        let genesis_json = r#"
-        {
-          "alloc": {
-            "0x90F8bf6A479f320ead074411a4B0e7944Ea8c9C1": { "balance": "1000000000000000000" },
-            "0x0000000000000000000000000000000000000000": { "balance": "0xDE0B6B3A7640000" },
-            "0xffffffffffffffffffffffffffffffffffffffff": { "balance": "123456789" }
-          }
-        }
-        "#;
-
-        let context = test_config();
-        let node = ZombieNode::new(
-            context.polkadot_parachain_configuration.path.clone(),
-            &context,
-        );
-
-        let result = node
-            .extract_balance_from_genesis_file(&serde_json::from_str(genesis_json).unwrap())
-            .unwrap();
-
-        let result_map: std::collections::HashMap<_, _> = result.into_iter().collect();
-
-        assert_eq!(
-            result_map.get("5FLneRcWAfk3X3tg6PuGyLNGAquPAZez5gpqvyuf3yUK8VaV"),
-            Some(&1_000_000_000_000_000_000u128)
-        );
-
-        assert_eq!(
-            result_map.get("5C4hrfjw9DjXZTzV3MwzrrAr9P1MLDHajjSidz9bR544LEq1"),
-            Some(&1_000_000_000_000_000_000u128)
-        );
-
-        assert_eq!(
-            result_map.get("5HrN7fHLXWcFiXPwwtq2EkSGns9eMmoUQnbVKweNz3VVr6N4"),
-            Some(&123_456_789u128)
-        );
-    }
-
-    #[test]
-    fn print_eth_to_polkadot_mappings() {
-        let eth_addresses = vec![
-            "0x90F8bf6A479f320ead074411a4B0e7944Ea8c9C1",
-            "0xffffffffffffffffffffffffffffffffffffffff",
-            "90F8bf6A479f320ead074411a4B0e7944Ea8c9C1",
-        ];
-
-        for eth_addr in eth_addresses {
-            let ss58 = ZombieNode::eth_to_polkadot_address(&eth_addr.parse().unwrap());
-
-            println!("Ethereum: {eth_addr} -> Polkadot SS58: {ss58}");
-        }
-    }
-
-    #[test]
-    fn test_eth_to_polkadot_address() {
-        let cases = vec![
-            (
-                "0x90F8bf6A479f320ead074411a4B0e7944Ea8c9C1",
-                "5FLneRcWAfk3X3tg6PuGyLNGAquPAZez5gpqvyuf3yUK8VaV",
-            ),
-            (
-                "90F8bf6A479f320ead074411a4B0e7944Ea8c9C1",
-                "5FLneRcWAfk3X3tg6PuGyLNGAquPAZez5gpqvyuf3yUK8VaV",
-            ),
-            (
-                "0x0000000000000000000000000000000000000000",
-                "5C4hrfjw9DjXZTzV3MwzrrAr9P1MLDHajjSidz9bR544LEq1",
-            ),
-            (
-                "0xffffffffffffffffffffffffffffffffffffffff",
-                "5HrN7fHLXWcFiXPwwtq2EkSGns9eMmoUQnbVKweNz3VVr6N4",
-            ),
-        ];
-
-        for (eth_addr, expected_ss58) in cases {
-            let result = ZombieNode::eth_to_polkadot_address(&eth_addr.parse().unwrap());
-            assert_eq!(
-                result, expected_ss58,
-                "Mismatch for Ethereum address {eth_addr}"
-            );
-        }
     }
 
     #[test]
