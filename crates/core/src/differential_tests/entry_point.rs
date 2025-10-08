@@ -265,9 +265,10 @@ async fn start_cli_reporting_task(output_format: OutputFormat, reporter: Reporte
             OutputFormat::CargoTestLike => {
                 writeln!(
                     buf,
-                    "\t{} {}\n",
+                    "\t{} {} - {}\n",
                     Color::Green.paint("Running"),
-                    metadata_file_path.display()
+                    metadata_file_path.display(),
+                    mode
                 )
                 .unwrap();
 
@@ -329,7 +330,7 @@ async fn start_cli_reporting_task(output_format: OutputFormat, reporter: Reporte
         OutputFormat::CargoTestLike => {
             writeln!(
                 buf,
-                "run finished. {} passed; {} failed; {} ignored; finished in {}",
+                "run finished. {} passed; {} failed; {} ignored; finished in {}s",
                 global_success_count,
                 global_failure_count,
                 global_ignore_count,
