@@ -354,14 +354,34 @@ where
 		_: &StepPath,
 		step: &FunctionCallStep,
 	) -> Result<usize> {
+		// Check if this step expects an exception
+		let expects_exception = step.expected.as_ref().map_or(false, |expected| match expected {
+			Expected::Expected(exp) => exp.exception,
+			Expected::ExpectedMany(exps) => exps.iter().any(|exp| exp.exception),
+			Expected::Calldata(_) => false,
+		});
+
 		let deployment_receipts = self
 			.handle_function_call_contract_deployment(step)
 			.await
 			.context("Failed to deploy contracts for the function call step")?;
-		let execution_receipt = self
+
+		let execution_receipt = match self
 			.handle_function_call_execution(step, deployment_receipts)
 			.await
-			.context("Failed to handle the function call execution")?;
+		{
+			Ok(receipt) => receipt,
+			Err(err) => {
+				// If we expect an exception and got an error during transaction submission/execution,
+				// this is the expected behavior for this test case
+				if expects_exception {
+					tracing::info!("Transaction failed as expected: {:?}", err);
+					return Ok(1);
+				}
+				return Err(err).context("Failed to handle the function call execution");
+			}
+		};
+
 		let tracing_result = self
 			.handle_function_call_call_frame_tracing(execution_receipt.transaction_hash)
 			.await
