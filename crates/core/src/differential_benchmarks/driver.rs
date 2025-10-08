@@ -22,6 +22,7 @@ use alloy::{
     },
 };
 use anyhow::{Context as _, Result, bail};
+use futures::TryFutureExt;
 use indexmap::IndexMap;
 use revive_dt_common::{
     futures::{PollingWaitBehavior, poll},
@@ -179,13 +180,17 @@ where
                 TransactionRequest::default().from(deployer_address),
                 code,
             );
-            let receipt = self.execute_transaction(tx).await.inspect_err(|err| {
-                error!(
-                    ?err,
-                    %library_instance,
-                    "Failed to deploy the library"
-                )
-            })?;
+            let receipt = self
+                .execute_transaction(tx)
+                .and_then(|(_, receipt_fut)| receipt_fut)
+                .await
+                .inspect_err(|err| {
+                    error!(
+                        ?err,
+                        %library_instance,
+                        "Failed to deploy the library"
+                    )
+                })?;
 
             debug!(?library_instance, "Deployed library");
 
@@ -281,11 +286,11 @@ where
             .handle_function_call_contract_deployment(step)
             .await
             .context("Failed to deploy contracts for the function call step")?;
-        let execution_receipt = self
+        let transaction_hash = self
             .handle_function_call_execution(step, deployment_receipts)
             .await
             .context("Failed to handle the function call execution")?;
-        self.handle_function_call_variable_assignment(step, execution_receipt.transaction_hash)
+        self.handle_function_call_variable_assignment(step, transaction_hash)
             .await
             .context("Failed to handle function call variable assignment")?;
         Ok(1)
@@ -339,18 +344,19 @@ where
         &mut self,
         step: &FunctionCallStep,
         mut deployment_receipts: HashMap<ContractInstance, TransactionReceipt>,
-    ) -> Result<TransactionReceipt> {
+    ) -> Result<TxHash> {
         match step.method {
             // This step was already executed when `handle_step` was called. We just need to
             // lookup the transaction receipt in this case and continue on.
             Method::Deployer => deployment_receipts
                 .remove(&step.instance)
-                .context("Failed to find deployment receipt for constructor call"),
+                .context("Failed to find deployment receipt for constructor call")
+                .map(|receipt| receipt.transaction_hash),
             Method::Fallback | Method::FunctionName(_) => {
                 let tx = step
                     .as_transaction(self.resolver.as_ref(), self.default_resolution_context())
                     .await?;
-                self.execute_transaction(tx).await
+                Ok(self.execute_transaction(tx).await?.0)
             }
         }
     }
@@ -634,7 +640,11 @@ where
             TransactionBuilder::<Ethereum>::with_deploy_code(tx, code)
         };
 
-        let receipt = match self.execute_transaction(tx).await {
+        let receipt = match self
+            .execute_transaction(tx)
+            .and_then(|(_, receipt_fut)| receipt_fut)
+            .await
+        {
             Ok(receipt) => receipt,
             Err(error) => {
                 tracing::error!(?error, "Contract deployment transaction failed.");
@@ -708,7 +718,7 @@ where
     async fn execute_transaction(
         &self,
         transaction: TransactionRequest,
-    ) -> anyhow::Result<TransactionReceipt> {
+    ) -> anyhow::Result<(TxHash, impl Future<Output = Result<TransactionReceipt>>)> {
         let node = self.platform_information.node;
         let transaction_hash = node
             .submit_transaction(transaction)
@@ -721,26 +731,28 @@ where
             .send(WatcherEvent::SubmittedTransaction { transaction_hash })
             .context("Failed to send the transaction hash to the watcher")?;
 
-        info!("Starting to poll for transaction receipt");
-        poll(
-            Duration::from_secs(30 * 60),
-            PollingWaitBehavior::Constant(Duration::from_secs(1)),
-            || {
-                async move {
-                    match node.get_receipt(transaction_hash).await {
-                        Ok(receipt) => {
-                            info!("Polling succeeded, receipt found");
-                            Ok(ControlFlow::Break(receipt))
+        Ok((transaction_hash, async move {
+            info!("Starting to poll for transaction receipt");
+            poll(
+                Duration::from_secs(30 * 60),
+                PollingWaitBehavior::Constant(Duration::from_secs(1)),
+                || {
+                    async move {
+                        match node.get_receipt(transaction_hash).await {
+                            Ok(receipt) => {
+                                info!("Polling succeeded, receipt found");
+                                Ok(ControlFlow::Break(receipt))
+                            }
+                            Err(_) => Ok(ControlFlow::Continue(())),
                         }
-                        Err(_) => Ok(ControlFlow::Continue(())),
                     }
-                }
-                .instrument(info_span!("Polling for receipt"))
-            },
-        )
-        .instrument(info_span!("Polling for receipt", %transaction_hash))
-        .await
-        .inspect(|_| info!("Found the transaction receipt"))
+                    .instrument(info_span!("Polling for receipt"))
+                },
+            )
+            .instrument(info_span!("Polling for receipt", %transaction_hash))
+            .await
+            .inspect(|_| info!("Found the transaction receipt"))
+        }))
     }
     // endregion:Transaction Execution
 }
