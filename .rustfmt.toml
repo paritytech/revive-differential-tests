@@ -1,0 +1,34 @@
+# Rustfmt configuration - configured to minimize changes
+# Only stable features are used to ensure compatibility
+
+# Edition
+edition = "2024"
+
+# Line width
+max_width = 100
+
+# Use small heuristics
+use_small_heuristics = "Default"
+
+# Formatting
+newline_style = "Unix"
+use_field_init_shorthand = true
+use_try_shorthand = true
+
+# Chains
+chain_width = 60
+
+# Function calls
+fn_call_width = 60
+
+# Structs
+struct_lit_width = 18
+
+# Arrays
+array_width = 60
+
+# Misc
+reorder_imports = true
+reorder_modules = true
+remove_nested_parens = true
+merge_derives = true
