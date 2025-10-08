@@ -5,9 +5,8 @@ use std::{borrow::Cow, path::Path};
 use futures::{Stream, StreamExt, stream};
 use indexmap::{IndexMap, indexmap};
 use revive_dt_common::iterators::EitherIter;
-use revive_dt_common::types::PlatformIdentifier;
+use revive_dt_common::types::{ParsedMode, PlatformIdentifier};
 use revive_dt_config::Context;
-use revive_dt_format::mode::ParsedMode;
 use serde_json::{Value, json};
 
 use revive_dt_compiler::Mode;
@@ -17,7 +16,7 @@ use revive_dt_format::{
     metadata::MetadataFile,
 };
 use revive_dt_node_interaction::EthereumNode;
-use revive_dt_report::{ExecutionSpecificReporter, Reporter};
+use revive_dt_report::{ExecutionSpecificReporter, Report, Reporter, TestCaseStatus};
 use revive_dt_report::{TestSpecificReporter, TestSpecifier};
 use tracing::{debug, error, info};
 
@@ -30,6 +29,7 @@ pub async fn create_test_definitions_stream<'a>(
     context: &Context,
     metadata_files: impl IntoIterator<Item = &'a MetadataFile>,
     platforms_and_nodes: &'a BTreeMap<PlatformIdentifier, (&dyn Platform, NodePool)>,
+    only_execute_failed_tests: Option<&Report>,
     reporter: Reporter,
 ) -> impl Stream<Item = TestDefinition<'a>> {
     stream::iter(
@@ -140,7 +140,7 @@ pub async fn create_test_definitions_stream<'a>(
     )
     // Filter out the test cases which are incompatible or that can't run in the current setup.
     .filter_map(move |test| async move {
-        match test.check_compatibility() {
+        match test.check_compatibility(only_execute_failed_tests) {
             Ok(()) => Some(test),
             Err((reason, additional_information)) => {
                 debug!(
@@ -200,12 +200,16 @@ pub struct TestDefinition<'a> {
 
 impl<'a> TestDefinition<'a> {
     /// Checks if this test can be ran with the current configuration.
-    pub fn check_compatibility(&self) -> TestCheckFunctionResult {
+    pub fn check_compatibility(
+        &self,
+        only_execute_failed_tests: Option<&Report>,
+    ) -> TestCheckFunctionResult {
         self.check_metadata_file_ignored()?;
         self.check_case_file_ignored()?;
         self.check_target_compatibility()?;
         self.check_evm_version_compatibility()?;
         self.check_compiler_compatibility()?;
+        self.check_ignore_succeeded(only_execute_failed_tests)?;
         Ok(())
     }
 
@@ -311,6 +315,36 @@ impl<'a> TestDefinition<'a> {
                 "Compilers do not support this mode either for the provided platforms.",
                 error_map,
             ))
+        }
+    }
+
+    /// Checks if the test case should be executed or not based on the passed report and whether the
+    /// user has instructed the tool to ignore the already succeeding test cases.
+    fn check_ignore_succeeded(
+        &self,
+        only_execute_failed_tests: Option<&Report>,
+    ) -> TestCheckFunctionResult {
+        let Some(report) = only_execute_failed_tests else {
+            return Ok(());
+        };
+
+        let test_case_status = report
+            .test_case_information
+            .get(&(self.metadata_file_path.to_path_buf().into()))
+            .and_then(|obj| obj.get(&self.mode))
+            .and_then(|obj| obj.get(&self.case_idx))
+            .and_then(|obj| obj.status.as_ref());
+
+        match test_case_status {
+            Some(TestCaseStatus::Failed { .. }) => Ok(()),
+            Some(TestCaseStatus::Ignored { .. }) => Err((
+                "Ignored since it was ignored in a previous run",
+                indexmap! {},
+            )),
+            Some(TestCaseStatus::Succeeded { .. }) => {
+                Err(("Ignored since it succeeded in a prior run", indexmap! {}))
+            }
+            None => Ok(()),
         }
     }
 }

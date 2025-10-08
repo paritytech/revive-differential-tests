@@ -1,9 +1,12 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use revive_dt_common::{macros::define_wrapper_type, types::Mode};
+use revive_dt_common::{
+    macros::define_wrapper_type,
+    types::{Mode, ParsedMode},
+};
 
-use crate::{mode::ParsedMode, steps::*};
+use crate::steps::*;
 
 #[derive(Debug, Default, Serialize, Deserialize, Clone, Eq, PartialEq, JsonSchema)]
 pub struct Case {

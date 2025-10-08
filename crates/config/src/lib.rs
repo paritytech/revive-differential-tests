@@ -12,19 +12,18 @@ use std::{
 
 use alloy::{
     genesis::Genesis,
-    hex::ToHexExt,
     network::EthereumWallet,
-    primitives::{FixedBytes, U256},
+    primitives::{B256, FixedBytes, U256},
     signers::local::PrivateKeySigner,
 };
 use clap::{Parser, ValueEnum, ValueHint};
 use revive_dt_common::types::PlatformIdentifier;
 use semver::Version;
-use serde::{Serialize, Serializer};
+use serde::{Deserialize, Serialize, Serializer};
 use strum::{AsRefStr, Display, EnumString, IntoStaticStr};
 use temp_dir::TempDir;
 
-#[derive(Clone, Debug, Parser, Serialize)]
+#[derive(Clone, Debug, Parser, Serialize, Deserialize)]
 #[command(name = "retester")]
 pub enum Context {
     /// Executes tests in the MatterLabs format differentially on multiple targets concurrently.
@@ -200,7 +199,17 @@ impl AsRef<ReportConfiguration> for Context {
     }
 }
 
-#[derive(Clone, Debug, Parser, Serialize)]
+impl AsRef<IgnoreSuccessConfiguration> for Context {
+    fn as_ref(&self) -> &IgnoreSuccessConfiguration {
+        match self {
+            Self::Test(context) => context.as_ref().as_ref(),
+            Self::Benchmark(..) => unreachable!(),
+            Self::ExportJsonSchema => unreachable!(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Parser, Serialize, Deserialize)]
 pub struct TestExecutionContext {
     /// The working directory that the program will use for all of the temporary artifacts needed at
     /// runtime.
@@ -216,7 +225,7 @@ pub struct TestExecutionContext {
     pub working_directory: WorkingDirectoryConfiguration,
 
     /// The set of platforms that the differential tests should run on.
-    #[arg(
+    #[clap(
         short = 'p',
         long = "platform",
         default_values = ["geth-evm-solc", "revive-dev-node-polkavm-resolc"]
@@ -278,9 +287,13 @@ pub struct TestExecutionContext {
     /// Configuration parameters for the report.
     #[clap(flatten, next_help_heading = "Report Configuration")]
     pub report_configuration: ReportConfiguration,
+
+    /// Configuration parameters for ignoring certain test cases based on the report
+    #[clap(flatten, next_help_heading = "Ignore Success Configuration")]
+    pub ignore_success_configuration: IgnoreSuccessConfiguration,
 }
 
-#[derive(Clone, Debug, Parser, Serialize)]
+#[derive(Clone, Debug, Parser, Serialize, Deserialize)]
 pub struct BenchmarkingContext {
     /// The working directory that the program will use for all of the temporary artifacts needed at
     /// runtime.
@@ -457,6 +470,12 @@ impl AsRef<ReportConfiguration> for TestExecutionContext {
     }
 }
 
+impl AsRef<IgnoreSuccessConfiguration> for TestExecutionContext {
+    fn as_ref(&self) -> &IgnoreSuccessConfiguration {
+        &self.ignore_success_configuration
+    }
+}
+
 impl Default for BenchmarkingContext {
     fn default() -> Self {
         Self::parse_from(["execution-context"])
@@ -548,7 +567,7 @@ impl AsRef<ReportConfiguration> for BenchmarkingContext {
 }
 
 /// A set of configuration parameters for the corpus files to use for the execution.
-#[derive(Clone, Debug, Parser, Serialize)]
+#[derive(Clone, Debug, Parser, Serialize, Deserialize)]
 pub struct CorpusConfiguration {
     /// A list of test corpus JSON files to be tested.
     #[arg(short = 'c', long = "corpus")]
@@ -556,7 +575,7 @@ pub struct CorpusConfiguration {
 }
 
 /// A set of configuration parameters for Solc.
-#[derive(Clone, Debug, Parser, Serialize)]
+#[derive(Clone, Debug, Parser, Serialize, Deserialize)]
 pub struct SolcConfiguration {
     /// Specifies the default version of the Solc compiler that should be used if there is no
     /// override specified by one of the test cases.
@@ -565,7 +584,7 @@ pub struct SolcConfiguration {
 }
 
 /// A set of configuration parameters for Resolc.
-#[derive(Clone, Debug, Parser, Serialize)]
+#[derive(Clone, Debug, Parser, Serialize, Deserialize)]
 pub struct ResolcConfiguration {
     /// Specifies the path of the resolc compiler to be used by the tool.
     ///
@@ -576,7 +595,7 @@ pub struct ResolcConfiguration {
 }
 
 /// A set of configuration parameters for Polkadot Parachain.
-#[derive(Clone, Debug, Parser, Serialize)]
+#[derive(Clone, Debug, Parser, Serialize, Deserialize)]
 pub struct PolkadotParachainConfiguration {
     /// Specifies the path of the polkadot-parachain node to be used by the tool.
     ///
@@ -600,7 +619,7 @@ pub struct PolkadotParachainConfiguration {
 }
 
 /// A set of configuration parameters for Geth.
-#[derive(Clone, Debug, Parser, Serialize)]
+#[derive(Clone, Debug, Parser, Serialize, Deserialize)]
 pub struct GethConfiguration {
     /// Specifies the path of the geth node to be used by the tool.
     ///
@@ -620,7 +639,7 @@ pub struct GethConfiguration {
 }
 
 /// A set of configuration parameters for kurtosis.
-#[derive(Clone, Debug, Parser, Serialize)]
+#[derive(Clone, Debug, Parser, Serialize, Deserialize)]
 pub struct KurtosisConfiguration {
     /// Specifies the path of the kurtosis node to be used by the tool.
     ///
@@ -635,7 +654,7 @@ pub struct KurtosisConfiguration {
 }
 
 /// A set of configuration parameters for Kitchensink.
-#[derive(Clone, Debug, Parser, Serialize)]
+#[derive(Clone, Debug, Parser, Serialize, Deserialize)]
 pub struct KitchensinkConfiguration {
     /// Specifies the path of the kitchensink node to be used by the tool.
     ///
@@ -659,7 +678,7 @@ pub struct KitchensinkConfiguration {
 }
 
 /// A set of configuration parameters for the revive dev node.
-#[derive(Clone, Debug, Parser, Serialize)]
+#[derive(Clone, Debug, Parser, Serialize, Deserialize)]
 pub struct ReviveDevNodeConfiguration {
     /// Specifies the path of the revive dev node to be used by the tool.
     ///
@@ -683,7 +702,7 @@ pub struct ReviveDevNodeConfiguration {
 }
 
 /// A set of configuration parameters for the ETH RPC.
-#[derive(Clone, Debug, Parser, Serialize)]
+#[derive(Clone, Debug, Parser, Serialize, Deserialize)]
 pub struct EthRpcConfiguration {
     /// Specifies the path of the ETH RPC to be used by the tool.
     ///
@@ -703,7 +722,7 @@ pub struct EthRpcConfiguration {
 }
 
 /// A set of configuration parameters for the genesis.
-#[derive(Clone, Debug, Default, Parser, Serialize)]
+#[derive(Clone, Debug, Default, Parser, Serialize, Deserialize)]
 pub struct GenesisConfiguration {
     /// Specifies the path of the genesis file to use for the nodes that are started.
     ///
@@ -741,15 +760,14 @@ impl GenesisConfiguration {
 }
 
 /// A set of configuration parameters for the wallet.
-#[derive(Clone, Debug, Parser, Serialize)]
+#[derive(Clone, Debug, Parser, Serialize, Deserialize)]
 pub struct WalletConfiguration {
     /// The private key of the default signer.
     #[clap(
         long = "wallet.default-private-key",
         default_value = "0x4f3edf983ac636a65a842ce7c78d9aa706d3b113bce9c46f30d7d21715b23b1d"
     )]
-    #[serde(serialize_with = "serialize_private_key")]
-    default_key: PrivateKeySigner,
+    default_key: B256,
 
     /// This argument controls which private keys the nodes should have access to and be added to
     /// its wallet signers. With a value of N, private keys (0, N] will be added to the signer set
@@ -767,7 +785,8 @@ impl WalletConfiguration {
     pub fn wallet(&self) -> Arc<EthereumWallet> {
         self.wallet
             .get_or_init(|| {
-                let mut wallet = EthereumWallet::new(self.default_key.clone());
+                let mut wallet =
+                    EthereumWallet::new(PrivateKeySigner::from_bytes(&self.default_key).unwrap());
                 for signer in (1..=self.additional_keys)
                     .map(|id| U256::from(id))
                     .map(|id| id.to_be_bytes::<32>())
@@ -785,15 +804,8 @@ impl WalletConfiguration {
     }
 }
 
-fn serialize_private_key<S>(value: &PrivateKeySigner, serializer: S) -> Result<S::Ok, S::Error>
-where
-    S: Serializer,
-{
-    value.to_bytes().encode_hex().serialize(serializer)
-}
-
 /// A set of configuration for concurrency.
-#[derive(Clone, Debug, Parser, Serialize)]
+#[derive(Clone, Debug, Parser, Serialize, Deserialize)]
 pub struct ConcurrencyConfiguration {
     /// Determines the amount of nodes that will be spawned for each chain.
     #[clap(long = "concurrency.number-of-nodes", default_value_t = 5)]
@@ -831,14 +843,14 @@ impl ConcurrencyConfiguration {
     }
 }
 
-#[derive(Clone, Debug, Parser, Serialize)]
+#[derive(Clone, Debug, Parser, Serialize, Deserialize)]
 pub struct CompilationConfiguration {
     /// Controls if the compilation cache should be invalidated or not.
     #[arg(long = "compilation.invalidate-cache")]
     pub invalidate_compilation_cache: bool,
 }
 
-#[derive(Clone, Debug, Parser, Serialize)]
+#[derive(Clone, Debug, Parser, Serialize, Deserialize)]
 pub struct ReportConfiguration {
     /// Controls if the compiler input is included in the final report.
     #[clap(long = "report.include-compiler-input")]
@@ -849,6 +861,13 @@ pub struct ReportConfiguration {
     pub include_compiler_output: bool,
 }
 
+#[derive(Clone, Debug, Parser, Serialize, Deserialize)]
+pub struct IgnoreSuccessConfiguration {
+    /// The path of the report generated by the tool to use to ignore the cases that succeeded.
+    #[clap(long = "ignore-success.report-path")]
+    pub path: Option<PathBuf>,
+}
+
 /// Represents the working directory that the program uses.
 #[derive(Debug, Clone)]
 pub enum WorkingDirectoryConfiguration {
@@ -856,6 +875,24 @@ pub enum WorkingDirectoryConfiguration {
     TemporaryDirectory(Arc<TempDir>),
     /// A directory with a path is used as the working directory.
     Path(PathBuf),
+}
+
+impl Serialize for WorkingDirectoryConfiguration {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        self.as_path().serialize(serializer)
+    }
+}
+
+impl<'a> Deserialize<'a> for WorkingDirectoryConfiguration {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'a>,
+    {
+        PathBuf::deserialize(deserializer).map(Self::Path)
+    }
 }
 
 impl WorkingDirectoryConfiguration {
@@ -904,15 +941,6 @@ impl FromStr for WorkingDirectoryConfiguration {
 impl Display for WorkingDirectoryConfiguration {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         Display::fmt(&self.as_path().display(), f)
-    }
-}
-
-impl Serialize for WorkingDirectoryConfiguration {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        self.as_path().serialize(serializer)
     }
 }
 

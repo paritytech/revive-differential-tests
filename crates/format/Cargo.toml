@@ -16,7 +16,6 @@ revive-common = { workspace = true }
 alloy = { workspace = true }
 anyhow = { workspace = true }
 futures = { workspace = true }
-regex = { workspace = true }
 tracing = { workspace = true }
 schemars = { workspace = true }
 semver = { workspace = true }

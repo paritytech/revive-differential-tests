@@ -86,6 +86,7 @@ pub async fn handle_differential_benchmarks(
         &full_context,
         metadata_files.iter(),
         &platforms_and_nodes,
+        None,
         reporter.clone(),
     )
     .await

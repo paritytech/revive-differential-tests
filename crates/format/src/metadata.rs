@@ -16,11 +16,11 @@ use revive_dt_common::{
     cached_fs::read_to_string,
     iterators::FilesWithExtensionIterator,
     macros::define_wrapper_type,
-    types::{Mode, VmIdentifier},
+    types::{Mode, ParsedMode, VmIdentifier},
 };
 use tracing::error;
 
-use crate::{case::Case, mode::ParsedMode};
+use crate::case::Case;
 
 pub const METADATA_FILE_EXTENSION: &str = "json";
 pub const SOLIDITY_CASE_FILE_EXTENSION: &str = "sol";
