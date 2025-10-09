@@ -16,7 +16,7 @@ use revive_dt_config::*;
 use revive_dt_node::{
     Node, node_implementations::geth::GethNode,
     node_implementations::lighthouse_geth::LighthouseGethNode,
-    node_implementations::substrate::SubstrateNode, node_implementations::zombienet::ZombieNode,
+    node_implementations::substrate::SubstrateNode, node_implementations::zombienet::ZombienetNode,
 };
 use revive_dt_node_interaction::EthereumNode;
 use tracing::info;
@@ -184,6 +184,7 @@ impl Platform for KitchensinkPolkavmResolcPlatform {
             let node = SubstrateNode::new(
                 kitchensink_path,
                 SubstrateNode::KITCHENSINK_EXPORT_CHAINSPEC_COMMAND,
+                None,
                 context,
             );
             let node = spawn_node(node, genesis)?;
@@ -236,6 +237,7 @@ impl Platform for KitchensinkRevmSolcPlatform {
             let node = SubstrateNode::new(
                 kitchensink_path,
                 SubstrateNode::KITCHENSINK_EXPORT_CHAINSPEC_COMMAND,
+                None,
                 context,
             );
             let node = spawn_node(node, genesis)?;
@@ -280,14 +282,17 @@ impl Platform for ReviveDevNodePolkavmResolcPlatform {
         context: Context,
     ) -> anyhow::Result<JoinHandle<anyhow::Result<Box<dyn EthereumNode + Send + Sync>>>> {
         let genesis_configuration = AsRef::<GenesisConfiguration>::as_ref(&context);
-        let revive_dev_node_path = AsRef::<ReviveDevNodeConfiguration>::as_ref(&context)
-            .path
-            .clone();
+        let revive_dev_node_configuration = AsRef::<ReviveDevNodeConfiguration>::as_ref(&context);
+
+        let revive_dev_node_path = revive_dev_node_configuration.path.clone();
+        let revive_dev_node_consensus = revive_dev_node_configuration.consensus.clone();
+
         let genesis = genesis_configuration.genesis()?.clone();
         Ok(thread::spawn(move || {
             let node = SubstrateNode::new(
                 revive_dev_node_path,
                 SubstrateNode::REVIVE_DEV_NODE_EXPORT_CHAINSPEC_COMMAND,
+                Some(revive_dev_node_consensus),
                 context,
             );
             let node = spawn_node(node, genesis)?;
@@ -332,14 +337,17 @@ impl Platform for ReviveDevNodeRevmSolcPlatform {
         context: Context,
     ) -> anyhow::Result<JoinHandle<anyhow::Result<Box<dyn EthereumNode + Send + Sync>>>> {
         let genesis_configuration = AsRef::<GenesisConfiguration>::as_ref(&context);
-        let revive_dev_node_path = AsRef::<ReviveDevNodeConfiguration>::as_ref(&context)
-            .path
-            .clone();
+        let revive_dev_node_configuration = AsRef::<ReviveDevNodeConfiguration>::as_ref(&context);
+
+        let revive_dev_node_path = revive_dev_node_configuration.path.clone();
+        let revive_dev_node_consensus = revive_dev_node_configuration.consensus.clone();
+
         let genesis = genesis_configuration.genesis()?.clone();
         Ok(thread::spawn(move || {
             let node = SubstrateNode::new(
                 revive_dev_node_path,
                 SubstrateNode::REVIVE_DEV_NODE_EXPORT_CHAINSPEC_COMMAND,
+                Some(revive_dev_node_consensus),
                 context,
             );
             let node = spawn_node(node, genesis)?;
@@ -389,7 +397,7 @@ impl Platform for ZombienetPolkavmResolcPlatform {
             .clone();
         let genesis = genesis_configuration.genesis()?.clone();
         Ok(thread::spawn(move || {
-            let node = ZombieNode::new(polkadot_parachain_path, context);
+            let node = ZombienetNode::new(polkadot_parachain_path, context);
             let node = spawn_node(node, genesis)?;
             Ok(Box::new(node) as Box<_>)
         }))
@@ -401,7 +409,7 @@ impl Platform for ZombienetPolkavmResolcPlatform {
         version: Option<VersionOrRequirement>,
     ) -> Pin<Box<dyn Future<Output = anyhow::Result<Box<dyn SolidityCompiler>>>>> {
         Box::pin(async move {
-            let compiler = Solc::new(context, version).await;
+            let compiler = Resolc::new(context, version).await;
             compiler.map(|compiler| Box::new(compiler) as Box<dyn SolidityCompiler>)
         })
     }
@@ -437,7 +445,7 @@ impl Platform for ZombienetRevmSolcPlatform {
             .clone();
         let genesis = genesis_configuration.genesis()?.clone();
         Ok(thread::spawn(move || {
-            let node = ZombieNode::new(polkadot_parachain_path, context);
+            let node = ZombienetNode::new(polkadot_parachain_path, context);
             let node = spawn_node(node, genesis)?;
             Ok(Box::new(node) as Box<_>)
         }))

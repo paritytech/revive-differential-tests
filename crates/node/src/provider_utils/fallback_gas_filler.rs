@@ -7,6 +7,10 @@ use alloy::{
     transports::TransportResult,
 };
 
+// Percentage padding applied to estimated gas (e.g. 120 = 20% padding)
+const GAS_ESTIMATE_PADDING_NUMERATOR: u64 = 120;
+const GAS_ESTIMATE_PADDING_DENOMINATOR: u64 = 100;
+
 #[derive(Clone, Debug)]
 pub struct FallbackGasFiller {
     inner: GasFiller,
@@ -56,8 +60,6 @@ where
         provider: &P,
         tx: &<N as Network>::TransactionRequest,
     ) -> TransportResult<Self::Fillable> {
-        // Try to fetch GasFiller’s “fillable” (gas_price, base_fee, estimate_gas, …)
-        // If it errors (i.e. tx would revert under eth_estimateGas), swallow it.
         match self.inner.prepare(provider, tx).await {
             Ok(fill) => Ok(Some(fill)),
             Err(_) => Ok(None),
@@ -70,8 +72,17 @@ where
         mut tx: alloy::providers::SendableTx<N>,
     ) -> TransportResult<SendableTx<N>> {
         if let Some(fill) = fillable {
-            // our inner GasFiller succeeded — use it
-            self.inner.fill(fill, tx).await
+            let mut tx = self.inner.fill(fill, tx).await?;
+            if let Some(builder) = tx.as_mut_builder() {
+                if let Some(estimated) = builder.gas_limit() {
+                    let padded = estimated
+                        .checked_mul(GAS_ESTIMATE_PADDING_NUMERATOR)
+                        .and_then(|v| v.checked_div(GAS_ESTIMATE_PADDING_DENOMINATOR))
+                        .unwrap_or(u64::MAX);
+                    builder.set_gas_limit(padded);
+                }
+            }
+            Ok(tx)
         } else {
             if let Some(builder) = tx.as_mut_builder() {
                 builder.set_gas_limit(self.default_gas_limit);

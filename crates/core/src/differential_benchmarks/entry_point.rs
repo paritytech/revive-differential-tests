@@ -8,7 +8,7 @@ use revive_dt_common::types::PrivateKeyAllocator;
 use revive_dt_core::Platform;
 use revive_dt_format::steps::{Step, StepIdx, StepPath};
 use tokio::sync::Mutex;
-use tracing::{error, info, info_span, instrument, warn};
+use tracing::{Instrument, error, info, info_span, instrument, warn};
 
 use revive_dt_config::{BenchmarkingContext, Context};
 use revive_dt_report::Reporter;
@@ -159,12 +159,15 @@ pub async fn handle_differential_benchmarks(
 
             futures::future::try_join(
                 watcher.run(),
-                driver.execute_all().inspect(|_| {
-                    info!("All transactions submitted - driver completed execution");
-                    watcher_tx
-                        .send(WatcherEvent::AllTransactionsSubmitted)
-                        .unwrap()
-                }),
+                driver
+                    .execute_all()
+                    .instrument(info_span!("Executing Benchmarks", %platform_identifier))
+                    .inspect(|_| {
+                        info!("All transactions submitted - driver completed execution");
+                        watcher_tx
+                            .send(WatcherEvent::AllTransactionsSubmitted)
+                            .unwrap()
+                    }),
             )
             .await
             .context("Failed to run the driver and executor")
