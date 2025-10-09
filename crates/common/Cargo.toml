@@ -14,6 +14,7 @@ anyhow = { workspace = true }
 clap = { workspace = true }
 moka = { workspace = true, features = ["sync"] }
 once_cell = { workspace = true }
+regex = { workspace = true }
 semver = { workspace = true }
 serde = { workspace = true }
 schemars = { workspace = true }

@@ -16,7 +16,7 @@ use revive_dt_compiler::{CompilerInput, CompilerOutput, Mode};
 use revive_dt_config::Context;
 use revive_dt_format::{case::CaseIdx, corpus::Corpus, metadata::ContractInstance};
 use semver::Version;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_with::{DisplayFromStr, serde_as};
 use tokio::sync::{
     broadcast::{Sender, channel},
@@ -415,7 +415,7 @@ impl ReportAggregator {
 }
 
 #[serde_as]
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Report {
     /// The context that the tool was started up with.
     pub context: Context,
@@ -440,7 +440,7 @@ impl Report {
     }
 }
 
-#[derive(Clone, Debug, Serialize, Default)]
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
 pub struct TestCaseReport {
     /// Information on the status of the test case and whether it succeeded, failed, or was ignored.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -451,7 +451,7 @@ pub struct TestCaseReport {
 
 /// Information related to the status of the test. Could be that the test succeeded, failed, or that
 /// it was ignored.
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "status")]
 pub enum TestCaseStatus {
     /// The test case succeeded.
@@ -475,7 +475,7 @@ pub enum TestCaseStatus {
 }
 
 /// Information related to the platform node that's being used to execute the step.
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct TestCaseNodeInformation {
     /// The ID of the node that this case is being executed on.
     pub id: usize,
@@ -486,7 +486,7 @@ pub struct TestCaseNodeInformation {
 }
 
 /// Execution information tied to the platform.
-#[derive(Clone, Debug, Default, Serialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct ExecutionInformation {
     /// Information related to the node assigned to this test case.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -506,7 +506,7 @@ pub struct ExecutionInformation {
 }
 
 /// Information related to compilation
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "status")]
 pub enum CompilationStatus {
     /// The compilation was successful.
