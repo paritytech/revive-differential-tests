@@ -318,7 +318,14 @@ async fn start_cli_reporting_task(output_format: OutputFormat, reporter: Reporte
                     status, success_count, failure_count, ignored_count,
                 )
                 .unwrap();
-                writeln!(buf).unwrap()
+                writeln!(buf).unwrap();
+
+                buf = tokio::task::spawn_blocking(move || {
+                    buf.flush().unwrap();
+                    buf
+                })
+                .await
+                .unwrap();
             }
         }
     }
