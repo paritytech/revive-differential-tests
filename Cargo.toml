@@ -22,6 +22,7 @@ revive-dt-node-pool = { version = "0.1.0", path = "crates/node-pool" }
 revive-dt-report = { version = "0.1.0", path = "crates/report" }
 revive-dt-solc-binaries = { version = "0.1.0", path = "crates/solc-binaries" }
 
+ansi_term = "0.12.1"
 anyhow = "1.0"
 async-stream = { version = "0.3.6" }
 bson = { version = "2.15.0" }
