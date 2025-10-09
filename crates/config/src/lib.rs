@@ -1002,6 +1002,7 @@ pub enum TestingPlatform {
     Ord,
     Hash,
     Serialize,
+    Deserialize,
     ValueEnum,
     EnumString,
     Display,
