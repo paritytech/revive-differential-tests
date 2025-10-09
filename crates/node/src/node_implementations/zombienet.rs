@@ -74,7 +74,10 @@ use crate::{
         process::{command_version, spawn_eth_rpc_process},
         revive::ReviveNetwork,
     },
-    provider_utils::{ConcreteProvider, FallbackGasFiller, construct_concurrency_limited_provider},
+    provider_utils::{
+        ConcreteProvider, FallbackGasFiller, construct_concurrency_limited_provider,
+        execute_transaction,
+    },
 };
 
 static NODE_COUNT: AtomicU32 = AtomicU32::new(0);
@@ -119,8 +122,6 @@ impl ZombienetNode {
     const NODE_BASE_RPC_PORT: u16 = 9946;
     const PARACHAIN_ID: u32 = 100;
     const ETH_RPC_BASE_PORT: u16 = 8545;
-
-    const PROXY_LOG_ENV: &str = "info,eth-rpc=debug";
 
     const ETH_RPC_READY_MARKER: &str = "Running JSON-RPC server";
 
