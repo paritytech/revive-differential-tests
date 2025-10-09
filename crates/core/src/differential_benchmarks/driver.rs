@@ -22,6 +22,7 @@ use alloy::{
     },
 };
 use anyhow::{Context as _, Result, bail};
+use futures::TryFutureExt;
 use indexmap::IndexMap;
 use revive_dt_common::{
     futures::{PollingWaitBehavior, poll},
@@ -35,7 +36,7 @@ use revive_dt_format::{
     },
     traits::{ResolutionContext, ResolverApi},
 };
-use tokio::sync::{Mutex, mpsc::UnboundedSender};
+use tokio::sync::{Mutex, OnceCell, mpsc::UnboundedSender};
 use tracing::{Instrument, Span, debug, error, field::display, info, info_span, instrument};
 
 use crate::{
@@ -123,13 +124,7 @@ where
                 &self.platform_information.reporter,
             )
             .await
-            .inspect_err(|err| {
-                error!(
-                    ?err,
-                    platform_identifier = %self.platform_information.platform.platform_identifier(),
-                    "Pre-linking compilation failed"
-                )
-            })
+            .inspect_err(|err| error!(?err, "Pre-linking compilation failed"))
             .context("Failed to produce the pre-linking compiled contracts")?;
 
         let mut deployed_libraries = None::<HashMap<_, _>>;
@@ -137,13 +132,7 @@ where
             .test_definition
             .metadata
             .contract_sources()
-            .inspect_err(|err| {
-                error!(
-                    ?err,
-                    platform_identifier = %self.platform_information.platform.platform_identifier(),
-                    "Failed to retrieve contract sources from metadata"
-                )
-            })
+            .inspect_err(|err| error!(?err, "Failed to retrieve contract sources from metadata"))
             .context("Failed to get the contract instances from the metadata file")?;
         for library_instance in self
             .test_definition
@@ -191,20 +180,19 @@ where
                 TransactionRequest::default().from(deployer_address),
                 code,
             );
-            let receipt = self.execute_transaction(tx).await.inspect_err(|err| {
-                error!(
-                    ?err,
-                    %library_instance,
-                    platform_identifier = %self.platform_information.platform.platform_identifier(),
-                    "Failed to deploy the library"
-                )
-            })?;
+            let receipt = self
+                .execute_transaction(tx)
+                .and_then(|(_, receipt_fut)| receipt_fut)
+                .await
+                .inspect_err(|err| {
+                    error!(
+                        ?err,
+                        %library_instance,
+                        "Failed to deploy the library"
+                    )
+                })?;
 
-            debug!(
-                ?library_instance,
-                platform_identifier = %self.platform_information.platform.platform_identifier(),
-                "Deployed library"
-            );
+            debug!(?library_instance, "Deployed library");
 
             let library_address = receipt
                 .contract_address
@@ -227,13 +215,7 @@ where
                 &self.platform_information.reporter,
             )
             .await
-            .inspect_err(|err| {
-                error!(
-                    ?err,
-                    platform_identifier = %self.platform_information.platform.platform_identifier(),
-                    "Post-linking compilation failed"
-                )
-            })
+            .inspect_err(|err| error!(?err, "Post-linking compilation failed"))
             .context("Failed to compile the post-link contracts")?;
 
         self.execution_state = ExecutionState::new(
@@ -269,7 +251,6 @@ where
         skip_all,
         fields(
             driver_id = self.driver_id,
-            platform_identifier = %self.platform_information.platform.platform_identifier(),
             %step_path,
         ),
         err(Debug),
@@ -305,15 +286,11 @@ where
             .handle_function_call_contract_deployment(step)
             .await
             .context("Failed to deploy contracts for the function call step")?;
-        let execution_receipt = self
+        let transaction_hash = self
             .handle_function_call_execution(step, deployment_receipts)
             .await
             .context("Failed to handle the function call execution")?;
-        let tracing_result = self
-            .handle_function_call_call_frame_tracing(execution_receipt.transaction_hash)
-            .await
-            .context("Failed to handle the function call call frame tracing")?;
-        self.handle_function_call_variable_assignment(step, &tracing_result)
+        self.handle_function_call_variable_assignment(step, transaction_hash)
             .await
             .context("Failed to handle function call variable assignment")?;
         Ok(1)
@@ -367,18 +344,19 @@ where
         &mut self,
         step: &FunctionCallStep,
         mut deployment_receipts: HashMap<ContractInstance, TransactionReceipt>,
-    ) -> Result<TransactionReceipt> {
+    ) -> Result<TxHash> {
         match step.method {
             // This step was already executed when `handle_step` was called. We just need to
             // lookup the transaction receipt in this case and continue on.
             Method::Deployer => deployment_receipts
                 .remove(&step.instance)
-                .context("Failed to find deployment receipt for constructor call"),
+                .context("Failed to find deployment receipt for constructor call")
+                .map(|receipt| receipt.transaction_hash),
             Method::Fallback | Method::FunctionName(_) => {
                 let tx = step
                     .as_transaction(self.resolver.as_ref(), self.default_resolution_context())
                     .await?;
-                self.execute_transaction(tx).await
+                Ok(self.execute_transaction(tx).await?.0)
             }
         }
     }
@@ -417,15 +395,19 @@ where
     async fn handle_function_call_variable_assignment(
         &mut self,
         step: &FunctionCallStep,
-        tracing_result: &CallFrame,
+        tx_hash: TxHash,
     ) -> Result<()> {
         let Some(ref assignments) = step.variable_assignments else {
             return Ok(());
         };
 
         // Handling the return data variable assignments.
+        let callframe = OnceCell::new();
         for (variable_name, output_word) in assignments.return_data.iter().zip(
-            tracing_result
+            callframe
+                .get_or_try_init(|| self.handle_function_call_call_frame_tracing(tx_hash))
+                .await
+                .context("Failed to get the callframe trace for transaction")?
                 .output
                 .as_ref()
                 .unwrap_or_default()
@@ -547,7 +529,6 @@ where
         skip_all,
         fields(
             driver_id = self.driver_id,
-            platform_identifier = %self.platform_information.platform.platform_identifier(),
             %contract_instance,
             %deployer
         ),
@@ -590,7 +571,6 @@ where
     skip_all,
         fields(
             driver_id = self.driver_id,
-            platform_identifier = %self.platform_information.platform.platform_identifier(),
             %contract_instance,
             %deployer
         ),
@@ -660,7 +640,11 @@ where
             TransactionBuilder::<Ethereum>::with_deploy_code(tx, code)
         };
 
-        let receipt = match self.execute_transaction(tx).await {
+        let receipt = match self
+            .execute_transaction(tx)
+            .and_then(|(_, receipt_fut)| receipt_fut)
+            .await
+        {
             Ok(receipt) => receipt,
             Err(error) => {
                 tracing::error!(?error, "Contract deployment transaction failed.");
@@ -734,7 +718,7 @@ where
     async fn execute_transaction(
         &self,
         transaction: TransactionRequest,
-    ) -> anyhow::Result<TransactionReceipt> {
+    ) -> anyhow::Result<(TxHash, impl Future<Output = Result<TransactionReceipt>>)> {
         let node = self.platform_information.node;
         let transaction_hash = node
             .submit_transaction(transaction)
@@ -747,24 +731,28 @@ where
             .send(WatcherEvent::SubmittedTransaction { transaction_hash })
             .context("Failed to send the transaction hash to the watcher")?;
 
-        info!("Starting to poll for transaction receipt");
-        poll(
-            Duration::from_secs(30 * 60),
-            PollingWaitBehavior::Constant(Duration::from_secs(1)),
-            || {
-                async move {
-                    match node.get_receipt(transaction_hash).await {
-                        Ok(receipt) => {
-                            info!("Polling succeeded, receipt found");
-                            Ok(ControlFlow::Break(receipt))
+        Ok((transaction_hash, async move {
+            info!("Starting to poll for transaction receipt");
+            poll(
+                Duration::from_secs(30 * 60),
+                PollingWaitBehavior::Constant(Duration::from_secs(1)),
+                || {
+                    async move {
+                        match node.get_receipt(transaction_hash).await {
+                            Ok(receipt) => {
+                                info!("Polling succeeded, receipt found");
+                                Ok(ControlFlow::Break(receipt))
+                            }
+                            Err(_) => Ok(ControlFlow::Continue(())),
                         }
-                        Err(_) => Ok(ControlFlow::Continue(())),
                     }
-                }
-                .instrument(info_span!("Polling for receipt"))
-            },
-        )
-        .await
+                    .instrument(info_span!("Polling for receipt"))
+                },
+            )
+            .instrument(info_span!("Polling for receipt", %transaction_hash))
+            .await
+            .inspect(|_| info!("Found the transaction receipt"))
+        }))
     }
     // endregion:Transaction Execution
 }

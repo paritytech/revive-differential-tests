@@ -93,17 +93,16 @@ echo ""
 # Run the tool
 cargo build --release;
 RUST_LOG="info,alloy_pubsub::service=error" ./target/release/retester test \
-    --platform revive-dev-node-revm-solc \
+    --platform geth-evm-solc \
     --corpus "$CORPUS_FILE" \
     --working-directory "$WORKDIR" \
     --concurrency.number-of-nodes 10 \
     --concurrency.number-of-threads 5 \
-    --concurrency.number-of-concurrent-tasks 1000 \
+    --concurrency.ignore-concurrency-limit \
     --wallet.additional-keys 100000 \
     --kitchensink.path "$SUBSTRATE_NODE_BIN" \
     --revive-dev-node.path "$REVIVE_DEV_NODE_BIN" \
     --eth-rpc.path "$ETH_RPC_BIN" \
-    > logs.log \
-    2> output.log
+    > logs.log 
 
 echo -e "${GREEN}=== Test run completed! ===${NC}"

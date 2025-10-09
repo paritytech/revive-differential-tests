@@ -783,6 +783,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "ansi_term"
+version = "0.12.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d52a9bb7ec0cf484c551830a7ce27bd20d67eac647e1befb56b0be4ee39a55d2"
+dependencies = [
+ "winapi",
+]
+
+[[package]]
 name = "anstream"
 version = "0.6.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2328,7 +2337,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8d162beedaa69905488a8da94f5ac3edb4dd4788b732fadb7bd120b2625c1976"
 dependencies = [
  "data-encoding",
- "syn 1.0.109",
+ "syn 2.0.101",
 ]
 
 [[package]]
@@ -5611,6 +5620,7 @@ name = "revive-dt-core"
 version = "0.1.0"
 dependencies = [
  "alloy",
+ "ansi_term",
  "anyhow",
  "bson",
  "cacache",
@@ -5658,6 +5668,7 @@ version = "0.1.0"
 dependencies = [
  "alloy",
  "anyhow",
+ "async-stream",
  "futures",
  "revive-common",
  "revive-dt-common",
@@ -5942,7 +5953,7 @@ dependencies = [
  "security-framework 3.3.0",
  "security-framework-sys",
  "webpki-root-certs 0.26.11",
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]

@@ -202,6 +202,18 @@ impl AsRef<ReportConfiguration> for Context {
 
 #[derive(Clone, Debug, Parser, Serialize)]
 pub struct TestExecutionContext {
+    /// The set of platforms that the differential tests should run on.
+    #[arg(
+        short = 'p',
+        long = "platform",
+        default_values = ["geth-evm-solc", "revive-dev-node-polkavm-resolc"]
+    )]
+    pub platforms: Vec<PlatformIdentifier>,
+
+    /// The output format to use for the tool's output.
+    #[arg(short, long, default_value_t = OutputFormat::CargoTestLike)]
+    pub output_format: OutputFormat,
+
     /// The working directory that the program will use for all of the temporary artifacts needed at
     /// runtime.
     ///
@@ -214,14 +226,6 @@ pub struct TestExecutionContext {
         value_hint = ValueHint::DirPath,
     )]
     pub working_directory: WorkingDirectoryConfiguration,
-
-    /// The set of platforms that the differential tests should run on.
-    #[arg(
-        short = 'p',
-        long = "platform",
-        default_values = ["geth-evm-solc", "revive-dev-node-polkavm-resolc"]
-    )]
-    pub platforms: Vec<PlatformIdentifier>,
 
     /// Configuration parameters for the corpus files to use.
     #[clap(flatten, next_help_heading = "Corpus Configuration")]
@@ -680,6 +684,14 @@ pub struct ReviveDevNodeConfiguration {
         value_parser = parse_duration
     )]
     pub start_timeout_ms: Duration,
+
+    /// The consensus to use for the spawned revive-dev-node.
+    #[clap(
+        id = "revive-dev-node.consensus",
+        long = "revive-dev-node.consensus",
+        default_value = "instant-seal"
+    )]
+    pub consensus: String,
 }
 
 /// A set of configuration parameters for the ETH RPC.
@@ -949,4 +961,30 @@ pub enum TestingPlatform {
     Kitchensink,
     /// A polkadot/Substrate based network
     Zombienet,
+}
+
+/// The output format to use for the test execution output.
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    Serialize,
+    ValueEnum,
+    EnumString,
+    Display,
+    AsRefStr,
+    IntoStaticStr,
+)]
+#[strum(serialize_all = "kebab-case")]
+pub enum OutputFormat {
+    /// The legacy format that was used in the past for the output.
+    Legacy,
+
+    /// An output format that looks heavily resembles the output from `cargo test`.
+    CargoTestLike,
 }
