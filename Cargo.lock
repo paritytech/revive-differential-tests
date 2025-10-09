@@ -5658,6 +5658,7 @@ version = "0.1.0"
 dependencies = [
  "alloy",
  "anyhow",
+ "async-stream",
  "futures",
  "revive-common",
  "revive-dt-common",

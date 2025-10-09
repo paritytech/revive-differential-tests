@@ -104,6 +104,10 @@ impl Watcher {
             async move {
                 let mut mined_blocks_information = Vec::new();
 
+                // region:TEMPORARY
+                eprintln!("Watcher information for {}", self.platform_identifier);
+                eprintln!("block_number,block_timestamp,mined_gas,block_gas_limit,tx_count");
+                // endregion:TEMPORARY
                 while let Some(block) = blocks_information_stream.next().await {
                     // If the block number is equal to or less than the last block before the
                     // repetition then we ignore it and continue on to the next block.
@@ -118,8 +122,9 @@ impl Watcher {
                     }
 
                     info!(
-                        remaining_transactions = watch_for_transaction_hashes.read().await.len(),
+                        block_number = block.block_number,
                         block_tx_count = block.transaction_hashes.len(),
+                        remaining_transactions = watch_for_transaction_hashes.read().await.len(),
                         "Observed a block"
                     );
 
@@ -131,6 +136,20 @@ impl Watcher {
                         watch_for_transaction_hashes.remove(tx_hash);
                     }
 
+                    // region:TEMPORARY
+                    // TODO: The following core is TEMPORARY and will be removed once we have proper
+                    // reporting in place and then it can be removed. This serves as as way of doing
+                    // some very simple reporting for the time being.
+                    eprintln!(
+                        "\"{}\",\"{}\",\"{}\",\"{}\",\"{}\"",
+                        block.block_number,
+                        block.block_timestamp,
+                        block.mined_gas,
+                        block.block_gas_limit,
+                        block.transaction_hashes.len()
+                    );
+                    // endregion:TEMPORARY
+
                     mined_blocks_information.push(block);
                 }
 
@@ -139,40 +158,9 @@ impl Watcher {
             }
         };
 
-        let (_, mined_blocks_information) =
+        let (_, _) =
             futures::future::join(watcher_event_watching_task, block_information_watching_task)
                 .await;
-
-        // region:TEMPORARY
-        {
-            // TODO: The following core is TEMPORARY and will be removed once we have proper
-            // reporting in place and then it can be removed. This serves as as way of doing some
-            // very simple reporting for the time being.
-            use std::io::Write;
-
-            let mut stderr = std::io::stderr().lock();
-            writeln!(
-                stderr,
-                "Watcher information for {}",
-                self.platform_identifier
-            )?;
-            writeln!(
-                stderr,
-                "block_number,block_timestamp,mined_gas,block_gas_limit,tx_count"
-            )?;
-            for block in mined_blocks_information {
-                writeln!(
-                    stderr,
-                    "{},{},{},{},{}",
-                    block.block_number,
-                    block.block_timestamp,
-                    block.mined_gas,
-                    block.block_gas_limit,
-                    block.transaction_hashes.len()
-                )?
-            }
-        }
-        // endregion:TEMPORARY
 
         Ok(())
     }
