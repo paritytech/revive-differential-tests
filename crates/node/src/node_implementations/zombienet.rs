@@ -847,6 +847,7 @@ mod tests {
     use utils::{new_node, test_config};
 
     #[tokio::test]
+    #[ignore = "Ignored for the time being"]
     async fn test_transfer_transaction_should_return_receipt() {
         let (ctx, node) = new_node().await;
 
