@@ -138,6 +138,7 @@ impl ZombieNode {
         let base_directory = working_directory_path
             .join(Self::BASE_DIRECTORY)
             .join(id.to_string());
+        let base_directory = base_directory.canonicalize().unwrap_or(base_directory);
         let logs_directory = base_directory.join(Self::LOGS_DIRECTORY);
         let wallet = AsRef::<WalletConfiguration>::as_ref(&context).wallet();
 
