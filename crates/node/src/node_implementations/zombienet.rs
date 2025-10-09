@@ -204,6 +204,10 @@ impl ZombienetNode {
                             .with_name("Collator")
                             .with_command(polkadot_parachain_path)
                             .with_rpc_port(node_rpc_port)
+                            .with_args(vec![
+                                ("--pool-limit", u32::MAX.to_string().as_str()).into(),
+                                ("--pool-kbytes", u32::MAX.to_string().as_str()).into(),
+                            ])
                     })
             })
             .build()

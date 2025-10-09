@@ -680,6 +680,14 @@ pub struct ReviveDevNodeConfiguration {
         value_parser = parse_duration
     )]
     pub start_timeout_ms: Duration,
+
+    /// The consensus to use for the spawned revive-dev-node.
+    #[clap(
+        id = "revive-dev-node.consensus",
+        long = "revive-dev-node.consensus",
+        default_value = "instant-seal"
+    )]
+    pub consensus: String,
 }
 
 /// A set of configuration parameters for the ETH RPC.

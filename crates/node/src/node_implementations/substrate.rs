@@ -81,6 +81,7 @@ pub struct SubstrateNode {
     wallet: Arc<EthereumWallet>,
     nonce_manager: CachedNonceManager,
     provider: OnceCell<ConcreteProvider<ReviveNetwork, Arc<EthereumWallet>>>,
+    consensus: Option<String>,
 }
 
 impl SubstrateNode {
@@ -103,6 +104,7 @@ impl SubstrateNode {
     pub fn new(
         node_path: PathBuf,
         export_chainspec_command: &str,
+        consensus: Option<String>,
         context: impl AsRef<WorkingDirectoryConfiguration>
         + AsRef<EthRpcConfiguration>
         + AsRef<WalletConfiguration>,
@@ -132,6 +134,7 @@ impl SubstrateNode {
             wallet: wallet.clone(),
             nonce_manager: Default::default(),
             provider: Default::default(),
+            consensus,
         }
     }
 
@@ -229,7 +232,7 @@ impl SubstrateNode {
             self.logs_directory.as_path(),
             self.node_binary.as_path(),
             |command, stdout_file, stderr_file| {
-                command
+                let cmd = command
                     .arg("--dev")
                     .arg("--chain")
                     .arg(chainspec_path)
@@ -246,8 +249,6 @@ impl SubstrateNode {
                     .arg("all")
                     .arg("--rpc-max-connections")
                     .arg(u32::MAX.to_string())
-                    .arg("--consensus")
-                    .arg("manual-seal-12000")
                     .arg("--pool-limit")
                     .arg(u32::MAX.to_string())
                     .arg("--pool-kbytes")
@@ -255,6 +256,9 @@ impl SubstrateNode {
                     .env("RUST_LOG", Self::SUBSTRATE_LOG_ENV)
                     .stdout(stdout_file)
                     .stderr(stderr_file);
+                if let Some(consensus) = self.consensus.as_ref() {
+                    cmd.arg("--consensus").arg(consensus.clone());
+                }
             },
             ProcessReadinessWaitBehavior::TimeBoundedWaitFunction {
                 max_wait_duration: Duration::from_secs(30),
@@ -1186,6 +1190,7 @@ mod tests {
         let mut node = SubstrateNode::new(
             context.kitchensink_configuration.path.clone(),
             SubstrateNode::KITCHENSINK_EXPORT_CHAINSPEC_COMMAND,
+            None,
             &context,
         );
         node.init(context.genesis_configuration.genesis().unwrap().clone())
@@ -1251,6 +1256,7 @@ mod tests {
         let mut dummy_node = SubstrateNode::new(
             context.kitchensink_configuration.path.clone(),
             SubstrateNode::KITCHENSINK_EXPORT_CHAINSPEC_COMMAND,
+            None,
             &context,
         );
 
@@ -1303,6 +1309,7 @@ mod tests {
         let node = SubstrateNode::new(
             context.kitchensink_configuration.path.clone(),
             SubstrateNode::KITCHENSINK_EXPORT_CHAINSPEC_COMMAND,
+            None,
             &context,
         );
 

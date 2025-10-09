@@ -184,6 +184,7 @@ impl Platform for KitchensinkPolkavmResolcPlatform {
             let node = SubstrateNode::new(
                 kitchensink_path,
                 SubstrateNode::KITCHENSINK_EXPORT_CHAINSPEC_COMMAND,
+                None,
                 context,
             );
             let node = spawn_node(node, genesis)?;
@@ -236,6 +237,7 @@ impl Platform for KitchensinkRevmSolcPlatform {
             let node = SubstrateNode::new(
                 kitchensink_path,
                 SubstrateNode::KITCHENSINK_EXPORT_CHAINSPEC_COMMAND,
+                None,
                 context,
             );
             let node = spawn_node(node, genesis)?;
@@ -280,14 +282,17 @@ impl Platform for ReviveDevNodePolkavmResolcPlatform {
         context: Context,
     ) -> anyhow::Result<JoinHandle<anyhow::Result<Box<dyn EthereumNode + Send + Sync>>>> {
         let genesis_configuration = AsRef::<GenesisConfiguration>::as_ref(&context);
-        let revive_dev_node_path = AsRef::<ReviveDevNodeConfiguration>::as_ref(&context)
-            .path
-            .clone();
+        let revive_dev_node_configuration = AsRef::<ReviveDevNodeConfiguration>::as_ref(&context);
+
+        let revive_dev_node_path = revive_dev_node_configuration.path.clone();
+        let revive_dev_node_consensus = revive_dev_node_configuration.consensus.clone();
+
         let genesis = genesis_configuration.genesis()?.clone();
         Ok(thread::spawn(move || {
             let node = SubstrateNode::new(
                 revive_dev_node_path,
                 SubstrateNode::REVIVE_DEV_NODE_EXPORT_CHAINSPEC_COMMAND,
+                Some(revive_dev_node_consensus),
                 context,
             );
             let node = spawn_node(node, genesis)?;
@@ -332,14 +337,17 @@ impl Platform for ReviveDevNodeRevmSolcPlatform {
         context: Context,
     ) -> anyhow::Result<JoinHandle<anyhow::Result<Box<dyn EthereumNode + Send + Sync>>>> {
         let genesis_configuration = AsRef::<GenesisConfiguration>::as_ref(&context);
-        let revive_dev_node_path = AsRef::<ReviveDevNodeConfiguration>::as_ref(&context)
-            .path
-            .clone();
+        let revive_dev_node_configuration = AsRef::<ReviveDevNodeConfiguration>::as_ref(&context);
+
+        let revive_dev_node_path = revive_dev_node_configuration.path.clone();
+        let revive_dev_node_consensus = revive_dev_node_configuration.consensus.clone();
+
         let genesis = genesis_configuration.genesis()?.clone();
         Ok(thread::spawn(move || {
             let node = SubstrateNode::new(
                 revive_dev_node_path,
                 SubstrateNode::REVIVE_DEV_NODE_EXPORT_CHAINSPEC_COMMAND,
+                Some(revive_dev_node_consensus),
                 context,
             );
             let node = spawn_node(node, genesis)?;
