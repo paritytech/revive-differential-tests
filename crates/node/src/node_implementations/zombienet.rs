@@ -73,7 +73,6 @@ use crate::{
     Node,
     constants::INITIAL_BALANCE,
     helpers::{Process, ProcessReadinessWaitBehavior},
-    node_implementations::substrate::ReviveNetwork,
     provider_utils::{
         ConcreteProvider, FallbackGasFiller, construct_concurrency_limited_provider,
         execute_transaction,
@@ -111,7 +110,7 @@ pub struct ZombienetNode {
     wallet: Arc<EthereumWallet>,
     nonce_manager: CachedNonceManager,
 
-    provider: OnceCell<ConcreteProvider<ReviveNetwork, Arc<EthereumWallet>>>,
+    provider: OnceCell<ConcreteProvider<Ethereum, Arc<EthereumWallet>>>,
 }
 
 impl ZombienetNode {
@@ -399,12 +398,10 @@ impl ZombienetNode {
         Ok(String::from_utf8_lossy(&output).trim().to_string())
     }
 
-    async fn provider(
-        &self,
-    ) -> anyhow::Result<ConcreteProvider<ReviveNetwork, Arc<EthereumWallet>>> {
+    async fn provider(&self) -> anyhow::Result<ConcreteProvider<Ethereum, Arc<EthereumWallet>>> {
         self.provider
             .get_or_try_init(|| async move {
-                construct_concurrency_limited_provider::<ReviveNetwork, _>(
+                construct_concurrency_limited_provider::<Ethereum, _>(
                     self.connection_string.as_str(),
                     FallbackGasFiller::new(u64::MAX, 5_000_000_000, 1_000_000_000),
                     ChainIdFiller::default(), // TODO: use CHAIN_ID constant
@@ -568,7 +565,7 @@ impl EthereumNode for ZombienetNode {
         >,
     > {
         fn create_stream(
-            provider: ConcreteProvider<ReviveNetwork, Arc<EthereumWallet>>,
+            provider: ConcreteProvider<Ethereum, Arc<EthereumWallet>>,
         ) -> impl Stream<Item = MinedBlockInformation> {
             stream! {
                 let mut block_number = provider.get_block_number().await.expect("Failed to get the block number");
@@ -585,7 +582,7 @@ impl EthereumNode for ZombienetNode {
                         block_number: block.number(),
                         block_timestamp: block.header.timestamp,
                         mined_gas: block.header.gas_used as _,
-                        block_gas_limit: block.header.gas_limit,
+                        block_gas_limit: block.header.gas_limit as _,
                         transaction_hashes: block
                             .transactions
                             .into_hashes()
@@ -611,14 +608,12 @@ impl EthereumNode for ZombienetNode {
     }
 }
 
-pub struct ZombieNodeResolver<F: TxFiller<ReviveNetwork>, P: Provider<ReviveNetwork>> {
+pub struct ZombieNodeResolver<F: TxFiller<Ethereum>, P: Provider<Ethereum>> {
     id: u32,
-    provider: FillProvider<F, P, ReviveNetwork>,
+    provider: FillProvider<F, P, Ethereum>,
 }
 
-impl<F: TxFiller<ReviveNetwork>, P: Provider<ReviveNetwork>> ResolverApi
-    for ZombieNodeResolver<F, P>
-{
+impl<F: TxFiller<Ethereum>, P: Provider<Ethereum>> ResolverApi for ZombieNodeResolver<F, P> {
     #[instrument(level = "info", skip_all, fields(zombie_node_id = self.id))]
     fn chain_id(
         &self,
