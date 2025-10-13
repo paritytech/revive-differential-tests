@@ -535,6 +535,10 @@ impl EthereumNode for GethNode {
                         .as_hashes()
                         .expect("Must be hashes")
                         .to_vec(),
+                    ref_time: 0,
+                    max_ref_time: 0,
+                    proof_size: 0,
+                    max_proof_size: 0,
                 })
             });
 

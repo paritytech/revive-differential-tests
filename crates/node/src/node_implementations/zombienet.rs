@@ -55,8 +55,7 @@ use alloy::{
 };
 
 use anyhow::Context as _;
-use async_stream::stream;
-use futures::{FutureExt, Stream};
+use futures::{FutureExt, Stream, StreamExt};
 use revive_common::EVMVersion;
 use revive_dt_common::fs::clear_directory;
 use revive_dt_config::*;
@@ -65,6 +64,7 @@ use revive_dt_node_interaction::{EthereumNode, MinedBlockInformation};
 use serde_json::{Value as JsonValue, json};
 use sp_core::crypto::Ss58Codec;
 use sp_runtime::AccountId32;
+use subxt::{OnlineClient, SubstrateConfig};
 use tokio::sync::OnceCell;
 use tracing::instrument;
 use zombienet_sdk::{LocalFileSystem, NetworkConfigBuilder, NetworkConfigExt};
@@ -564,46 +564,79 @@ impl EthereumNode for ZombienetNode {
                 + '_,
         >,
     > {
-        fn create_stream(
-            provider: ConcreteProvider<Ethereum, Arc<EthereumWallet>>,
-        ) -> impl Stream<Item = MinedBlockInformation> {
-            stream! {
-                let mut block_number = provider.get_block_number().await.expect("Failed to get the block number");
-                loop {
-                    tokio::time::sleep(Duration::from_secs(1)).await;
+        #[subxt::subxt(runtime_metadata_path = "../../assets/revive_metadata.scale")]
+        pub mod revive {}
 
-                    let Ok(Some(block)) = provider.get_block_by_number(BlockNumberOrTag::Number(block_number)).await
-                    else {
-                        continue;
-                    };
+        Box::pin(async move {
+            let substrate_rpc_url = format!("ws://127.0.0.1:{}", self.node_rpc_port.unwrap());
+            let api = OnlineClient::<SubstrateConfig>::from_url(substrate_rpc_url)
+                .await
+                .context("Failed to create subxt rpc client")?;
+            let provider = self.provider().await.context("Failed to create provider")?;
 
-                    block_number += 1;
-                    yield MinedBlockInformation {
-                        block_number: block.number(),
-                        block_timestamp: block.header.timestamp,
-                        mined_gas: block.header.gas_used as _,
-                        block_gas_limit: block.header.gas_limit as _,
-                        transaction_hashes: block
+            let block_stream = api
+                .blocks()
+                .subscribe_all()
+                .await
+                .context("Failed to subscribe to blocks")?;
+
+            let mined_block_information_stream = block_stream.filter_map(move |block| {
+                let api = api.clone();
+                let provider = provider.clone();
+
+                async move {
+                    let substrate_block = block.ok()?;
+                    let revive_block = provider
+                        .get_block_by_number(
+                            BlockNumberOrTag::Number(substrate_block.number() as _),
+                        )
+                        .await
+                        .expect("TODO: Remove")
+                        .expect("TODO: Remove");
+
+                    let used = api
+                        .storage()
+                        .at(substrate_block.reference())
+                        .fetch_or_default(&revive::storage().system().block_weight())
+                        .await
+                        .expect("TODO: Remove");
+
+                    let block_ref_time = (used.normal.ref_time as u128)
+                        + (used.operational.ref_time as u128)
+                        + (used.mandatory.ref_time as u128);
+                    let block_proof_size = (used.normal.proof_size as u128)
+                        + (used.operational.proof_size as u128)
+                        + (used.mandatory.proof_size as u128);
+
+                    let limits = api
+                        .constants()
+                        .at(&revive::constants().system().block_weights())
+                        .expect("TODO: Remove");
+
+                    let max_ref_time = limits.max_block.ref_time;
+                    let max_proof_size = limits.max_block.proof_size;
+
+                    Some(MinedBlockInformation {
+                        block_number: substrate_block.number() as _,
+                        block_timestamp: revive_block.header.timestamp,
+                        mined_gas: revive_block.header.gas_used as _,
+                        block_gas_limit: revive_block.header.gas_limit as _,
+                        transaction_hashes: revive_block
                             .transactions
                             .into_hashes()
                             .as_hashes()
                             .expect("Must be hashes")
                             .to_vec(),
-                    };
-                };
-            }
-        }
+                        ref_time: block_ref_time,
+                        max_ref_time,
+                        proof_size: block_proof_size,
+                        max_proof_size,
+                    })
+                }
+            });
 
-        Box::pin(async move {
-            let provider = self
-                .provider()
-                .await
-                .context("Failed to create the provider for a block subscription")?;
-
-            let stream = Box::pin(create_stream(provider))
-                as Pin<Box<dyn Stream<Item = MinedBlockInformation>>>;
-
-            Ok(stream)
+            Ok(Box::pin(mined_block_information_stream)
+                as Pin<Box<dyn Stream<Item = MinedBlockInformation>>>)
         })
     }
 

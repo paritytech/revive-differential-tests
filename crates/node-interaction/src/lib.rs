@@ -97,4 +97,16 @@ pub struct MinedBlockInformation {
 
     /// The hashes of the transactions that were mined as part of the block.
     pub transaction_hashes: Vec<TxHash>,
+
+    /// The ref time for substrate based chains.
+    pub ref_time: u128,
+
+    /// The max ref time for substrate based chains.
+    pub max_ref_time: u64,
+
+    /// The proof size for substrate based chains.
+    pub proof_size: u128,
+
+    /// The max proof size for substrate based chains.
+    pub max_proof_size: u64,
 }
