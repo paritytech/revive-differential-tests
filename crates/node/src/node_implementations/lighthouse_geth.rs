@@ -43,7 +43,7 @@ use alloy::{
     },
 };
 use anyhow::Context as _;
-use futures::{Stream, StreamExt};
+use futures::{FutureExt, Stream, StreamExt};
 use revive_common::EVMVersion;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_with::serde_as;
@@ -760,6 +760,16 @@ impl EthereumNode for LighthouseGethNode {
             Ok(Box::pin(mined_block_information_stream)
                 as Pin<Box<dyn Stream<Item = MinedBlockInformation>>>)
         })
+    }
+
+    fn provider(
+        &self,
+    ) -> Pin<Box<dyn Future<Output = anyhow::Result<alloy::providers::DynProvider<Ethereum>>> + '_>>
+    {
+        Box::pin(
+            self.http_provider()
+                .map(|provider| provider.map(|provider| provider.erased())),
+        )
     }
 }
 

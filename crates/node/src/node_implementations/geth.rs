@@ -32,7 +32,7 @@ use alloy::{
     },
 };
 use anyhow::Context as _;
-use futures::{Stream, StreamExt};
+use futures::{FutureExt, Stream, StreamExt};
 use revive_common::EVMVersion;
 use tokio::sync::OnceCell;
 use tracing::{Instrument, error, instrument};
@@ -541,6 +541,16 @@ impl EthereumNode for GethNode {
             Ok(Box::pin(mined_block_information_stream)
                 as Pin<Box<dyn Stream<Item = MinedBlockInformation>>>)
         })
+    }
+
+    fn provider(
+        &self,
+    ) -> Pin<Box<dyn Future<Output = anyhow::Result<alloy::providers::DynProvider<Ethereum>>> + '_>>
+    {
+        Box::pin(
+            self.provider()
+                .map(|provider| provider.map(|provider| provider.erased())),
+        )
     }
 }
 

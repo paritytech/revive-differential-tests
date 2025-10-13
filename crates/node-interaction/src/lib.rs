@@ -3,7 +3,9 @@
 use std::pin::Pin;
 use std::sync::Arc;
 
+use alloy::network::Ethereum;
 use alloy::primitives::{Address, BlockNumber, BlockTimestamp, StorageKey, TxHash, U256};
+use alloy::providers::DynProvider;
 use alloy::rpc::types::trace::geth::{DiffMode, GethDebugTracingOptions, GethTrace};
 use alloy::rpc::types::{EIP1186AccountProofResponse, TransactionReceipt, TransactionRequest};
 use anyhow::Result;
@@ -74,6 +76,9 @@ pub trait EthereumNode {
                 + '_,
         >,
     >;
+
+    fn provider(&self)
+    -> Pin<Box<dyn Future<Output = anyhow::Result<DynProvider<Ethereum>>> + '_>>;
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]

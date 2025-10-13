@@ -56,7 +56,7 @@ use alloy::{
 
 use anyhow::Context as _;
 use async_stream::stream;
-use futures::Stream;
+use futures::{FutureExt, Stream};
 use revive_common::EVMVersion;
 use revive_dt_common::fs::clear_directory;
 use revive_dt_config::*;
@@ -605,6 +605,16 @@ impl EthereumNode for ZombienetNode {
 
             Ok(stream)
         })
+    }
+
+    fn provider(
+        &self,
+    ) -> Pin<Box<dyn Future<Output = anyhow::Result<alloy::providers::DynProvider<Ethereum>>> + '_>>
+    {
+        Box::pin(
+            self.provider()
+                .map(|provider| provider.map(|provider| provider.erased())),
+        )
     }
 }
 
