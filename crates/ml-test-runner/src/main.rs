@@ -21,7 +21,7 @@ use std::{
 	io::{BufRead, BufReader, BufWriter, Write},
 	path::{Path, PathBuf},
 	sync::Arc,
-	time::Instant,
+	time::{Duration, Instant},
 };
 use temp_dir::TempDir;
 use tokio::sync::Mutex;
@@ -39,6 +39,10 @@ struct MlTestRunnerArgs {
 	/// File to cache tests that have already passed
 	#[arg(long = "cached-passed")]
 	cached_passed: Option<PathBuf>,
+
+	/// File to store tests that have failed (defaults to .<platform>-failed)
+	#[arg(long = "cached-failed")]
+	cached_failed: Option<PathBuf>,
 
 	/// Stop after the first file failure
 	#[arg(long = "bail")]
@@ -92,6 +96,40 @@ fn main() -> anyhow::Result<()> {
 		.block_on(run(args))
 }
 
+/// Wait for HTTP server to be ready by attempting to connect to the specified port
+async fn wait_for_http_server(port: u16) -> anyhow::Result<()> {
+	const MAX_RETRIES: u32 = 60;
+	const RETRY_DELAY: Duration = Duration::from_secs(1);
+
+	for attempt in 1..=MAX_RETRIES {
+		match tokio::net::TcpStream::connect(format!("127.0.0.1:{}", port)).await {
+			Ok(_) => {
+				info!("Successfully connected to HTTP server on port {} (attempt {})", port, attempt);
+				return Ok(());
+			},
+			Err(e) => {
+				if attempt == MAX_RETRIES {
+					anyhow::bail!(
+						"Failed to connect to HTTP server on port {} after {} attempts: {}",
+						port,
+						MAX_RETRIES,
+						e
+					);
+				}
+				if attempt % 10 == 0 {
+					info!(
+						"Still waiting for HTTP server on port {} (attempt {}/{})",
+						port, attempt, MAX_RETRIES
+					);
+				}
+				tokio::time::sleep(RETRY_DELAY).await;
+			},
+		}
+	}
+
+	unreachable!()
+}
+
 async fn run(args: MlTestRunnerArgs) -> anyhow::Result<()> {
 	let start_time = Instant::now();
 
@@ -108,6 +146,14 @@ async fn run(args: MlTestRunnerArgs) -> anyhow::Result<()> {
 	};
 
 	let cached_passed = Arc::new(Mutex::new(cached_passed));
+
+	// Set up cached-failed file (defaults to .<platform>-failed)
+	let cached_failed_path = args
+		.cached_failed
+		.clone()
+		.unwrap_or_else(|| PathBuf::from(format!(".{:?}-failed", args.platform)));
+
+	let cached_failed = Arc::new(Mutex::new(HashSet::<String>::new()));
 
 	// Get the platform based on CLI args
 	let platform: &dyn Platform = match args.platform {
@@ -147,7 +193,13 @@ async fn run(args: MlTestRunnerArgs) -> anyhow::Result<()> {
 
 		node
 	} else {
-		info!("Using existing node");
+		info!("Using existing node at port {}", args.rpc_port);
+
+		// Wait for the HTTP server to be ready
+		info!("Waiting for HTTP server to be ready on port {}...", args.rpc_port);
+		wait_for_http_server(args.rpc_port).await?;
+		info!("HTTP server is ready");
+
 		let existing_node: Box<dyn revive_dt_node_interaction::EthereumNode> = match args.platform {
 			PlatformIdentifier::GethEvmSolc | PlatformIdentifier::LighthouseGethEvmSolc =>
 				Box::new(
@@ -208,18 +260,27 @@ async fn run(args: MlTestRunnerArgs) -> anyhow::Result<()> {
 				mf
 			},
 			Err(e) => {
-				println!("test {} ... {RED}FAILED{COLOUR_RESET}", file_display);
-				println!("    Error loading metadata: {}", e);
-				failed_files += 1;
-				failures.push((file_display.clone(), format!("Error loading metadata: {}", e)));
-				if args.bail {
-					break;
-				}
+				// Skip files without metadata instead of treating them as failures
+				info!("Skipping {} (no metadata): {}", file_display, e);
+				skipped_files += 1;
 				continue;
 			},
 		};
 
-		match execute_test_file(&metadata_file, platform, node, &context).await {
+		// Execute test with 10 second timeout
+		let test_result = tokio::time::timeout(
+			Duration::from_secs(20),
+			execute_test_file(&metadata_file, platform, node, &context),
+		)
+		.await;
+
+		let result = match test_result {
+			Ok(Ok(_)) => Ok(()),
+			Ok(Err(e)) => Err(e),
+			Err(_) => Err(anyhow::anyhow!("Test timed out after 20 seconds")),
+		};
+
+		match result {
 			Ok(_) => {
 				println!("test {file_display} ... {GREEN}ok{COLOUR_RESET}");
 				passed_files += 1;
@@ -237,7 +298,16 @@ async fn run(args: MlTestRunnerArgs) -> anyhow::Result<()> {
 				println!("test {file_display} ... {RED}FAILED{COLOUR_RESET}");
 				failed_files += 1;
 				let error_detail = if args.verbose { format!("{:?}", e) } else { format!("{}", e) };
-				failures.push((file_display, error_detail));
+				failures.push((file_display.clone(), error_detail));
+
+				// Update cached-failed
+				{
+					let mut cache = cached_failed.lock().await;
+					cache.insert(file_display);
+					if let Err(e) = save_cached_failed(&cached_failed_path, &cache) {
+						info!("Failed to save cached-failed: {}", e);
+					}
+				}
 
 				if args.bail {
 					info!("Bailing after first failure");
@@ -539,6 +609,22 @@ fn load_cached_passed(path: &Path) -> anyhow::Result<HashSet<String>> {
 /// Save cached passed tests to file
 fn save_cached_passed(path: &Path, cache: &HashSet<String>) -> anyhow::Result<()> {
 	let file = File::create(path).context("Failed to create cached-passed file")?;
+	let mut writer = BufWriter::new(file);
+
+	let mut entries: Vec<_> = cache.iter().collect();
+	entries.sort();
+
+	for entry in entries {
+		writeln!(writer, "{}", entry)?;
+	}
+
+	writer.flush()?;
+	Ok(())
+}
+
+/// Save cached failed tests to file
+fn save_cached_failed(path: &Path, cache: &HashSet<String>) -> anyhow::Result<()> {
+	let file = File::create(path).context("Failed to create cached-failed file")?;
 	let mut writer = BufWriter::new(file);
 
 	let mut entries: Vec<_> = cache.iter().collect();

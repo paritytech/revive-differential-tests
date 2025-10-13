@@ -51,12 +51,9 @@ where
 		provider: &P,
 		tx: &<N as Network>::TransactionRequest,
 	) -> TransportResult<Self::Fillable> {
-		// Try to fetch GasFiller’s “fillable” (gas_price, base_fee, estimate_gas, …)
-		// If it errors (i.e. tx would revert under eth_estimateGas), swallow it.
-		match self.inner.prepare(provider, tx).await {
-			Ok(fill) => Ok(Some(fill)),
-			Err(_) => Ok(None),
-		}
+		// Try to fetch GasFiller's "fillable" (gas_price, base_fee, estimate_gas, …)
+		// Propagate errors so caller can handle them appropriately
+		self.inner.prepare(provider, tx).await.map(Some)
 	}
 
 	async fn fill(

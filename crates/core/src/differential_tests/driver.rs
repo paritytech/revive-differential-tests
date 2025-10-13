@@ -373,7 +373,7 @@ where
 					if !expects_exception {
 						return Err(err).context("Failed to handle the function call execution");
 					}
-					tracing::info!("Transaction failed as expected: {err:?}");
+					tracing::info!("Transaction failed as expected");
 					None
 				},
 			};
