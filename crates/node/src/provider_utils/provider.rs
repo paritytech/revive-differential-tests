@@ -108,9 +108,10 @@ where
 		.await
 		.context(format!("Transaction inclusion watching timeout for {tx_hash}"))?;
 
-	poll(Duration::from_secs(60), PollingWaitBehavior::Constant(Duration::from_secs(3)), || {
-		let provider = provider.clone();
+	debug!(%tx_hash, "Transaction included, polling for receipt");
 
+	poll(Duration::from_secs(30), PollingWaitBehavior::Constant(Duration::from_secs(3)), || {
+		let provider = provider.clone();
 		async move {
 			match provider.get_transaction_receipt(tx_hash).await {
 				Ok(Some(receipt)) => Ok(ControlFlow::Break(receipt)),
@@ -119,5 +120,5 @@ where
 		}
 	})
 	.await
-	.context(format!("Polling for receipt failed for {tx_hash}"))
+	.context(format!("Polling for receipt timed out for {tx_hash}"))
 }

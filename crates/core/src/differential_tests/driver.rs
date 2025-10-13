@@ -354,24 +354,43 @@ where
 		_: &StepPath,
 		step: &FunctionCallStep,
 	) -> Result<usize> {
+		// Check if this step expects an exception
+		let expects_exception = step.expected.as_ref().map_or(false, |expected| match expected {
+			Expected::Expected(exp) => exp.exception,
+			Expected::ExpectedMany(exps) => exps.iter().any(|exp| exp.exception),
+			Expected::Calldata(_) => false,
+		});
+
 		let deployment_receipts = self
 			.handle_function_call_contract_deployment(step)
 			.await
 			.context("Failed to deploy contracts for the function call step")?;
-		let execution_receipt = self
-			.handle_function_call_execution(step, deployment_receipts)
-			.await
-			.context("Failed to handle the function call execution")?;
-		let tracing_result = self
-			.handle_function_call_call_frame_tracing(execution_receipt.transaction_hash)
-			.await
-			.context("Failed to handle the function call call frame tracing")?;
-		self.handle_function_call_variable_assignment(step, &tracing_result)
-			.await
-			.context("Failed to handle function call variable assignment")?;
-		self.handle_function_call_assertions(step, &execution_receipt, &tracing_result)
-			.await
-			.context("Failed to handle function call assertions")?;
+
+		let execution_receipt =
+			match self.handle_function_call_execution(step, deployment_receipts).await {
+				Ok(receipt) => Some(receipt),
+				Err(err) => {
+					if !expects_exception {
+						return Err(err).context("Failed to handle the function call execution");
+					}
+					tracing::info!("Transaction failed as expected");
+					None
+				},
+			};
+
+		if let Some(execution_receipt) = execution_receipt {
+			let tracing_result = self
+				.handle_function_call_call_frame_tracing(execution_receipt.transaction_hash)
+				.await
+				.context("Failed to handle the function call call frame tracing")?;
+			self.handle_function_call_variable_assignment(step, &tracing_result)
+				.await
+				.context("Failed to handle function call variable assignment")?;
+			self.handle_function_call_assertions(step, &execution_receipt, &tracing_result)
+				.await
+				.context("Failed to handle function call assertions")?;
+		}
+
 		Ok(1)
 	}
 
@@ -399,7 +418,8 @@ where
 			let caller = {
 				let context = self.default_resolution_context();
 				let resolver = self.platform_information.node.resolver().await?;
-				step.caller.resolve_address(resolver.as_ref(), context).await?
+				let resolved = step.caller.resolve_address(resolver.as_ref(), context).await?;
+				self.platform_information.node.resolve_signer_or_default(resolved)
 			};
 			if let (_, _, Some(receipt)) = self
 				.get_or_deploy_contract_instance(&instance, caller, calldata, value)
@@ -427,7 +447,7 @@ where
 				.context("Failed to find deployment receipt for constructor call"),
 			Method::Fallback | Method::FunctionName(_) => {
 				let resolver = self.platform_information.node.resolver().await?;
-				let tx = match step
+				let mut tx = match step
 					.as_transaction(resolver.as_ref(), self.default_resolution_context())
 					.await
 				{
@@ -436,6 +456,11 @@ where
 						return Err(err);
 					},
 				};
+
+				// Resolve the signer to ensure we use an address that has keys
+				if let Some(from) = tx.from {
+					tx.from = Some(self.platform_information.node.resolve_signer_or_default(from));
+				}
 
 				self.platform_information.node.execute_transaction(tx).await
 			},
@@ -511,12 +536,10 @@ where
 	) -> Result<()> {
 		// Resolving the `step.expected` into a series of expectations that we can then assert on.
 		let mut expectations = match step {
-			FunctionCallStep { expected: Some(Expected::Calldata(calldata)), .. } => {
-				vec![ExpectedOutput::new().with_calldata(calldata.clone())]
-			},
-			FunctionCallStep { expected: Some(Expected::Expected(expected)), .. } => {
-				vec![expected.clone()]
-			},
+			FunctionCallStep { expected: Some(Expected::Calldata(calldata)), .. } =>
+				vec![ExpectedOutput::new().with_calldata(calldata.clone())],
+			FunctionCallStep { expected: Some(Expected::Expected(expected)), .. } =>
+				vec![expected.clone()],
 			FunctionCallStep { expected: Some(Expected::ExpectedMany(expected)), .. } =>
 				expected.clone(),
 			FunctionCallStep { expected: None, .. } => vec![ExpectedOutput::new().with_success()],
@@ -907,6 +930,7 @@ where
 		}
 
 		let tx = {
+			let deployer = self.platform_information.node.resolve_signer_or_default(deployer);
 			let tx = TransactionRequest::default().from(deployer);
 			let tx = match value {
 				Some(ref value) => tx.value(value.into_inner()),

@@ -77,6 +77,10 @@ pub trait EthereumNode {
 				+ '_,
 		>,
 	>;
+
+	/// Checks if the provided address is in the wallet. If it is, returns the address.
+	/// Otherwise, returns the default signer's address.
+	fn resolve_signer_or_default(&self, address: Address) -> Address;
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]

@@ -428,16 +428,20 @@ impl EthereumNode for ZombieNode {
 		transaction: alloy::rpc::types::TransactionRequest,
 	) -> Pin<Box<dyn Future<Output = anyhow::Result<TransactionReceipt>> + '_>> {
 		Box::pin(async move {
-			let receipt = self
+			let pending = self
 				.provider()
 				.await
 				.context("Failed to create provider for transaction submission")?
 				.send_transaction(transaction)
 				.await
-				.context("Failed to submit transaction to proxy")?
-				.get_receipt()
-				.await
-				.context("Failed to fetch transaction receipt from proxy")?;
+				.context("Failed to submit transaction to proxy")?;
+
+			let receipt =
+				tokio::time::timeout(std::time::Duration::from_secs(120), pending.get_receipt())
+					.await
+					.context("Timeout waiting for transaction receipt")?
+					.context("Failed to fetch transaction receipt from proxy")?;
+
 			Ok(receipt)
 		})
 	}
@@ -564,6 +568,16 @@ impl EthereumNode for ZombieNode {
 			Ok(Box::pin(mined_block_information_stream)
 				as Pin<Box<dyn Stream<Item = MinedBlockInformation>>>)
 		})
+	}
+
+	fn resolve_signer_or_default(&self, address: Address) -> Address {
+		let signer_addresses: Vec<_> =
+			<EthereumWallet as NetworkWallet<Ethereum>>::signer_addresses(&self.wallet).collect();
+		if signer_addresses.contains(&address) {
+			address
+		} else {
+			self.wallet.default_signer().address()
+		}
 	}
 }
 

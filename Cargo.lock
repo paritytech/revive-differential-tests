@@ -4527,6 +4527,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "ml-test-runner"
+version = "0.1.0"
+dependencies = [
+ "alloy",
+ "anyhow",
+ "clap",
+ "revive-dt-common",
+ "revive-dt-compiler",
+ "revive-dt-config",
+ "revive-dt-core",
+ "revive-dt-format",
+ "revive-dt-node",
+ "revive-dt-node-interaction",
+ "revive-dt-report",
+ "temp-dir",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "moka"
 version = "0.12.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
