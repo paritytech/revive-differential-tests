@@ -207,6 +207,7 @@ impl Platform for KitchensinkPolkavmResolcPlatform {
                 SubstrateNode::KITCHENSINK_EXPORT_CHAINSPEC_COMMAND,
                 None,
                 context,
+                &[],
             );
             let node = spawn_node(node, genesis)?;
             Ok(Box::new(node) as Box<_>)
@@ -270,6 +271,7 @@ impl Platform for KitchensinkRevmSolcPlatform {
                 SubstrateNode::KITCHENSINK_EXPORT_CHAINSPEC_COMMAND,
                 None,
                 context,
+                &[],
             );
             let node = spawn_node(node, genesis)?;
             Ok(Box::new(node) as Box<_>)
@@ -324,9 +326,12 @@ impl Platform for ReviveDevNodePolkavmResolcPlatform {
     ) -> anyhow::Result<JoinHandle<anyhow::Result<Box<dyn EthereumNode + Send + Sync>>>> {
         let genesis_configuration = AsRef::<GenesisConfiguration>::as_ref(&context);
         let revive_dev_node_configuration = AsRef::<ReviveDevNodeConfiguration>::as_ref(&context);
+        let eth_rpc_configuration = AsRef::<EthRpcConfiguration>::as_ref(&context);
 
         let revive_dev_node_path = revive_dev_node_configuration.path.clone();
         let revive_dev_node_consensus = revive_dev_node_configuration.consensus.clone();
+
+        let eth_rpc_connection_strings = eth_rpc_configuration.existing_rpc_url.clone();
 
         let genesis = genesis_configuration.genesis()?.clone();
         Ok(thread::spawn(move || {
@@ -335,6 +340,7 @@ impl Platform for ReviveDevNodePolkavmResolcPlatform {
                 SubstrateNode::REVIVE_DEV_NODE_EXPORT_CHAINSPEC_COMMAND,
                 Some(revive_dev_node_consensus),
                 context,
+                &eth_rpc_connection_strings,
             );
             let node = spawn_node(node, genesis)?;
             Ok(Box::new(node) as Box<_>)
@@ -389,9 +395,12 @@ impl Platform for ReviveDevNodeRevmSolcPlatform {
     ) -> anyhow::Result<JoinHandle<anyhow::Result<Box<dyn EthereumNode + Send + Sync>>>> {
         let genesis_configuration = AsRef::<GenesisConfiguration>::as_ref(&context);
         let revive_dev_node_configuration = AsRef::<ReviveDevNodeConfiguration>::as_ref(&context);
+        let eth_rpc_configuration = AsRef::<EthRpcConfiguration>::as_ref(&context);
 
         let revive_dev_node_path = revive_dev_node_configuration.path.clone();
         let revive_dev_node_consensus = revive_dev_node_configuration.consensus.clone();
+
+        let eth_rpc_connection_strings = eth_rpc_configuration.existing_rpc_url.clone();
 
         let genesis = genesis_configuration.genesis()?.clone();
         Ok(thread::spawn(move || {
@@ -400,6 +409,7 @@ impl Platform for ReviveDevNodeRevmSolcPlatform {
                 SubstrateNode::REVIVE_DEV_NODE_EXPORT_CHAINSPEC_COMMAND,
                 Some(revive_dev_node_consensus),
                 context,
+                &eth_rpc_connection_strings,
             );
             let node = spawn_node(node, genesis)?;
             Ok(Box::new(node) as Box<_>)

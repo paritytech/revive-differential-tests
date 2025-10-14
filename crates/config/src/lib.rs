@@ -812,6 +812,24 @@ pub struct EthRpcConfiguration {
         value_parser = parse_duration
     )]
     pub start_timeout_ms: Duration,
+
+    /// Specifies the connection string of an existing node that's not managed by the framework.
+    ///
+    /// If this argument is specified then the framework will not spawn certain nodes itself but
+    /// rather it will opt to using the existing node's through their provided connection strings.
+    ///
+    /// This means that if `ConcurrencyConfiguration.number_of_nodes` is 10 and we only specify the
+    /// connection strings of 2 nodes here, then nodes 0 and 1 will use the provided connection
+    /// strings and nodes 2 through 10 (exclusive) will all be spawned and managed by the framework.
+    ///
+    /// Thus, if you want all of the transactions and tests to happen against the node that you
+    /// spawned and manage then you need to specify a `ConcurrencyConfiguration.number_of_nodes` of
+    /// 1.
+    #[clap(
+        id = "revive-dev-node.existing-rpc-url",
+        long = "revive-dev-node.existing-rpc-url"
+    )]
+    pub existing_rpc_url: Vec<String>,
 }
 
 /// A set of configuration parameters for the genesis.

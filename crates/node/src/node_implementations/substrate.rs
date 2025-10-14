@@ -99,6 +99,7 @@ impl SubstrateNode {
         context: impl AsRef<WorkingDirectoryConfiguration>
         + AsRef<EthRpcConfiguration>
         + AsRef<WalletConfiguration>,
+        existing_connection_strings: &[String],
     ) -> Self {
         let working_directory_path =
             AsRef::<WorkingDirectoryConfiguration>::as_ref(&context).as_path();
@@ -112,12 +113,17 @@ impl SubstrateNode {
         let base_directory = substrate_directory.join(id.to_string());
         let logs_directory = base_directory.join(Self::LOGS_DIRECTORY);
 
+        let rpc_url = existing_connection_strings
+            .get(id as usize)
+            .cloned()
+            .unwrap_or_default();
+
         Self {
             id,
             node_binary: node_path,
             eth_proxy_binary: eth_rpc_path.to_path_buf(),
             export_chainspec_command: export_chainspec_command.to_string(),
-            rpc_url: String::new(),
+            rpc_url,
             base_directory,
             logs_directory,
             substrate_process: None,
@@ -130,6 +136,10 @@ impl SubstrateNode {
     }
 
     fn init(&mut self, _: Genesis) -> anyhow::Result<&mut Self> {
+        if !self.rpc_url.is_empty() {
+            return Ok(self);
+        }
+
         let _ = remove_dir_all(self.base_directory.as_path());
         let _ = clear_directory(&self.base_directory);
         let _ = clear_directory(&self.logs_directory);
@@ -158,6 +168,10 @@ impl SubstrateNode {
     }
 
     fn spawn_process(&mut self) -> anyhow::Result<()> {
+        if !self.rpc_url.is_empty() {
+            return Ok(());
+        }
+
         let substrate_rpc_port = Self::BASE_SUBSTRATE_RPC_PORT + self.id as u16;
         let proxy_rpc_port = Self::BASE_PROXY_RPC_PORT + self.id as u16;
 
@@ -772,6 +786,7 @@ mod tests {
             SubstrateNode::KITCHENSINK_EXPORT_CHAINSPEC_COMMAND,
             None,
             &context,
+            &[],
         );
         node.init(context.genesis_configuration.genesis().unwrap().clone())
             .expect("Failed to initialize the node")
@@ -838,6 +853,7 @@ mod tests {
             SubstrateNode::KITCHENSINK_EXPORT_CHAINSPEC_COMMAND,
             None,
             &context,
+            &[],
         );
 
         // Call `init()`
