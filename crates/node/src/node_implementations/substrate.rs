@@ -318,6 +318,7 @@ impl SubstrateNode {
         export_chainspec_command: &str,
         wallet: &EthereumWallet,
     ) -> anyhow::Result<serde_json::Value> {
+        trace!("Exporting the chainspec");
         let output = Command::new(node_path)
             .arg(export_chainspec_command)
             .arg("--chain")
@@ -326,6 +327,7 @@ impl SubstrateNode {
             .output()
             .context("Failed to export the chain-spec")?;
 
+        trace!("Waiting for chainspec export");
         if !output.status.success() {
             anyhow::bail!(
                 "Substrate-node export-chain-spec failed: {}",
@@ -333,6 +335,7 @@ impl SubstrateNode {
             );
         }
 
+        trace!("Obtained chainspec");
         let content = String::from_utf8(output.stdout)
             .context("Failed to decode Substrate export-chain-spec output as UTF-8")?;
         let mut chainspec_json = serde_json::from_str::<serde_json::Value>(&content)
@@ -343,6 +346,7 @@ impl SubstrateNode {
                 .as_array_mut()
                 .expect("Can't fail");
 
+        trace!("Adding addresses to chainspec");
         for address in NetworkWallet::<Ethereum>::signer_addresses(wallet) {
             let substrate_address = Self::eth_to_substrate_address(&address);
             let balance = INITIAL_BALANCE;

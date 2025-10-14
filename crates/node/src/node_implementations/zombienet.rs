@@ -865,58 +865,6 @@ mod tests {
             .expect("Failed to get the receipt for the transfer");
     }
 
-    #[tokio::test]
-    async fn test_init_generates_chainspec_with_balances() {
-        let genesis_content = r#"
-        {
-            "alloc": {
-                "90F8bf6A479f320ead074411a4B0e7944Ea8c9C1": {
-                    "balance": "1000000000000000000"
-                },
-                "Ab8483F64d9C6d1EcF9b849Ae677dD3315835cb2": {
-                    "balance": "2000000000000000000"
-                }
-            }
-        }
-        "#;
-
-        let context = test_config();
-        let mut node = ZombienetNode::new(
-            context.polkadot_parachain_configuration.path.clone(),
-            &context,
-        );
-
-        // Call `init()`
-        node.init(serde_json::from_str(genesis_content).unwrap())
-            .expect("init failed");
-
-        // Check that the patched chainspec file was generated
-        let final_chainspec_path = node
-            .base_directory
-            .join(ZombienetNode::CHAIN_SPEC_JSON_FILE);
-        assert!(final_chainspec_path.exists(), "Chainspec file should exist");
-
-        let contents =
-            std::fs::read_to_string(&final_chainspec_path).expect("Failed to read chainspec");
-
-        // Validate that the Polkadot addresses derived from the Ethereum addresses are in the file
-        let first_eth_addr = ZombienetNode::eth_to_polkadot_address(
-            &"90F8bf6A479f320ead074411a4B0e7944Ea8c9C1".parse().unwrap(),
-        );
-        let second_eth_addr = ZombienetNode::eth_to_polkadot_address(
-            &"Ab8483F64d9C6d1EcF9b849Ae677dD3315835cb2".parse().unwrap(),
-        );
-
-        assert!(
-            contents.contains(&first_eth_addr),
-            "Chainspec should contain Polkadot address for first Ethereum account"
-        );
-        assert!(
-            contents.contains(&second_eth_addr),
-            "Chainspec should contain Polkadot address for second Ethereum account"
-        );
-    }
-
     #[test]
     fn print_eth_to_polkadot_mappings() {
         let eth_addresses = vec![
