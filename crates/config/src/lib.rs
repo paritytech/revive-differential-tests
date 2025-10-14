@@ -825,10 +825,7 @@ pub struct EthRpcConfiguration {
     /// Thus, if you want all of the transactions and tests to happen against the node that you
     /// spawned and manage then you need to specify a `ConcurrencyConfiguration.number_of_nodes` of
     /// 1.
-    #[clap(
-        id = "revive-dev-node.existing-rpc-url",
-        long = "revive-dev-node.existing-rpc-url"
-    )]
+    #[clap(id = "eth-rpc.existing-rpc-url", long = "eth-rpc.existing-rpc-url")]
     pub existing_rpc_url: Vec<String>,
 }
 
