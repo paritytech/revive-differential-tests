@@ -76,7 +76,7 @@ cat > "$CORPUS_FILE" << EOF
 {
   "name": "MatterLabs Solidity Simple, Complex, and Semantic Tests",
   "paths": [
-    "$(realpath "$TEST_REPO_DIR/fixtures/solidity/simple")"
+    "$(realpath "$TEST_REPO_DIR/fixtures/solidity")"
   ]
 }
 EOF
@@ -93,16 +93,17 @@ echo ""
 # Run the tool
 cargo build --release;
 RUST_LOG="info,alloy_pubsub::service=error" ./target/release/retester test \
-    --platform geth-evm-solc \
+    --platform revive-dev-node-polkavm-resolc \
     --corpus "$CORPUS_FILE" \
     --working-directory "$WORKDIR" \
     --concurrency.number-of-nodes 10 \
     --concurrency.number-of-threads 5 \
-    --concurrency.ignore-concurrency-limit \
+    --concurrency.number-of-concurrent-tasks 500 \
     --wallet.additional-keys 100000 \
     --kitchensink.path "$SUBSTRATE_NODE_BIN" \
     --revive-dev-node.path "$REVIVE_DEV_NODE_BIN" \
     --eth-rpc.path "$ETH_RPC_BIN" \
-    > logs.log 
+    > logs.log \
+    2> output.log 
 
 echo -e "${GREEN}=== Test run completed! ===${NC}"

@@ -106,7 +106,9 @@ impl Watcher {
 
                 // region:TEMPORARY
                 eprintln!("Watcher information for {}", self.platform_identifier);
-                eprintln!("block_number,block_timestamp,mined_gas,block_gas_limit,tx_count");
+                eprintln!(
+                    "block_number,block_timestamp,mined_gas,block_gas_limit,tx_count,ref_time,max_ref_time,proof_size,max_proof_size"
+                );
                 // endregion:TEMPORARY
                 while let Some(block) = blocks_information_stream.next().await {
                     // If the block number is equal to or less than the last block before the
@@ -141,12 +143,16 @@ impl Watcher {
                     // reporting in place and then it can be removed. This serves as as way of doing
                     // some very simple reporting for the time being.
                     eprintln!(
-                        "\"{}\",\"{}\",\"{}\",\"{}\",\"{}\"",
+                        "\"{}\",\"{}\",\"{}\",\"{}\",\"{}\",\"{}\",\"{}\",\"{}\",\"{}\"",
                         block.block_number,
                         block.block_timestamp,
                         block.mined_gas,
                         block.block_gas_limit,
-                        block.transaction_hashes.len()
+                        block.transaction_hashes.len(),
+                        block.ref_time,
+                        block.max_ref_time,
+                        block.proof_size,
+                        block.max_proof_size,
                     );
                     // endregion:TEMPORARY
 

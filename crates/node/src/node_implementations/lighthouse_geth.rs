@@ -43,7 +43,7 @@ use alloy::{
     },
 };
 use anyhow::Context as _;
-use futures::{Stream, StreamExt};
+use futures::{FutureExt, Stream, StreamExt};
 use revive_common::EVMVersion;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_with::serde_as;
@@ -222,6 +222,7 @@ impl LighthouseGethNode {
                     "--ws.port=8546".to_string(),
                     "--ws.api=eth,net,web3,txpool,engine".to_string(),
                     "--ws.origins=*".to_string(),
+                    "--miner.gaslimit=30000000".to_string(),
                 ],
                 consensus_layer_extra_parameters: vec![
                     "--disable-quic".to_string(),
@@ -247,6 +248,8 @@ impl LighthouseGethNode {
                         .collect::<BTreeMap<_, _>>();
                     serde_json::to_string(&map).unwrap()
                 },
+                gas_limit: 30_000_000,
+                genesis_gaslimit: 30_000_000,
             },
             wait_for_finalization: false,
             port_publisher: Some(PortPublisherParameters {
@@ -754,12 +757,26 @@ impl EthereumNode for LighthouseGethNode {
                         .as_hashes()
                         .expect("Must be hashes")
                         .to_vec(),
+                    ref_time: 0,
+                    max_ref_time: 0,
+                    proof_size: 0,
+                    max_proof_size: 0,
                 })
             });
 
             Ok(Box::pin(mined_block_information_stream)
                 as Pin<Box<dyn Stream<Item = MinedBlockInformation>>>)
         })
+    }
+
+    fn provider(
+        &self,
+    ) -> Pin<Box<dyn Future<Output = anyhow::Result<alloy::providers::DynProvider<Ethereum>>> + '_>>
+    {
+        Box::pin(
+            self.http_provider()
+                .map(|provider| provider.map(|provider| provider.erased())),
+        )
     }
 }
 
@@ -1035,6 +1052,8 @@ struct NetworkParameters {
     pub num_validator_keys_per_node: u64,
 
     pub genesis_delay: u64,
+    pub genesis_gaslimit: u64,
+    pub gas_limit: u64,
 
     pub prefunded_accounts: String,
 }

@@ -11,7 +11,6 @@ rust-version.workspace = true
 [dependencies]
 anyhow = { workspace = true }
 alloy = { workspace = true }
-async-stream = { workspace = true }
 futures = { workspace = true }
 tracing = { workspace = true }
 tower = { workspace = true }
@@ -30,6 +29,7 @@ serde_yaml_ng = { workspace = true }
 
 sp-core = { workspace = true }
 sp-runtime = { workspace = true }
+subxt = { workspace = true }
 zombienet-sdk = { workspace = true }
 
 [dev-dependencies]
