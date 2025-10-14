@@ -34,6 +34,9 @@ pub enum Context {
 
     /// Exports the JSON schema of the MatterLabs test format used by the tool.
     ExportJsonSchema,
+
+    /// Exports the genesis file of the desired platform.
+    ExportGenesis(Box<ExportGenesisContext>),
 }
 
 impl Context {
@@ -51,7 +54,7 @@ impl AsRef<WorkingDirectoryConfiguration> for Context {
         match self {
             Self::Test(context) => context.as_ref().as_ref(),
             Self::Benchmark(context) => context.as_ref().as_ref(),
-            Self::ExportJsonSchema => unreachable!(),
+            Self::ExportJsonSchema | Self::ExportGenesis(..) => unreachable!(),
         }
     }
 }
@@ -61,7 +64,7 @@ impl AsRef<CorpusConfiguration> for Context {
         match self {
             Self::Test(context) => context.as_ref().as_ref(),
             Self::Benchmark(context) => context.as_ref().as_ref(),
-            Self::ExportJsonSchema => unreachable!(),
+            Self::ExportJsonSchema | Self::ExportGenesis(..) => unreachable!(),
         }
     }
 }
@@ -71,7 +74,7 @@ impl AsRef<SolcConfiguration> for Context {
         match self {
             Self::Test(context) => context.as_ref().as_ref(),
             Self::Benchmark(context) => context.as_ref().as_ref(),
-            Self::ExportJsonSchema => unreachable!(),
+            Self::ExportJsonSchema | Self::ExportGenesis(..) => unreachable!(),
         }
     }
 }
@@ -81,7 +84,7 @@ impl AsRef<ResolcConfiguration> for Context {
         match self {
             Self::Test(context) => context.as_ref().as_ref(),
             Self::Benchmark(context) => context.as_ref().as_ref(),
-            Self::ExportJsonSchema => unreachable!(),
+            Self::ExportJsonSchema | Self::ExportGenesis(..) => unreachable!(),
         }
     }
 }
@@ -91,6 +94,7 @@ impl AsRef<GethConfiguration> for Context {
         match self {
             Self::Test(context) => context.as_ref().as_ref(),
             Self::Benchmark(context) => context.as_ref().as_ref(),
+            Self::ExportGenesis(context) => context.as_ref().as_ref(),
             Self::ExportJsonSchema => unreachable!(),
         }
     }
@@ -101,6 +105,7 @@ impl AsRef<KurtosisConfiguration> for Context {
         match self {
             Self::Test(context) => context.as_ref().as_ref(),
             Self::Benchmark(context) => context.as_ref().as_ref(),
+            Self::ExportGenesis(context) => context.as_ref().as_ref(),
             Self::ExportJsonSchema => unreachable!(),
         }
     }
@@ -111,6 +116,7 @@ impl AsRef<PolkadotParachainConfiguration> for Context {
         match self {
             Self::Test(context) => context.as_ref().as_ref(),
             Self::Benchmark(context) => context.as_ref().as_ref(),
+            Self::ExportGenesis(context) => context.as_ref().as_ref(),
             Self::ExportJsonSchema => unreachable!(),
         }
     }
@@ -121,6 +127,7 @@ impl AsRef<KitchensinkConfiguration> for Context {
         match self {
             Self::Test(context) => context.as_ref().as_ref(),
             Self::Benchmark(context) => context.as_ref().as_ref(),
+            Self::ExportGenesis(context) => context.as_ref().as_ref(),
             Self::ExportJsonSchema => unreachable!(),
         }
     }
@@ -131,6 +138,7 @@ impl AsRef<ReviveDevNodeConfiguration> for Context {
         match self {
             Self::Test(context) => context.as_ref().as_ref(),
             Self::Benchmark(context) => context.as_ref().as_ref(),
+            Self::ExportGenesis(context) => context.as_ref().as_ref(),
             Self::ExportJsonSchema => unreachable!(),
         }
     }
@@ -141,7 +149,7 @@ impl AsRef<EthRpcConfiguration> for Context {
         match self {
             Self::Test(context) => context.as_ref().as_ref(),
             Self::Benchmark(context) => context.as_ref().as_ref(),
-            Self::ExportJsonSchema => unreachable!(),
+            Self::ExportJsonSchema | Self::ExportGenesis(..) => unreachable!(),
         }
     }
 }
@@ -150,7 +158,7 @@ impl AsRef<GenesisConfiguration> for Context {
     fn as_ref(&self) -> &GenesisConfiguration {
         match self {
             Self::Test(context) => context.as_ref().as_ref(),
-            Self::Benchmark(..) => {
+            Self::Benchmark(..) | Self::ExportGenesis(..) => {
                 static GENESIS: LazyLock<GenesisConfiguration> = LazyLock::new(Default::default);
                 &GENESIS
             }
@@ -164,6 +172,7 @@ impl AsRef<WalletConfiguration> for Context {
         match self {
             Self::Test(context) => context.as_ref().as_ref(),
             Self::Benchmark(context) => context.as_ref().as_ref(),
+            Self::ExportGenesis(context) => context.as_ref().as_ref(),
             Self::ExportJsonSchema => unreachable!(),
         }
     }
@@ -174,7 +183,7 @@ impl AsRef<ConcurrencyConfiguration> for Context {
         match self {
             Self::Test(context) => context.as_ref().as_ref(),
             Self::Benchmark(context) => context.as_ref().as_ref(),
-            Self::ExportJsonSchema => unreachable!(),
+            Self::ExportJsonSchema | Self::ExportGenesis(..) => unreachable!(),
         }
     }
 }
@@ -184,7 +193,7 @@ impl AsRef<CompilationConfiguration> for Context {
         match self {
             Self::Test(context) => context.as_ref().as_ref(),
             Self::Benchmark(context) => context.as_ref().as_ref(),
-            Self::ExportJsonSchema => unreachable!(),
+            Self::ExportJsonSchema | Self::ExportGenesis(..) => unreachable!(),
         }
     }
 }
@@ -194,7 +203,7 @@ impl AsRef<ReportConfiguration> for Context {
         match self {
             Self::Test(context) => context.as_ref().as_ref(),
             Self::Benchmark(context) => context.as_ref().as_ref(),
-            Self::ExportJsonSchema => unreachable!(),
+            Self::ExportJsonSchema | Self::ExportGenesis(..) => unreachable!(),
         }
     }
 }
@@ -204,7 +213,7 @@ impl AsRef<IgnoreSuccessConfiguration> for Context {
         match self {
             Self::Test(context) => context.as_ref().as_ref(),
             Self::Benchmark(..) => unreachable!(),
-            Self::ExportJsonSchema => unreachable!(),
+            Self::ExportJsonSchema | Self::ExportGenesis(..) => unreachable!(),
         }
     }
 }
@@ -378,6 +387,36 @@ pub struct BenchmarkingContext {
     pub report_configuration: ReportConfiguration,
 }
 
+#[derive(Clone, Debug, Parser, Serialize, Deserialize)]
+pub struct ExportGenesisContext {
+    /// The platform of choice to export the genesis for.
+    pub platform: PlatformIdentifier,
+
+    /// Configuration parameters for the geth node.
+    #[clap(flatten, next_help_heading = "Geth Configuration")]
+    pub geth_configuration: GethConfiguration,
+
+    /// Configuration parameters for the lighthouse node.
+    #[clap(flatten, next_help_heading = "Lighthouse Configuration")]
+    pub lighthouse_configuration: KurtosisConfiguration,
+
+    /// Configuration parameters for the Kitchensink.
+    #[clap(flatten, next_help_heading = "Kitchensink Configuration")]
+    pub kitchensink_configuration: KitchensinkConfiguration,
+
+    /// Configuration parameters for the Polkadot Parachain.
+    #[clap(flatten, next_help_heading = "Polkadot Parachain Configuration")]
+    pub polkadot_parachain_configuration: PolkadotParachainConfiguration,
+
+    /// Configuration parameters for the Revive Dev Node.
+    #[clap(flatten, next_help_heading = "Revive Dev Node Configuration")]
+    pub revive_dev_node_configuration: ReviveDevNodeConfiguration,
+
+    /// Configuration parameters for the wallet.
+    #[clap(flatten, next_help_heading = "Wallet Configuration")]
+    pub wallet_configuration: WalletConfiguration,
+}
+
 impl Default for TestExecutionContext {
     fn default() -> Self {
         Self::parse_from(["execution-context"])
@@ -482,7 +521,7 @@ impl AsRef<IgnoreSuccessConfiguration> for TestExecutionContext {
 
 impl Default for BenchmarkingContext {
     fn default() -> Self {
-        Self::parse_from(["execution-context"])
+        Self::parse_from(["benchmarking-context"])
     }
 }
 
@@ -567,6 +606,48 @@ impl AsRef<CompilationConfiguration> for BenchmarkingContext {
 impl AsRef<ReportConfiguration> for BenchmarkingContext {
     fn as_ref(&self) -> &ReportConfiguration {
         &self.report_configuration
+    }
+}
+
+impl Default for ExportGenesisContext {
+    fn default() -> Self {
+        Self::parse_from(["export-genesis-context"])
+    }
+}
+
+impl AsRef<GethConfiguration> for ExportGenesisContext {
+    fn as_ref(&self) -> &GethConfiguration {
+        &self.geth_configuration
+    }
+}
+
+impl AsRef<KurtosisConfiguration> for ExportGenesisContext {
+    fn as_ref(&self) -> &KurtosisConfiguration {
+        &self.lighthouse_configuration
+    }
+}
+
+impl AsRef<KitchensinkConfiguration> for ExportGenesisContext {
+    fn as_ref(&self) -> &KitchensinkConfiguration {
+        &self.kitchensink_configuration
+    }
+}
+
+impl AsRef<PolkadotParachainConfiguration> for ExportGenesisContext {
+    fn as_ref(&self) -> &PolkadotParachainConfiguration {
+        &self.polkadot_parachain_configuration
+    }
+}
+
+impl AsRef<ReviveDevNodeConfiguration> for ExportGenesisContext {
+    fn as_ref(&self) -> &ReviveDevNodeConfiguration {
+        &self.revive_dev_node_configuration
+    }
+}
+
+impl AsRef<WalletConfiguration> for ExportGenesisContext {
+    fn as_ref(&self) -> &WalletConfiguration {
+        &self.wallet_configuration
     }
 }
 

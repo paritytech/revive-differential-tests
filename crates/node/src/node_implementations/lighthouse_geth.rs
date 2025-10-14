@@ -541,6 +541,16 @@ impl LighthouseGethNode {
             .await
         })
     }
+
+    pub fn node_genesis(mut genesis: Genesis, wallet: &EthereumWallet) -> Genesis {
+        for signer_address in NetworkWallet::<Ethereum>::signer_addresses(&wallet) {
+            genesis
+                .alloc
+                .entry(signer_address)
+                .or_insert(GenesisAccount::default().with_balance(U256::from(INITIAL_BALANCE)));
+        }
+        genesis
+    }
 }
 
 impl EthereumNode for LighthouseGethNode {

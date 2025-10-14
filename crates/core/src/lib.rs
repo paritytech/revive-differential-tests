@@ -59,6 +59,9 @@ pub trait Platform {
         context: Context,
         version: Option<VersionOrRequirement>,
     ) -> Pin<Box<dyn Future<Output = anyhow::Result<Box<dyn SolidityCompiler>>>>>;
+
+    /// Exports the genesis/chainspec for the node.
+    fn export_genesis(&self, context: Context) -> anyhow::Result<serde_json::Value>;
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Default, Hash)]
@@ -104,6 +107,15 @@ impl Platform for GethEvmSolcPlatform {
             compiler.map(|compiler| Box::new(compiler) as Box<dyn SolidityCompiler>)
         })
     }
+
+    fn export_genesis(&self, context: Context) -> anyhow::Result<serde_json::Value> {
+        let genesis = AsRef::<GenesisConfiguration>::as_ref(&context).genesis()?;
+        let wallet = AsRef::<WalletConfiguration>::as_ref(&context).wallet();
+
+        let node_genesis = GethNode::node_genesis(genesis.clone(), &wallet);
+        serde_json::to_value(node_genesis)
+            .context("Failed to convert node genesis to a serde_value")
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Default, Hash)]
@@ -148,6 +160,15 @@ impl Platform for LighthouseGethEvmSolcPlatform {
             let compiler = Solc::new(context, version).await;
             compiler.map(|compiler| Box::new(compiler) as Box<dyn SolidityCompiler>)
         })
+    }
+
+    fn export_genesis(&self, context: Context) -> anyhow::Result<serde_json::Value> {
+        let genesis = AsRef::<GenesisConfiguration>::as_ref(&context).genesis()?;
+        let wallet = AsRef::<WalletConfiguration>::as_ref(&context).wallet();
+
+        let node_genesis = LighthouseGethNode::node_genesis(genesis.clone(), &wallet);
+        serde_json::to_value(node_genesis)
+            .context("Failed to convert node genesis to a serde_value")
     }
 }
 
@@ -202,6 +223,16 @@ impl Platform for KitchensinkPolkavmResolcPlatform {
             compiler.map(|compiler| Box::new(compiler) as Box<dyn SolidityCompiler>)
         })
     }
+
+    fn export_genesis(&self, context: Context) -> anyhow::Result<serde_json::Value> {
+        let kitchensink_path = AsRef::<KitchensinkConfiguration>::as_ref(&context)
+            .path
+            .as_path();
+        let wallet = AsRef::<WalletConfiguration>::as_ref(&context).wallet();
+        let export_chainspec_command = SubstrateNode::KITCHENSINK_EXPORT_CHAINSPEC_COMMAND;
+
+        SubstrateNode::node_genesis(kitchensink_path, export_chainspec_command, &wallet)
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Default, Hash)]
@@ -254,6 +285,16 @@ impl Platform for KitchensinkRevmSolcPlatform {
             let compiler = Solc::new(context, version).await;
             compiler.map(|compiler| Box::new(compiler) as Box<dyn SolidityCompiler>)
         })
+    }
+
+    fn export_genesis(&self, context: Context) -> anyhow::Result<serde_json::Value> {
+        let kitchensink_path = AsRef::<KitchensinkConfiguration>::as_ref(&context)
+            .path
+            .as_path();
+        let wallet = AsRef::<WalletConfiguration>::as_ref(&context).wallet();
+        let export_chainspec_command = SubstrateNode::KITCHENSINK_EXPORT_CHAINSPEC_COMMAND;
+
+        SubstrateNode::node_genesis(kitchensink_path, export_chainspec_command, &wallet)
     }
 }
 
@@ -310,6 +351,16 @@ impl Platform for ReviveDevNodePolkavmResolcPlatform {
             compiler.map(|compiler| Box::new(compiler) as Box<dyn SolidityCompiler>)
         })
     }
+
+    fn export_genesis(&self, context: Context) -> anyhow::Result<serde_json::Value> {
+        let revive_dev_node_path = AsRef::<ReviveDevNodeConfiguration>::as_ref(&context)
+            .path
+            .as_path();
+        let wallet = AsRef::<WalletConfiguration>::as_ref(&context).wallet();
+        let export_chainspec_command = SubstrateNode::REVIVE_DEV_NODE_EXPORT_CHAINSPEC_COMMAND;
+
+        SubstrateNode::node_genesis(revive_dev_node_path, export_chainspec_command, &wallet)
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Default, Hash)]
@@ -365,6 +416,16 @@ impl Platform for ReviveDevNodeRevmSolcPlatform {
             compiler.map(|compiler| Box::new(compiler) as Box<dyn SolidityCompiler>)
         })
     }
+
+    fn export_genesis(&self, context: Context) -> anyhow::Result<serde_json::Value> {
+        let revive_dev_node_path = AsRef::<ReviveDevNodeConfiguration>::as_ref(&context)
+            .path
+            .as_path();
+        let wallet = AsRef::<WalletConfiguration>::as_ref(&context).wallet();
+        let export_chainspec_command = SubstrateNode::REVIVE_DEV_NODE_EXPORT_CHAINSPEC_COMMAND;
+
+        SubstrateNode::node_genesis(revive_dev_node_path, export_chainspec_command, &wallet)
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Default, Hash)]
@@ -413,6 +474,15 @@ impl Platform for ZombienetPolkavmResolcPlatform {
             compiler.map(|compiler| Box::new(compiler) as Box<dyn SolidityCompiler>)
         })
     }
+
+    fn export_genesis(&self, context: Context) -> anyhow::Result<serde_json::Value> {
+        let polkadot_parachain_path = AsRef::<PolkadotParachainConfiguration>::as_ref(&context)
+            .path
+            .as_path();
+        let wallet = AsRef::<WalletConfiguration>::as_ref(&context).wallet();
+
+        ZombienetNode::node_genesis(polkadot_parachain_path, &wallet)
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Default, Hash)]
@@ -460,6 +530,15 @@ impl Platform for ZombienetRevmSolcPlatform {
             let compiler = Solc::new(context, version).await;
             compiler.map(|compiler| Box::new(compiler) as Box<dyn SolidityCompiler>)
         })
+    }
+
+    fn export_genesis(&self, context: Context) -> anyhow::Result<serde_json::Value> {
+        let polkadot_parachain_path = AsRef::<PolkadotParachainConfiguration>::as_ref(&context)
+            .path
+            .as_path();
+        let wallet = AsRef::<WalletConfiguration>::as_ref(&context).wallet();
+
+        ZombienetNode::node_genesis(polkadot_parachain_path, &wallet)
     }
 }
 
