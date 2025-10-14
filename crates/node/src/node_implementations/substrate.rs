@@ -40,7 +40,7 @@ use revive_dt_config::*;
 use revive_dt_node_interaction::{EthereumNode, MinedBlockInformation};
 use subxt::{OnlineClient, SubstrateConfig};
 use tokio::sync::OnceCell;
-use tracing::instrument;
+use tracing::{instrument, trace};
 
 use crate::{
     Node,
@@ -140,10 +140,12 @@ impl SubstrateNode {
             return Ok(self);
         }
 
+        trace!("Removing the various directories");
         let _ = remove_dir_all(self.base_directory.as_path());
         let _ = clear_directory(&self.base_directory);
         let _ = clear_directory(&self.logs_directory);
 
+        trace!("Creating the various directories");
         create_dir_all(&self.base_directory)
             .context("Failed to create base directory for substrate node")?;
         create_dir_all(&self.logs_directory)
@@ -151,6 +153,7 @@ impl SubstrateNode {
 
         let template_chainspec_path = self.base_directory.join(Self::CHAIN_SPEC_JSON_FILE);
 
+        trace!("Creating the node genesis");
         let chainspec_json = Self::node_genesis(
             &self.node_binary,
             &self.export_chainspec_command,
@@ -158,6 +161,7 @@ impl SubstrateNode {
         )
         .context("Failed to prepare the chainspec command")?;
 
+        trace!("Writing the node genesis");
         serde_json::to_writer_pretty(
             std::fs::File::create(&template_chainspec_path)
                 .context("Failed to create substrate template chainspec file")?,
@@ -179,6 +183,7 @@ impl SubstrateNode {
 
         self.rpc_url = format!("http://127.0.0.1:{proxy_rpc_port}");
 
+        trace!("Spawning the substrate process");
         let substrate_process = Process::new(
             "node",
             self.logs_directory.as_path(),
@@ -230,6 +235,7 @@ impl SubstrateNode {
             }
         }
 
+        trace!("Spawning eth-rpc process");
         let eth_proxy_process = Process::new(
             "proxy",
             self.logs_directory.as_path(),
