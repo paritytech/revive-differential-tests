@@ -241,3 +241,53 @@ If you only want to run a subset of tests, then you can specify that in your cor
   ]
 }
 ```
+
+<details>
+<summary>User Managed Nodes</summary>
+
+> [!CAUTION]
+> This is an advanced feature of the tool and could lead test successes or failures to not be reproducible. Please use this feature with caution and only if you understand the implications of running your own node instead of having the framework manage your nodes.
+
+If you're an advanced user and you'd like to manage your own nodes instead of having the tool initialize, spawn, and manage them, then you can choose to run your own nodes and then provide them to the tool to make use of just like the following:
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+
+PLATFORM="revive-dev-node-revm-solc"
+
+retester export-genesis "$PLATFORM" > chainspec.json
+
+# Start revive-dev-node in a detached tmux session
+tmux new-session -d -s revive-dev-node \
+  'RUST_LOG="error,evm=debug,sc_rpc_server=info,runtime::revive=debug" revive-dev-node \
+    --dev \
+    --chain chainspec.json \
+    --force-authoring \
+    --rpc-methods Unsafe \
+    --rpc-cors all \
+    --rpc-max-connections 4294967295 \
+    --pool-limit 4294967295 \
+    --pool-kbytes 4294967295'
+sleep 5
+
+# Start eth-rpc in a detached tmux session
+tmux new-session -d -s eth-rpc \
+  'RUST_LOG="info,eth-rpc=debug" eth-rpc \
+    --dev \
+    --node-rpc-url ws://127.0.0.1:9944 \
+    --rpc-max-connections 4294967295'
+sleep 5
+
+# Run the tests (logs to files as before)
+RUST_LOG="info" retester test \
+  --platform "$PLATFORM" \
+  --corpus ./corpus.json \
+  --working-directory ./workdir \
+  --concurrency.number-of-nodes 1 \
+  --concurrency.number-of-concurrent-tasks 5 \
+  --revive-dev-node.existing-rpc-url "http://localhost:8545" \
+  > logs.log
+```
+
+</details>
