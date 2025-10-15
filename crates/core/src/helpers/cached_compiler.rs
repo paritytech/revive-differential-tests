@@ -325,26 +325,6 @@ impl ArtifactsCache {
         let value = bson::from_slice::<CacheValue>(&value).ok()?;
         Some(value)
     }
-
-    #[instrument(level = "debug", skip_all, err)]
-    pub async fn get_or_insert_with(
-        &self,
-        key: &CacheKey<'_>,
-        callback: impl AsyncFnOnce() -> Result<CacheValue>,
-    ) -> Result<CacheValue> {
-        match self.get(key).await {
-            Some(value) => {
-                debug!("Cache hit");
-                Ok(value)
-            }
-            None => {
-                debug!("Cache miss");
-                let value = callback().await?;
-                self.insert(key, &value).await?;
-                Ok(value)
-            }
-        }
-    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize)]

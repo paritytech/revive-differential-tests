@@ -31,8 +31,8 @@ use revive_dt_common::{
 use revive_dt_format::{
     metadata::{ContractInstance, ContractPathAndIdent},
     steps::{
-        AllocateAccountStep, BalanceAssertionStep, Calldata, EtherValue, FunctionCallStep, Method,
-        RepeatStep, Step, StepAddress, StepIdx, StepPath, StorageEmptyAssertionStep,
+        AllocateAccountStep, Calldata, EtherValue, FunctionCallStep, Method, RepeatStep, Step,
+        StepIdx, StepPath,
     },
     traits::{ResolutionContext, ResolverApi},
 };
@@ -428,26 +428,6 @@ where
         Ok(())
     }
 
-    #[instrument(level = "info", skip_all, fields(driver_id = self.driver_id))]
-    pub async fn execute_balance_assertion(
-        &mut self,
-        _: &StepPath,
-        _: &BalanceAssertionStep,
-    ) -> anyhow::Result<usize> {
-        // Kept empty intentionally for the benchmark driver.
-        Ok(1)
-    }
-
-    #[instrument(level = "info", skip_all, fields(driver_id = self.driver_id), err(Debug))]
-    async fn execute_storage_empty_assertion_step(
-        &mut self,
-        _: &StepPath,
-        _: &StorageEmptyAssertionStep,
-    ) -> Result<usize> {
-        // Kept empty intentionally for the benchmark driver.
-        Ok(1)
-    }
-
     #[instrument(level = "info", skip_all, fields(driver_id = self.driver_id), err(Debug))]
     async fn execute_repeat_step(
         &mut self,
@@ -670,33 +650,6 @@ where
         );
 
         Ok((address, abi, receipt))
-    }
-
-    #[instrument(level = "info", fields(driver_id = self.driver_id), skip_all)]
-    async fn step_address_auto_deployment(
-        &mut self,
-        step_address: &StepAddress,
-    ) -> Result<Address> {
-        match step_address {
-            StepAddress::Address(address) => Ok(*address),
-            StepAddress::ResolvableAddress(resolvable) => {
-                let Some(instance) = resolvable
-                    .strip_suffix(".address")
-                    .map(ContractInstance::new)
-                else {
-                    bail!("Not an address variable");
-                };
-
-                self.get_or_deploy_contract_instance(
-                    &instance,
-                    FunctionCallStep::default_caller_address(),
-                    None,
-                    None,
-                )
-                .await
-                .map(|v| v.0)
-            }
-        }
     }
     // endregion:Contract Deployment
 

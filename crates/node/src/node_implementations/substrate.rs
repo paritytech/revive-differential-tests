@@ -1,6 +1,6 @@
 use std::{
     fs::{create_dir_all, remove_dir_all},
-    path::PathBuf,
+    path::{Path, PathBuf},
     pin::Pin,
     process::{Command, Stdio},
     sync::{
@@ -12,7 +12,7 @@ use std::{
 
 use alloy::{
     eips::BlockNumberOrTag,
-    genesis::{Genesis, GenesisAccount},
+    genesis::Genesis,
     network::{Ethereum, EthereumWallet, NetworkWallet},
     primitives::{Address, BlockHash, BlockNumber, BlockTimestamp, StorageKey, TxHash, U256},
     providers::{
@@ -32,7 +32,7 @@ use futures::{FutureExt, Stream, StreamExt};
 use revive_common::EVMVersion;
 use revive_dt_common::fs::clear_directory;
 use revive_dt_format::traits::ResolverApi;
-use serde_json::{Value as JsonValue, json};
+use serde_json::json;
 use sp_core::crypto::Ss58Codec;
 use sp_runtime::AccountId32;
 
@@ -40,7 +40,7 @@ use revive_dt_config::*;
 use revive_dt_node_interaction::{EthereumNode, MinedBlockInformation};
 use subxt::{OnlineClient, SubstrateConfig};
 use tokio::sync::OnceCell;
-use tracing::instrument;
+use tracing::{instrument, trace};
 
 use crate::{
     Node,
@@ -99,6 +99,7 @@ impl SubstrateNode {
         context: impl AsRef<WorkingDirectoryConfiguration>
         + AsRef<EthRpcConfiguration>
         + AsRef<WalletConfiguration>,
+        existing_connection_strings: &[String],
     ) -> Self {
         let working_directory_path =
             AsRef::<WorkingDirectoryConfiguration>::as_ref(&context).as_path();
@@ -112,12 +113,17 @@ impl SubstrateNode {
         let base_directory = substrate_directory.join(id.to_string());
         let logs_directory = base_directory.join(Self::LOGS_DIRECTORY);
 
+        let rpc_url = existing_connection_strings
+            .get(id as usize)
+            .cloned()
+            .unwrap_or_default();
+
         Self {
             id,
             node_binary: node_path,
             eth_proxy_binary: eth_rpc_path.to_path_buf(),
             export_chainspec_command: export_chainspec_command.to_string(),
-            rpc_url: String::new(),
+            rpc_url,
             base_directory,
             logs_directory,
             substrate_process: None,
@@ -129,11 +135,17 @@ impl SubstrateNode {
         }
     }
 
-    fn init(&mut self, mut genesis: Genesis) -> anyhow::Result<&mut Self> {
+    fn init(&mut self, _: Genesis) -> anyhow::Result<&mut Self> {
+        if !self.rpc_url.is_empty() {
+            return Ok(self);
+        }
+
+        trace!("Removing the various directories");
         let _ = remove_dir_all(self.base_directory.as_path());
         let _ = clear_directory(&self.base_directory);
         let _ = clear_directory(&self.logs_directory);
 
+        trace!("Creating the various directories");
         create_dir_all(&self.base_directory)
             .context("Failed to create base directory for substrate node")?;
         create_dir_all(&self.logs_directory)
@@ -141,66 +153,15 @@ impl SubstrateNode {
 
         let template_chainspec_path = self.base_directory.join(Self::CHAIN_SPEC_JSON_FILE);
 
-        // Note: we do not pipe the logs of this process to a separate file since this is just a
-        // once-off export of the default chain spec and not part of the long-running node process.
-        let output = Command::new(&self.node_binary)
-            .arg(self.export_chainspec_command.as_str())
-            .arg("--chain")
-            .arg("dev")
-            .env_remove("RUST_LOG")
-            .output()
-            .context("Failed to export the chain-spec")?;
+        trace!("Creating the node genesis");
+        let chainspec_json = Self::node_genesis(
+            &self.node_binary,
+            &self.export_chainspec_command,
+            &self.wallet,
+        )
+        .context("Failed to prepare the chainspec command")?;
 
-        if !output.status.success() {
-            anyhow::bail!(
-                "Substrate-node export-chain-spec failed: {}",
-                String::from_utf8_lossy(&output.stderr)
-            );
-        }
-
-        let content = String::from_utf8(output.stdout)
-            .context("Failed to decode Substrate export-chain-spec output as UTF-8")?;
-        let mut chainspec_json: JsonValue =
-            serde_json::from_str(&content).context("Failed to parse Substrate chain spec JSON")?;
-
-        let existing_chainspec_balances =
-            chainspec_json["genesis"]["runtimeGenesis"]["patch"]["balances"]["balances"]
-                .as_array()
-                .cloned()
-                .unwrap_or_default();
-
-        let mut merged_balances: Vec<(String, u128)> = existing_chainspec_balances
-            .into_iter()
-            .filter_map(|val| {
-                if let Some(arr) = val.as_array() {
-                    if arr.len() == 2 {
-                        let account = arr[0].as_str()?.to_string();
-                        let balance = arr[1].as_f64()? as u128;
-                        return Some((account, balance));
-                    }
-                }
-                None
-            })
-            .collect();
-        let mut eth_balances = {
-            for signer_address in
-                <EthereumWallet as NetworkWallet<Ethereum>>::signer_addresses(&self.wallet)
-            {
-                // Note, the use of the entry API here means that we only modify the entries for any
-                // account that is not in the `alloc` field of the genesis state.
-                genesis
-                    .alloc
-                    .entry(signer_address)
-                    .or_insert(GenesisAccount::default().with_balance(U256::from(INITIAL_BALANCE)));
-            }
-            self.extract_balance_from_genesis_file(&genesis)
-                .context("Failed to extract balances from EVM genesis JSON")?
-        };
-        merged_balances.append(&mut eth_balances);
-
-        chainspec_json["genesis"]["runtimeGenesis"]["patch"]["balances"]["balances"] =
-            json!(merged_balances);
-
+        trace!("Writing the node genesis");
         serde_json::to_writer_pretty(
             std::fs::File::create(&template_chainspec_path)
                 .context("Failed to create substrate template chainspec file")?,
@@ -211,6 +172,10 @@ impl SubstrateNode {
     }
 
     fn spawn_process(&mut self) -> anyhow::Result<()> {
+        if !self.rpc_url.is_empty() {
+            return Ok(());
+        }
+
         let substrate_rpc_port = Self::BASE_SUBSTRATE_RPC_PORT + self.id as u16;
         let proxy_rpc_port = Self::BASE_PROXY_RPC_PORT + self.id as u16;
 
@@ -218,6 +183,7 @@ impl SubstrateNode {
 
         self.rpc_url = format!("http://127.0.0.1:{proxy_rpc_port}");
 
+        trace!("Spawning the substrate process");
         let substrate_process = Process::new(
             "node",
             self.logs_directory.as_path(),
@@ -269,6 +235,7 @@ impl SubstrateNode {
             }
         }
 
+        trace!("Spawning eth-rpc process");
         let eth_proxy_process = Process::new(
             "proxy",
             self.logs_directory.as_path(),
@@ -305,21 +272,6 @@ impl SubstrateNode {
         }
 
         Ok(())
-    }
-
-    fn extract_balance_from_genesis_file(
-        &self,
-        genesis: &Genesis,
-    ) -> anyhow::Result<Vec<(String, u128)>> {
-        genesis
-            .alloc
-            .iter()
-            .try_fold(Vec::new(), |mut vec, (address, acc)| {
-                let substrate_address = Self::eth_to_substrate_address(address);
-                let balance = acc.balance.try_into()?;
-                vec.push((substrate_address, balance));
-                Ok(vec)
-            })
     }
 
     fn eth_to_substrate_address(address: &Address) -> String {
@@ -359,6 +311,49 @@ impl SubstrateNode {
             })
             .await
             .cloned()
+    }
+
+    pub fn node_genesis(
+        node_path: &Path,
+        export_chainspec_command: &str,
+        wallet: &EthereumWallet,
+    ) -> anyhow::Result<serde_json::Value> {
+        trace!("Exporting the chainspec");
+        let output = Command::new(node_path)
+            .arg(export_chainspec_command)
+            .arg("--chain")
+            .arg("dev")
+            .env_remove("RUST_LOG")
+            .output()
+            .context("Failed to export the chain-spec")?;
+
+        trace!("Waiting for chainspec export");
+        if !output.status.success() {
+            anyhow::bail!(
+                "Substrate-node export-chain-spec failed: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+
+        trace!("Obtained chainspec");
+        let content = String::from_utf8(output.stdout)
+            .context("Failed to decode Substrate export-chain-spec output as UTF-8")?;
+        let mut chainspec_json = serde_json::from_str::<serde_json::Value>(&content)
+            .context("Failed to parse Substrate chain spec JSON")?;
+
+        let existing_chainspec_balances =
+            chainspec_json["genesis"]["runtimeGenesis"]["patch"]["balances"]["balances"]
+                .as_array_mut()
+                .expect("Can't fail");
+
+        trace!("Adding addresses to chainspec");
+        for address in NetworkWallet::<Ethereum>::signer_addresses(wallet) {
+            let substrate_address = Self::eth_to_substrate_address(&address);
+            let balance = INITIAL_BALANCE;
+            existing_chainspec_balances.push(json!((substrate_address, balance)));
+        }
+
+        Ok(chainspec_json)
     }
 }
 
@@ -801,6 +796,7 @@ mod tests {
             SubstrateNode::KITCHENSINK_EXPORT_CHAINSPEC_COMMAND,
             None,
             &context,
+            &[],
         );
         node.init(context.genesis_configuration.genesis().unwrap().clone())
             .expect("Failed to initialize the node")
@@ -867,6 +863,7 @@ mod tests {
             SubstrateNode::KITCHENSINK_EXPORT_CHAINSPEC_COMMAND,
             None,
             &context,
+            &[],
         );
 
         // Call `init()`
@@ -897,50 +894,6 @@ mod tests {
         assert!(
             contents.contains(&second_eth_addr),
             "Chainspec should contain Substrate address for second Ethereum account"
-        );
-    }
-
-    #[test]
-    #[ignore = "Ignored since they take a long time to run"]
-    fn test_parse_genesis_alloc() {
-        // Create test genesis file
-        let genesis_json = r#"
-        {
-          "alloc": {
-            "0x90F8bf6A479f320ead074411a4B0e7944Ea8c9C1": { "balance": "1000000000000000000" },
-            "0x0000000000000000000000000000000000000000": { "balance": "0xDE0B6B3A7640000" },
-            "0xffffffffffffffffffffffffffffffffffffffff": { "balance": "123456789" }
-          }
-        }
-        "#;
-
-        let context = test_config();
-        let node = SubstrateNode::new(
-            context.kitchensink_configuration.path.clone(),
-            SubstrateNode::KITCHENSINK_EXPORT_CHAINSPEC_COMMAND,
-            None,
-            &context,
-        );
-
-        let result = node
-            .extract_balance_from_genesis_file(&serde_json::from_str(genesis_json).unwrap())
-            .unwrap();
-
-        let result_map: std::collections::HashMap<_, _> = result.into_iter().collect();
-
-        assert_eq!(
-            result_map.get("5FLneRcWAfk3X3tg6PuGyLNGAquPAZez5gpqvyuf3yUK8VaV"),
-            Some(&1_000_000_000_000_000_000u128)
-        );
-
-        assert_eq!(
-            result_map.get("5C4hrfjw9DjXZTzV3MwzrrAr9P1MLDHajjSidz9bR544LEq1"),
-            Some(&1_000_000_000_000_000_000u128)
-        );
-
-        assert_eq!(
-            result_map.get("5HrN7fHLXWcFiXPwwtq2EkSGns9eMmoUQnbVKweNz3VVr6N4"),
-            Some(&123_456_789u128)
         );
     }
 

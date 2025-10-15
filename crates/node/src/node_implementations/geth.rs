@@ -130,7 +130,7 @@ impl GethNode {
 
     /// Create the node directory and call `geth init` to configure the genesis.
     #[instrument(level = "info", skip_all, fields(geth_node_id = self.id))]
-    fn init(&mut self, mut genesis: Genesis) -> anyhow::Result<&mut Self> {
+    fn init(&mut self, genesis: Genesis) -> anyhow::Result<&mut Self> {
         let _ = clear_directory(&self.base_directory);
         let _ = clear_directory(&self.logs_directory);
 
@@ -139,16 +139,7 @@ impl GethNode {
         create_dir_all(&self.logs_directory)
             .context("Failed to create logs directory for geth node")?;
 
-        for signer_address in
-            <EthereumWallet as NetworkWallet<Ethereum>>::signer_addresses(&self.wallet)
-        {
-            // Note, the use of the entry API here means that we only modify the entries for any
-            // account that is not in the `alloc` field of the genesis state.
-            genesis
-                .alloc
-                .entry(signer_address)
-                .or_insert(GenesisAccount::default().with_balance(U256::from(INITIAL_BALANCE)));
-        }
+        let genesis = Self::node_genesis(genesis, self.wallet.as_ref());
         let genesis_path = self.base_directory.join(Self::GENESIS_JSON_FILE);
         serde_json::to_writer(
             File::create(&genesis_path).context("Failed to create geth genesis file")?,
@@ -264,6 +255,16 @@ impl GethNode {
             })
             .await
             .cloned()
+    }
+
+    pub fn node_genesis(mut genesis: Genesis, wallet: &EthereumWallet) -> Genesis {
+        for signer_address in NetworkWallet::<Ethereum>::signer_addresses(&wallet) {
+            genesis
+                .alloc
+                .entry(signer_address)
+                .or_insert(GenesisAccount::default().with_balance(U256::from(INITIAL_BALANCE)));
+        }
+        genesis
     }
 }
 
