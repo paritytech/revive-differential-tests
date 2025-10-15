@@ -931,25 +931,21 @@ pub struct ConcurrencyConfiguration {
     )]
     pub number_of_threads: usize,
 
-    /// Determines the amount of concurrent tasks that will be spawned to run tests.
+    /// Determines the amount of concurrent tasks that will be spawned to run tests. This means that
+    /// at any given time there is `concurrency.number-of-concurrent-tasks` tests concurrently
+    /// executing.
     ///
-    /// Defaults to 10 x the number of nodes.
-    #[arg(long = "concurrency.number-of-concurrent-tasks")]
-    number_concurrent_tasks: Option<usize>,
-
-    /// Determines if the concurrency limit should be ignored or not.
-    #[arg(long = "concurrency.ignore-concurrency-limit")]
-    ignore_concurrency_limit: bool,
+    /// Note that a task limit of `0` means no limit on the number of concurrent tasks.
+    #[arg(long = "concurrency.number-of-concurrent-tasks", default_value_t = 500)]
+    number_concurrent_tasks: usize,
 }
 
 impl ConcurrencyConfiguration {
     pub fn concurrency_limit(&self) -> Option<usize> {
-        match self.ignore_concurrency_limit {
-            true => None,
-            false => Some(
-                self.number_concurrent_tasks
-                    .unwrap_or(20 * self.number_of_nodes),
-            ),
+        if self.number_concurrent_tasks == 0 {
+            None
+        } else {
+            Some(self.number_concurrent_tasks)
         }
     }
 }
