@@ -6,10 +6,11 @@ use std::{collections::BTreeMap, path::PathBuf, sync::Arc};
 use alloy::primitives::Address;
 use anyhow::Context as _;
 use indexmap::IndexMap;
+use revive_dt_common::types::ParsedTestSpecifier;
 use revive_dt_common::types::PlatformIdentifier;
 use revive_dt_compiler::{CompilerInput, CompilerOutput};
+use revive_dt_format::metadata::ContractInstance;
 use revive_dt_format::metadata::Metadata;
-use revive_dt_format::{corpus::Corpus, metadata::ContractInstance};
 use semver::Version;
 use tokio::sync::{broadcast, oneshot};
 
@@ -481,9 +482,9 @@ define_event! {
             tx: oneshot::Sender<broadcast::Receiver<ReporterEvent>>
         },
         /// An event emitted by runners when they've discovered a corpus file.
-        CorpusFileDiscovery {
+        CorpusDiscovery {
             /// The contents of the corpus file.
-            corpus: Corpus
+            test_specifiers: Vec<ParsedTestSpecifier>
         },
         /// An event emitted by runners when they've discovered a metadata file.
         MetadataFileDiscovery {

@@ -5628,6 +5628,7 @@ dependencies = [
  "semver 1.0.26",
  "serde",
  "serde_json",
+ "serde_with",
  "strum",
  "temp-dir",
 ]
@@ -5668,6 +5669,7 @@ dependencies = [
  "alloy",
  "anyhow",
  "futures",
+ "itertools 0.14.0",
  "revive-common",
  "revive-dt-common",
  "schemars 1.0.4",

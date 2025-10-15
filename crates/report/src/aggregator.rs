@@ -11,10 +11,10 @@ use std::{
 use alloy::primitives::Address;
 use anyhow::{Context as _, Result};
 use indexmap::IndexMap;
-use revive_dt_common::types::PlatformIdentifier;
+use revive_dt_common::types::{ParsedTestSpecifier, PlatformIdentifier};
 use revive_dt_compiler::{CompilerInput, CompilerOutput, Mode};
 use revive_dt_config::Context;
-use revive_dt_format::{case::CaseIdx, corpus::Corpus, metadata::ContractInstance};
+use revive_dt_format::{case::CaseIdx, metadata::ContractInstance};
 use semver::Version;
 use serde::{Deserialize, Serialize};
 use serde_with::{DisplayFromStr, serde_as};
@@ -67,7 +67,7 @@ impl ReportAggregator {
                 RunnerEvent::SubscribeToEvents(event) => {
                     self.handle_subscribe_to_events_event(*event);
                 }
-                RunnerEvent::CorpusFileDiscovery(event) => {
+                RunnerEvent::CorpusDiscovery(event) => {
                     self.handle_corpus_file_discovered_event(*event)
                 }
                 RunnerEvent::MetadataFileDiscovery(event) => {
@@ -152,8 +152,8 @@ impl ReportAggregator {
         let _ = event.tx.send(self.listener_tx.subscribe());
     }
 
-    fn handle_corpus_file_discovered_event(&mut self, event: CorpusFileDiscoveryEvent) {
-        self.report.corpora.push(event.corpus);
+    fn handle_corpus_file_discovered_event(&mut self, event: CorpusDiscoveryEvent) {
+        self.report.corpora.extend(event.test_specifiers);
     }
 
     fn handle_metadata_file_discovery_event(&mut self, event: MetadataFileDiscoveryEvent) {
@@ -420,7 +420,8 @@ pub struct Report {
     /// The context that the tool was started up with.
     pub context: Context,
     /// The list of corpus files that the tool found.
-    pub corpora: Vec<Corpus>,
+    #[serde_as(as = "Vec<DisplayFromStr>")]
+    pub corpora: Vec<ParsedTestSpecifier>,
     /// The list of metadata files that were found by the tool.
     pub metadata_files: BTreeSet<MetadataFilePath>,
     /// Information relating to each test case.
