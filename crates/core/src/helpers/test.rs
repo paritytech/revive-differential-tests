@@ -4,9 +4,9 @@ use std::{borrow::Cow, path::Path};
 
 use futures::{Stream, StreamExt, stream};
 use indexmap::{IndexMap, indexmap};
-use revive_dt_common::iterators::EitherIter;
-use revive_dt_common::types::{ParsedMode, PlatformIdentifier};
+use revive_dt_common::types::PlatformIdentifier;
 use revive_dt_config::Context;
+use revive_dt_format::corpus::Corpus;
 use serde_json::{Value, json};
 
 use revive_dt_compiler::Mode;
@@ -27,47 +27,28 @@ pub async fn create_test_definitions_stream<'a>(
     // This is only required for creating the compiler objects and is not used anywhere else in the
     // function.
     context: &Context,
-    metadata_files: impl IntoIterator<Item = &'a MetadataFile>,
+    corpus: &'a Corpus,
     platforms_and_nodes: &'a BTreeMap<PlatformIdentifier, (&dyn Platform, NodePool)>,
     only_execute_failed_tests: Option<&Report>,
     reporter: Reporter,
 ) -> impl Stream<Item = TestDefinition<'a>> {
     stream::iter(
-        metadata_files
-            .into_iter()
-            // Flatten over the cases.
-            .flat_map(|metadata_file| {
-                metadata_file
-                    .cases
-                    .iter()
-                    .enumerate()
-                    .map(move |(case_idx, case)| (metadata_file, case_idx, case))
-            })
-            // Flatten over the modes, prefer the case modes over the metadata file modes.
-            .flat_map(move |(metadata_file, case_idx, case)| {
+        corpus
+            .cases_iterator()
+            .map(move |(metadata_file, case_idx, case, mode)| {
                 let reporter = reporter.clone();
 
-                let modes = case.modes.as_ref().or(metadata_file.modes.as_ref());
-                let modes = match modes {
-                    Some(modes) => EitherIter::A(
-                        ParsedMode::many_to_modes(modes.iter()).map(Cow::<'static, _>::Owned),
-                    ),
-                    None => EitherIter::B(Mode::all().map(Cow::<'static, _>::Borrowed)),
-                };
-
-                modes.into_iter().map(move |mode| {
-                    (
-                        metadata_file,
-                        case_idx,
-                        case,
-                        mode.clone(),
-                        reporter.test_specific_reporter(Arc::new(TestSpecifier {
-                            solc_mode: mode.as_ref().clone(),
-                            metadata_file_path: metadata_file.metadata_file_path.clone(),
-                            case_idx: CaseIdx::new(case_idx),
-                        })),
-                    )
-                })
+                (
+                    metadata_file,
+                    case_idx,
+                    case,
+                    mode.clone(),
+                    reporter.test_specific_reporter(Arc::new(TestSpecifier {
+                        solc_mode: mode.as_ref().clone(),
+                        metadata_file_path: metadata_file.metadata_file_path.clone(),
+                        case_idx: CaseIdx::new(case_idx),
+                    })),
+                )
             })
             // Inform the reporter of each one of the test cases that were discovered which we expect to
             // run.

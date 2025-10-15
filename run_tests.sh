@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Revive Differential Tests - Quick Start Script
-# This script clones the test repository, sets up the corpus file, and runs the tool
+# This script clones the test repository, and runs the tool
 
 set -e  # Exit on any error
 
@@ -14,7 +14,6 @@ NC='\033[0m' # No Color
 # Configuration
 TEST_REPO_URL="https://github.com/paritytech/resolc-compiler-tests"
 TEST_REPO_DIR="resolc-compiler-tests"
-CORPUS_FILE="./corpus.json"
 WORKDIR="workdir"
 
 # Optional positional argument: path to polkadot-sdk directory
@@ -68,21 +67,6 @@ else
     echo -e "${YELLOW}No polkadot-sdk path provided. Using binaries from $PATH.${NC}"
 fi
 
-# Create corpus file with absolute path resolved at runtime
-echo -e "${GREEN}Creating corpus file...${NC}"
-ABSOLUTE_PATH=$(realpath "$TEST_REPO_DIR/fixtures/solidity/")
-
-cat > "$CORPUS_FILE" << EOF
-{
-  "name": "MatterLabs Solidity Simple, Complex, and Semantic Tests",
-  "paths": [
-    "$(realpath "$TEST_REPO_DIR/fixtures/solidity")"
-  ]
-}
-EOF
-
-echo -e "${GREEN}Corpus file created: $CORPUS_FILE${NC}"
-
 # Create workdir if it doesn't exist
 mkdir -p "$WORKDIR"
 
@@ -94,7 +78,7 @@ echo ""
 cargo build --release;
 RUST_LOG="info,alloy_pubsub::service=error" ./target/release/retester test \
     --platform revive-dev-node-polkavm-resolc \
-    --corpus "$CORPUS_FILE" \
+    --test $(realpath "$TEST_REPO_DIR/fixtures/solidity") \
     --working-directory "$WORKDIR" \
     --concurrency.number-of-nodes 10 \
     --concurrency.number-of-threads 5 \

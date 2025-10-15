@@ -17,7 +17,7 @@ use alloy::{
     signers::local::PrivateKeySigner,
 };
 use clap::{Parser, ValueEnum, ValueHint};
-use revive_dt_common::types::PlatformIdentifier;
+use revive_dt_common::types::{ParsedTestSpecifier, PlatformIdentifier};
 use semver::Version;
 use serde::{Deserialize, Serialize, Serializer};
 use strum::{AsRefStr, Display, EnumString, IntoStaticStr};
@@ -652,11 +652,24 @@ impl AsRef<WalletConfiguration> for ExportGenesisContext {
 }
 
 /// A set of configuration parameters for the corpus files to use for the execution.
+#[serde_with::serde_as]
 #[derive(Clone, Debug, Parser, Serialize, Deserialize)]
 pub struct CorpusConfiguration {
-    /// A list of test corpus JSON files to be tested.
-    #[arg(short = 'c', long = "corpus")]
-    pub paths: Vec<PathBuf>,
+    /// A list of test specifiers for the tests that the tool should run.
+    ///
+    /// Test specifiers follow the following format:
+    ///
+    /// - `{directory_path|metadata_file_path}`: A path to a metadata file where all of the cases
+    ///   live and should be run. Alternatively, it points to a directory instructing the framework
+    ///   to discover of the metadata files that live there an execute them.
+    /// - `{metadata_file_path}::{case_idx}`: The path to a metadata file and then a case idx
+    ///   separated by two colons. This specifies that only this specific test case within the
+    ///   metadata file should be executed.
+    /// - `{metadata_file_path}::{case_idx}::{mode}`: This is very similar to the above specifier
+    ///   with the exception that in this case the mode is specified and will be used in the test.
+    #[serde_as(as = "Vec<serde_with::DisplayFromStr>")]
+    #[arg(short = 't', long = "test")]
+    pub test_specifiers: Vec<ParsedTestSpecifier>,
 }
 
 /// A set of configuration parameters for Solc.

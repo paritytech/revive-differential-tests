@@ -6,7 +6,10 @@ use anyhow::Context as _;
 use futures::{FutureExt, StreamExt};
 use revive_dt_common::types::PrivateKeyAllocator;
 use revive_dt_core::Platform;
-use revive_dt_format::steps::{Step, StepIdx, StepPath};
+use revive_dt_format::{
+    corpus::Corpus,
+    steps::{Step, StepIdx, StepPath},
+};
 use tokio::sync::Mutex;
 use tracing::{Instrument, error, info, info_span, instrument, warn};
 
@@ -15,7 +18,7 @@ use revive_dt_report::Reporter;
 
 use crate::{
     differential_benchmarks::{Driver, Watcher, WatcherEvent},
-    helpers::{CachedCompiler, NodePool, collect_metadata_files, create_test_definitions_stream},
+    helpers::{CachedCompiler, NodePool, create_test_definitions_stream},
 };
 
 /// Handles the differential testing executing it according to the information defined in the
@@ -39,9 +42,17 @@ pub async fn handle_differential_benchmarks(
     let full_context = Context::Benchmark(Box::new(context.clone()));
 
     // Discover all of the metadata files that are defined in the context.
-    let metadata_files = collect_metadata_files(&context)
-        .context("Failed to collect metadata files for differential testing")?;
-    info!(len = metadata_files.len(), "Discovered metadata files");
+    let corpus = context
+        .corpus_configuration
+        .test_specifiers
+        .clone()
+        .into_iter()
+        .try_fold(Corpus::default(), Corpus::with_test_specifier)
+        .context("Failed to parse the test corpus")?;
+    info!(
+        len = corpus.metadata_file_count(),
+        "Discovered metadata files"
+    );
 
     // Discover the list of platforms that the tests should run on based on the context.
     let platforms = context
@@ -84,7 +95,7 @@ pub async fn handle_differential_benchmarks(
     // Preparing test definitions for the execution.
     let test_definitions = create_test_definitions_stream(
         &full_context,
-        metadata_files.iter(),
+        &corpus,
         &platforms_and_nodes,
         None,
         reporter.clone(),
