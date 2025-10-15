@@ -247,8 +247,7 @@ If you only want to run a subset of tests, then you can specify that in your cor
 
 This section describes how the user can make use of nodes that they manage rather than allowing the tool to spawn and manage the nodes on the user's behalf.
 
-> [!CAUTION]
-> This is an advanced feature of the tool and could lead test successes or failures to not be reproducible. Please use this feature with caution and only if you understand the implications of running your own node instead of having the framework manage your nodes.
+> ⚠️ This is an advanced feature of the tool and could lead test successes or failures to not be reproducible. Please use this feature with caution and only if you understand the implications of running your own node instead of having the framework manage your nodes. ⚠️
 
 If you're an advanced user and you'd like to manage your own nodes instead of having the tool initialize, spawn, and manage them, then you can choose to run your own nodes and then provide them to the tool to make use of just like the following:
 
