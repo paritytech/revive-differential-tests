@@ -926,7 +926,7 @@ pub struct ConcurrencyConfiguration {
     #[arg(
         long = "concurrency.number-of-threads",
         default_value_t = std::thread::available_parallelism()
-            .map(|n| n.get())
+            .map(|n| n.get() * 4 / 6)
             .unwrap_or(1)
     )]
     pub number_of_threads: usize,
