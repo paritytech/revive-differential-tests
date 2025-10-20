@@ -151,7 +151,9 @@ pub async fn handle_differential_benchmarks(
                     .subscribe_to_full_blocks_information()
                     .await
                     .context("Failed to subscribe to full blocks information from the node")?,
-                reporter.clone(),
+                test_definition
+                    .reporter
+                    .execution_specific_reporter(0usize, platform_identifier),
             );
             let driver = Driver::new(
                 platform_information,

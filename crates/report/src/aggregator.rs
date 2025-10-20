@@ -234,17 +234,17 @@ impl ReportAggregator {
 
         let case_status = self
             .report
-            .test_case_information
+            .execution_information
             .entry(specifier.metadata_file_path.clone().into())
             .or_default()
-            .entry(specifier.solc_mode.clone())
-            .or_default()
             .iter()
-            .map(|(case_idx, case_report)| {
-                (
-                    *case_idx,
-                    case_report.status.clone().expect("Can't be uninitialized"),
-                )
+            .flat_map(|(case_idx, mode_to_execution_map)| {
+                let case_status = mode_to_execution_map
+                    .get(&specifier.solc_mode)?
+                    .status
+                    .clone()
+                    .expect("Can't be uninitialized");
+                Some((*case_idx, case_status))
             })
             .collect::<BTreeMap<_, _>>();
         let event = ReporterEvent::MetadataFileSolcModeCombinationExecutionCompleted {
@@ -392,12 +392,12 @@ impl ReportAggregator {
 
     fn test_case_report(&mut self, specifier: &TestSpecifier) -> &mut TestCaseReport {
         self.report
-            .test_case_information
+            .execution_information
             .entry(specifier.metadata_file_path.clone().into())
             .or_default()
-            .entry(specifier.solc_mode.clone())
-            .or_default()
             .entry(specifier.case_idx)
+            .or_default()
+            .entry(specifier.solc_mode.clone())
             .or_default()
     }
 
@@ -424,19 +424,22 @@ pub struct Report {
     pub corpora: Vec<ParsedTestSpecifier>,
     /// The list of metadata files that were found by the tool.
     pub metadata_files: BTreeSet<MetadataFilePath>,
+    /// Metrics from the execution.
+    pub metrics: Option<Metrics>,
     /// Information relating to each test case.
-    #[serde_as(as = "BTreeMap<_, HashMap<DisplayFromStr, BTreeMap<DisplayFromStr, _>>>")]
-    pub test_case_information:
-        BTreeMap<MetadataFilePath, HashMap<Mode, BTreeMap<CaseIdx, TestCaseReport>>>,
+    #[serde_as(as = "BTreeMap<_, BTreeMap<DisplayFromStr, HashMap<DisplayFromStr, _>>>")]
+    pub execution_information:
+        BTreeMap<MetadataFilePath, BTreeMap<CaseIdx, HashMap<Mode, TestCaseReport>>>,
 }
 
 impl Report {
     pub fn new(context: Context) -> Self {
         Self {
             context,
+            metrics: Default::default(),
             corpora: Default::default(),
             metadata_files: Default::default(),
-            test_case_information: Default::default(),
+            execution_information: Default::default(),
         }
     }
 }
@@ -545,3 +548,28 @@ pub enum CompilationStatus {
         compiler_input: Option<CompilerInput>,
     },
 }
+
+/// The metrics we collect for our benchmarks.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Metrics {
+    pub transaction_per_second: Metric<u64>,
+    pub gas_per_second: Metric<u64>,
+    pub gas_consumption: Metric<u64>,
+    /* Block Fullness */
+    pub gas_block_fullness: Metric<u64>,
+    pub ref_time_block_fullness: Option<Metric<u64>>,
+    pub proof_size_block_fullness: Option<Metric<u64>>,
+}
+
+/// The data that we store for a given metric (e.g., TPS).
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Metric<T> {
+    pub minimum: Option<PlatformKeyedInformation<T>>,
+    pub maximum: Option<PlatformKeyedInformation<T>>,
+    pub mean: Option<PlatformKeyedInformation<T>>,
+    pub median: Option<PlatformKeyedInformation<T>>,
+    pub sum: Option<PlatformKeyedInformation<T>>,
+}
+
+/// Information keyed by the platform identifier.
+pub type PlatformKeyedInformation<T> = BTreeMap<PlatformIdentifier, T>;

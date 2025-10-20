@@ -6,7 +6,7 @@ use futures::{Stream, StreamExt};
 use revive_dt_common::types::PlatformIdentifier;
 use revive_dt_format::steps::StepPath;
 use revive_dt_node_interaction::MinedBlockInformation;
-use revive_dt_report::Reporter;
+use revive_dt_report::ExecutionSpecificReporter;
 use tokio::sync::{
     RwLock,
     mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel},
@@ -29,14 +29,14 @@ pub struct Watcher {
     blocks_stream: Pin<Box<dyn Stream<Item = MinedBlockInformation>>>,
 
     /// The reporter used to send events to the report aggregator.
-    reporter: Reporter,
+    reporter: ExecutionSpecificReporter,
 }
 
 impl Watcher {
     pub fn new(
         platform_identifier: PlatformIdentifier,
         blocks_stream: Pin<Box<dyn Stream<Item = MinedBlockInformation>>>,
-        reporter: Reporter,
+        reporter: ExecutionSpecificReporter,
     ) -> (Self, UnboundedSender<WatcherEvent>) {
         let (tx, rx) = unbounded_channel::<WatcherEvent>();
         (
