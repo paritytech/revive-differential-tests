@@ -237,9 +237,11 @@ impl ReportAggregator {
             .execution_information
             .entry(specifier.metadata_file_path.clone().into())
             .or_default()
+            .case_reports
             .iter()
             .flat_map(|(case_idx, mode_to_execution_map)| {
                 let case_status = mode_to_execution_map
+                    .mode_execution_reports
                     .get(&specifier.solc_mode)?
                     .status
                     .clone()
@@ -390,13 +392,15 @@ impl ReportAggregator {
         self.runner_rx.close();
     }
 
-    fn test_case_report(&mut self, specifier: &TestSpecifier) -> &mut TestCaseReport {
+    fn test_case_report(&mut self, specifier: &TestSpecifier) -> &mut ExecutionReport {
         self.report
             .execution_information
             .entry(specifier.metadata_file_path.clone().into())
             .or_default()
+            .case_reports
             .entry(specifier.case_idx)
             .or_default()
+            .mode_execution_reports
             .entry(specifier.solc_mode.clone())
             .or_default()
     }
@@ -425,11 +429,10 @@ pub struct Report {
     /// The list of metadata files that were found by the tool.
     pub metadata_files: BTreeSet<MetadataFilePath>,
     /// Metrics from the execution.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub metrics: Option<Metrics>,
     /// Information relating to each test case.
-    #[serde_as(as = "BTreeMap<_, BTreeMap<DisplayFromStr, HashMap<DisplayFromStr, _>>>")]
-    pub execution_information:
-        BTreeMap<MetadataFilePath, BTreeMap<CaseIdx, HashMap<Mode, TestCaseReport>>>,
+    pub execution_information: BTreeMap<MetadataFilePath, MetadataFileReport>,
 }
 
 impl Report {
@@ -445,12 +448,35 @@ impl Report {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
-pub struct TestCaseReport {
+pub struct MetadataFileReport {
+    /// Metrics from the execution.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub metrics: Option<Metrics>,
+    /// The report of each case keyed by the case idx.
+    pub case_reports: BTreeMap<CaseIdx, CaseReport>,
+}
+
+#[serde_as]
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
+pub struct CaseReport {
+    /// Metrics from the execution.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub metrics: Option<Metrics>,
+    /// The [`ExecutionReport`] for each one of the [`Mode`]s.
+    #[serde_as(as = "HashMap<DisplayFromStr, _>")]
+    pub mode_execution_reports: HashMap<Mode, ExecutionReport>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
+pub struct ExecutionReport {
     /// Information on the status of the test case and whether it succeeded, failed, or was ignored.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub status: Option<TestCaseStatus>,
+    /// Metrics from the execution.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub metrics: Option<Metrics>,
     /// Information related to the execution on one of the platforms.
-    pub platform_execution: BTreeMap<PlatformIdentifier, Option<ExecutionInformation>>,
+    pub platform_execution: PlatformKeyedInformation<Option<ExecutionInformation>>,
 }
 
 /// Information related to the status of the test. Could be that the test succeeded, failed, or that
@@ -557,17 +583,24 @@ pub struct Metrics {
     pub gas_consumption: Metric<u64>,
     /* Block Fullness */
     pub gas_block_fullness: Metric<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub ref_time_block_fullness: Option<Metric<u64>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub proof_size_block_fullness: Option<Metric<u64>>,
 }
 
 /// The data that we store for a given metric (e.g., TPS).
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Metric<T> {
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub minimum: Option<PlatformKeyedInformation<T>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub maximum: Option<PlatformKeyedInformation<T>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub mean: Option<PlatformKeyedInformation<T>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub median: Option<PlatformKeyedInformation<T>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub sum: Option<PlatformKeyedInformation<T>>,
 }
 

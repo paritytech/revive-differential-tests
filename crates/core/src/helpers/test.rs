@@ -312,8 +312,8 @@ impl<'a> TestDefinition<'a> {
         let test_case_status = report
             .execution_information
             .get(&(self.metadata_file_path.to_path_buf().into()))
-            .and_then(|obj| obj.get(&self.case_idx))
-            .and_then(|obj| obj.get(&self.mode))
+            .and_then(|obj| obj.case_reports.get(&self.case_idx))
+            .and_then(|obj| obj.mode_execution_reports.get(&self.mode))
             .and_then(|obj| obj.status.as_ref());
 
         match test_case_status {
