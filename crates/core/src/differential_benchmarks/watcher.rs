@@ -1,10 +1,12 @@
-use std::{collections::HashSet, pin::Pin, sync::Arc};
+use std::{collections::HashMap, pin::Pin, sync::Arc};
 
 use alloy::primitives::{BlockNumber, TxHash};
 use anyhow::Result;
 use futures::{Stream, StreamExt};
 use revive_dt_common::types::PlatformIdentifier;
+use revive_dt_format::steps::StepPath;
 use revive_dt_node_interaction::MinedBlockInformation;
+use revive_dt_report::Reporter;
 use tokio::sync::{
     RwLock,
     mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel},
@@ -25,12 +27,16 @@ pub struct Watcher {
     /// This is a stream of the blocks that were mined by the node. This is for a single platform
     /// and a single node from that platform.
     blocks_stream: Pin<Box<dyn Stream<Item = MinedBlockInformation>>>,
+
+    /// The reporter used to send events to the report aggregator.
+    reporter: Reporter,
 }
 
 impl Watcher {
     pub fn new(
         platform_identifier: PlatformIdentifier,
         blocks_stream: Pin<Box<dyn Stream<Item = MinedBlockInformation>>>,
+        reporter: Reporter,
     ) -> (Self, UnboundedSender<WatcherEvent>) {
         let (tx, rx) = unbounded_channel::<WatcherEvent>();
         (
@@ -38,6 +44,7 @@ impl Watcher {
                 platform_identifier,
                 rx,
                 blocks_stream,
+                reporter,
             },
             tx,
         )
@@ -61,7 +68,8 @@ impl Watcher {
         // This is the set of the transaction hashes that the watcher should be looking for and
         // watch for them in the blocks. The watcher will keep watching for blocks until it sees
         // that all of the transactions that it was watching for has been seen in the mined blocks.
-        let watch_for_transaction_hashes = Arc::new(RwLock::new(HashSet::<TxHash>::new()));
+        let watch_for_transaction_hashes =
+            Arc::new(RwLock::new(HashMap::<TxHash, StepPath>::new()));
 
         // A boolean that keeps track of whether all of the transactions were submitted or if more
         // txs are expected to come through the receive side of the channel. We do not want to rely
@@ -81,11 +89,14 @@ impl Watcher {
                         // contain nested repetitions and therefore there's no use in doing any
                         // action if the repetitions are nested.
                         WatcherEvent::RepetitionStartEvent { .. } => {}
-                        WatcherEvent::SubmittedTransaction { transaction_hash } => {
+                        WatcherEvent::SubmittedTransaction {
+                            transaction_hash,
+                            step_path,
+                        } => {
                             watch_for_transaction_hashes
                                 .write()
                                 .await
-                                .insert(transaction_hash);
+                                .insert(transaction_hash, step_path);
                         }
                         WatcherEvent::AllTransactionsSubmitted => {
                             *all_transactions_submitted.write().await = true;
@@ -184,7 +195,7 @@ impl Watcher {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum WatcherEvent {
     /// Informs the watcher that it should begin watching for the blocks mined by the platforms.
     /// Before the watcher receives this event it will not be watching for the mined blocks. The
@@ -204,6 +215,8 @@ pub enum WatcherEvent {
     SubmittedTransaction {
         /// The hash of the submitted transaction.
         transaction_hash: TxHash,
+        /// The step path of the step that the transaction belongs to.
+        step_path: StepPath,
     },
 
     /// Informs the watcher that all of the transactions of this benchmark have been submitted and

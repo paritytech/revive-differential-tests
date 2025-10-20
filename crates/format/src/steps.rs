@@ -45,12 +45,12 @@ pub enum Step {
 }
 
 define_wrapper_type!(
-    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
     pub struct StepIdx(usize) impl Display, FromStr;
 );
 
 define_wrapper_type!(
-    #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+    #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
     #[serde(try_from = "String", into = "String")]
     pub struct StepPath(Vec<StepIdx>);
 );
