@@ -47,6 +47,15 @@ impl Context {
     pub fn report_configuration(&self) -> &ReportConfiguration {
         self.as_ref()
     }
+
+    pub fn update_for_profile(&mut self) {
+        match self {
+            Context::Test(ctx) => ctx.update_for_profile(),
+            Context::Benchmark(ctx) => ctx.update_for_profile(),
+            Context::ExportJsonSchema => {}
+            Context::ExportGenesis(..) => {}
+        }
+    }
 }
 
 impl AsRef<WorkingDirectoryConfiguration> for Context {
@@ -220,6 +229,11 @@ impl AsRef<IgnoreSuccessConfiguration> for Context {
 
 #[derive(Clone, Debug, Parser, Serialize, Deserialize)]
 pub struct TestExecutionContext {
+    /// The commandline profile to use. Different profiles change the defaults of the various cli
+    /// arguments.
+    #[arg(long = "profile", default_value_t = Profile::Default)]
+    pub profile: Profile,
+
     /// The set of platforms that the differential tests should run on.
     #[arg(
         short = 'p',
@@ -306,8 +320,41 @@ pub struct TestExecutionContext {
     pub ignore_success_configuration: IgnoreSuccessConfiguration,
 }
 
+impl TestExecutionContext {
+    pub fn update_for_profile(&mut self) {
+        match self.profile {
+            Profile::Default => {}
+            Profile::Debug => {
+                let default_concurrency_config =
+                    ConcurrencyConfiguration::parse_from(["concurrency-configuration"]);
+
+                if self.concurrency_configuration.number_of_nodes
+                    == default_concurrency_config.number_of_nodes
+                {
+                    self.concurrency_configuration.number_of_nodes = 1;
+                }
+                if self.concurrency_configuration.number_of_threads
+                    == default_concurrency_config.number_of_threads
+                {
+                    self.concurrency_configuration.number_of_threads = 5;
+                }
+                if self.concurrency_configuration.number_concurrent_tasks
+                    == default_concurrency_config.number_concurrent_tasks
+                {
+                    self.concurrency_configuration.number_concurrent_tasks = 1;
+                }
+            }
+        }
+    }
+}
+
 #[derive(Clone, Debug, Parser, Serialize, Deserialize)]
 pub struct BenchmarkingContext {
+    /// The commandline profile to use. Different profiles change the defaults of the various cli
+    /// arguments.
+    #[arg(long = "profile", default_value_t = Profile::Default)]
+    pub profile: Profile,
+
     /// The working directory that the program will use for all of the temporary artifacts needed at
     /// runtime.
     ///
@@ -385,6 +432,34 @@ pub struct BenchmarkingContext {
     /// Configuration parameters for the report.
     #[clap(flatten, next_help_heading = "Report Configuration")]
     pub report_configuration: ReportConfiguration,
+}
+
+impl BenchmarkingContext {
+    pub fn update_for_profile(&mut self) {
+        match self.profile {
+            Profile::Default => {}
+            Profile::Debug => {
+                let default_concurrency_config =
+                    ConcurrencyConfiguration::parse_from(["concurrency-configuration"]);
+
+                if self.concurrency_configuration.number_of_nodes
+                    == default_concurrency_config.number_of_nodes
+                {
+                    self.concurrency_configuration.number_of_nodes = 1;
+                }
+                if self.concurrency_configuration.number_of_threads
+                    == default_concurrency_config.number_of_threads
+                {
+                    self.concurrency_configuration.number_of_threads = 5;
+                }
+                if self.concurrency_configuration.number_concurrent_tasks
+                    == default_concurrency_config.number_concurrent_tasks
+                {
+                    self.concurrency_configuration.number_concurrent_tasks = 1;
+                }
+            }
+        }
+    }
 }
 
 #[derive(Clone, Debug, Parser, Serialize, Deserialize)]
@@ -1124,4 +1199,39 @@ pub enum OutputFormat {
 
     /// An output format that looks heavily resembles the output from `cargo test`.
     CargoTestLike,
+}
+
+/// Command line profiles used to override the default values provided for the commands.
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    Default,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    Serialize,
+    Deserialize,
+    ValueEnum,
+    EnumString,
+    Display,
+    AsRefStr,
+    IntoStaticStr,
+)]
+#[strum(serialize_all = "kebab-case")]
+pub enum Profile {
+    /// The default profile used by the framework. This profile is optimized to make the test
+    /// and workload execution happen as fast as possible.
+    #[default]
+    Default,
+
+    /// A debug profile optimized for use cases when certain tests are being debugged. This profile
+    /// sets up the framework with the following:
+    ///
+    /// * `concurrency.number-of-nodes` set to 1 node.
+    /// * `concurrency.number-of-concurrent-tasks` set to 1 such that tests execute sequentially.
+    /// * `concurrency.number-of-threads` set to 5.
+    Debug,
 }
