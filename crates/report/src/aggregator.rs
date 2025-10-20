@@ -5,16 +5,16 @@ use std::{
     collections::{BTreeMap, BTreeSet, HashMap, HashSet},
     fs::OpenOptions,
     path::PathBuf,
-    time::{SystemTime, UNIX_EPOCH},
+    time::{Instant, SystemTime, UNIX_EPOCH},
 };
 
-use alloy::primitives::Address;
+use alloy::primitives::{Address, BlockNumber, BlockTimestamp, TxHash};
 use anyhow::{Context as _, Result};
 use indexmap::IndexMap;
 use revive_dt_common::types::{ParsedTestSpecifier, PlatformIdentifier};
 use revive_dt_compiler::{CompilerInput, CompilerOutput, Mode};
 use revive_dt_config::Context;
-use revive_dt_format::{case::CaseIdx, metadata::ContractInstance};
+use revive_dt_format::{case::CaseIdx, metadata::ContractInstance, steps::StepPath};
 use semver::Version;
 use serde::{Deserialize, Serialize};
 use serde_with::{DisplayFromStr, serde_as};
@@ -477,6 +477,7 @@ pub struct ExecutionReport {
     pub metrics: Option<Metrics>,
     /// Information related to the execution on one of the platforms.
     pub platform_execution: PlatformKeyedInformation<Option<ExecutionInformation>>,
+    pub steps: BTreeMap<StepPath, StepReport>,
 }
 
 /// Information related to the status of the test. Could be that the test succeeded, failed, or that
@@ -573,6 +574,23 @@ pub enum CompilationStatus {
         #[serde(skip_serializing_if = "Option::is_none")]
         compiler_input: Option<CompilerInput>,
     },
+}
+
+/// Information on each step in the execution.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct StepReport {
+    /// Information on the transactions submitted as part of this step.
+    transactions: PlatformKeyedInformation<Vec<TransactionInformation>>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct TransactionInformation {
+    /// The hash of the transaction
+    pub transaction_hash: TxHash,
+    pub submission_timestamp: u64,
+    pub block_timestamp: u64,
+    pub block_number: BlockNumber,
+    pub gas_used: u64,
 }
 
 /// The metrics we collect for our benchmarks.
