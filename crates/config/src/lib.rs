@@ -327,6 +327,7 @@ impl TestExecutionContext {
             Profile::Debug => {
                 let default_concurrency_config =
                     ConcurrencyConfiguration::parse_from(["concurrency-configuration"]);
+                let working_directory_config = WorkingDirectoryConfiguration::default();
 
                 if self.concurrency_configuration.number_of_nodes
                     == default_concurrency_config.number_of_nodes
@@ -342,6 +343,13 @@ impl TestExecutionContext {
                     == default_concurrency_config.number_concurrent_tasks
                 {
                     self.concurrency_configuration.number_concurrent_tasks = 1;
+                }
+
+                if working_directory_config == self.working_directory {
+                    let home_directory =
+                        PathBuf::from(std::env::var("HOME").expect("Home dir not found"));
+                    let working_directory = home_directory.join(".retester-workdir");
+                    self.working_directory = WorkingDirectoryConfiguration::Path(working_directory)
                 }
             }
         }
@@ -441,6 +449,7 @@ impl BenchmarkingContext {
             Profile::Debug => {
                 let default_concurrency_config =
                     ConcurrencyConfiguration::parse_from(["concurrency-configuration"]);
+                let working_directory_config = WorkingDirectoryConfiguration::default();
 
                 if self.concurrency_configuration.number_of_nodes
                     == default_concurrency_config.number_of_nodes
@@ -456,6 +465,13 @@ impl BenchmarkingContext {
                     == default_concurrency_config.number_concurrent_tasks
                 {
                     self.concurrency_configuration.number_concurrent_tasks = 1;
+                }
+
+                if working_directory_config == self.working_directory {
+                    let home_directory =
+                        PathBuf::from(std::env::var("HOME").expect("Home dir not found"));
+                    let working_directory = home_directory.join(".retester-workdir");
+                    self.working_directory = WorkingDirectoryConfiguration::Path(working_directory)
                 }
             }
         }
@@ -1064,7 +1080,7 @@ pub struct IgnoreSuccessConfiguration {
 }
 
 /// Represents the working directory that the program uses.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum WorkingDirectoryConfiguration {
     /// A temporary directory is used as the working directory. This will be removed when dropped.
     TemporaryDirectory(Arc<TempDir>),
@@ -1233,5 +1249,6 @@ pub enum Profile {
     /// * `concurrency.number-of-nodes` set to 1 node.
     /// * `concurrency.number-of-concurrent-tasks` set to 1 such that tests execute sequentially.
     /// * `concurrency.number-of-threads` set to 5.
+    /// * `working-directory` set to ~/.retester-workdir
     Debug,
 }
