@@ -113,7 +113,7 @@ impl Watcher {
                 while let Some(block) = blocks_information_stream.next().await {
                     // If the block number is equal to or less than the last block before the
                     // repetition then we ignore it and continue on to the next block.
-                    if block.block_number <= ignore_block_before {
+                    if block.ethereum_block_information.block_number <= ignore_block_before {
                         continue;
                     }
 
@@ -124,8 +124,8 @@ impl Watcher {
                     }
 
                     info!(
-                        block_number = block.block_number,
-                        block_tx_count = block.transaction_hashes.len(),
+                        block_number = block.ethereum_block_information.block_number,
+                        block_tx_count = block.ethereum_block_information.transaction_hashes.len(),
                         remaining_transactions = watch_for_transaction_hashes.read().await.len(),
                         "Observed a block"
                     );
@@ -134,7 +134,7 @@ impl Watcher {
                     // are currently watching for.
                     let mut watch_for_transaction_hashes =
                         watch_for_transaction_hashes.write().await;
-                    for tx_hash in block.transaction_hashes.iter() {
+                    for tx_hash in block.ethereum_block_information.transaction_hashes.iter() {
                         watch_for_transaction_hashes.remove(tx_hash);
                     }
 
@@ -143,16 +143,28 @@ impl Watcher {
                     // reporting in place and then it can be removed. This serves as as way of doing
                     // some very simple reporting for the time being.
                     eprintln!(
-                        "\"{}\",\"{}\",\"{}\",\"{}\",\"{}\",\"{}\",\"{}\",\"{}\",\"{}\"",
-                        block.block_number,
-                        block.block_timestamp,
-                        block.mined_gas,
-                        block.block_gas_limit,
-                        block.transaction_hashes.len(),
-                        block.ref_time,
-                        block.max_ref_time,
-                        block.proof_size,
-                        block.max_proof_size,
+                        "\"{}\",\"{}\",\"{}\",\"{}\",\"{}\",\"{:?}\",\"{:?}\",\"{:?}\",\"{:?}\"",
+                        block.ethereum_block_information.block_number,
+                        block.ethereum_block_information.block_timestamp,
+                        block.ethereum_block_information.mined_gas,
+                        block.ethereum_block_information.block_gas_limit,
+                        block.ethereum_block_information.transaction_hashes.len(),
+                        block
+                            .substrate_block_information
+                            .as_ref()
+                            .map(|block| block.ref_time),
+                        block
+                            .substrate_block_information
+                            .as_ref()
+                            .map(|block| block.max_ref_time),
+                        block
+                            .substrate_block_information
+                            .as_ref()
+                            .map(|block| block.proof_size),
+                        block
+                            .substrate_block_information
+                            .as_ref()
+                            .map(|block| block.max_proof_size),
                     );
                     // endregion:TEMPORARY
 

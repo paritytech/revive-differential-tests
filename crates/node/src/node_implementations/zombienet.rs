@@ -60,7 +60,7 @@ use revive_common::EVMVersion;
 use revive_dt_common::fs::clear_directory;
 use revive_dt_config::*;
 use revive_dt_format::traits::ResolverApi;
-use revive_dt_node_interaction::{EthereumNode, MinedBlockInformation};
+use revive_dt_node_interaction::*;
 use serde_json::json;
 use sp_core::crypto::Ss58Codec;
 use sp_runtime::AccountId32;
@@ -578,20 +578,24 @@ impl EthereumNode for ZombienetNode {
                     let max_proof_size = limits.max_block.proof_size;
 
                     Some(MinedBlockInformation {
-                        block_number: substrate_block.number() as _,
-                        block_timestamp: revive_block.header.timestamp,
-                        mined_gas: revive_block.header.gas_used as _,
-                        block_gas_limit: revive_block.header.gas_limit as _,
-                        transaction_hashes: revive_block
-                            .transactions
-                            .into_hashes()
-                            .as_hashes()
-                            .expect("Must be hashes")
-                            .to_vec(),
-                        ref_time: block_ref_time,
-                        max_ref_time,
-                        proof_size: block_proof_size,
-                        max_proof_size,
+                        ethereum_block_information: EthereumMinedBlockInformation {
+                            block_number: revive_block.number(),
+                            block_timestamp: revive_block.header.timestamp,
+                            mined_gas: revive_block.header.gas_used as _,
+                            block_gas_limit: revive_block.header.gas_limit as _,
+                            transaction_hashes: revive_block
+                                .transactions
+                                .into_hashes()
+                                .as_hashes()
+                                .expect("Must be hashes")
+                                .to_vec(),
+                        },
+                        substrate_block_information: Some(SubstrateMinedBlockInformation {
+                            ref_time: block_ref_time,
+                            max_ref_time,
+                            proof_size: block_proof_size,
+                            max_proof_size,
+                        }),
                     })
                 }
             });

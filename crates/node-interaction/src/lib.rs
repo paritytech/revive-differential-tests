@@ -83,6 +83,12 @@ pub trait EthereumNode {
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct MinedBlockInformation {
+    pub ethereum_block_information: EthereumMinedBlockInformation,
+    pub substrate_block_information: Option<SubstrateMinedBlockInformation>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct EthereumMinedBlockInformation {
     /// The block number.
     pub block_number: BlockNumber,
 
@@ -97,7 +103,10 @@ pub struct MinedBlockInformation {
 
     /// The hashes of the transactions that were mined as part of the block.
     pub transaction_hashes: Vec<TxHash>,
+}
 
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct SubstrateMinedBlockInformation {
     /// The ref time for substrate based chains.
     pub ref_time: u128,
 
