@@ -205,6 +205,7 @@ pub async fn handle_differential_tests(
                 ?remaining_tasks,
                 "Remaining Tests"
             );
+            drop(remaining_tasks);
             tokio::time::sleep(Duration::from_secs(10)).await
         }
     });
