@@ -623,6 +623,16 @@ define_event! {
             step_path: StepPath,
             /// Information about the transaction
             transaction_information: TransactionInformation
+        },
+        ContractInformation {
+            /// A specifier for the execution that's taking place.
+            execution_specifier: Arc<ExecutionSpecifier>,
+            /// The path of the solidity source code that contains the contract.
+            source_code_path: PathBuf,
+            /// The name of the contract
+            contract_name: String,
+            /// The size of the contract
+            contract_size: usize
         }
     }
 }

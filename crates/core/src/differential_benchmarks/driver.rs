@@ -218,6 +218,22 @@ where
             .inspect_err(|err| error!(?err, "Post-linking compilation failed"))
             .context("Failed to compile the post-link contracts")?;
 
+        for (contract_path, contract_name_to_info_mapping) in compiler_output.contracts.iter() {
+            for (contract_name, (contract_bytecode, _)) in contract_name_to_info_mapping.iter() {
+                let contract_bytecode = hex::decode(contract_bytecode)
+                    .expect("Impossible for us to get an undecodable bytecode after linking");
+
+                self.platform_information
+                    .reporter
+                    .report_contract_information_event(
+                        contract_path.to_path_buf(),
+                        contract_name.clone(),
+                        contract_bytecode.len(),
+                    )
+                    .expect("Should not fail");
+            }
+        }
+
         self.execution_state = ExecutionState::new(
             compiler_output.contracts,
             deployed_libraries.unwrap_or_default(),

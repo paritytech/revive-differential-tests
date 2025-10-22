@@ -111,6 +111,9 @@ impl ReportAggregator {
                 RunnerEvent::StepTransactionInformation(event) => {
                     self.handle_step_transaction_information(*event)
                 }
+                RunnerEvent::ContractInformation(event) => {
+                    self.handle_contract_information(*event);
+                }
             }
         }
         debug!("Report aggregation completed");
@@ -400,6 +403,20 @@ impl ReportAggregator {
             .push(event.transaction_information);
     }
 
+    fn handle_contract_information(&mut self, event: ContractInformationEvent) {
+        self.test_case_report(&event.execution_specifier.test_specifier)
+            .compiled_contracts
+            .entry(event.source_code_path)
+            .or_default()
+            .entry(event.contract_name)
+            .or_default()
+            .contract_size
+            .insert(
+                event.execution_specifier.platform_identifier,
+                event.contract_size,
+            );
+    }
+
     fn test_case_report(&mut self, specifier: &TestSpecifier) -> &mut ExecutionReport {
         self.report
             .execution_information
@@ -480,8 +497,13 @@ pub struct ExecutionReport {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub metrics: Option<Metrics>,
     /// Information related to the execution on one of the platforms.
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     pub platform_execution: PlatformKeyedInformation<Option<ExecutionInformation>>,
+    /// Information on the compiled contracts.
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub compiled_contracts: BTreeMap<PathBuf, BTreeMap<String, ContractInformation>>,
     /// Information tracked for each step that was executed.
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     pub steps: BTreeMap<StepPath, StepReport>,
 }
 
@@ -612,7 +634,7 @@ pub struct Metrics {
 }
 
 /// The data that we store for a given metric (e.g., TPS).
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct Metric<T> {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub minimum: Option<PlatformKeyedInformation<T>>,
@@ -624,6 +646,12 @@ pub struct Metric<T> {
     pub median: Option<PlatformKeyedInformation<T>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sum: Option<PlatformKeyedInformation<T>>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
+pub struct ContractInformation {
+    /// The size of the contract on the various platforms.
+    pub contract_size: PlatformKeyedInformation<usize>,
 }
 
 /// Information keyed by the platform identifier.
