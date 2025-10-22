@@ -8,7 +8,6 @@ use std::{
 use alloy::primitives::{BlockNumber, TxHash};
 use anyhow::Result;
 use futures::{Stream, StreamExt};
-use revive_dt_common::types::PlatformIdentifier;
 use revive_dt_format::steps::StepPath;
 use revive_dt_report::{ExecutionSpecificReporter, MinedBlockInformation, TransactionInformation};
 use tokio::sync::{
@@ -21,9 +20,6 @@ use tracing::{info, instrument};
 /// and MUST NOT be re-used between workloads since it holds important internal state for a given
 /// workload and is not designed for reuse.
 pub struct Watcher {
-    /// The identifier of the platform that this watcher is for.
-    platform_identifier: PlatformIdentifier,
-
     /// The receive side of the channel that all of the drivers and various other parts of the code
     /// send events to the watcher on.
     rx: UnboundedReceiver<WatcherEvent>,
@@ -38,14 +34,12 @@ pub struct Watcher {
 
 impl Watcher {
     pub fn new(
-        platform_identifier: PlatformIdentifier,
         blocks_stream: Pin<Box<dyn Stream<Item = MinedBlockInformation>>>,
         reporter: ExecutionSpecificReporter,
     ) -> (Self, UnboundedSender<WatcherEvent>) {
         let (tx, rx) = unbounded_channel::<WatcherEvent>();
         (
             Self {
-                platform_identifier,
                 rx,
                 blocks_stream,
                 reporter,
@@ -118,14 +112,6 @@ impl Watcher {
             let all_transactions_submitted = all_transactions_submitted.clone();
             let mut blocks_information_stream = self.blocks_stream;
             async move {
-                let mut mined_blocks_information = Vec::new();
-
-                // region:TEMPORARY
-                eprintln!("Watcher information for {}", self.platform_identifier);
-                eprintln!(
-                    "block_number,block_timestamp,mined_gas,block_gas_limit,tx_count,ref_time,max_ref_time,proof_size,max_proof_size"
-                );
-                // endregion:TEMPORARY
                 while let Some(block) = blocks_information_stream.next().await {
                     // If the block number is equal to or less than the last block before the
                     // repetition then we ignore it and continue on to the next block.
@@ -175,42 +161,9 @@ impl Watcher {
                             )
                             .expect("Can't fail")
                     }
-
-                    // region:TEMPORARY
-                    // TODO: The following core is TEMPORARY and will be removed once we have proper
-                    // reporting in place and then it can be removed. This serves as as way of doing
-                    // some very simple reporting for the time being.
-                    eprintln!(
-                        "\"{}\",\"{}\",\"{}\",\"{}\",\"{}\",\"{:?}\",\"{:?}\",\"{:?}\",\"{:?}\"",
-                        block.ethereum_block_information.block_number,
-                        block.ethereum_block_information.block_timestamp,
-                        block.ethereum_block_information.mined_gas,
-                        block.ethereum_block_information.block_gas_limit,
-                        block.ethereum_block_information.transaction_hashes.len(),
-                        block
-                            .substrate_block_information
-                            .as_ref()
-                            .map(|block| block.ref_time),
-                        block
-                            .substrate_block_information
-                            .as_ref()
-                            .map(|block| block.max_ref_time),
-                        block
-                            .substrate_block_information
-                            .as_ref()
-                            .map(|block| block.proof_size),
-                        block
-                            .substrate_block_information
-                            .as_ref()
-                            .map(|block| block.max_proof_size),
-                    );
-                    // endregion:TEMPORARY
-
-                    mined_blocks_information.push(block);
                 }
 
                 info!("Watcher's Block Watching Task Finished");
-                mined_blocks_information
             }
         };
 
