@@ -37,9 +37,9 @@ use sp_core::crypto::Ss58Codec;
 use sp_runtime::AccountId32;
 
 use revive_dt_config::*;
-use revive_dt_node_interaction::{
-    EthereumMinedBlockInformation, EthereumNode, MinedBlockInformation,
-    SubstrateMinedBlockInformation,
+use revive_dt_node_interaction::EthereumNode;
+use revive_dt_report::{
+    EthereumMinedBlockInformation, MinedBlockInformation, SubstrateMinedBlockInformation,
 };
 use subxt::{OnlineClient, SubstrateConfig};
 use tokio::sync::OnceCell;

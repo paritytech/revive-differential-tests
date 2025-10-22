@@ -14,6 +14,7 @@ use revive_dt_format::steps::StepPath;
 use semver::Version;
 use tokio::sync::{broadcast, oneshot};
 
+use crate::MinedBlockInformation;
 use crate::TransactionInformation;
 use crate::{ExecutionSpecifier, ReporterEvent, TestSpecifier, common::MetadataFilePath};
 
@@ -633,6 +634,12 @@ define_event! {
             contract_name: String,
             /// The size of the contract
             contract_size: usize
+        },
+        BlockMined {
+            /// A specifier for the execution that's taking place.
+            execution_specifier: Arc<ExecutionSpecifier>,
+            /// Information on the mined block,
+            mined_block_information: MinedBlockInformation
         }
     }
 }

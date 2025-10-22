@@ -8,7 +8,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use alloy::primitives::{Address, BlockNumber, TxHash};
+use alloy::primitives::{Address, BlockNumber, BlockTimestamp, TxHash};
 use anyhow::{Context as _, Result};
 use indexmap::IndexMap;
 use revive_dt_common::types::PlatformIdentifier;
@@ -114,6 +114,7 @@ impl ReportAggregator {
                 RunnerEvent::ContractInformation(event) => {
                     self.handle_contract_information(*event);
                 }
+                RunnerEvent::BlockMined(event) => self.handle_block_mined(*event),
             }
         }
         debug!("Report aggregation completed");
@@ -385,7 +386,14 @@ impl ReportAggregator {
         self.execution_information(&event.execution_specifier)
             .deployed_contracts
             .get_or_insert_default()
-            .insert(event.contract_instance, event.address);
+            .insert(event.contract_instance.clone(), event.address);
+        self.test_case_report(&event.execution_specifier.test_specifier)
+            .contract_addresses
+            .entry(event.contract_instance)
+            .or_default()
+            .entry(event.execution_specifier.platform_identifier)
+            .or_default()
+            .push(event.address);
     }
 
     fn handle_completion(&mut self, _: CompletionEvent) {
@@ -415,6 +423,14 @@ impl ReportAggregator {
                 event.execution_specifier.platform_identifier,
                 event.contract_size,
             );
+    }
+
+    fn handle_block_mined(&mut self, event: BlockMinedEvent) {
+        self.test_case_report(&event.execution_specifier.test_specifier)
+            .mined_block_information
+            .entry(event.execution_specifier.platform_identifier)
+            .or_default()
+            .push(event.mined_block_information);
     }
 
     fn test_case_report(&mut self, specifier: &TestSpecifier) -> &mut ExecutionReport {
@@ -502,6 +518,12 @@ pub struct ExecutionReport {
     /// Information on the compiled contracts.
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     pub compiled_contracts: BTreeMap<PathBuf, BTreeMap<String, ContractInformation>>,
+    /// The addresses of the deployed contracts
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub contract_addresses: BTreeMap<ContractInstance, PlatformKeyedInformation<Vec<Address>>>,
+    /// Information on the mined blocks as part of this execution.
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub mined_block_information: PlatformKeyedInformation<Vec<MinedBlockInformation>>,
     /// Information tracked for each step that was executed.
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     pub steps: BTreeMap<StepPath, StepReport>,
@@ -652,6 +674,45 @@ pub struct Metric<T> {
 pub struct ContractInformation {
     /// The size of the contract on the various platforms.
     pub contract_size: PlatformKeyedInformation<usize>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+pub struct MinedBlockInformation {
+    pub ethereum_block_information: EthereumMinedBlockInformation,
+    pub substrate_block_information: Option<SubstrateMinedBlockInformation>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+pub struct EthereumMinedBlockInformation {
+    /// The block number.
+    pub block_number: BlockNumber,
+
+    /// The block timestamp.
+    pub block_timestamp: BlockTimestamp,
+
+    /// The amount of gas mined in the block.
+    pub mined_gas: u128,
+
+    /// The gas limit of the block.
+    pub block_gas_limit: u128,
+
+    /// The hashes of the transactions that were mined as part of the block.
+    pub transaction_hashes: Vec<TxHash>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+pub struct SubstrateMinedBlockInformation {
+    /// The ref time for substrate based chains.
+    pub ref_time: u128,
+
+    /// The max ref time for substrate based chains.
+    pub max_ref_time: u64,
+
+    /// The proof size for substrate based chains.
+    pub proof_size: u128,
+
+    /// The max proof size for substrate based chains.
+    pub max_proof_size: u64,
 }
 
 /// Information keyed by the platform identifier.

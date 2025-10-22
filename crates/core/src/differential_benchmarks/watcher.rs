@@ -10,8 +10,7 @@ use anyhow::Result;
 use futures::{Stream, StreamExt};
 use revive_dt_common::types::PlatformIdentifier;
 use revive_dt_format::steps::StepPath;
-use revive_dt_node_interaction::MinedBlockInformation;
-use revive_dt_report::{ExecutionSpecificReporter, TransactionInformation};
+use revive_dt_report::{ExecutionSpecificReporter, MinedBlockInformation, TransactionInformation};
 use tokio::sync::{
     RwLock,
     mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel},
@@ -133,6 +132,9 @@ impl Watcher {
                     if block.ethereum_block_information.block_number <= ignore_block_before {
                         continue;
                     }
+                    reporter
+                        .report_block_mined_event(block.clone())
+                        .expect("Can't fail");
 
                     if *all_transactions_submitted.read().await
                         && watch_for_transaction_hashes.read().await.is_empty()

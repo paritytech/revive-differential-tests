@@ -61,6 +61,9 @@ use revive_dt_common::fs::clear_directory;
 use revive_dt_config::*;
 use revive_dt_format::traits::ResolverApi;
 use revive_dt_node_interaction::*;
+use revive_dt_report::{
+    EthereumMinedBlockInformation, MinedBlockInformation, SubstrateMinedBlockInformation,
+};
 use serde_json::json;
 use sp_core::crypto::Ss58Codec;
 use sp_runtime::AccountId32;

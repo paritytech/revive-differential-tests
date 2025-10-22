@@ -5692,6 +5692,7 @@ dependencies = [
  "revive-dt-config",
  "revive-dt-format",
  "revive-dt-node-interaction",
+ "revive-dt-report",
  "serde",
  "serde_json",
  "serde_with",
@@ -5715,6 +5716,7 @@ dependencies = [
  "futures",
  "revive-common",
  "revive-dt-format",
+ "revive-dt-report",
 ]
 
 [[package]]

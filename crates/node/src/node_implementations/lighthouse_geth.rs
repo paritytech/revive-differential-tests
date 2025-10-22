@@ -56,9 +56,8 @@ use revive_dt_common::{
 };
 use revive_dt_config::*;
 use revive_dt_format::traits::ResolverApi;
-use revive_dt_node_interaction::{
-    EthereumMinedBlockInformation, EthereumNode, MinedBlockInformation,
-};
+use revive_dt_node_interaction::EthereumNode;
+use revive_dt_report::{EthereumMinedBlockInformation, MinedBlockInformation};
 
 use crate::{
     Node,
