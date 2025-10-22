@@ -221,7 +221,7 @@ impl SubstrateNode {
                 }
             },
             ProcessReadinessWaitBehavior::TimeBoundedWaitFunction {
-                max_wait_duration: Duration::from_secs(30),
+                max_wait_duration: Duration::from_secs(90),
                 check_function: Box::new(|_, stderr_line| match stderr_line {
                     Some(line) => Ok(line.contains(Self::SUBSTRATE_READY_MARKER)),
                     None => Ok(false),

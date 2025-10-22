@@ -6,7 +6,7 @@ use anyhow::Context as _;
 use clap::Parser;
 use revive_dt_report::ReportAggregator;
 use schemars::schema_for;
-use tracing::info;
+use tracing::{info, level_filters::LevelFilter};
 use tracing_subscriber::{EnvFilter, FmtSubscriber};
 
 use revive_dt_config::Context;
@@ -31,14 +31,20 @@ fn main() -> anyhow::Result<()> {
         .with_writer(writer)
         .with_thread_ids(false)
         .with_thread_names(false)
-        .with_env_filter(EnvFilter::from_default_env())
+        .with_env_filter(
+            EnvFilter::builder()
+                .with_default_directive(LevelFilter::OFF.into())
+                .from_env_lossy(),
+        )
         .with_ansi(false)
         .pretty()
         .finish();
     tracing::subscriber::set_global_default(subscriber)?;
     info!("Differential testing tool is starting");
 
-    let context = Context::try_parse()?;
+    let mut context = Context::try_parse()?;
+    context.update_for_profile();
+
     let (reporter, report_aggregator_task) = ReportAggregator::new(context.clone()).into_task();
 
     match context {
