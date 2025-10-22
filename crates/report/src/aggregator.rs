@@ -107,6 +107,10 @@ impl ReportAggregator {
                     self.handle_completion(*event);
                     break;
                 }
+                /* Benchmarks Events */
+                RunnerEvent::StepTransactionInformation(event) => {
+                    self.handle_step_transaction_information(*event)
+                }
             }
         }
         debug!("Report aggregation completed");
@@ -385,6 +389,17 @@ impl ReportAggregator {
         self.runner_rx.close();
     }
 
+    fn handle_step_transaction_information(&mut self, event: StepTransactionInformationEvent) {
+        self.test_case_report(&event.execution_specifier.test_specifier)
+            .steps
+            .entry(event.step_path)
+            .or_default()
+            .transactions
+            .entry(event.execution_specifier.platform_identifier)
+            .or_default()
+            .push(event.transaction_information);
+    }
+
     fn test_case_report(&mut self, specifier: &TestSpecifier) -> &mut ExecutionReport {
         self.report
             .execution_information
@@ -466,6 +481,7 @@ pub struct ExecutionReport {
     pub metrics: Option<Metrics>,
     /// Information related to the execution on one of the platforms.
     pub platform_execution: PlatformKeyedInformation<Option<ExecutionInformation>>,
+    /// Information tracked for each step that was executed.
     pub steps: BTreeMap<StepPath, StepReport>,
 }
 
@@ -566,7 +582,7 @@ pub enum CompilationStatus {
 }
 
 /// Information on each step in the execution.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct StepReport {
     /// Information on the transactions submitted as part of this step.
     transactions: PlatformKeyedInformation<Vec<TransactionInformation>>,
@@ -579,7 +595,6 @@ pub struct TransactionInformation {
     pub submission_timestamp: u64,
     pub block_timestamp: u64,
     pub block_number: BlockNumber,
-    pub gas_used: u64,
 }
 
 /// The metrics we collect for our benchmarks.

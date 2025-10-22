@@ -1,4 +1,9 @@
-use std::{collections::HashMap, pin::Pin, sync::Arc};
+use std::{
+    collections::HashMap,
+    pin::Pin,
+    sync::Arc,
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 use alloy::primitives::{BlockNumber, TxHash};
 use anyhow::Result;
@@ -6,7 +11,7 @@ use futures::{Stream, StreamExt};
 use revive_dt_common::types::PlatformIdentifier;
 use revive_dt_format::steps::StepPath;
 use revive_dt_node_interaction::MinedBlockInformation;
-use revive_dt_report::ExecutionSpecificReporter;
+use revive_dt_report::{ExecutionSpecificReporter, TransactionInformation};
 use tokio::sync::{
     RwLock,
     mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel},
@@ -69,7 +74,7 @@ impl Watcher {
         // watch for them in the blocks. The watcher will keep watching for blocks until it sees
         // that all of the transactions that it was watching for has been seen in the mined blocks.
         let watch_for_transaction_hashes =
-            Arc::new(RwLock::new(HashMap::<TxHash, StepPath>::new()));
+            Arc::new(RwLock::new(HashMap::<TxHash, (StepPath, SystemTime)>::new()));
 
         // A boolean that keeps track of whether all of the transactions were submitted or if more
         // txs are expected to come through the receive side of the channel. We do not want to rely
@@ -96,7 +101,7 @@ impl Watcher {
                             watch_for_transaction_hashes
                                 .write()
                                 .await
-                                .insert(transaction_hash, step_path);
+                                .insert(transaction_hash, (step_path, SystemTime::now()));
                         }
                         WatcherEvent::AllTransactionsSubmitted => {
                             *all_transactions_submitted.write().await = true;
@@ -108,6 +113,7 @@ impl Watcher {
                 }
             }
         };
+        let reporter = self.reporter.clone();
         let block_information_watching_task = {
             let watch_for_transaction_hashes = watch_for_transaction_hashes.clone();
             let all_transactions_submitted = all_transactions_submitted.clone();
@@ -146,7 +152,26 @@ impl Watcher {
                     let mut watch_for_transaction_hashes =
                         watch_for_transaction_hashes.write().await;
                     for tx_hash in block.ethereum_block_information.transaction_hashes.iter() {
-                        watch_for_transaction_hashes.remove(tx_hash);
+                        let Some((step_path, submission_time)) =
+                            watch_for_transaction_hashes.remove(tx_hash)
+                        else {
+                            continue;
+                        };
+                        let transaction_information = TransactionInformation {
+                            transaction_hash: *tx_hash,
+                            submission_timestamp: submission_time
+                                .duration_since(UNIX_EPOCH)
+                                .expect("Can't fail")
+                                .as_secs() as _,
+                            block_timestamp: block.ethereum_block_information.block_timestamp,
+                            block_number: block.ethereum_block_information.block_number,
+                        };
+                        reporter
+                            .report_step_transaction_information_event(
+                                step_path,
+                                transaction_information,
+                            )
+                            .expect("Can't fail")
                     }
 
                     // region:TEMPORARY

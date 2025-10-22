@@ -10,9 +10,11 @@ use revive_dt_common::types::PlatformIdentifier;
 use revive_dt_compiler::{CompilerInput, CompilerOutput};
 use revive_dt_format::metadata::ContractInstance;
 use revive_dt_format::metadata::Metadata;
+use revive_dt_format::steps::StepPath;
 use semver::Version;
 use tokio::sync::{broadcast, oneshot};
 
+use crate::TransactionInformation;
 use crate::{ExecutionSpecifier, ReporterEvent, TestSpecifier, common::MetadataFilePath};
 
 macro_rules! __report_gen_emit_test_specific {
@@ -609,7 +611,19 @@ define_event! {
             address: Address
         },
         /// Reports the completion of the run.
-        Completion {}
+        Completion {},
+
+        /* Benchmarks Events */
+        /// An event emitted with information on a transaction that was submitted for a certain step
+        /// of the execution.
+        StepTransactionInformation {
+            /// A specifier for the execution that's taking place.
+            execution_specifier: Arc<ExecutionSpecifier>,
+            /// The path of the step that this transaction belongs to.
+            step_path: StepPath,
+            /// Information about the transaction
+            transaction_information: TransactionInformation
+        }
     }
 }
 
