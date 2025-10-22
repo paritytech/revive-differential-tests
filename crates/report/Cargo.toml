@@ -17,6 +17,7 @@ alloy = { workspace = true }
 anyhow = { workspace = true }
 paste = { workspace = true }
 indexmap = { workspace = true, features = ["serde"] }
+itertools = { workspace = true }
 semver = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

@@ -4,6 +4,7 @@
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap, HashSet},
     fs::OpenOptions,
+    ops::{Add, Div},
     path::PathBuf,
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -11,6 +12,7 @@ use std::{
 use alloy::primitives::{Address, BlockNumber, BlockTimestamp, TxHash};
 use anyhow::{Context as _, Result};
 use indexmap::IndexMap;
+use itertools::Itertools;
 use revive_dt_common::types::PlatformIdentifier;
 use revive_dt_compiler::{CompilerInput, CompilerOutput, Mode};
 use revive_dt_config::Context;
@@ -103,8 +105,7 @@ impl ReportAggregator {
                 RunnerEvent::ContractDeployed(event) => {
                     self.handle_contract_deployed_event(*event);
                 }
-                RunnerEvent::Completion(event) => {
-                    self.handle_completion(*event);
+                RunnerEvent::Completion(_) => {
                     break;
                 }
                 /* Benchmarks Events */
@@ -117,6 +118,7 @@ impl ReportAggregator {
                 RunnerEvent::BlockMined(event) => self.handle_block_mined(*event),
             }
         }
+        self.handle_completion(CompletionEvent {});
         debug!("Report aggregation completed");
 
         let file_name = {
@@ -398,6 +400,101 @@ impl ReportAggregator {
 
     fn handle_completion(&mut self, _: CompletionEvent) {
         self.runner_rx.close();
+        self.handle_metrics_computation();
+    }
+
+    fn handle_metrics_computation(&mut self) {
+        for report in self.report.execution_information.values_mut() {
+            for report in report.case_reports.values_mut() {
+                for report in report.mode_execution_reports.values_mut() {
+                    for (platform_identifier, block_information) in
+                        report.mined_block_information.iter_mut()
+                    {
+                        block_information.sort_by(|a, b| {
+                            a.ethereum_block_information
+                                .block_timestamp
+                                .cmp(&b.ethereum_block_information.block_timestamp)
+                        });
+
+                        // Computing the TPS.
+                        let tps = block_information
+                            .iter()
+                            .tuple_windows::<(_, _)>()
+                            .map(|(block1, block2)| {
+                                block2.ethereum_block_information.transaction_hashes.len() as u64
+                                    / (block2.ethereum_block_information.block_timestamp
+                                        - block1.ethereum_block_information.block_timestamp)
+                            })
+                            .collect::<Vec<_>>();
+                        report
+                            .metrics
+                            .get_or_insert_default()
+                            .transaction_per_second
+                            .with_list(*platform_identifier, tps);
+
+                        // Computing the GPS.
+                        let gps = block_information
+                            .iter()
+                            .tuple_windows::<(_, _)>()
+                            .map(|(block1, block2)| {
+                                block2.ethereum_block_information.mined_gas as u64
+                                    / (block2.ethereum_block_information.block_timestamp
+                                        - block1.ethereum_block_information.block_timestamp)
+                            })
+                            .collect::<Vec<_>>();
+                        report
+                            .metrics
+                            .get_or_insert_default()
+                            .gas_per_second
+                            .with_list(*platform_identifier, gps);
+
+                        // Computing the gas block fullness
+                        let gas_block_fullness = block_information
+                            .iter()
+                            .map(|block| block.gas_block_fullness_percentage())
+                            .map(|v| v as u64)
+                            .collect::<Vec<_>>();
+                        report
+                            .metrics
+                            .get_or_insert_default()
+                            .gas_block_fullness
+                            .with_list(*platform_identifier, gas_block_fullness);
+
+                        // Computing the ref-time block fullness
+                        let reftime_block_fullness = block_information
+                            .iter()
+                            .filter_map(|block| block.ref_time_block_fullness_percentage())
+                            .map(|v| v as u64)
+                            .collect::<Vec<_>>();
+                        dbg!(&reftime_block_fullness);
+                        if !reftime_block_fullness.is_empty() {
+                            report
+                                .metrics
+                                .get_or_insert_default()
+                                .ref_time_block_fullness
+                                .get_or_insert_default()
+                                .with_list(*platform_identifier, reftime_block_fullness);
+                        }
+
+                        // Computing the proof size block fullness
+                        let proof_size_block_fullness = block_information
+                            .iter()
+                            .filter_map(|block| block.proof_size_block_fullness_percentage())
+                            .map(|v| v as u64)
+                            .collect::<Vec<_>>();
+                        dbg!(&proof_size_block_fullness);
+                        if !proof_size_block_fullness.is_empty() {
+                            report
+                                .metrics
+                                .get_or_insert_default()
+                                .proof_size_block_fullness
+                                .get_or_insert_default()
+                                .with_list(*platform_identifier, proof_size_block_fullness);
+                        }
+                    }
+                }
+            }
+        }
     }
 
     fn handle_step_transaction_information(&mut self, event: StepTransactionInformationEvent) {
@@ -642,11 +739,10 @@ pub struct TransactionInformation {
 }
 
 /// The metrics we collect for our benchmarks.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct Metrics {
     pub transaction_per_second: Metric<u64>,
     pub gas_per_second: Metric<u64>,
-    pub gas_consumption: Metric<u64>,
     /* Block Fullness */
     pub gas_block_fullness: Metric<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -667,7 +763,114 @@ pub struct Metric<T> {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub median: Option<PlatformKeyedInformation<T>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub sum: Option<PlatformKeyedInformation<T>>,
+    pub raw: Option<PlatformKeyedInformation<Vec<T>>>,
+}
+
+impl<T> Metric<T>
+where
+    T: Default
+        + Copy
+        + Ord
+        + PartialOrd
+        + Add<Output = T>
+        + Div<Output = T>
+        + TryFrom<usize, Error: std::fmt::Debug>,
+{
+    pub fn new() -> Self {
+        Default::default()
+    }
+
+    pub fn platform_identifiers(&self) -> BTreeSet<PlatformIdentifier> {
+        self.minimum
+            .as_ref()
+            .map(|m| m.keys())
+            .into_iter()
+            .flatten()
+            .chain(
+                self.maximum
+                    .as_ref()
+                    .map(|m| m.keys())
+                    .into_iter()
+                    .flatten(),
+            )
+            .chain(self.mean.as_ref().map(|m| m.keys()).into_iter().flatten())
+            .chain(self.median.as_ref().map(|m| m.keys()).into_iter().flatten())
+            .chain(self.raw.as_ref().map(|m| m.keys()).into_iter().flatten())
+            .copied()
+            .collect()
+    }
+
+    pub fn with_list(
+        &mut self,
+        platform_identifier: PlatformIdentifier,
+        mut list: Vec<T>,
+    ) -> &mut Self {
+        list.sort();
+        let Some(min) = list.first().copied() else {
+            return self;
+        };
+        let Some(max) = list.last().copied() else {
+            return self;
+        };
+        let sum = list.iter().fold(T::default(), |acc, num| acc + *num);
+        let mean = sum / TryInto::<T>::try_into(list.len()).unwrap();
+
+        let median = match list.len().is_multiple_of(2) {
+            true => {
+                let idx = list.len() / 2;
+                let val1 = *list.get(idx - 1).unwrap();
+                let val2 = *list.get(idx).unwrap();
+                (val1 + val2) / TryInto::<T>::try_into(2usize).unwrap()
+            }
+            false => {
+                let idx = list.len() / 2;
+                *list.get(idx).unwrap()
+            }
+        };
+
+        self.minimum
+            .get_or_insert_default()
+            .insert(platform_identifier, min);
+        self.maximum
+            .get_or_insert_default()
+            .insert(platform_identifier, max);
+        self.mean
+            .get_or_insert_default()
+            .insert(platform_identifier, mean);
+        self.median
+            .get_or_insert_default()
+            .insert(platform_identifier, median);
+        self.raw
+            .get_or_insert_default()
+            .insert(platform_identifier, list);
+
+        self
+    }
+
+    pub fn combine(&self, other: &Self) -> Self {
+        let mut platform_identifiers = self.platform_identifiers();
+        platform_identifiers.extend(other.platform_identifiers());
+
+        let mut this = Self::new();
+        for platform_identifier in platform_identifiers {
+            let mut l1 = self
+                .raw
+                .as_ref()
+                .and_then(|m| m.get(&platform_identifier))
+                .cloned()
+                .unwrap_or_default();
+            let l2 = other
+                .raw
+                .as_ref()
+                .and_then(|m| m.get(&platform_identifier))
+                .cloned()
+                .unwrap_or_default();
+            l1.extend(l2);
+            this.with_list(platform_identifier, l1);
+        }
+
+        this
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
@@ -680,6 +883,25 @@ pub struct ContractInformation {
 pub struct MinedBlockInformation {
     pub ethereum_block_information: EthereumMinedBlockInformation,
     pub substrate_block_information: Option<SubstrateMinedBlockInformation>,
+}
+
+impl MinedBlockInformation {
+    pub fn gas_block_fullness_percentage(&self) -> u8 {
+        self.ethereum_block_information
+            .gas_block_fullness_percentage()
+    }
+
+    pub fn ref_time_block_fullness_percentage(&self) -> Option<u8> {
+        self.substrate_block_information
+            .as_ref()
+            .map(|block| block.ref_time_block_fullness_percentage())
+    }
+
+    pub fn proof_size_block_fullness_percentage(&self) -> Option<u8> {
+        self.substrate_block_information
+            .as_ref()
+            .map(|block| block.proof_size_block_fullness_percentage())
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
@@ -700,6 +922,12 @@ pub struct EthereumMinedBlockInformation {
     pub transaction_hashes: Vec<TxHash>,
 }
 
+impl EthereumMinedBlockInformation {
+    pub fn gas_block_fullness_percentage(&self) -> u8 {
+        (self.mined_gas * 100 / self.block_gas_limit) as u8
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct SubstrateMinedBlockInformation {
     /// The ref time for substrate based chains.
@@ -713,6 +941,16 @@ pub struct SubstrateMinedBlockInformation {
 
     /// The max proof size for substrate based chains.
     pub max_proof_size: u64,
+}
+
+impl SubstrateMinedBlockInformation {
+    pub fn ref_time_block_fullness_percentage(&self) -> u8 {
+        (self.ref_time * 100 / self.max_ref_time as u128) as u8
+    }
+
+    pub fn proof_size_block_fullness_percentage(&self) -> u8 {
+        (self.proof_size * 100 / self.max_proof_size as u128) as u8
+    }
 }
 
 /// Information keyed by the platform identifier.
