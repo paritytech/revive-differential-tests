@@ -32,9 +32,18 @@ pub async fn create_test_definitions_stream<'a>(
     only_execute_failed_tests: Option<&Report>,
     reporter: Reporter,
 ) -> impl Stream<Item = TestDefinition<'a>> {
+    let cloned_reporter = reporter.clone();
     stream::iter(
         corpus
             .cases_iterator()
+            .inspect(move |(metadata_file, ..)| {
+                cloned_reporter
+                    .report_metadata_file_discovery_event(
+                        metadata_file.metadata_file_path.clone(),
+                        metadata_file.content.clone(),
+                    )
+                    .unwrap();
+            })
             .map(move |(metadata_file, case_idx, case, mode)| {
                 let reporter = reporter.clone();
 

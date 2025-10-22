@@ -6,7 +6,6 @@ use std::{collections::BTreeMap, path::PathBuf, sync::Arc};
 use alloy::primitives::Address;
 use anyhow::Context as _;
 use indexmap::IndexMap;
-use revive_dt_common::types::ParsedTestSpecifier;
 use revive_dt_common::types::PlatformIdentifier;
 use revive_dt_compiler::{CompilerInput, CompilerOutput};
 use revive_dt_format::metadata::ContractInstance;
@@ -480,11 +479,6 @@ define_event! {
         SubscribeToEvents {
             /// The channel that the aggregator is to send the receive side of the channel on.
             tx: oneshot::Sender<broadcast::Receiver<ReporterEvent>>
-        },
-        /// An event emitted by runners when they've discovered a corpus file.
-        CorpusDiscovery {
-            /// The contents of the corpus file.
-            test_specifiers: Vec<ParsedTestSpecifier>
         },
         /// An event emitted by runners when they've discovered a metadata file.
         MetadataFileDiscovery {

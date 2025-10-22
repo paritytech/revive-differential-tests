@@ -5,13 +5,13 @@ use std::{
     collections::{BTreeMap, BTreeSet, HashMap, HashSet},
     fs::OpenOptions,
     path::PathBuf,
-    time::{Instant, SystemTime, UNIX_EPOCH},
+    time::{SystemTime, UNIX_EPOCH},
 };
 
-use alloy::primitives::{Address, BlockNumber, BlockTimestamp, TxHash};
+use alloy::primitives::{Address, BlockNumber, TxHash};
 use anyhow::{Context as _, Result};
 use indexmap::IndexMap;
-use revive_dt_common::types::{ParsedTestSpecifier, PlatformIdentifier};
+use revive_dt_common::types::PlatformIdentifier;
 use revive_dt_compiler::{CompilerInput, CompilerOutput, Mode};
 use revive_dt_config::Context;
 use revive_dt_format::{case::CaseIdx, metadata::ContractInstance, steps::StepPath};
@@ -66,9 +66,6 @@ impl ReportAggregator {
             match event {
                 RunnerEvent::SubscribeToEvents(event) => {
                     self.handle_subscribe_to_events_event(*event);
-                }
-                RunnerEvent::CorpusDiscovery(event) => {
-                    self.handle_corpus_file_discovered_event(*event)
                 }
                 RunnerEvent::MetadataFileDiscovery(event) => {
                     self.handle_metadata_file_discovery_event(*event);
@@ -150,10 +147,6 @@ impl ReportAggregator {
 
     fn handle_subscribe_to_events_event(&self, event: SubscribeToEventsEvent) {
         let _ = event.tx.send(self.listener_tx.subscribe());
-    }
-
-    fn handle_corpus_file_discovered_event(&mut self, event: CorpusDiscoveryEvent) {
-        self.report.corpora.extend(event.test_specifiers);
     }
 
     fn handle_metadata_file_discovery_event(&mut self, event: MetadataFileDiscoveryEvent) {
@@ -423,9 +416,6 @@ impl ReportAggregator {
 pub struct Report {
     /// The context that the tool was started up with.
     pub context: Context,
-    /// The list of corpus files that the tool found.
-    #[serde_as(as = "Vec<DisplayFromStr>")]
-    pub corpora: Vec<ParsedTestSpecifier>,
     /// The list of metadata files that were found by the tool.
     pub metadata_files: BTreeSet<MetadataFilePath>,
     /// Metrics from the execution.
@@ -440,7 +430,6 @@ impl Report {
         Self {
             context,
             metrics: Default::default(),
-            corpora: Default::default(),
             metadata_files: Default::default(),
             execution_information: Default::default(),
         }
