@@ -5692,6 +5692,7 @@ dependencies = [
  "revive-dt-config",
  "revive-dt-format",
  "revive-dt-node-interaction",
+ "revive-dt-report",
  "serde",
  "serde_json",
  "serde_with",
@@ -5715,6 +5716,7 @@ dependencies = [
  "futures",
  "revive-common",
  "revive-dt-format",
+ "revive-dt-report",
 ]
 
 [[package]]
@@ -5724,6 +5726,7 @@ dependencies = [
  "alloy",
  "anyhow",
  "indexmap 2.10.0",
+ "itertools 0.14.0",
  "paste",
  "revive-dt-common",
  "revive-dt-compiler",

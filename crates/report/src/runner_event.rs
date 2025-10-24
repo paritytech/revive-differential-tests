@@ -6,14 +6,16 @@ use std::{collections::BTreeMap, path::PathBuf, sync::Arc};
 use alloy::primitives::Address;
 use anyhow::Context as _;
 use indexmap::IndexMap;
-use revive_dt_common::types::ParsedTestSpecifier;
 use revive_dt_common::types::PlatformIdentifier;
 use revive_dt_compiler::{CompilerInput, CompilerOutput};
 use revive_dt_format::metadata::ContractInstance;
 use revive_dt_format::metadata::Metadata;
+use revive_dt_format::steps::StepPath;
 use semver::Version;
 use tokio::sync::{broadcast, oneshot};
 
+use crate::MinedBlockInformation;
+use crate::TransactionInformation;
 use crate::{ExecutionSpecifier, ReporterEvent, TestSpecifier, common::MetadataFilePath};
 
 macro_rules! __report_gen_emit_test_specific {
@@ -481,11 +483,6 @@ define_event! {
             /// The channel that the aggregator is to send the receive side of the channel on.
             tx: oneshot::Sender<broadcast::Receiver<ReporterEvent>>
         },
-        /// An event emitted by runners when they've discovered a corpus file.
-        CorpusDiscovery {
-            /// The contents of the corpus file.
-            test_specifiers: Vec<ParsedTestSpecifier>
-        },
         /// An event emitted by runners when they've discovered a metadata file.
         MetadataFileDiscovery {
             /// The path of the metadata file discovered.
@@ -615,7 +612,35 @@ define_event! {
             address: Address
         },
         /// Reports the completion of the run.
-        Completion {}
+        Completion {},
+
+        /* Benchmarks Events */
+        /// An event emitted with information on a transaction that was submitted for a certain step
+        /// of the execution.
+        StepTransactionInformation {
+            /// A specifier for the execution that's taking place.
+            execution_specifier: Arc<ExecutionSpecifier>,
+            /// The path of the step that this transaction belongs to.
+            step_path: StepPath,
+            /// Information about the transaction
+            transaction_information: TransactionInformation
+        },
+        ContractInformation {
+            /// A specifier for the execution that's taking place.
+            execution_specifier: Arc<ExecutionSpecifier>,
+            /// The path of the solidity source code that contains the contract.
+            source_code_path: PathBuf,
+            /// The name of the contract
+            contract_name: String,
+            /// The size of the contract
+            contract_size: usize
+        },
+        BlockMined {
+            /// A specifier for the execution that's taking place.
+            execution_specifier: Arc<ExecutionSpecifier>,
+            /// Information on the mined block,
+            mined_block_information: MinedBlockInformation
+        }
     }
 }
 

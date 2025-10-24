@@ -32,9 +32,18 @@ pub async fn create_test_definitions_stream<'a>(
     only_execute_failed_tests: Option<&Report>,
     reporter: Reporter,
 ) -> impl Stream<Item = TestDefinition<'a>> {
+    let cloned_reporter = reporter.clone();
     stream::iter(
         corpus
             .cases_iterator()
+            .inspect(move |(metadata_file, ..)| {
+                cloned_reporter
+                    .report_metadata_file_discovery_event(
+                        metadata_file.metadata_file_path.clone(),
+                        metadata_file.content.clone(),
+                    )
+                    .unwrap();
+            })
             .map(move |(metadata_file, case_idx, case, mode)| {
                 let reporter = reporter.clone();
 
@@ -310,10 +319,10 @@ impl<'a> TestDefinition<'a> {
         };
 
         let test_case_status = report
-            .test_case_information
+            .execution_information
             .get(&(self.metadata_file_path.to_path_buf().into()))
-            .and_then(|obj| obj.get(&self.mode))
-            .and_then(|obj| obj.get(&self.case_idx))
+            .and_then(|obj| obj.case_reports.get(&self.case_idx))
+            .and_then(|obj| obj.mode_execution_reports.get(&self.mode))
             .and_then(|obj| obj.status.as_ref());
 
         match test_case_status {

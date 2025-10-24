@@ -56,7 +56,8 @@ use revive_dt_common::{
 };
 use revive_dt_config::*;
 use revive_dt_format::traits::ResolverApi;
-use revive_dt_node_interaction::{EthereumNode, MinedBlockInformation};
+use revive_dt_node_interaction::EthereumNode;
+use revive_dt_report::{EthereumMinedBlockInformation, MinedBlockInformation};
 
 use crate::{
     Node,
@@ -757,20 +758,19 @@ impl EthereumNode for LighthouseGethNode {
             let mined_block_information_stream = block_stream.filter_map(|block| async {
                 let block = block.ok()?;
                 Some(MinedBlockInformation {
-                    block_number: block.number(),
-                    block_timestamp: block.header.timestamp,
-                    mined_gas: block.header.gas_used as _,
-                    block_gas_limit: block.header.gas_limit as _,
-                    transaction_hashes: block
-                        .transactions
-                        .into_hashes()
-                        .as_hashes()
-                        .expect("Must be hashes")
-                        .to_vec(),
-                    ref_time: 0,
-                    max_ref_time: 0,
-                    proof_size: 0,
-                    max_proof_size: 0,
+                    ethereum_block_information: EthereumMinedBlockInformation {
+                        block_number: block.number(),
+                        block_timestamp: block.header.timestamp,
+                        mined_gas: block.header.gas_used as _,
+                        block_gas_limit: block.header.gas_limit as _,
+                        transaction_hashes: block
+                            .transactions
+                            .into_hashes()
+                            .as_hashes()
+                            .expect("Must be hashes")
+                            .to_vec(),
+                    },
+                    substrate_block_information: None,
                 })
             });
 

@@ -4,7 +4,7 @@ use std::pin::Pin;
 use std::sync::Arc;
 
 use alloy::network::Ethereum;
-use alloy::primitives::{Address, BlockNumber, BlockTimestamp, StorageKey, TxHash, U256};
+use alloy::primitives::{Address, StorageKey, TxHash, U256};
 use alloy::providers::DynProvider;
 use alloy::rpc::types::trace::geth::{DiffMode, GethDebugTracingOptions, GethTrace};
 use alloy::rpc::types::{EIP1186AccountProofResponse, TransactionReceipt, TransactionRequest};
@@ -13,6 +13,7 @@ use anyhow::Result;
 use futures::Stream;
 use revive_common::EVMVersion;
 use revive_dt_format::traits::ResolverApi;
+use revive_dt_report::MinedBlockInformation;
 
 /// An interface for all interactions with Ethereum compatible nodes.
 #[allow(clippy::type_complexity)]
@@ -79,34 +80,4 @@ pub trait EthereumNode {
 
     fn provider(&self)
     -> Pin<Box<dyn Future<Output = anyhow::Result<DynProvider<Ethereum>>> + '_>>;
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct MinedBlockInformation {
-    /// The block number.
-    pub block_number: BlockNumber,
-
-    /// The block timestamp.
-    pub block_timestamp: BlockTimestamp,
-
-    /// The amount of gas mined in the block.
-    pub mined_gas: u128,
-
-    /// The gas limit of the block.
-    pub block_gas_limit: u128,
-
-    /// The hashes of the transactions that were mined as part of the block.
-    pub transaction_hashes: Vec<TxHash>,
-
-    /// The ref time for substrate based chains.
-    pub ref_time: u128,
-
-    /// The max ref time for substrate based chains.
-    pub max_ref_time: u64,
-
-    /// The proof size for substrate based chains.
-    pub proof_size: u128,
-
-    /// The max proof size for substrate based chains.
-    pub max_proof_size: u64,
 }

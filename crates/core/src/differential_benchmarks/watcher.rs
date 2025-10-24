@@ -1,10 +1,15 @@
-use std::{collections::HashSet, pin::Pin, sync::Arc};
+use std::{
+    collections::HashMap,
+    pin::Pin,
+    sync::Arc,
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 use alloy::primitives::{BlockNumber, TxHash};
 use anyhow::Result;
 use futures::{Stream, StreamExt};
-use revive_dt_common::types::PlatformIdentifier;
-use revive_dt_node_interaction::MinedBlockInformation;
+use revive_dt_format::steps::StepPath;
+use revive_dt_report::{ExecutionSpecificReporter, MinedBlockInformation, TransactionInformation};
 use tokio::sync::{
     RwLock,
     mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel},
@@ -15,9 +20,6 @@ use tracing::{info, instrument};
 /// and MUST NOT be re-used between workloads since it holds important internal state for a given
 /// workload and is not designed for reuse.
 pub struct Watcher {
-    /// The identifier of the platform that this watcher is for.
-    platform_identifier: PlatformIdentifier,
-
     /// The receive side of the channel that all of the drivers and various other parts of the code
     /// send events to the watcher on.
     rx: UnboundedReceiver<WatcherEvent>,
@@ -25,19 +27,22 @@ pub struct Watcher {
     /// This is a stream of the blocks that were mined by the node. This is for a single platform
     /// and a single node from that platform.
     blocks_stream: Pin<Box<dyn Stream<Item = MinedBlockInformation>>>,
+
+    /// The reporter used to send events to the report aggregator.
+    reporter: ExecutionSpecificReporter,
 }
 
 impl Watcher {
     pub fn new(
-        platform_identifier: PlatformIdentifier,
         blocks_stream: Pin<Box<dyn Stream<Item = MinedBlockInformation>>>,
+        reporter: ExecutionSpecificReporter,
     ) -> (Self, UnboundedSender<WatcherEvent>) {
         let (tx, rx) = unbounded_channel::<WatcherEvent>();
         (
             Self {
-                platform_identifier,
                 rx,
                 blocks_stream,
+                reporter,
             },
             tx,
         )
@@ -61,7 +66,8 @@ impl Watcher {
         // This is the set of the transaction hashes that the watcher should be looking for and
         // watch for them in the blocks. The watcher will keep watching for blocks until it sees
         // that all of the transactions that it was watching for has been seen in the mined blocks.
-        let watch_for_transaction_hashes = Arc::new(RwLock::new(HashSet::<TxHash>::new()));
+        let watch_for_transaction_hashes =
+            Arc::new(RwLock::new(HashMap::<TxHash, (StepPath, SystemTime)>::new()));
 
         // A boolean that keeps track of whether all of the transactions were submitted or if more
         // txs are expected to come through the receive side of the channel. We do not want to rely
@@ -81,11 +87,14 @@ impl Watcher {
                         // contain nested repetitions and therefore there's no use in doing any
                         // action if the repetitions are nested.
                         WatcherEvent::RepetitionStartEvent { .. } => {}
-                        WatcherEvent::SubmittedTransaction { transaction_hash } => {
+                        WatcherEvent::SubmittedTransaction {
+                            transaction_hash,
+                            step_path,
+                        } => {
                             watch_for_transaction_hashes
                                 .write()
                                 .await
-                                .insert(transaction_hash);
+                                .insert(transaction_hash, (step_path, SystemTime::now()));
                         }
                         WatcherEvent::AllTransactionsSubmitted => {
                             *all_transactions_submitted.write().await = true;
@@ -97,25 +106,21 @@ impl Watcher {
                 }
             }
         };
+        let reporter = self.reporter.clone();
         let block_information_watching_task = {
             let watch_for_transaction_hashes = watch_for_transaction_hashes.clone();
             let all_transactions_submitted = all_transactions_submitted.clone();
             let mut blocks_information_stream = self.blocks_stream;
             async move {
-                let mut mined_blocks_information = Vec::new();
-
-                // region:TEMPORARY
-                eprintln!("Watcher information for {}", self.platform_identifier);
-                eprintln!(
-                    "block_number,block_timestamp,mined_gas,block_gas_limit,tx_count,ref_time,max_ref_time,proof_size,max_proof_size"
-                );
-                // endregion:TEMPORARY
                 while let Some(block) = blocks_information_stream.next().await {
                     // If the block number is equal to or less than the last block before the
                     // repetition then we ignore it and continue on to the next block.
-                    if block.block_number <= ignore_block_before {
+                    if block.ethereum_block_information.block_number <= ignore_block_before {
                         continue;
                     }
+                    reporter
+                        .report_block_mined_event(block.clone())
+                        .expect("Can't fail");
 
                     if *all_transactions_submitted.read().await
                         && watch_for_transaction_hashes.read().await.is_empty()
@@ -124,8 +129,8 @@ impl Watcher {
                     }
 
                     info!(
-                        block_number = block.block_number,
-                        block_tx_count = block.transaction_hashes.len(),
+                        block_number = block.ethereum_block_information.block_number,
+                        block_tx_count = block.ethereum_block_information.transaction_hashes.len(),
                         remaining_transactions = watch_for_transaction_hashes.read().await.len(),
                         "Observed a block"
                     );
@@ -134,33 +139,31 @@ impl Watcher {
                     // are currently watching for.
                     let mut watch_for_transaction_hashes =
                         watch_for_transaction_hashes.write().await;
-                    for tx_hash in block.transaction_hashes.iter() {
-                        watch_for_transaction_hashes.remove(tx_hash);
+                    for tx_hash in block.ethereum_block_information.transaction_hashes.iter() {
+                        let Some((step_path, submission_time)) =
+                            watch_for_transaction_hashes.remove(tx_hash)
+                        else {
+                            continue;
+                        };
+                        let transaction_information = TransactionInformation {
+                            transaction_hash: *tx_hash,
+                            submission_timestamp: submission_time
+                                .duration_since(UNIX_EPOCH)
+                                .expect("Can't fail")
+                                .as_secs() as _,
+                            block_timestamp: block.ethereum_block_information.block_timestamp,
+                            block_number: block.ethereum_block_information.block_number,
+                        };
+                        reporter
+                            .report_step_transaction_information_event(
+                                step_path,
+                                transaction_information,
+                            )
+                            .expect("Can't fail")
                     }
-
-                    // region:TEMPORARY
-                    // TODO: The following core is TEMPORARY and will be removed once we have proper
-                    // reporting in place and then it can be removed. This serves as as way of doing
-                    // some very simple reporting for the time being.
-                    eprintln!(
-                        "\"{}\",\"{}\",\"{}\",\"{}\",\"{}\",\"{}\",\"{}\",\"{}\",\"{}\"",
-                        block.block_number,
-                        block.block_timestamp,
-                        block.mined_gas,
-                        block.block_gas_limit,
-                        block.transaction_hashes.len(),
-                        block.ref_time,
-                        block.max_ref_time,
-                        block.proof_size,
-                        block.max_proof_size,
-                    );
-                    // endregion:TEMPORARY
-
-                    mined_blocks_information.push(block);
                 }
 
                 info!("Watcher's Block Watching Task Finished");
-                mined_blocks_information
             }
         };
 
@@ -172,7 +175,7 @@ impl Watcher {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum WatcherEvent {
     /// Informs the watcher that it should begin watching for the blocks mined by the platforms.
     /// Before the watcher receives this event it will not be watching for the mined blocks. The
@@ -192,6 +195,8 @@ pub enum WatcherEvent {
     SubmittedTransaction {
         /// The hash of the submitted transaction.
         transaction_hash: TxHash,
+        /// The step path of the step that the transaction belongs to.
+        step_path: StepPath,
     },
 
     /// Informs the watcher that all of the transactions of this benchmark have been submitted and

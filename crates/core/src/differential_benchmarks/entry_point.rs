@@ -145,12 +145,14 @@ pub async fn handle_differential_benchmarks(
                 context.wallet_configuration.highest_private_key_exclusive(),
             )));
             let (watcher, watcher_tx) = Watcher::new(
-                platform_identifier,
                 platform_information
                     .node
                     .subscribe_to_full_blocks_information()
                     .await
                     .context("Failed to subscribe to full blocks information from the node")?,
+                test_definition
+                    .reporter
+                    .execution_specific_reporter(0usize, platform_identifier),
             );
             let driver = Driver::new(
                 platform_information,

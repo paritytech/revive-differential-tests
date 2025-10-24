@@ -181,7 +181,7 @@ where
                 code,
             );
             let receipt = self
-                .execute_transaction(tx)
+                .execute_transaction(tx, None)
                 .and_then(|(_, receipt_fut)| receipt_fut)
                 .await
                 .inspect_err(|err| {
@@ -217,6 +217,22 @@ where
             .await
             .inspect_err(|err| error!(?err, "Post-linking compilation failed"))
             .context("Failed to compile the post-link contracts")?;
+
+        for (contract_path, contract_name_to_info_mapping) in compiler_output.contracts.iter() {
+            for (contract_name, (contract_bytecode, _)) in contract_name_to_info_mapping.iter() {
+                let contract_bytecode = hex::decode(contract_bytecode)
+                    .expect("Impossible for us to get an undecodable bytecode after linking");
+
+                self.platform_information
+                    .reporter
+                    .report_contract_information_event(
+                        contract_path.to_path_buf(),
+                        contract_name.clone(),
+                        contract_bytecode.len(),
+                    )
+                    .expect("Should not fail");
+            }
+        }
 
         self.execution_state = ExecutionState::new(
             compiler_output.contracts,
@@ -279,15 +295,15 @@ where
     #[instrument(level = "info", skip_all, fields(driver_id = self.driver_id))]
     pub async fn execute_function_call(
         &mut self,
-        _: &StepPath,
+        step_path: &StepPath,
         step: &FunctionCallStep,
     ) -> Result<usize> {
         let deployment_receipts = self
-            .handle_function_call_contract_deployment(step)
+            .handle_function_call_contract_deployment(step_path, step)
             .await
             .context("Failed to deploy contracts for the function call step")?;
         let transaction_hash = self
-            .handle_function_call_execution(step, deployment_receipts)
+            .handle_function_call_execution(step_path, step, deployment_receipts)
             .await
             .context("Failed to handle the function call execution")?;
         self.handle_function_call_variable_assignment(step, transaction_hash)
@@ -298,6 +314,7 @@ where
 
     async fn handle_function_call_contract_deployment(
         &mut self,
+        step_path: &StepPath,
         step: &FunctionCallStep,
     ) -> Result<HashMap<ContractInstance, TransactionReceipt>> {
         let mut instances_we_must_deploy = IndexMap::<ContractInstance, bool>::new();
@@ -329,7 +346,13 @@ where
                     .await?
             };
             if let (_, _, Some(receipt)) = self
-                .get_or_deploy_contract_instance(&instance, caller, calldata, value)
+                .get_or_deploy_contract_instance(
+                    &instance,
+                    caller,
+                    calldata,
+                    value,
+                    Some(step_path),
+                )
                 .await
                 .context("Failed to get or deploy contract instance during input execution")?
             {
@@ -342,6 +365,7 @@ where
 
     async fn handle_function_call_execution(
         &mut self,
+        step_path: &StepPath,
         step: &FunctionCallStep,
         mut deployment_receipts: HashMap<ContractInstance, TransactionReceipt>,
     ) -> Result<TxHash> {
@@ -356,7 +380,7 @@ where
                 let tx = step
                     .as_transaction(self.resolver.as_ref(), self.default_resolution_context())
                     .await?;
-                Ok(self.execute_transaction(tx).await?.0)
+                Ok(self.execute_transaction(tx, Some(step_path)).await?.0)
             }
         }
     }
@@ -520,6 +544,7 @@ where
         deployer: Address,
         calldata: Option<&Calldata>,
         value: Option<EtherValue>,
+        step_path: Option<&StepPath>,
     ) -> Result<(Address, JsonAbi, Option<TransactionReceipt>)> {
         if let Some((_, address, abi)) = self
             .execution_state
@@ -535,7 +560,7 @@ where
         } else {
             info!("Contract instance requires deployment.");
             let (address, abi, receipt) = self
-                .deploy_contract(contract_instance, deployer, calldata, value)
+                .deploy_contract(contract_instance, deployer, calldata, value, step_path)
                 .await
                 .context("Failed to deploy contract")?;
             info!(
@@ -562,6 +587,7 @@ where
         deployer: Address,
         calldata: Option<&Calldata>,
         value: Option<EtherValue>,
+        step_path: Option<&StepPath>,
     ) -> Result<(Address, JsonAbi, TransactionReceipt)> {
         let Some(ContractPathAndIdent {
             contract_source_path,
@@ -621,7 +647,7 @@ where
         };
 
         let receipt = match self
-            .execute_transaction(tx)
+            .execute_transaction(tx, step_path)
             .and_then(|(_, receipt_fut)| receipt_fut)
             .await
         {
@@ -671,6 +697,7 @@ where
     async fn execute_transaction(
         &self,
         transaction: TransactionRequest,
+        step_path: Option<&StepPath>,
     ) -> anyhow::Result<(TxHash, impl Future<Output = Result<TransactionReceipt>>)> {
         let node = self.platform_information.node;
         let transaction_hash = node
@@ -680,9 +707,14 @@ where
         Span::current().record("transaction_hash", display(transaction_hash));
 
         info!("Submitted transaction");
-        self.watcher_tx
-            .send(WatcherEvent::SubmittedTransaction { transaction_hash })
-            .context("Failed to send the transaction hash to the watcher")?;
+        if let Some(step_path) = step_path {
+            self.watcher_tx
+                .send(WatcherEvent::SubmittedTransaction {
+                    transaction_hash,
+                    step_path: step_path.clone(),
+                })
+                .context("Failed to send the transaction hash to the watcher")?;
+        };
 
         Ok((transaction_hash, async move {
             info!("Starting to poll for transaction receipt");
