@@ -24,7 +24,7 @@ use strum::{AsRefStr, Display, EnumString, IntoStaticStr};
 use temp_dir::TempDir;
 
 #[derive(Clone, Debug, Parser, Serialize, Deserialize)]
-#[command(name = "retester")]
+#[command(name = "retester", term_width = 100)]
 pub enum Context {
     /// Executes tests in the MatterLabs format differentially on multiple targets concurrently.
     Test(Box<TestExecutionContext>),
@@ -759,7 +759,7 @@ pub struct CorpusConfiguration {
     /// - `{metadata_file_path}::{case_idx}::{mode}`: This is very similar to the above specifier
     ///   with the exception that in this case the mode is specified and will be used in the test.
     #[serde_as(as = "Vec<serde_with::DisplayFromStr>")]
-    #[arg(short = 't', long = "test")]
+    #[arg(short = 't', long = "test", required = true)]
     pub test_specifiers: Vec<ParsedTestSpecifier>,
 }
 
