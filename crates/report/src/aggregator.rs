@@ -41,7 +41,7 @@ pub struct ReportAggregator {
 impl ReportAggregator {
     pub fn new(context: Context) -> Self {
         let (runner_tx, runner_rx) = unbounded_channel::<RunnerEvent>();
-        let (listener_tx, _) = channel::<ReporterEvent>(1024);
+        let (listener_tx, _) = channel::<ReporterEvent>(0xFFFF);
         Self {
             report: Report::new(context),
             remaining_cases: Default::default(),
@@ -64,7 +64,7 @@ impl ReportAggregator {
         debug!("Starting to aggregate report");
 
         while let Some(event) = self.runner_rx.recv().await {
-            debug!(?event, "Received Event");
+            debug!(event = event.variant_name(), "Received Event");
             match event {
                 RunnerEvent::SubscribeToEvents(event) => {
                     self.handle_subscribe_to_events_event(*event);
