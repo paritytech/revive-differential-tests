@@ -510,11 +510,7 @@ pub struct ExportGenesisContext {
 
 impl Default for TestExecutionContext {
     fn default() -> Self {
-        Self::parse_from([
-            "execution-context",
-            "--test",
-            "./resolc-compiler-tests/fixtures/solidity",
-        ])
+        Self::parse_from(["execution-context", "--test", "."])
     }
 }
 
@@ -616,11 +612,7 @@ impl AsRef<IgnoreSuccessConfiguration> for TestExecutionContext {
 
 impl Default for BenchmarkingContext {
     fn default() -> Self {
-        Self::parse_from([
-            "benchmarking-context",
-            "--test",
-            "./resolc-compiler-tests/fixtures/solidity",
-        ])
+        Self::parse_from(["benchmarking-context", "--test", "."])
     }
 }
 
