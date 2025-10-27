@@ -347,6 +347,16 @@ macro_rules! define_event {
                 ),*
             }
 
+            impl $ident {
+                pub fn variant_name(&self) -> &'static str {
+                    match self {
+                        $(
+                            Self::$variant_ident { .. } => stringify!($variant_ident)
+                        ),*
+                    }
+                }
+            }
+
             $(
                 #[derive(Debug)]
                 $(#[$variant_meta])*

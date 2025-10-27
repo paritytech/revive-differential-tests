@@ -330,15 +330,18 @@ async fn start_cli_reporting_task(output_format: OutputFormat, reporter: Reporte
                 .unwrap();
                 writeln!(buf).unwrap();
 
-                buf = tokio::task::spawn_blocking(move || {
-                    buf.flush().unwrap();
-                    buf
-                })
-                .await
-                .unwrap();
+                if aggregator_events_rx.is_empty() {
+                    buf = tokio::task::spawn_blocking(move || {
+                        buf.flush().unwrap();
+                        buf
+                    })
+                    .await
+                    .unwrap();
+                }
             }
         }
     }
+    info!("Aggregator Broadcast Channel Closed");
 
     // Summary at the end.
     match output_format {

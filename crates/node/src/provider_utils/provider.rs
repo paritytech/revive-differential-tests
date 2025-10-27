@@ -104,7 +104,7 @@ where
     };
     debug!(%tx_hash, "Submitted Transaction");
 
-    pending_transaction.set_timeout(Some(Duration::from_secs(120)));
+    pending_transaction.set_timeout(Some(Duration::from_secs(240)));
     let tx_hash = pending_transaction.watch().await.context(format!(
         "Transaction inclusion watching timeout for {tx_hash}"
     ))?;
