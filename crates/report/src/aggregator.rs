@@ -412,8 +412,8 @@ impl ReportAggregator {
                     {
                         block_information.sort_by(|a, b| {
                             a.ethereum_block_information
-                                .block_timestamp
-                                .cmp(&b.ethereum_block_information.block_timestamp)
+                                .block_number
+                                .cmp(&b.ethereum_block_information.block_number)
                         });
 
                         // Computing the TPS.
@@ -466,7 +466,6 @@ impl ReportAggregator {
                             .filter_map(|block| block.ref_time_block_fullness_percentage())
                             .map(|v| v as u64)
                             .collect::<Vec<_>>();
-                        dbg!(&reftime_block_fullness);
                         if !reftime_block_fullness.is_empty() {
                             report
                                 .metrics
@@ -482,7 +481,6 @@ impl ReportAggregator {
                             .filter_map(|block| block.proof_size_block_fullness_percentage())
                             .map(|v| v as u64)
                             .collect::<Vec<_>>();
-                        dbg!(&proof_size_block_fullness);
                         if !proof_size_block_fullness.is_empty() {
                             report
                                 .metrics
@@ -803,8 +801,9 @@ where
     pub fn with_list(
         &mut self,
         platform_identifier: PlatformIdentifier,
-        mut list: Vec<T>,
+        original_list: Vec<T>,
     ) -> &mut Self {
+        let mut list = original_list.clone();
         list.sort();
         let Some(min) = list.first().copied() else {
             return self;
@@ -842,7 +841,7 @@ where
             .insert(platform_identifier, median);
         self.raw
             .get_or_insert_default()
-            .insert(platform_identifier, list);
+            .insert(platform_identifier, original_list);
 
         self
     }
@@ -883,6 +882,7 @@ pub struct ContractInformation {
 pub struct MinedBlockInformation {
     pub ethereum_block_information: EthereumMinedBlockInformation,
     pub substrate_block_information: Option<SubstrateMinedBlockInformation>,
+    pub tx_counts: BTreeMap<StepPath, usize>,
 }
 
 impl MinedBlockInformation {

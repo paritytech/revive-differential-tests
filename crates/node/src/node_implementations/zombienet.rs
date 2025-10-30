@@ -210,6 +210,7 @@ impl ZombienetNode {
                             .with_args(vec![
                                 ("--pool-limit", u32::MAX.to_string().as_str()).into(),
                                 ("--pool-kbytes", u32::MAX.to_string().as_str()).into(),
+                                ("--dev-block-time", 12000u16.to_string().as_str()).into(),
                             ])
                     })
             })
@@ -599,6 +600,7 @@ impl EthereumNode for ZombienetNode {
                             proof_size: block_proof_size,
                             max_proof_size,
                         }),
+                        tx_counts: Default::default(),
                     })
                 }
             });
