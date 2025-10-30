@@ -578,6 +578,7 @@ impl EthereumNode for SubstrateNode {
                             proof_size: block_proof_size,
                             max_proof_size,
                         }),
+                        tx_counts: Default::default(),
                     })
                 }
             });

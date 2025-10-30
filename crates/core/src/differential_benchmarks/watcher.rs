@@ -112,11 +112,22 @@ impl Watcher {
             let all_transactions_submitted = all_transactions_submitted.clone();
             let mut blocks_information_stream = self.blocks_stream;
             async move {
-                while let Some(block) = blocks_information_stream.next().await {
+                while let Some(mut block) = blocks_information_stream.next().await {
                     // If the block number is equal to or less than the last block before the
                     // repetition then we ignore it and continue on to the next block.
                     if block.ethereum_block_information.block_number <= ignore_block_before {
                         continue;
+                    }
+                    {
+                        let watch_for_transaction_hashes =
+                            watch_for_transaction_hashes.read().await;
+                        for tx_hash in block.ethereum_block_information.transaction_hashes.iter() {
+                            let Some((step_path, _)) = watch_for_transaction_hashes.get(tx_hash)
+                            else {
+                                continue;
+                            };
+                            *block.tx_counts.entry(step_path.clone()).or_default() += 1
+                        }
                     }
                     reporter
                         .report_block_mined_event(block.clone())
@@ -189,7 +200,6 @@ pub enum WatcherEvent {
         /// streaming the blocks.
         ignore_block_before: BlockNumber,
     },
-
     /// Informs the watcher that a transaction was submitted and that the watcher should watch for a
     /// transaction with this hash in the blocks that it watches.
     SubmittedTransaction {
@@ -198,7 +208,6 @@ pub enum WatcherEvent {
         /// The step path of the step that the transaction belongs to.
         step_path: StepPath,
     },
-
     /// Informs the watcher that all of the transactions of this benchmark have been submitted and
     /// that it can expect to receive no further transaction hashes and not even watch the channel
     /// any longer.

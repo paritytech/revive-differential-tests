@@ -540,6 +540,7 @@ impl EthereumNode for GethNode {
                             .to_vec(),
                     },
                     substrate_block_information: None,
+                    tx_counts: Default::default(),
                 })
             });
 
