@@ -332,7 +332,7 @@ impl SubstrateNode {
         trace!("Waiting for chainspec export");
         if !output.status.success() {
             anyhow::bail!(
-                "Substrate-node export-chain-spec failed: {}",
+                "substrate-node export-chain-spec failed: {}",
                 String::from_utf8_lossy(&output.stderr)
             );
         }
@@ -960,7 +960,7 @@ mod tests {
 
         assert!(
             version.starts_with("substrate-node"),
-            "Expected Substrate-node version string, got: {version}"
+            "Expected substrate-node version string, got: {version}"
         );
     }
 

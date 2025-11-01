@@ -22,7 +22,6 @@ POLKADOT_SDK_DIR="${1:-}"
 # Binary paths (default to names in $PATH)
 REVIVE_DEV_NODE_BIN="revive-dev-node"
 ETH_RPC_BIN="eth-rpc"
-SUBSTRATE_NODE_BIN="substrate-node"
 
 echo -e "${GREEN}=== Revive Differential Tests Quick Start ===${NC}"
 echo ""
@@ -50,14 +49,13 @@ if [ -n "$POLKADOT_SDK_DIR" ]; then
 
     REVIVE_DEV_NODE_BIN="$POLKADOT_SDK_DIR/target/release/revive-dev-node"
     ETH_RPC_BIN="$POLKADOT_SDK_DIR/target/release/eth-rpc"
-    SUBSTRATE_NODE_BIN="$POLKADOT_SDK_DIR/target/release/substrate-node"
 
-    if [ ! -x "$REVIVE_DEV_NODE_BIN" ] || [ ! -x "$ETH_RPC_BIN" ] || [ ! -x "$SUBSTRATE_NODE_BIN" ]; then
+    if [ ! -x "$REVIVE_DEV_NODE_BIN" ] || [ ! -x "$ETH_RPC_BIN" ]; then
         echo -e "${YELLOW}Required binaries not found in release target. Building...${NC}"
         (cd "$POLKADOT_SDK_DIR" && cargo build --release --package staging-node-cli --package pallet-revive-eth-rpc --package revive-dev-node)
     fi
 
-    for bin in "$REVIVE_DEV_NODE_BIN" "$ETH_RPC_BIN" "$SUBSTRATE_NODE_BIN"; do
+    for bin in "$REVIVE_DEV_NODE_BIN" "$ETH_RPC_BIN"; do
         if [ ! -x "$bin" ]; then
             echo -e "${RED}Expected binary not found after build: $bin${NC}"
             exit 1

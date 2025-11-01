@@ -356,7 +356,7 @@ impl ZombienetNode {
 
         if !output.status.success() {
             anyhow::bail!(
-                "Substrate-node export-chain-spec failed: {}",
+                "substrate-node export-chain-spec failed: {}",
                 String::from_utf8_lossy(&output.stderr)
             );
         }
