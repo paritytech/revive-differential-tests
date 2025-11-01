@@ -597,15 +597,17 @@ where
         let expected = !assertion.exception;
         let actual = receipt.status();
         if actual != expected {
+            let revert_reason = tracing_result.revert_reason.as_ref();
             tracing::error!(
                 expected,
                 actual,
                 ?receipt,
                 ?tracing_result,
+                ?revert_reason,
                 "Transaction status assertion failed"
             );
             anyhow::bail!(
-                "Transaction status assertion failed - Expected {expected} but got {actual}",
+                "Transaction status assertion failed - Expected {expected} but got {actual}. Revert reason: {revert_reason:?}",
             );
         }
 
