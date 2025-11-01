@@ -353,7 +353,8 @@ where
                 .execute_account_allocation(step_path, step.as_ref())
                 .await
                 .context("Account Allocation Step Failed"),
-        }?;
+        }
+        .context(format!("Failure on step {step_path}"))?;
         self.steps_executed += steps_executed;
         Ok(())
     }
