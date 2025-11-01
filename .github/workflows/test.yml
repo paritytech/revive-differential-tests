@@ -204,8 +204,13 @@ jobs:
           sudo apt update
           sudo apt install kurtosis-cli
 
+      - name: Install cargo-machete
+        uses: clechasseur/rs-cargo@v2
+        with:
+          command: install
+          args: cargo-machete@0.7.0
       - name: Machete
-        uses: bnjbvr/cargo-machete@v0.7.1
+        run: cargo machete crates
 
       - name: Format
         run: make format
