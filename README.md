@@ -9,7 +9,7 @@
 This project compiles and executes declarative smart-contract tests against multiple platforms, then compares behavior (status, return data, events, and state diffs). Today it supports:
 
 - Geth (EVM reference implementation)
-- Revive Kitchensink (Substrate-based PolkaVM + `eth-rpc` proxy)
+- Revive Dev Node (Substrate-based PolkaVM + `eth-rpc` proxy)
 
 Use it to:
 
@@ -39,9 +39,9 @@ This repository contains none of the tests and only contains the testing framewo
 This section describes the required dependencies that this framework requires to run. Compiling this framework is pretty straightforward and no additional dependencies beyond what's specified in the `Cargo.toml` file should be required.
 
 - Stable Rust
-- Geth - When doing differential testing against the PVM we submit transactions to a Geth node and to Kitchensink to compare them.
-- Kitchensink - When doing differential testing against the PVM we submit transactions to a Geth node and to Kitchensink to compare them.
-- ETH-RPC - All communication with Kitchensink is done through the ETH RPC.
+- Geth - When doing differential testing against the PVM we submit transactions to a Geth node and to Revive Dev Node to compare them.
+- Revive Dev Node - When doing differential testing against the PVM we submit transactions to a Geth node and to Revive Dev Node to compare them.
+- ETH-RPC - All communication with Revive Dev Node is done through the ETH RPC.
 - Solc - This is actually a transitive dependency, while this tool doesn't require solc as it downloads the versions that it requires, resolc requires that Solc is installed and available in the path.
 - Resolc - This is required to compile the contracts to PolkaVM bytecode.
 - Kurtosis - The Kurtosis CLI tool is required for the production Ethereum mainnet-like node configuration with Geth as the execution layer and lighthouse as the consensus layer. Kurtosis also requires docker to be installed since it runs everything inside of docker containers.

@@ -173,134 +173,6 @@ impl Platform for LighthouseGethEvmSolcPlatform {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Default, Hash)]
-pub struct KitchensinkPolkavmResolcPlatform;
-
-impl Platform for KitchensinkPolkavmResolcPlatform {
-    fn platform_identifier(&self) -> PlatformIdentifier {
-        PlatformIdentifier::KitchensinkPolkavmResolc
-    }
-
-    fn node_identifier(&self) -> NodeIdentifier {
-        NodeIdentifier::Kitchensink
-    }
-
-    fn vm_identifier(&self) -> VmIdentifier {
-        VmIdentifier::PolkaVM
-    }
-
-    fn compiler_identifier(&self) -> CompilerIdentifier {
-        CompilerIdentifier::Resolc
-    }
-
-    fn new_node(
-        &self,
-        context: Context,
-    ) -> anyhow::Result<JoinHandle<anyhow::Result<Box<dyn EthereumNode + Send + Sync>>>> {
-        let genesis_configuration = AsRef::<GenesisConfiguration>::as_ref(&context);
-        let kitchensink_path = AsRef::<KitchensinkConfiguration>::as_ref(&context)
-            .path
-            .clone();
-        let genesis = genesis_configuration.genesis()?.clone();
-        Ok(thread::spawn(move || {
-            let node = SubstrateNode::new(
-                kitchensink_path,
-                SubstrateNode::KITCHENSINK_EXPORT_CHAINSPEC_COMMAND,
-                None,
-                context,
-                &[],
-            );
-            let node = spawn_node(node, genesis)?;
-            Ok(Box::new(node) as Box<_>)
-        }))
-    }
-
-    fn new_compiler(
-        &self,
-        context: Context,
-        version: Option<VersionOrRequirement>,
-    ) -> Pin<Box<dyn Future<Output = anyhow::Result<Box<dyn SolidityCompiler>>>>> {
-        Box::pin(async move {
-            let compiler = Resolc::new(context, version).await;
-            compiler.map(|compiler| Box::new(compiler) as Box<dyn SolidityCompiler>)
-        })
-    }
-
-    fn export_genesis(&self, context: Context) -> anyhow::Result<serde_json::Value> {
-        let kitchensink_path = AsRef::<KitchensinkConfiguration>::as_ref(&context)
-            .path
-            .as_path();
-        let wallet = AsRef::<WalletConfiguration>::as_ref(&context).wallet();
-        let export_chainspec_command = SubstrateNode::KITCHENSINK_EXPORT_CHAINSPEC_COMMAND;
-
-        SubstrateNode::node_genesis(kitchensink_path, export_chainspec_command, &wallet)
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Default, Hash)]
-pub struct KitchensinkRevmSolcPlatform;
-
-impl Platform for KitchensinkRevmSolcPlatform {
-    fn platform_identifier(&self) -> PlatformIdentifier {
-        PlatformIdentifier::KitchensinkRevmSolc
-    }
-
-    fn node_identifier(&self) -> NodeIdentifier {
-        NodeIdentifier::Kitchensink
-    }
-
-    fn vm_identifier(&self) -> VmIdentifier {
-        VmIdentifier::Evm
-    }
-
-    fn compiler_identifier(&self) -> CompilerIdentifier {
-        CompilerIdentifier::Solc
-    }
-
-    fn new_node(
-        &self,
-        context: Context,
-    ) -> anyhow::Result<JoinHandle<anyhow::Result<Box<dyn EthereumNode + Send + Sync>>>> {
-        let genesis_configuration = AsRef::<GenesisConfiguration>::as_ref(&context);
-        let kitchensink_path = AsRef::<KitchensinkConfiguration>::as_ref(&context)
-            .path
-            .clone();
-        let genesis = genesis_configuration.genesis()?.clone();
-        Ok(thread::spawn(move || {
-            let node = SubstrateNode::new(
-                kitchensink_path,
-                SubstrateNode::KITCHENSINK_EXPORT_CHAINSPEC_COMMAND,
-                None,
-                context,
-                &[],
-            );
-            let node = spawn_node(node, genesis)?;
-            Ok(Box::new(node) as Box<_>)
-        }))
-    }
-
-    fn new_compiler(
-        &self,
-        context: Context,
-        version: Option<VersionOrRequirement>,
-    ) -> Pin<Box<dyn Future<Output = anyhow::Result<Box<dyn SolidityCompiler>>>>> {
-        Box::pin(async move {
-            let compiler = Solc::new(context, version).await;
-            compiler.map(|compiler| Box::new(compiler) as Box<dyn SolidityCompiler>)
-        })
-    }
-
-    fn export_genesis(&self, context: Context) -> anyhow::Result<serde_json::Value> {
-        let kitchensink_path = AsRef::<KitchensinkConfiguration>::as_ref(&context)
-            .path
-            .as_path();
-        let wallet = AsRef::<WalletConfiguration>::as_ref(&context).wallet();
-        let export_chainspec_command = SubstrateNode::KITCHENSINK_EXPORT_CHAINSPEC_COMMAND;
-
-        SubstrateNode::node_genesis(kitchensink_path, export_chainspec_command, &wallet)
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Default, Hash)]
 pub struct ReviveDevNodePolkavmResolcPlatform;
 
 impl Platform for ReviveDevNodePolkavmResolcPlatform {
@@ -557,12 +429,6 @@ impl From<PlatformIdentifier> for Box<dyn Platform> {
             PlatformIdentifier::LighthouseGethEvmSolc => {
                 Box::new(LighthouseGethEvmSolcPlatform) as Box<_>
             }
-            PlatformIdentifier::KitchensinkPolkavmResolc => {
-                Box::new(KitchensinkPolkavmResolcPlatform) as Box<_>
-            }
-            PlatformIdentifier::KitchensinkRevmSolc => {
-                Box::new(KitchensinkRevmSolcPlatform) as Box<_>
-            }
             PlatformIdentifier::ReviveDevNodePolkavmResolc => {
                 Box::new(ReviveDevNodePolkavmResolcPlatform) as Box<_>
             }
@@ -583,12 +449,6 @@ impl From<PlatformIdentifier> for &dyn Platform {
             PlatformIdentifier::GethEvmSolc => &GethEvmSolcPlatform as &dyn Platform,
             PlatformIdentifier::LighthouseGethEvmSolc => {
                 &LighthouseGethEvmSolcPlatform as &dyn Platform
-            }
-            PlatformIdentifier::KitchensinkPolkavmResolc => {
-                &KitchensinkPolkavmResolcPlatform as &dyn Platform
-            }
-            PlatformIdentifier::KitchensinkRevmSolc => {
-                &KitchensinkRevmSolcPlatform as &dyn Platform
             }
             PlatformIdentifier::ReviveDevNodePolkavmResolc => {
                 &ReviveDevNodePolkavmResolcPlatform as &dyn Platform

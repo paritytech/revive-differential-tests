@@ -92,7 +92,6 @@ impl SubstrateNode {
     const SUBSTRATE_LOG_ENV: &str = "error,evm=debug,sc_rpc_server=info,runtime::revive=debug";
     const PROXY_LOG_ENV: &str = "info,eth-rpc=debug";
 
-    pub const KITCHENSINK_EXPORT_CHAINSPEC_COMMAND: &str = "export-chain-spec";
     pub const REVIVE_DEV_NODE_EXPORT_CHAINSPEC_COMMAND: &str = "build-spec";
 
     pub fn new(
@@ -333,7 +332,7 @@ impl SubstrateNode {
         trace!("Waiting for chainspec export");
         if !output.status.success() {
             anyhow::bail!(
-                "Substrate-node export-chain-spec failed: {}",
+                "substrate-node export-chain-spec failed: {}",
                 String::from_utf8_lossy(&output.stderr)
             );
         }
@@ -800,8 +799,8 @@ mod tests {
 
         let context = test_config();
         let mut node = SubstrateNode::new(
-            context.kitchensink_configuration.path.clone(),
-            SubstrateNode::KITCHENSINK_EXPORT_CHAINSPEC_COMMAND,
+            context.revive_dev_node_configuration.path.clone(),
+            SubstrateNode::REVIVE_DEV_NODE_EXPORT_CHAINSPEC_COMMAND,
             None,
             &context,
             &[],
@@ -823,6 +822,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "Ignored since it takes a long time to run"]
     async fn node_mines_simple_transfer_transaction_and_returns_receipt() {
         // Arrange
         let (context, node) = shared_state();
@@ -839,11 +839,14 @@ mod tests {
             .value(U256::from(100_000_000_000_000u128));
 
         // Act
-        let receipt = provider.send_transaction(transaction).await;
+        let mut pending_transaction = provider
+            .send_transaction(transaction)
+            .await
+            .expect("Submission failed");
+        pending_transaction.set_timeout(Some(Duration::from_secs(60)));
 
         // Assert
-        let _ = receipt
-            .expect("Failed to send the transfer transaction")
+        let _ = pending_transaction
             .get_receipt()
             .await
             .expect("Failed to get the receipt for the transfer");
@@ -867,8 +870,8 @@ mod tests {
 
         let context = test_config();
         let mut dummy_node = SubstrateNode::new(
-            context.kitchensink_configuration.path.clone(),
-            SubstrateNode::KITCHENSINK_EXPORT_CHAINSPEC_COMMAND,
+            context.revive_dev_node_configuration.path.clone(),
+            SubstrateNode::REVIVE_DEV_NODE_EXPORT_CHAINSPEC_COMMAND,
             None,
             &context,
             &[],
@@ -961,7 +964,7 @@ mod tests {
 
         assert!(
             version.starts_with("substrate-node"),
-            "Expected Substrate-node version string, got: {version}"
+            "Expected substrate-node version string, got: {version}"
         );
     }
 

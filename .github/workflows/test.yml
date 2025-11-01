@@ -51,22 +51,22 @@ jobs:
         uses: actions/cache@v3
         with:
           path: |
-            ~/.cargo/bin/substrate-node
+            ~/.cargo/bin/revive-dev-node
             ~/.cargo/bin/eth-rpc
-          key: polkadot-binaries-${{ matrix.os }}-${{ hashFiles('polkadot-sdk/.git') }}
+          key: polkadot-binaries-${{ matrix.os }}-${{ hashFiles('polkadot-sdk/.git') }}-with-dev-node
 
-      - name: Build substrate-node
+      - name: Build revive-dev-node
         if: steps.cache.outputs.cache-hit != 'true'
         run: |
           cd polkadot-sdk
-          cargo install --locked --force --profile=production --path substrate/bin/node/cli --bin substrate-node --features cli
+          cargo install --locked --force --profile=production --path substrate/frame/revive/dev-node/node --bin revive-dev-node
 
       - name: Build eth-rpc
         if: steps.cache.outputs.cache-hit != 'true'
         run: |
           cd polkadot-sdk
           cargo install --path substrate/frame/revive/rpc --bin eth-rpc
-      
+
       - name: Cache downloaded Polkadot binaries
         id: cache-polkadot
         uses: actions/cache@v3
@@ -109,14 +109,16 @@ jobs:
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - name: Restore binaries from cache
         uses: actions/cache@v3
         with:
           path: |
-            ~/.cargo/bin/substrate-node
+            ~/.cargo/bin/revive-dev-node
             ~/.cargo/bin/eth-rpc
-          key: polkadot-binaries-${{ matrix.os }}-${{ hashFiles('polkadot-sdk/.git') }}
+          key: polkadot-binaries-${{ matrix.os }}-${{ hashFiles('polkadot-sdk/.git') }}-with-dev-node
 
       - name: Restore downloaded Polkadot binaries from cache
         uses: actions/cache@v3
@@ -202,8 +204,13 @@ jobs:
           sudo apt update
           sudo apt install kurtosis-cli
 
+      - name: Install cargo-machete
+        uses: clechasseur/rs-cargo@v2
+        with:
+          command: install
+          args: cargo-machete@0.7.0
       - name: Machete
-        uses: bnjbvr/cargo-machete@v0.7.1
+        run: cargo machete crates
 
       - name: Format
         run: make format
@@ -211,8 +218,8 @@ jobs:
       - name: Clippy
         run: make clippy
 
-      - name: Check substrate-node version
-        run: substrate-node --version
+      - name: Check revive-dev-node version
+        run: revive-dev-node --version
 
       - name: Check eth-rpc version
         run: eth-rpc --version
@@ -222,13 +229,13 @@ jobs:
 
       - name: Check polkadot version
         run: polkadot --version
-      
+
       - name: Check polkadot-parachain version
         run: polkadot-parachain --version
 
       - name: Check polkadot-execute-worker version
         run: polkadot-execute-worker --version
-      
+
       - name: Check polkadot-prepare-worker version
         run: polkadot-prepare-worker --version
 
