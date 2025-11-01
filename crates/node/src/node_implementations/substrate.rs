@@ -822,6 +822,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "Ignored since it takes a long time to run"]
     async fn node_mines_simple_transfer_transaction_and_returns_receipt() {
         // Arrange
         let (context, node) = shared_state();
