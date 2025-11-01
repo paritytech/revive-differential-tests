@@ -838,11 +838,14 @@ mod tests {
             .value(U256::from(100_000_000_000_000u128));
 
         // Act
-        let receipt = provider.send_transaction(transaction).await;
+        let mut pending_transaction = provider
+            .send_transaction(transaction)
+            .await
+            .expect("Submission failed");
+        pending_transaction.set_timeout(Some(Duration::from_secs(60)));
 
         // Assert
-        let _ = receipt
-            .expect("Failed to send the transfer transaction")
+        let _ = pending_transaction
             .get_receipt()
             .await
             .expect("Failed to get the receipt for the transfer");

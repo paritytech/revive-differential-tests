@@ -858,6 +858,7 @@ mod tests {
     #[tokio::test]
     #[ignore = "Ignored for the time being"]
     async fn test_transfer_transaction_should_return_receipt() {
+        // Arrange
         let (ctx, node) = new_node().await;
 
         let provider = node.provider().await.expect("Failed to create provider");
@@ -866,9 +867,15 @@ mod tests {
             .to(account_address)
             .value(U256::from(100_000_000_000_000u128));
 
-        let receipt = provider.send_transaction(transaction).await;
-        let _ = receipt
-            .expect("Failed to send the transfer transaction")
+        // Act
+        let mut pending_transaction = provider
+            .send_transaction(transaction)
+            .await
+            .expect("Submission failed");
+        pending_transaction.set_timeout(Some(Duration::from_secs(60)));
+
+        // Assert
+        let _ = pending_transaction
             .get_receipt()
             .await
             .expect("Failed to get the receipt for the transfer");
