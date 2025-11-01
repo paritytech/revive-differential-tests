@@ -92,7 +92,6 @@ impl SubstrateNode {
     const SUBSTRATE_LOG_ENV: &str = "error,evm=debug,sc_rpc_server=info,runtime::revive=debug";
     const PROXY_LOG_ENV: &str = "info,eth-rpc=debug";
 
-    pub const KITCHENSINK_EXPORT_CHAINSPEC_COMMAND: &str = "export-chain-spec";
     pub const REVIVE_DEV_NODE_EXPORT_CHAINSPEC_COMMAND: &str = "build-spec";
 
     pub fn new(
@@ -800,8 +799,8 @@ mod tests {
 
         let context = test_config();
         let mut node = SubstrateNode::new(
-            context.kitchensink_configuration.path.clone(),
-            SubstrateNode::KITCHENSINK_EXPORT_CHAINSPEC_COMMAND,
+            context.revive_dev_node_configuration.path.clone(),
+            SubstrateNode::REVIVE_DEV_NODE_EXPORT_CHAINSPEC_COMMAND,
             None,
             &context,
             &[],
@@ -867,8 +866,8 @@ mod tests {
 
         let context = test_config();
         let mut dummy_node = SubstrateNode::new(
-            context.kitchensink_configuration.path.clone(),
-            SubstrateNode::KITCHENSINK_EXPORT_CHAINSPEC_COMMAND,
+            context.revive_dev_node_configuration.path.clone(),
+            SubstrateNode::REVIVE_DEV_NODE_EXPORT_CHAINSPEC_COMMAND,
             None,
             &context,
             &[],

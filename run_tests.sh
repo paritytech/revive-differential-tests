@@ -84,7 +84,6 @@ RUST_LOG="info,alloy_pubsub::service=error" ./target/release/retester test \
     --concurrency.number-of-threads 5 \
     --concurrency.number-of-concurrent-tasks 500 \
     --wallet.additional-keys 100000 \
-    --kitchensink.path "$SUBSTRATE_NODE_BIN" \
     --revive-dev-node.path "$REVIVE_DEV_NODE_BIN" \
     --eth-rpc.path "$ETH_RPC_BIN" \
     > logs.log \

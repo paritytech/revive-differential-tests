@@ -131,17 +131,6 @@ impl AsRef<PolkadotParachainConfiguration> for Context {
     }
 }
 
-impl AsRef<KitchensinkConfiguration> for Context {
-    fn as_ref(&self) -> &KitchensinkConfiguration {
-        match self {
-            Self::Test(context) => context.as_ref().as_ref(),
-            Self::Benchmark(context) => context.as_ref().as_ref(),
-            Self::ExportGenesis(context) => context.as_ref().as_ref(),
-            Self::ExportJsonSchema => unreachable!(),
-        }
-    }
-}
-
 impl AsRef<ReviveDevNodeConfiguration> for Context {
     fn as_ref(&self) -> &ReviveDevNodeConfiguration {
         match self {
@@ -283,10 +272,6 @@ pub struct TestExecutionContext {
     #[clap(flatten, next_help_heading = "Lighthouse Configuration")]
     pub lighthouse_configuration: KurtosisConfiguration,
 
-    /// Configuration parameters for the Kitchensink.
-    #[clap(flatten, next_help_heading = "Kitchensink Configuration")]
-    pub kitchensink_configuration: KitchensinkConfiguration,
-
     /// Configuration parameters for the Revive Dev Node.
     #[clap(flatten, next_help_heading = "Revive Dev Node Configuration")]
     pub revive_dev_node_configuration: ReviveDevNodeConfiguration,
@@ -409,10 +394,6 @@ pub struct BenchmarkingContext {
     #[clap(flatten, next_help_heading = "Lighthouse Configuration")]
     pub lighthouse_configuration: KurtosisConfiguration,
 
-    /// Configuration parameters for the Kitchensink.
-    #[clap(flatten, next_help_heading = "Kitchensink Configuration")]
-    pub kitchensink_configuration: KitchensinkConfiguration,
-
     /// Configuration parameters for the Polkadot Parachain.
     #[clap(flatten, next_help_heading = "Polkadot Parachain Configuration")]
     pub polkadot_parachain_configuration: PolkadotParachainConfiguration,
@@ -491,10 +472,6 @@ pub struct ExportGenesisContext {
     #[clap(flatten, next_help_heading = "Lighthouse Configuration")]
     pub lighthouse_configuration: KurtosisConfiguration,
 
-    /// Configuration parameters for the Kitchensink.
-    #[clap(flatten, next_help_heading = "Kitchensink Configuration")]
-    pub kitchensink_configuration: KitchensinkConfiguration,
-
     /// Configuration parameters for the Polkadot Parachain.
     #[clap(flatten, next_help_heading = "Polkadot Parachain Configuration")]
     pub polkadot_parachain_configuration: PolkadotParachainConfiguration,
@@ -553,12 +530,6 @@ impl AsRef<PolkadotParachainConfiguration> for TestExecutionContext {
 impl AsRef<KurtosisConfiguration> for TestExecutionContext {
     fn as_ref(&self) -> &KurtosisConfiguration {
         &self.lighthouse_configuration
-    }
-}
-
-impl AsRef<KitchensinkConfiguration> for TestExecutionContext {
-    fn as_ref(&self) -> &KitchensinkConfiguration {
-        &self.kitchensink_configuration
     }
 }
 
@@ -658,12 +629,6 @@ impl AsRef<PolkadotParachainConfiguration> for BenchmarkingContext {
     }
 }
 
-impl AsRef<KitchensinkConfiguration> for BenchmarkingContext {
-    fn as_ref(&self) -> &KitchensinkConfiguration {
-        &self.kitchensink_configuration
-    }
-}
-
 impl AsRef<ReviveDevNodeConfiguration> for BenchmarkingContext {
     fn as_ref(&self) -> &ReviveDevNodeConfiguration {
         &self.revive_dev_node_configuration
@@ -715,12 +680,6 @@ impl AsRef<GethConfiguration> for ExportGenesisContext {
 impl AsRef<KurtosisConfiguration> for ExportGenesisContext {
     fn as_ref(&self) -> &KurtosisConfiguration {
         &self.lighthouse_configuration
-    }
-}
-
-impl AsRef<KitchensinkConfiguration> for ExportGenesisContext {
-    fn as_ref(&self) -> &KitchensinkConfiguration {
-        &self.kitchensink_configuration
     }
 }
 
@@ -840,30 +799,6 @@ pub struct KurtosisConfiguration {
         default_value = "kurtosis"
     )]
     pub path: PathBuf,
-}
-
-/// A set of configuration parameters for Kitchensink.
-#[derive(Clone, Debug, Parser, Serialize, Deserialize)]
-pub struct KitchensinkConfiguration {
-    /// Specifies the path of the kitchensink node to be used by the tool.
-    ///
-    /// If this is not specified, then the tool assumes that it should use the kitchensink binary
-    /// that's provided in the user's $PATH.
-    #[clap(
-        id = "kitchensink.path",
-        long = "kitchensink.path",
-        default_value = "substrate-node"
-    )]
-    pub path: PathBuf,
-
-    /// The amount of time to wait upon startup before considering that the node timed out.
-    #[clap(
-        id = "kitchensink.start-timeout-ms",
-        long = "kitchensink.start-timeout-ms",
-        default_value = "30000",
-        value_parser = parse_duration
-    )]
-    pub start_timeout_ms: Duration,
 }
 
 /// A set of configuration parameters for the revive dev node.
@@ -1159,35 +1094,6 @@ fn parse_duration(s: &str) -> anyhow::Result<Duration> {
     u64::from_str(s)
         .map(Duration::from_millis)
         .map_err(Into::into)
-}
-
-/// The Solidity compatible node implementation.
-///
-/// This describes the solutions to be tested against on a high level.
-#[derive(
-    Clone,
-    Copy,
-    Debug,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    Hash,
-    Serialize,
-    ValueEnum,
-    EnumString,
-    Display,
-    AsRefStr,
-    IntoStaticStr,
-)]
-#[strum(serialize_all = "kebab-case")]
-pub enum TestingPlatform {
-    /// The go-ethereum reference full node EVM implementation.
-    Geth,
-    /// The kitchensink runtime provides the PolkaVM (PVM) based node implementation.
-    Kitchensink,
-    /// A polkadot/Substrate based network
-    Zombienet,
 }
 
 /// The output format to use for the test execution output.

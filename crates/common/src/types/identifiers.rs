@@ -31,10 +31,6 @@ pub enum PlatformIdentifier {
     GethEvmSolc,
     /// The Lighthouse Go-ethereum reference full node EVM implementation with the solc compiler.
     LighthouseGethEvmSolc,
-    /// The kitchensink node with the PolkaVM backend with the resolc compiler.
-    KitchensinkPolkavmResolc,
-    /// The kitchensink node with the REVM backend with the solc compiler.
-    KitchensinkRevmSolc,
     /// The revive dev node with the PolkaVM backend with the resolc compiler.
     ReviveDevNodePolkavmResolc,
     /// The revive dev node with the REVM backend with the solc compiler.
@@ -95,8 +91,6 @@ pub enum NodeIdentifier {
     Geth,
     /// The go-ethereum node implementation.
     LighthouseGeth,
-    /// The Kitchensink node implementation.
-    Kitchensink,
     /// The revive dev node implementation.
     ReviveDevNode,
     /// A zombienet spawned nodes
