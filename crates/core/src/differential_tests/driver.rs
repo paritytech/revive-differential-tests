@@ -598,7 +598,10 @@ where
         let expected = !assertion.exception;
         let actual = receipt.status();
         if actual != expected {
-            let revert_reason = tracing_result.revert_reason.as_ref();
+            let revert_reason = tracing_result
+                .revert_reason
+                .as_ref()
+                .or(tracing_result.error.as_ref());
             tracing::error!(
                 expected,
                 actual,
