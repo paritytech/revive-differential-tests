@@ -1,5 +1,6 @@
 use std::{collections::HashMap, fmt::Display, str::FromStr};
 
+use alloy::hex::ToHexExt;
 use alloy::primitives::{FixedBytes, utils::parse_units};
 use alloy::{
     eips::BlockNumberOrTag,
@@ -686,8 +687,8 @@ impl Calldata {
             Calldata::Compound(items) => {
                 stream::iter(items.iter().zip(other.chunks(32)))
                     .map(|(this, other)| async move {
-                        // The matterlabs format supports wildcards and therefore we
-                        // also need to support them.
+                        // The MatterLabs format supports wildcards and therefore we also need to
+                        // support them.
                         if this.as_ref() == "*" {
                             return Ok::<_, anyhow::Error>(true);
                         }
@@ -768,7 +769,14 @@ impl CalldataItem {
         match stack.as_slice() {
             // Empty stack means that we got an empty compound calldata which we resolve to zero.
             [] => Ok(U256::ZERO),
-            [CalldataToken::Item(item)] => Ok(*item),
+            [CalldataToken::Item(item)] => {
+                tracing::debug!(
+                    original_item = ?self,
+                    resolved_item = item.to_be_bytes::<32>().encode_hex(),
+                    "Resolution Done"
+                );
+                Ok(*item)
+            }
             _ => Err(anyhow::anyhow!(
                 "Invalid calldata arithmetic operation - Invalid stack"
             )),

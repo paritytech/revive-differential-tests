@@ -62,7 +62,10 @@ where
     ) -> TransportResult<Self::Fillable> {
         match self.inner.prepare(provider, tx).await {
             Ok(fill) => Ok(Some(fill)),
-            Err(_) => Ok(None),
+            Err(err) => {
+                tracing::debug!(error = ?err, "Gas Provider Estimation Failed, using fallback");
+                Ok(None)
+            }
         }
     }
 
