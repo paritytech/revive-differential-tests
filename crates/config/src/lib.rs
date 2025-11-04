@@ -16,6 +16,7 @@ use alloy::{
     primitives::{B256, FixedBytes, U256},
     signers::local::PrivateKeySigner,
 };
+use anyhow::Context as _;
 use clap::{Parser, ValueEnum, ValueHint};
 use revive_dt_common::types::{ParsedTestSpecifier, PlatformIdentifier};
 use semver::Version;
@@ -1079,7 +1080,10 @@ impl FromStr for WorkingDirectoryConfiguration {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
             "" => Ok(Default::default()),
-            _ => Ok(Self::Path(PathBuf::from(s))),
+            _ => PathBuf::from(s)
+                .canonicalize()
+                .context("Failed to canonicalize the working directory path")
+                .map(Self::Path),
         }
     }
 }
