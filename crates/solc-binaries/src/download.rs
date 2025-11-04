@@ -2,12 +2,13 @@
 
 use std::{
     collections::HashMap,
+    str::FromStr,
     sync::{LazyLock, Mutex},
 };
 
 use revive_dt_common::types::VersionOrRequirement;
 
-use semver::Version;
+use semver::{Version, VersionReq};
 use sha2::{Digest, Sha256};
 
 use crate::list::List;
@@ -65,6 +66,9 @@ impl SolcDownloader {
         target: &'static str,
         list: &'static str,
     ) -> anyhow::Result<Self> {
+        static MAXIMUM_COMPILER_VERSION_REQUIREMENT: LazyLock<VersionReq> =
+            LazyLock::new(|| VersionReq::from_str("<=0.8.30").unwrap());
+
         let version_or_requirement = version.into();
         match version_or_requirement {
             VersionOrRequirement::Version(version) => Ok(Self {
@@ -79,7 +83,10 @@ impl SolcDownloader {
                     .builds
                     .into_iter()
                     .map(|build| build.version)
-                    .filter(|version| requirement.matches(version))
+                    .filter(|version| {
+                        MAXIMUM_COMPILER_VERSION_REQUIREMENT.matches(version)
+                            && requirement.matches(version)
+                    })
                     .max()
                 else {
                     anyhow::bail!("Failed to find a version that satisfies {requirement:?}");
