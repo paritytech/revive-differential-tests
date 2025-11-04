@@ -234,9 +234,15 @@ impl Platform for ReviveDevNodePolkavmResolcPlatform {
             .path
             .as_path();
         let wallet = AsRef::<WalletConfiguration>::as_ref(&context).wallet();
+        let working_directory = AsRef::<WorkingDirectoryConfiguration>::as_ref(&context).as_path();
         let export_chainspec_command = SubstrateNode::REVIVE_DEV_NODE_EXPORT_CHAINSPEC_COMMAND;
 
-        SubstrateNode::node_genesis(revive_dev_node_path, export_chainspec_command, &wallet)
+        SubstrateNode::node_genesis(
+            revive_dev_node_path,
+            export_chainspec_command,
+            &wallet,
+            working_directory,
+        )
     }
 }
 
@@ -302,9 +308,15 @@ impl Platform for ReviveDevNodeRevmSolcPlatform {
             .path
             .as_path();
         let wallet = AsRef::<WalletConfiguration>::as_ref(&context).wallet();
+        let working_directory = AsRef::<WorkingDirectoryConfiguration>::as_ref(&context).as_path();
         let export_chainspec_command = SubstrateNode::REVIVE_DEV_NODE_EXPORT_CHAINSPEC_COMMAND;
 
-        SubstrateNode::node_genesis(revive_dev_node_path, export_chainspec_command, &wallet)
+        SubstrateNode::node_genesis(
+            revive_dev_node_path,
+            export_chainspec_command,
+            &wallet,
+            working_directory,
+        )
     }
 }
 

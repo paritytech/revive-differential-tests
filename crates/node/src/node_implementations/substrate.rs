@@ -160,6 +160,7 @@ impl SubstrateNode {
             &self.node_binary,
             &self.export_chainspec_command,
             &self.wallet,
+            self.base_directory.as_path(),
         )
         .context("Failed to prepare the chainspec command")?;
 
@@ -319,6 +320,7 @@ impl SubstrateNode {
         node_path: &Path,
         export_chainspec_command: &str,
         wallet: &EthereumWallet,
+        base_directory: impl AsRef<Path>,
     ) -> anyhow::Result<serde_json::Value> {
         trace!("Exporting the chainspec");
         let output = Command::new(node_path)
@@ -326,6 +328,7 @@ impl SubstrateNode {
             .arg("--chain")
             .arg("dev")
             .env_remove("RUST_LOG")
+            .current_dir(base_directory)
             .output()
             .context("Failed to export the chain-spec")?;
 
