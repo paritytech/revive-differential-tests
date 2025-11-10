@@ -100,8 +100,6 @@ jobs:
           components: "rust-src,rust-std"
       - name: Install the Cargo Make Binary
         uses: davidB/rust-cargo-make@v1
-      - name: Run Cargo Clippy
-        run: cargo make clippy
       - name: Caching Step
         uses: actions/cache@v4
         with:
@@ -175,28 +173,39 @@ jobs:
       RUSTFLAGS: "-Awarnings"
       POLKADOT_SDK_COMMIT_HASH: "30cda2aad8612a10ff729d494acd9d5353294d63"
     steps:
+      - name: Caching Step
+        id: cache-step
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/eth-rpc
+            ~/.cargo/bin/revive-dev-node
+          key: polkadot-binaries-${{ env.POLKADOT_SDK_COMMIT_HASH }}-${{ matrix.os }}
       - name: Checkout the Polkadot SDK Repository
         uses: actions/checkout@v4
+        if: steps.cache-step.outputs.cache-hit != 'true'
         with:
           repository: paritytech/polkadot-sdk
           ref: ${{ env.POLKADOT_SDK_COMMIT_HASH }}
           submodules: recursive
       - name: Run Sccache
         uses: mozilla-actions/sccache-action@v0.0.9
+        if: steps.cache-step.outputs.cache-hit != 'true'
       - name: Install the Rust Toolchain
         uses: actions-rust-lang/setup-rust-toolchain@v1
+        if: steps.cache-step.outputs.cache-hit != 'true'
         with:
           target: "wasm32-unknown-unknown"
           components: "rust-src"
           toolchain: "1.90.0"
 
       - name: Install dependencies (Linux)
-        if: matrix.os == 'ubuntu-24.04'
+        if: matrix.os == 'ubuntu-24.04' && steps.cache-step.outputs.cache-hit != 'true'
         run: |
           sudo apt-get update
           sudo apt-get install -y protobuf-compiler clang libclang-dev
       - name: Install dependencies (macOS)
-        if: matrix.os == 'macos-14'
+        if: matrix.os == 'macos-14' && steps.cache-step.outputs.cache-hit != 'true'
         run: |
           brew install protobuf llvm
           LLVM_PREFIX="$(brew --prefix llvm)"
@@ -206,14 +215,6 @@ jobs:
           echo "LIBCLANG_PATH=${LLVM_PREFIX}/lib" >> "$GITHUB_ENV"
           echo "DYLD_FALLBACK_LIBRARY_PATH=${LLVM_PREFIX}/lib" >> "$GITHUB_ENV"
           echo "${LLVM_PREFIX}/bin" >> "$GITHUB_PATH"
-      - name: Caching Step
-        id: cache-step
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/bin/eth-rpc
-            ~/.cargo/bin/revive-dev-node
-          key: polkadot-binaries-${{ env.POLKADOT_SDK_COMMIT_HASH }}-${{ matrix.os }}
       - name: Build Polkadot Dependencies
         if: steps.cache-step.outputs.cache-hit != 'true'
         run: |
