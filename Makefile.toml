@@ -1,0 +1,21 @@
+[config]
+default_to_workspace = false
+
+[tasks.machete]
+command = "cargo"
+args = ["machete", "crates"]
+install_crate = "cargo-machete"
+
+[tasks.fmt-check]
+command = "cargo"
+args = ["fmt", "--all", "--", "--check"]
+install_crate = "rustfmt"
+
+[tasks.clippy]
+command = "cargo"
+args = ["clippy", "--all-features", "--workspace", "--", "--deny", "warnings"]
+install_crate = "clippy"
+
+[tasks.test]
+command = "cargo"
+args = ["test", "--workspace", "--", "--nocapture"]
