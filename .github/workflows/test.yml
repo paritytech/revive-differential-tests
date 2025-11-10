@@ -218,7 +218,6 @@ jobs:
       - name: Build Polkadot Dependencies
         if: steps.cache-step.outputs.cache-hit != 'true'
         env:
-          PATH: "/opt/homebrew/opt/llvm/bin:${{ env.PATH }}"
           LDFLAGS: "-L/opt/homebrew/opt/llvm/lib"
           CPPFLAGS: "-I/opt/homebrew/opt/llvm/include"
           CMAKE_PREFIX_PATH: "/opt/homebrew/opt/llvm"
