@@ -21,17 +21,60 @@ jobs:
   machete:
     name: Check for Unneeded Dependencies
     runs-on: ubuntu-24.04
+    env:
+      SCCACHE_GHA_ENABLED: "true"
+      RUSTC_WRAPPER: "sccache"
     steps:
       - name: Checkout This Repository
         uses: actions/checkout@v4
         with:
           submodules: recursive
+      - name: Run Sccache
+        uses: mozilla-actions/sccache-action@v0.0.9
       - name: Install the Rust Toolchain
         uses: actions-rust-lang/setup-rust-toolchain@v1
       - name: Install the Cargo Make Binary
         uses: davidB/rust-cargo-make@v1
       - name: Run Cargo Machete
         run: cargo make machete
+  check-fmt:
+    name: Check Formatting
+    runs-on: ubuntu-24.04
+    env:
+      SCCACHE_GHA_ENABLED: "true"
+      RUSTC_WRAPPER: "sccache"
+    steps:
+      - name: Checkout This Repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Run Sccache
+        uses: mozilla-actions/sccache-action@v0.0.9
+      - name: Install the Rust Toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+      - name: Install the Cargo Make Binary
+        uses: davidB/rust-cargo-make@v1
+      - name: Run Cargo Formatter
+        run: cargo make fmt-check
+  check-clippy:
+    name: Check Clippy Lints
+    runs-on: ubuntu-24.04
+    env:
+      SCCACHE_GHA_ENABLED: "true"
+      RUSTC_WRAPPER: "sccache"
+    steps:
+      - name: Checkout This Repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Run Sccache
+        uses: mozilla-actions/sccache-action@v0.0.9
+      - name: Install the Rust Toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+      - name: Install the Cargo Make Binary
+        uses: davidB/rust-cargo-make@v1
+      - name: Run Cargo Clippy
+        run: cargo make clippy
 # name: Test workflow
 
 # on:
