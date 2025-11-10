@@ -706,6 +706,7 @@ impl Calldata {
                             .await
                             .context("Failed to resolve calldata item during equivalence check")?;
                         let other = U256::from_be_slice(&other);
+
                         Ok(this == other)
                     })
                     .buffered(0xFF)
@@ -718,7 +719,7 @@ impl Calldata {
 }
 
 impl CalldataItem {
-    #[instrument(level = "info", skip_all, err)]
+    #[instrument(level = "info", skip_all, err(Debug))]
     async fn resolve(
         &self,
         resolver: &(impl ResolverApi + ?Sized),
@@ -906,7 +907,7 @@ impl<T: AsRef<str>> CalldataToken<T> {
                     let block_hash = resolver
                         .block_hash(desired_block_number.into())
                         .await
-                        .context("Failed to resolve block hash for desired block number")?;
+                        .context(format!("Failed to resolve the block hash of block number {desired_block_number}"))?;
 
                     Ok(U256::from_be_bytes(block_hash.0))
                 } else if item == Self::BLOCK_NUMBER_VARIABLE {

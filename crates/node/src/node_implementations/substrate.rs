@@ -251,6 +251,10 @@ impl SubstrateNode {
                     .arg(format!("ws://127.0.0.1:{substrate_rpc_port}"))
                     .arg("--rpc-max-connections")
                     .arg(u32::MAX.to_string())
+                    .arg("--index-last-n-blocks")
+                    .arg(1_000u32.to_string())
+                    .arg("--cache-size")
+                    .arg(1_000u32.to_string())
                     .env("RUST_LOG", Self::PROXY_LOG_ENV)
                     .stdout(stdout_file)
                     .stderr(stderr_file);
