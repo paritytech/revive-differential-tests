@@ -359,7 +359,11 @@ where
         Ok(())
     }
 
-    #[instrument(level = "info", skip_all)]
+    #[instrument(
+        level = "info",
+        skip_all,
+        fields(block_number = tracing::field::Empty)
+    )]
     pub async fn execute_function_call(
         &mut self,
         _: &StepPath,
@@ -373,6 +377,7 @@ where
             .handle_function_call_execution(step, deployment_receipts)
             .await
             .context("Failed to handle the function call execution")?;
+        tracing::Span::current().record("block_number", execution_receipt.block_number);
         let tracing_result = self
             .handle_function_call_call_frame_tracing(execution_receipt.transaction_hash)
             .await
@@ -616,8 +621,8 @@ where
         }
 
         // Handling the calldata assertion
-        if let Some(ref expected_calldata) = assertion.return_data {
-            let expected = expected_calldata;
+        if let Some(ref expected_output) = assertion.return_data {
+            let expected = expected_output;
             let actual = &tracing_result.output.as_ref().unwrap_or_default();
             if !expected
                 .is_equivalent(actual, resolver.as_ref(), resolution_context)
@@ -628,9 +633,9 @@ where
                     ?receipt,
                     ?expected,
                     %actual,
-                    "Calldata assertion failed"
+                    "Output assertion failed"
                 );
-                anyhow::bail!("Calldata assertion failed - Expected {expected:?} but got {actual}",);
+                anyhow::bail!("Output assertion failed - Expected {expected:?} but got {actual}",);
             }
         }
 
