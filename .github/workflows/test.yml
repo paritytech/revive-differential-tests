@@ -75,6 +75,77 @@ jobs:
         uses: davidB/rust-cargo-make@v1
       - name: Run Cargo Clippy
         run: cargo make clippy
+  cache-polkadot:
+    name: Build and Cache Polkadot Binaries on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-24.04, macos-14]
+    env:
+      SCCACHE_GHA_ENABLED: "true"
+      RUSTC_WRAPPER: "sccache"
+      POLKADOT_SDK_COMMIT_HASH: "30cda2aad8612a10ff729d494acd9d5353294d63"
+    steps:
+      - name: Checkout the Polkadot SDK Repository
+        uses: actions/checkout@v4
+        with:
+          repository: paritytech/polkadot-sdk
+          ref: ${{ env.POLKADOT_SDK_COMMIT_HASH }}
+          submodules: recursive
+      - name: Run Sccache
+        uses: mozilla-actions/sccache-action@v0.0.9
+      - name: Install the Rust Toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          target: "wasm32-unknown-unknown"
+          components: "rust-src"
+
+      - name: Install dependencies (Linux)
+        if: matrix.os == 'ubuntu-24.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y protobuf-compiler clang libclang-dev
+      - name: Install dependencies (macOS)
+        if: matrix.os == 'macos-14'
+        run: brew install protobuf
+
+      - name: Caching Step
+        id: cache-step
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/polkadot
+            ~/.cargo/bin/polkadot-parachain
+            ~/.cargo/bin/polkadot-prepare-worker
+            ~/.cargo/bin/polkadot-execute-worker
+            ~/.cargo/bin/eth-rpc
+            ~/.cargo/bin/revive-dev-node
+          key: polkadot-binaries-${{ env.POLKADOT_SDK_COMMIT_HASH }}
+
+      - name: Build Polkadot Dependencies
+        if: steps.cache-step.outputs.cache-hit != 'true'
+        run: |
+          cargo build \
+            --locked \
+            --profile production \
+            --package revive-dev-node \
+            --package pallet-revive-eth-rpc \
+            --package polkadot-parachain-bin;
+          cargo build \
+            --locked \
+            --profile testnet \
+            --features fast-runtime \
+            --bin polkadot \
+            --bin polkadot-prepare-worker \
+            --bin polkadot-execute-worker;
+          mv ./target/production/revive-dev-node ~/.cargo/bin
+          mv ./target/production/eth-rpc ~/.cargo/bin
+          mv ./target/production/polkadot-parachain ~/.cargo/bin
+          mv ./target/testnet/polkadot ~/.cargo/bin
+          mv ./target/testnet/polkadot-prepare-worker ~/.cargo/bin
+          mv ./target/testnet/polkadot-execute-worker ~/.cargo/bin
+          chmod +x ~/.cargo/bin/*
+
 # name: Test workflow
 
 # on:
