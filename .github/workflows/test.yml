@@ -81,7 +81,7 @@ jobs:
     needs: cache-polkadot
     strategy:
       matrix:
-        os: [ubuntu-24.04, parity-macos]
+        os: [ubuntu-24.04, macos-14]
     env:
       SCCACHE_GHA_ENABLED: "true"
       RUSTC_WRAPPER: "sccache"
@@ -142,7 +142,7 @@ jobs:
           chmod +x resolc
           sudo mv resolc /usr/local/bin
       - name: Install Geth on macOS
-        if: matrix.os == 'parity-macos'
+        if: matrix.os == 'macos-14'
         run: |
           brew tap ethereum/ethereum
           brew install ethereum protobuf
@@ -153,7 +153,7 @@ jobs:
           chmod +x resolc
           sudo mv resolc /usr/local/bin
       - name: Install Kurtosis on macOS
-        if: matrix.os == 'parity-macos'
+        if: matrix.os == 'macos-14'
         run: brew install kurtosis-tech/tap/kurtosis-cli
       - name: Install Kurtosis on Ubuntu
         if: matrix.os == 'ubuntu-24.04'
@@ -168,7 +168,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-24.04, parity-macos]
+        os: [ubuntu-24.04, macos-14]
     env:
       SCCACHE_GHA_ENABLED: "true"
       RUSTC_WRAPPER: "sccache"
@@ -196,7 +196,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y protobuf-compiler clang libclang-dev
       - name: Install dependencies (macOS)
-        if: matrix.os == 'parity-macos'
+        if: matrix.os == 'macos-14'
         run: |
           brew install protobuf llvm
           LLVM_PREFIX="$(brew --prefix llvm)"
@@ -206,7 +206,6 @@ jobs:
           echo "LIBCLANG_PATH=${LLVM_PREFIX}/lib" >> "$GITHUB_ENV"
           echo "DYLD_FALLBACK_LIBRARY_PATH=${LLVM_PREFIX}/lib" >> "$GITHUB_ENV"
           echo "${LLVM_PREFIX}/bin" >> "$GITHUB_PATH"
-
       - name: Caching Step
         id: cache-step
         uses: actions/cache@v4
@@ -215,7 +214,6 @@ jobs:
             ~/.cargo/bin/eth-rpc
             ~/.cargo/bin/revive-dev-node
           key: polkadot-binaries-${{ env.POLKADOT_SDK_COMMIT_HASH }}-${{ matrix.os }}
-
       - name: Build Polkadot Dependencies
         if: steps.cache-step.outputs.cache-hit != 'true'
         run: |
@@ -227,264 +225,3 @@ jobs:
           mv ./target/production/revive-dev-node ~/.cargo/bin
           mv ./target/production/eth-rpc ~/.cargo/bin
           chmod +x ~/.cargo/bin/*
-
-# name: Test workflow
-
-# on:
-#   push:
-#     branches:
-#       - main
-#   pull_request:
-#     branches:
-#       - main
-#     types: [opened, synchronize]
-
-# concurrency:
-#   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-#   cancel-in-progress: true
-
-# env:
-#   CARGO_TERM_COLOR: always
-#   POLKADOT_VERSION: polkadot-stable2506-2
-
-# jobs:
-#   cache-polkadot:
-#     name: Build and cache Polkadot binaries on ${{ matrix.os }}
-#     runs-on: ${{ matrix.os }}
-#     strategy:
-#       matrix:
-#         os: [ubuntu-24.04, parity-macos]
-
-#     steps:
-#       - name: Checkout repo and submodules
-#         uses: actions/checkout@v4
-#         with:
-#           submodules: recursive
-
-#       - name: Install dependencies (Linux)
-#         if: matrix.os == 'ubuntu-24.04'
-#         run: |
-#           sudo apt-get update
-#           sudo apt-get install -y protobuf-compiler clang libclang-dev
-#           rustup target add wasm32-unknown-unknown
-#           rustup component add rust-src
-
-#       - name: Install dependencies (macOS)
-#         if: matrix.os == 'parity-macos'
-#         run: |
-#           brew install protobuf
-#           rustup target add wasm32-unknown-unknown
-#           rustup component add rust-src
-
-#       - name: Cache binaries
-#         id: cache
-#         uses: actions/cache@v3
-#         with:
-#           path: |
-#             ~/.cargo/bin/revive-dev-node
-#             ~/.cargo/bin/eth-rpc
-#           key: polkadot-binaries-${{ matrix.os }}-${{ hashFiles('polkadot-sdk/.git') }}-with-dev-node
-
-#       - name: Build revive-dev-node
-#         if: steps.cache.outputs.cache-hit != 'true'
-#         run: |
-#           cd polkadot-sdk
-#           cargo install --locked --force --profile=production --path substrate/frame/revive/dev-node/node --bin revive-dev-node
-
-#       - name: Build eth-rpc
-#         if: steps.cache.outputs.cache-hit != 'true'
-#         run: |
-#           cd polkadot-sdk
-#           cargo install --path substrate/frame/revive/rpc --bin eth-rpc
-
-#       - name: Cache downloaded Polkadot binaries
-#         id: cache-polkadot
-#         uses: actions/cache@v3
-#         with:
-#           path: |
-#             ~/polkadot-cache/polkadot
-#             ~/polkadot-cache/polkadot-execute-worker
-#             ~/polkadot-cache/polkadot-prepare-worker
-#             ~/polkadot-cache/polkadot-parachain
-#           key: polkadot-downloaded-${{ matrix.os }}-${{ env.POLKADOT_VERSION }}
-
-#       - name: Download Polkadot binaries on macOS
-#         if: matrix.os == 'parity-macos' && steps.cache-polkadot.outputs.cache-hit != 'true'
-#         run: |
-#           mkdir -p ~/polkadot-cache
-#           curl -sL https://github.com/paritytech/polkadot-sdk/releases/download/${{ env.POLKADOT_VERSION }}/polkadot-aarch64-apple-darwin -o ~/polkadot-cache/polkadot
-#           curl -sL https://github.com/paritytech/polkadot-sdk/releases/download/${{ env.POLKADOT_VERSION }}/polkadot-execute-worker-aarch64-apple-darwin -o ~/polkadot-cache/polkadot-execute-worker
-#           curl -sL https://github.com/paritytech/polkadot-sdk/releases/download/${{ env.POLKADOT_VERSION }}/polkadot-prepare-worker-aarch64-apple-darwin -o ~/polkadot-cache/polkadot-prepare-worker
-#           curl -sL https://github.com/paritytech/polkadot-sdk/releases/download/${{ env.POLKADOT_VERSION }}/polkadot-parachain-aarch64-apple-darwin -o ~/polkadot-cache/polkadot-parachain
-#           chmod +x ~/polkadot-cache/*
-
-#       - name: Download Polkadot binaries on Ubuntu
-#         if: matrix.os == 'ubuntu-24.04' && steps.cache-polkadot.outputs.cache-hit != 'true'
-#         run: |
-#           mkdir -p ~/polkadot-cache
-#           curl -sL https://github.com/paritytech/polkadot-sdk/releases/download/${{ env.POLKADOT_VERSION }}/polkadot -o ~/polkadot-cache/polkadot
-#           curl -sL https://github.com/paritytech/polkadot-sdk/releases/download/${{ env.POLKADOT_VERSION }}/polkadot-execute-worker -o ~/polkadot-cache/polkadot-execute-worker
-#           curl -sL https://github.com/paritytech/polkadot-sdk/releases/download/${{ env.POLKADOT_VERSION }}/polkadot-prepare-worker -o ~/polkadot-cache/polkadot-prepare-worker
-#           curl -sL https://github.com/paritytech/polkadot-sdk/releases/download/${{ env.POLKADOT_VERSION }}/polkadot-parachain -o ~/polkadot-cache/polkadot-parachain
-#           chmod +x ~/polkadot-cache/*
-
-#   ci:
-#     name: CI on ${{ matrix.os }}
-#     needs: cache-polkadot
-#     runs-on: ${{ matrix.os }}
-#     strategy:
-#       matrix:
-#         os: [ubuntu-24.04, parity-macos]
-
-#     steps:
-#       - name: Checkout repo
-#         uses: actions/checkout@v4
-#         with:
-#           submodules: recursive
-
-#       - name: Restore binaries from cache
-#         uses: actions/cache@v3
-#         with:
-#           path: |
-#             ~/.cargo/bin/revive-dev-node
-#             ~/.cargo/bin/eth-rpc
-#           key: polkadot-binaries-${{ matrix.os }}-${{ hashFiles('polkadot-sdk/.git') }}-with-dev-node
-
-#       - name: Restore downloaded Polkadot binaries from cache
-#         uses: actions/cache@v3
-#         with:
-#           path: |
-#             ~/polkadot-cache/polkadot
-#             ~/polkadot-cache/polkadot-execute-worker
-#             ~/polkadot-cache/polkadot-prepare-worker
-#             ~/polkadot-cache/polkadot-parachain
-#           key: polkadot-downloaded-${{ matrix.os }}-${{ env.POLKADOT_VERSION }}
-
-#       - name: Install Polkadot binaries
-#         run: |
-#           sudo cp ~/polkadot-cache/polkadot /usr/local/bin/
-#           sudo cp ~/polkadot-cache/polkadot-execute-worker /usr/local/bin/
-#           sudo cp ~/polkadot-cache/polkadot-prepare-worker /usr/local/bin/
-#           sudo cp ~/polkadot-cache/polkadot-parachain /usr/local/bin/
-#           sudo chmod +x /usr/local/bin/polkadot*
-
-#       - name: Setup Rust toolchain
-#         uses: actions-rust-lang/setup-rust-toolchain@v1
-#         with:
-#           rustflags: ""
-
-#       - name: Add wasm32 target and formatting
-#         run: |
-#           rustup target add wasm32-unknown-unknown
-#           rustup component add rust-src rustfmt clippy
-
-#       - name: Install Geth on Ubuntu
-#         if: matrix.os == 'ubuntu-24.04'
-#         run: |
-#           sudo add-apt-repository -y ppa:ethereum/ethereum
-#           sudo apt-get update
-#           sudo apt-get install -y protobuf-compiler
-
-#           sudo apt-get install -y solc
-
-#           # We were facing some issues in CI with the 1.16.* versions of geth, and specifically on
-#           # Ubuntu. Eventually, we found out that the last version of geth that worked in our CI was
-#           # version 1.15.11. Thus, this is the version that we want to use in CI. The PPA sadly does
-#           # not have historic versions of Geth and therefore we need to resort to downloading pre
-#           # built binaries for Geth and the surrounding tools which is what the following parts of
-#           # the script do.
-
-#           sudo apt-get install -y wget ca-certificates tar
-#           ARCH=$(uname -m)
-#           if [ "$ARCH" = "x86_64" ]; then
-#             URL="https://gethstore.blob.core.windows.net/builds/geth-alltools-linux-amd64-1.15.11-36b2371c.tar.gz"
-#           elif [ "$ARCH" = "aarch64" ]; then
-#             URL="https://gethstore.blob.core.windows.net/builds/geth-alltools-linux-arm64-1.15.11-36b2371c.tar.gz"
-#           else
-#             echo "Unsupported architecture: $ARCH"
-#             exit 1
-#           fi
-#           wget -qO- "$URL" | sudo tar xz -C /usr/local/bin --strip-components=1
-#           geth --version
-
-#           curl -sL https://github.com/paritytech/revive/releases/download/v0.3.0/resolc-x86_64-unknown-linux-musl -o resolc
-#           chmod +x resolc
-#           sudo mv resolc /usr/local/bin
-
-#       - name: Install Geth on macOS
-#         if: matrix.os == 'parity-macos'
-#         run: |
-#           brew tap ethereum/ethereum
-#           brew install ethereum protobuf
-
-#           brew install solidity
-
-#           curl -sL https://github.com/paritytech/revive/releases/download/v0.3.0/resolc-universal-apple-darwin -o resolc
-#           chmod +x resolc
-#           sudo mv resolc /usr/local/bin
-
-#       - name: Install Kurtosis on macOS
-#         if: matrix.os == 'parity-macos'
-#         run: brew install kurtosis-tech/tap/kurtosis-cli
-
-#       - name: Install Kurtosis on Ubuntu
-#         if: matrix.os == 'ubuntu-24.04'
-#         run: |
-#           echo "deb [trusted=yes] https://apt.fury.io/kurtosis-tech/ /" | sudo tee /etc/apt/sources.list.d/kurtosis.list
-#           sudo apt update
-#           sudo apt install kurtosis-cli
-
-#       - name: Install cargo-machete
-#         uses: clechasseur/rs-cargo@v2
-#         with:
-#           command: install
-#           args: cargo-machete@0.7.0
-#       - name: Machete
-#         run: cargo machete crates
-
-#       - name: Format
-#         run: make format
-
-#       - name: Clippy
-#         run: make clippy
-
-#       - name: Check revive-dev-node version
-#         run: revive-dev-node --version
-
-#       - name: Check eth-rpc version
-#         run: eth-rpc --version
-
-#       - name: Check resolc version
-#         run: resolc --version
-
-#       - name: Check polkadot version
-#         run: polkadot --version
-
-#       - name: Check polkadot-parachain version
-#         run: polkadot-parachain --version
-
-#       - name: Check polkadot-execute-worker version
-#         run: polkadot-execute-worker --version
-
-#       - name: Check polkadot-prepare-worker version
-#         run: polkadot-prepare-worker --version
-
-#       - name: Test Formatting
-#         run: make format
-
-#       - name: Test Clippy
-#         run: make clippy
-
-#       - name: Test Machete
-#         run: make machete
-
-#       - name: Unit Tests
-#         if: matrix.os == 'ubuntu-24.04'
-#         run: cargo test --workspace -- --nocapture
-
-#       # We can't install docker in the MacOS image used in CI and therefore we need to skip the
-#       # Kurtosis and lighthouse related tests when running the CI on MacOS.
-#       - name: Unit Tests
-#         if: matrix.os == 'parity-macos'
-#         run: |
-#           cargo test --workspace -- --nocapture --skip lighthouse_geth::tests::
