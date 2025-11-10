@@ -20,7 +20,7 @@ env:
 jobs:
   machete:
     name: Check for Unneeded Dependencies
-    runs-on: parity-large
+    runs-on: ubuntu-24.04
     env:
       SCCACHE_GHA_ENABLED: "true"
       RUSTC_WRAPPER: "sccache"
@@ -39,7 +39,7 @@ jobs:
         run: cargo make machete
   check-fmt:
     name: Check Formatting
-    runs-on: parity-large
+    runs-on: ubuntu-24.04
     env:
       SCCACHE_GHA_ENABLED: "true"
       RUSTC_WRAPPER: "sccache"
@@ -58,7 +58,7 @@ jobs:
         run: cargo make fmt-check
   check-clippy:
     name: Check Clippy Lints
-    runs-on: parity-large
+    runs-on: ubuntu-24.04
     env:
       SCCACHE_GHA_ENABLED: "true"
       RUSTC_WRAPPER: "sccache"
