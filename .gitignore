@@ -3,6 +3,7 @@
 .DS_Store
 node_modules
 /*.json
+*.sh
 
 # We do not want to commit any log files that we produce from running the code locally so this is 
 # added to the .gitignore file.
@@ -13,7 +14,4 @@ workdir
 
 !/schema.json
 !/dev-genesis.json
-
-# Ignore all shell scripts except for the `run_tests.sh` script
-*.sh
-!run_tests.sh
+!/scripts/*

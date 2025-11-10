@@ -856,7 +856,7 @@ mod tests {
     use utils::{new_node, test_config};
 
     #[tokio::test]
-    #[ignore = "Ignored for the time being"]
+    #[ignore = "Ignored since CI doesn't have zombienet installed"]
     async fn test_transfer_transaction_should_return_receipt() {
         // Arrange
         let (ctx, node) = new_node().await;
@@ -882,6 +882,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "Ignored since CI doesn't have zombienet installed"]
     fn print_eth_to_polkadot_mappings() {
         let eth_addresses = vec![
             "0x90F8bf6A479f320ead074411a4B0e7944Ea8c9C1",
@@ -897,6 +898,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "Ignored since CI doesn't have zombienet installed"]
     fn test_eth_to_polkadot_address() {
         let cases = vec![
             (
@@ -927,6 +929,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "Ignored since CI doesn't have zombienet installed"]
     fn eth_rpc_version_works() {
         // Arrange
         let context = test_config();
@@ -946,6 +949,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "Ignored since CI doesn't have zombienet installed"]
     fn version_works() {
         // Arrange
         let context = test_config();
@@ -965,7 +969,7 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore = "Ignored since they take a long time to run"]
+    #[ignore = "Ignored since CI doesn't have zombienet installed"]
     async fn get_chain_id_from_node_should_succeed() {
         // Arrange
         let node = shared_node().await;
@@ -984,7 +988,7 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore = "Ignored since they take a long time to run"]
+    #[ignore = "Ignored since CI doesn't have zombienet installed"]
     async fn can_get_gas_limit_from_node() {
         // Arrange
         let node = shared_node().await;
@@ -1002,7 +1006,7 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore = "Ignored since they take a long time to run"]
+    #[ignore = "Ignored since CI doesn't have zombienet installed"]
     async fn can_get_coinbase_from_node() {
         // Arrange
         let node = shared_node().await;
@@ -1020,7 +1024,7 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore = "Ignored since they take a long time to run"]
+    #[ignore = "Ignored since CI doesn't have zombienet installed"]
     async fn can_get_block_difficulty_from_node() {
         // Arrange
         let node = shared_node().await;
@@ -1038,7 +1042,7 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore = "Ignored since they take a long time to run"]
+    #[ignore = "Ignored since CI doesn't have zombienet installed"]
     async fn can_get_block_hash_from_node() {
         // Arrange
         let node = shared_node().await;
@@ -1056,7 +1060,7 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore = "Ignored since they take a long time to run"]
+    #[ignore = "Ignored since CI doesn't have zombienet installed"]
     async fn can_get_block_timestamp_from_node() {
         // Arrange
         let node = shared_node().await;
@@ -1074,7 +1078,7 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore = "Ignored since they take a long time to run"]
+    #[ignore = "Ignored since CI doesn't have zombienet installed"]
     async fn can_get_block_number_from_node() {
         // Arrange
         let node = shared_node().await;
