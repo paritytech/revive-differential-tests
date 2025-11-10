@@ -81,7 +81,7 @@ jobs:
     needs: cache-polkadot
     strategy:
       matrix:
-        os: [ubuntu-24.04, macos-14]
+        os: [ubuntu-24.04, macos-latest]
     env:
       SCCACHE_GHA_ENABLED: "true"
       RUSTC_WRAPPER: "sccache"
@@ -147,7 +147,7 @@ jobs:
           chmod +x resolc
           sudo mv resolc /usr/local/bin
       - name: Install Geth on macOS
-        if: matrix.os == 'macos-14'
+        if: matrix.os == 'macos-latest'
         run: |
           brew tap ethereum/ethereum
           brew install ethereum protobuf
@@ -158,7 +158,7 @@ jobs:
           chmod +x resolc
           sudo mv resolc /usr/local/bin
       - name: Install Kurtosis on macOS
-        if: matrix.os == 'macos-14'
+        if: matrix.os == 'macos-latest'
         run: brew install kurtosis-tech/tap/kurtosis-cli
       - name: Install Kurtosis on Ubuntu
         if: matrix.os == 'ubuntu-24.04'
@@ -173,7 +173,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-24.04, macos-14]
+        os: [ubuntu-24.04, macos-latest]
     env:
       SCCACHE_GHA_ENABLED: "true"
       RUSTC_WRAPPER: "sccache"
@@ -200,7 +200,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y protobuf-compiler clang libclang-dev
       - name: Install dependencies (macOS)
-        if: matrix.os == 'macos-14'
+        if: matrix.os == 'macos-latest'
         run: brew install protobuf llvm
 
       - name: Caching Step
@@ -269,7 +269,7 @@ jobs:
 #     runs-on: ${{ matrix.os }}
 #     strategy:
 #       matrix:
-#         os: [ubuntu-24.04, macos-14]
+#         os: [ubuntu-24.04, macos-latest]
 
 #     steps:
 #       - name: Checkout repo and submodules
@@ -286,7 +286,7 @@ jobs:
 #           rustup component add rust-src
 
 #       - name: Install dependencies (macOS)
-#         if: matrix.os == 'macos-14'
+#         if: matrix.os == 'macos-latest'
 #         run: |
 #           brew install protobuf
 #           rustup target add wasm32-unknown-unknown
@@ -325,7 +325,7 @@ jobs:
 #           key: polkadot-downloaded-${{ matrix.os }}-${{ env.POLKADOT_VERSION }}
 
 #       - name: Download Polkadot binaries on macOS
-#         if: matrix.os == 'macos-14' && steps.cache-polkadot.outputs.cache-hit != 'true'
+#         if: matrix.os == 'macos-latest' && steps.cache-polkadot.outputs.cache-hit != 'true'
 #         run: |
 #           mkdir -p ~/polkadot-cache
 #           curl -sL https://github.com/paritytech/polkadot-sdk/releases/download/${{ env.POLKADOT_VERSION }}/polkadot-aarch64-apple-darwin -o ~/polkadot-cache/polkadot
@@ -350,7 +350,7 @@ jobs:
 #     runs-on: ${{ matrix.os }}
 #     strategy:
 #       matrix:
-#         os: [ubuntu-24.04, macos-14]
+#         os: [ubuntu-24.04, macos-latest]
 
 #     steps:
 #       - name: Checkout repo
@@ -428,7 +428,7 @@ jobs:
 #           sudo mv resolc /usr/local/bin
 
 #       - name: Install Geth on macOS
-#         if: matrix.os == 'macos-14'
+#         if: matrix.os == 'macos-latest'
 #         run: |
 #           brew tap ethereum/ethereum
 #           brew install ethereum protobuf
@@ -440,7 +440,7 @@ jobs:
 #           sudo mv resolc /usr/local/bin
 
 #       - name: Install Kurtosis on macOS
-#         if: matrix.os == 'macos-14'
+#         if: matrix.os == 'macos-latest'
 #         run: brew install kurtosis-tech/tap/kurtosis-cli
 
 #       - name: Install Kurtosis on Ubuntu
@@ -501,6 +501,6 @@ jobs:
 #       # We can't install docker in the MacOS image used in CI and therefore we need to skip the
 #       # Kurtosis and lighthouse related tests when running the CI on MacOS.
 #       - name: Unit Tests
-#         if: matrix.os == 'macos-14'
+#         if: matrix.os == 'macos-latest'
 #         run: |
 #           cargo test --workspace -- --nocapture --skip lighthouse_geth::tests::
