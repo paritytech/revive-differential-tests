@@ -177,6 +177,7 @@ jobs:
     env:
       SCCACHE_GHA_ENABLED: "true"
       RUSTC_WRAPPER: "sccache"
+      RUSTFLAGS: "-Awarnings"
       POLKADOT_SDK_COMMIT_HASH: "30cda2aad8612a10ff729d494acd9d5353294d63"
     steps:
       - name: Checkout the Polkadot SDK Repository
