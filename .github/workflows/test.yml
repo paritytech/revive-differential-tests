@@ -81,7 +81,7 @@ jobs:
     needs: cache-polkadot
     strategy:
       matrix:
-        os: [ubuntu-24.04, macos-latest]
+        os: [ubuntu-24.04, macos-14]
     env:
       SCCACHE_GHA_ENABLED: "true"
       RUSTC_WRAPPER: "sccache"
@@ -97,7 +97,7 @@ jobs:
         uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           target: "wasm32-unknown-unknown"
-          components: "rust-src"
+          components: "rust-src,rust-std"
       - name: Install the Cargo Make Binary
         uses: davidB/rust-cargo-make@v1
       - name: Run Cargo Clippy
@@ -147,7 +147,7 @@ jobs:
           chmod +x resolc
           sudo mv resolc /usr/local/bin
       - name: Install Geth on macOS
-        if: matrix.os == 'macos-latest'
+        if: matrix.os == 'macos-14'
         run: |
           brew tap ethereum/ethereum
           brew install ethereum protobuf
@@ -158,7 +158,7 @@ jobs:
           chmod +x resolc
           sudo mv resolc /usr/local/bin
       - name: Install Kurtosis on macOS
-        if: matrix.os == 'macos-latest'
+        if: matrix.os == 'macos-14'
         run: brew install kurtosis-tech/tap/kurtosis-cli
       - name: Install Kurtosis on Ubuntu
         if: matrix.os == 'ubuntu-24.04'
@@ -173,7 +173,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-24.04, macos-latest]
+        os: [ubuntu-24.04, macos-14]
     env:
       SCCACHE_GHA_ENABLED: "true"
       RUSTC_WRAPPER: "sccache"
@@ -200,8 +200,13 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y protobuf-compiler clang libclang-dev
       - name: Install dependencies (macOS)
-        if: matrix.os == 'macos-latest'
-        run: brew install protobuf llvm
+        if: matrix.os == 'macos-14'
+        run: |
+          brew install protobuf llvm
+          echo 'PATH="/opt/homebrew/opt/llvm/bin:$PATH"' >> $GITHUB_ENV
+          echo 'LDFLAGS="-L/opt/homebrew/opt/llvm/lib"' >> >> $GITHUB_ENV
+          echo 'CPPFLAGS="-I/opt/homebrew/opt/llvm/include"' >> >> $GITHUB_ENV
+          echo 'CMAKE_PREFIX_PATH="/opt/homebrew/opt/llvm"' >> >> $GITHUB_ENV
 
       - name: Caching Step
         id: cache-step
@@ -218,10 +223,6 @@ jobs:
 
       - name: Build Polkadot Dependencies
         if: steps.cache-step.outputs.cache-hit != 'true'
-        env:
-          LDFLAGS: "-L/opt/homebrew/opt/llvm/lib"
-          CPPFLAGS: "-I/opt/homebrew/opt/llvm/include"
-          CMAKE_PREFIX_PATH: "/opt/homebrew/opt/llvm"
         run: |
           cargo build \
             --locked \
@@ -269,7 +270,7 @@ jobs:
 #     runs-on: ${{ matrix.os }}
 #     strategy:
 #       matrix:
-#         os: [ubuntu-24.04, macos-latest]
+#         os: [ubuntu-24.04, macos-14]
 
 #     steps:
 #       - name: Checkout repo and submodules
@@ -286,7 +287,7 @@ jobs:
 #           rustup component add rust-src
 
 #       - name: Install dependencies (macOS)
-#         if: matrix.os == 'macos-latest'
+#         if: matrix.os == 'macos-14'
 #         run: |
 #           brew install protobuf
 #           rustup target add wasm32-unknown-unknown
@@ -325,7 +326,7 @@ jobs:
 #           key: polkadot-downloaded-${{ matrix.os }}-${{ env.POLKADOT_VERSION }}
 
 #       - name: Download Polkadot binaries on macOS
-#         if: matrix.os == 'macos-latest' && steps.cache-polkadot.outputs.cache-hit != 'true'
+#         if: matrix.os == 'macos-14' && steps.cache-polkadot.outputs.cache-hit != 'true'
 #         run: |
 #           mkdir -p ~/polkadot-cache
 #           curl -sL https://github.com/paritytech/polkadot-sdk/releases/download/${{ env.POLKADOT_VERSION }}/polkadot-aarch64-apple-darwin -o ~/polkadot-cache/polkadot
@@ -350,7 +351,7 @@ jobs:
 #     runs-on: ${{ matrix.os }}
 #     strategy:
 #       matrix:
-#         os: [ubuntu-24.04, macos-latest]
+#         os: [ubuntu-24.04, macos-14]
 
 #     steps:
 #       - name: Checkout repo
@@ -428,7 +429,7 @@ jobs:
 #           sudo mv resolc /usr/local/bin
 
 #       - name: Install Geth on macOS
-#         if: matrix.os == 'macos-latest'
+#         if: matrix.os == 'macos-14'
 #         run: |
 #           brew tap ethereum/ethereum
 #           brew install ethereum protobuf
@@ -440,7 +441,7 @@ jobs:
 #           sudo mv resolc /usr/local/bin
 
 #       - name: Install Kurtosis on macOS
-#         if: matrix.os == 'macos-latest'
+#         if: matrix.os == 'macos-14'
 #         run: brew install kurtosis-tech/tap/kurtosis-cli
 
 #       - name: Install Kurtosis on Ubuntu
@@ -501,6 +502,6 @@ jobs:
 #       # We can't install docker in the MacOS image used in CI and therefore we need to skip the
 #       # Kurtosis and lighthouse related tests when running the CI on MacOS.
 #       - name: Unit Tests
-#         if: matrix.os == 'macos-latest'
+#         if: matrix.os == 'macos-14'
 #         run: |
 #           cargo test --workspace -- --nocapture --skip lighthouse_geth::tests::
