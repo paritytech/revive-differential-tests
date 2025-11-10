@@ -201,6 +201,10 @@ jobs:
       - name: Install dependencies (macOS)
         if: matrix.os == 'macos-14'
         run: brew install protobuf
+      - name: Install LLVM and Clang
+        uses: KyleMayes/install-llvm-action@v2
+        with:
+          version: "10.0"
 
       - name: Caching Step
         id: cache-step
