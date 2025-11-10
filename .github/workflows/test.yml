@@ -204,9 +204,9 @@ jobs:
         run: |
           brew install protobuf llvm
           echo 'PATH="/opt/homebrew/opt/llvm/bin:$PATH"' >> $GITHUB_ENV
-          echo 'LDFLAGS="-L/opt/homebrew/opt/llvm/lib"' >> >> $GITHUB_ENV
-          echo 'CPPFLAGS="-I/opt/homebrew/opt/llvm/include"' >> >> $GITHUB_ENV
-          echo 'CMAKE_PREFIX_PATH="/opt/homebrew/opt/llvm"' >> >> $GITHUB_ENV
+          echo 'LDFLAGS="-L/opt/homebrew/opt/llvm/lib"' >> $GITHUB_ENV
+          echo 'CPPFLAGS="-I/opt/homebrew/opt/llvm/include"' >> $GITHUB_ENV
+          echo 'CMAKE_PREFIX_PATH="/opt/homebrew/opt/llvm"' >> $GITHUB_ENV
 
       - name: Caching Step
         id: cache-step
