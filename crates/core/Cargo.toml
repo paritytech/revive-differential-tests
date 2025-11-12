@@ -37,6 +37,7 @@ schemars = { workspace = true }
 semver = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+subxt = { workspace = true }
 
 [lints]
 workspace = true

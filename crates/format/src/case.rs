@@ -1,3 +1,4 @@
+use alloy::primitives::Address;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -106,6 +107,20 @@ impl Case {
             Some(modes) => ParsedMode::many_to_modes(modes.iter()).collect(),
             None => Mode::all().cloned().collect(),
         }
+    }
+
+    pub fn deployer_address(&self) -> Address {
+        self.steps
+            .iter()
+            .filter_map(|step| match step {
+                Step::FunctionCall(input) => input.caller.as_address().copied(),
+                Step::BalanceAssertion(..) => None,
+                Step::StorageEmptyAssertion(..) => None,
+                Step::Repeat(..) => None,
+                Step::AllocateAccount(..) => None,
+            })
+            .next()
+            .unwrap_or(FunctionCallStep::default_caller_address())
     }
 }
 
