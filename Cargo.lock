@@ -5657,6 +5657,7 @@ dependencies = [
  "semver 1.0.26",
  "serde",
  "serde_json",
+ "subxt 0.44.0",
  "tokio",
  "tracing",
  "tracing-appender",

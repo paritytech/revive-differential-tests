@@ -8,7 +8,7 @@ use alloy::{
     hex,
     json_abi::JsonAbi,
     network::{Ethereum, TransactionBuilder},
-    primitives::{Address, TxHash, U256},
+    primitives::{Address, TxHash, U256, address},
     rpc::types::{
         TransactionReceipt, TransactionRequest,
         trace::geth::{
@@ -18,9 +18,9 @@ use alloy::{
     },
 };
 use anyhow::{Context as _, Result, bail};
-use futures::TryStreamExt;
+use futures::{TryStreamExt, future::try_join_all};
 use indexmap::IndexMap;
-use revive_dt_common::types::{PlatformIdentifier, PrivateKeyAllocator};
+use revive_dt_common::types::{PlatformIdentifier, PrivateKeyAllocator, VmIdentifier};
 use revive_dt_format::{
     metadata::{ContractInstance, ContractPathAndIdent},
     steps::{
@@ -30,6 +30,7 @@ use revive_dt_format::{
     },
     traits::ResolutionContext,
 };
+use subxt::{ext::codec::Decode, metadata::Metadata, tx::Payload};
 use tokio::sync::Mutex;
 use tracing::{error, info, instrument};
 
@@ -198,6 +199,8 @@ where
             })
             .context("Failed to produce the pre-linking compiled contracts")?;
 
+        let deployer_address = test_definition.case.deployer_address();
+
         let mut deployed_libraries = None::<HashMap<_, _>>;
         let mut contract_sources = test_definition
             .metadata
@@ -232,22 +235,6 @@ where
 
             let code = alloy::hex::decode(code)?;
 
-            // Getting the deployer address from the cases themselves. This is to ensure
-            // that we're doing the deployments from different accounts and therefore we're
-            // not slowed down by the nonce.
-            let deployer_address = test_definition
-                .case
-                .steps
-                .iter()
-                .filter_map(|step| match step {
-                    Step::FunctionCall(input) => input.caller.as_address().copied(),
-                    Step::BalanceAssertion(..) => None,
-                    Step::StorageEmptyAssertion(..) => None,
-                    Step::Repeat(..) => None,
-                    Step::AllocateAccount(..) => None,
-                })
-                .next()
-                .unwrap_or(FunctionCallStep::default_caller_address());
             let tx = TransactionBuilder::<Ethereum>::with_deploy_code(
                 TransactionRequest::default().from(deployer_address),
                 code,
@@ -294,6 +281,51 @@ where
                 )
             })
             .context("Failed to compile the post-link contracts")?;
+
+        // Factory contracts on the PVM refer to the code that they're instantiating by hash rather
+        // than including the actual bytecode. This creates a problem where a factory contract could
+        // be deployed but the code it's supposed to create is not on chain. Therefore, we upload
+        // all the code to the chain prior to running any transactions on the driver.
+        if platform_information.platform.vm_identifier() == VmIdentifier::PolkaVM {
+            #[subxt::subxt(runtime_metadata_path = "../../assets/revive_metadata.scale")]
+            pub mod revive {}
+
+            let metadata_bytes = include_bytes!("../../../../assets/revive_metadata.scale");
+            let metadata = Metadata::decode(&mut &metadata_bytes[..])
+                .context("Failed to decode the revive metadata")?;
+
+            const RUNTIME_PALLET_ADDRESS: Address =
+                address!("0x6d6f646c70792f70616464720000000000000000");
+
+            let code_upload_tasks = compiler_output
+                .contracts
+                .values()
+                .flat_map(|item| item.values())
+                .map(|(code_string, _)| {
+                    let metadata = metadata.clone();
+                    async move {
+                        let code = alloy::hex::decode(code_string)
+                            .context("Failed to hex-decode the post-link code. This is a bug")?;
+                        let payload = revive::tx().revive().upload_code(code, u128::MAX);
+                        let encoded_payload = payload
+                            .encode_call_data(&metadata)
+                            .context("Failed to encode the upload code payload")?;
+
+                        let tx_request = TransactionRequest::default()
+                            .from(deployer_address)
+                            .to(RUNTIME_PALLET_ADDRESS)
+                            .input(encoded_payload.into());
+                        platform_information
+                            .node
+                            .execute_transaction(tx_request)
+                            .await
+                            .context("Failed to execute transaction")
+                    }
+                });
+            try_join_all(code_upload_tasks)
+                .await
+                .context("Code upload failed")?;
+        }
 
         Ok(ExecutionState::new(
             compiler_output.contracts,

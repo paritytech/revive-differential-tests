@@ -127,6 +127,8 @@ where
             .inspect_err(|err| error!(?err, "Pre-linking compilation failed"))
             .context("Failed to produce the pre-linking compiled contracts")?;
 
+        let deployer_address = self.test_definition.case.deployer_address();
+
         let mut deployed_libraries = None::<HashMap<_, _>>;
         let mut contract_sources = self
             .test_definition
@@ -159,23 +161,6 @@ where
 
             let code = alloy::hex::decode(code)?;
 
-            // Getting the deployer address from the cases themselves. This is to ensure
-            // that we're doing the deployments from different accounts and therefore we're
-            // not slowed down by the nonce.
-            let deployer_address = self
-                .test_definition
-                .case
-                .steps
-                .iter()
-                .filter_map(|step| match step {
-                    Step::FunctionCall(input) => input.caller.as_address().copied(),
-                    Step::BalanceAssertion(..) => None,
-                    Step::StorageEmptyAssertion(..) => None,
-                    Step::Repeat(..) => None,
-                    Step::AllocateAccount(..) => None,
-                })
-                .next()
-                .unwrap_or(FunctionCallStep::default_caller_address());
             let tx = TransactionBuilder::<Ethereum>::with_deploy_code(
                 TransactionRequest::default().from(deployer_address),
                 code,
