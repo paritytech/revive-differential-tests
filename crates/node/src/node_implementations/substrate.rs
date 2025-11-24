@@ -307,7 +307,7 @@ impl SubstrateNode {
             .get_or_try_init(|| async move {
                 construct_concurrency_limited_provider::<Ethereum, _>(
                     self.rpc_url.as_str(),
-                    FallbackGasFiller::new(u64::MAX, 5_000_000_000, 1_000_000_000),
+                    FallbackGasFiller::new(u64::MAX, 50_000_000_000, 1_000_000_000),
                     ChainIdFiller::new(Some(CHAIN_ID)),
                     NonceFiller::new(self.nonce_manager.clone()),
                     self.wallet.clone(),
