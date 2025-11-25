@@ -57,6 +57,9 @@ use crate::{
 
 static NODE_COUNT: AtomicU32 = AtomicU32::new(0);
 
+/// The number of blocks that should be cached by the revive-dev-node and the eth-rpc.
+const NUMBER_OF_CACHED_BLOCKS: u32 = 100_000;
+
 /// A node implementation for Substrate based chains. Currently, this supports either substrate
 /// or the revive-dev-node which is done by changing the path and some of the other arguments passed
 /// to the command.
@@ -212,6 +215,8 @@ impl SubstrateNode {
                     .arg(u32::MAX.to_string())
                     .arg("--pool-kbytes")
                     .arg(u32::MAX.to_string())
+                    .arg("--state-pruning")
+                    .arg(NUMBER_OF_CACHED_BLOCKS.to_string())
                     .env("RUST_LOG", Self::SUBSTRATE_LOG_ENV)
                     .stdout(stdout_file)
                     .stderr(stderr_file);
@@ -252,9 +257,9 @@ impl SubstrateNode {
                     .arg("--rpc-max-connections")
                     .arg(u32::MAX.to_string())
                     .arg("--index-last-n-blocks")
-                    .arg(1_000u32.to_string())
+                    .arg(NUMBER_OF_CACHED_BLOCKS.to_string())
                     .arg("--cache-size")
-                    .arg(1_000u32.to_string())
+                    .arg(NUMBER_OF_CACHED_BLOCKS.to_string())
                     .env("RUST_LOG", Self::PROXY_LOG_ENV)
                     .stdout(stdout_file)
                     .stderr(stderr_file);
