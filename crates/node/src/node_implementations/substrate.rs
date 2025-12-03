@@ -4,7 +4,7 @@ use std::{
     pin::Pin,
     process::{Command, Stdio},
     sync::{
-        Arc,
+        Arc, Mutex,
         atomic::{AtomicU32, Ordering},
     },
     time::Duration,
@@ -32,7 +32,7 @@ use futures::{FutureExt, Stream, StreamExt};
 use revive_common::EVMVersion;
 use revive_dt_common::fs::clear_directory;
 use revive_dt_format::traits::ResolverApi;
-use serde_json::json;
+use serde_json::{Value, json};
 use sp_core::crypto::Ss58Codec;
 use sp_runtime::AccountId32;
 
@@ -141,6 +141,8 @@ impl SubstrateNode {
     }
 
     fn init(&mut self, _: Genesis) -> anyhow::Result<&mut Self> {
+        static CHAINSPEC_MUTEX: Mutex<Option<Value>> = Mutex::new(None);
+
         if !self.rpc_url.is_empty() {
             return Ok(self);
         }
@@ -159,12 +161,22 @@ impl SubstrateNode {
         let template_chainspec_path = self.base_directory.join(Self::CHAIN_SPEC_JSON_FILE);
 
         trace!("Creating the node genesis");
-        let chainspec_json = Self::node_genesis(
-            &self.node_binary,
-            &self.export_chainspec_command,
-            &self.wallet,
-        )
-        .context("Failed to prepare the chainspec command")?;
+        let chainspec_json = {
+            let mut chainspec_mutex = CHAINSPEC_MUTEX.lock().expect("Poisoned");
+            match chainspec_mutex.as_ref() {
+                Some(chainspec_json) => chainspec_json.clone(),
+                None => {
+                    let chainspec_json = Self::node_genesis(
+                        &self.node_binary,
+                        &self.export_chainspec_command,
+                        &self.wallet,
+                    )
+                    .context("Failed to prepare the chainspec command")?;
+                    *chainspec_mutex = Some(chainspec_json.clone());
+                    chainspec_json
+                }
+            }
+        };
 
         trace!("Writing the node genesis");
         serde_json::to_writer_pretty(
