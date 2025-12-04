@@ -1,6 +1,5 @@
 use std::{
     collections::HashMap,
-    ops::ControlFlow,
     sync::{
         Arc,
         atomic::{AtomicUsize, Ordering},
@@ -13,6 +12,7 @@ use alloy::{
     json_abi::JsonAbi,
     network::{Ethereum, TransactionBuilder},
     primitives::{Address, TxHash, U256},
+    providers::Provider,
     rpc::types::{
         TransactionReceipt, TransactionRequest,
         trace::geth::{
@@ -22,12 +22,9 @@ use alloy::{
     },
 };
 use anyhow::{Context as _, Result, bail};
-use futures::TryFutureExt;
+use futures::{FutureExt as _, TryFutureExt};
 use indexmap::IndexMap;
-use revive_dt_common::{
-    futures::{PollingWaitBehavior, poll},
-    types::PrivateKeyAllocator,
-};
+use revive_dt_common::types::PrivateKeyAllocator;
 use revive_dt_format::{
     metadata::{ContractInstance, ContractPathAndIdent},
     steps::{
@@ -37,7 +34,7 @@ use revive_dt_format::{
     traits::{ResolutionContext, ResolverApi},
 };
 use tokio::sync::{Mutex, OnceCell, mpsc::UnboundedSender};
-use tracing::{Instrument, Span, debug, error, field::display, info, info_span, instrument};
+use tracing::{Span, debug, error, field::display, info, instrument};
 
 use crate::{
     differential_benchmarks::{ExecutionState, WatcherEvent},
@@ -373,12 +370,25 @@ where
                     .await?;
 
                 let (tx_hash, receipt_future) = self
-                    .execute_transaction(tx, Some(step_path), Duration::from_secs(30 * 60))
+                    .execute_transaction(tx.clone(), Some(step_path), Duration::from_secs(30 * 60))
                     .await?;
                 if self.await_transaction_inclusion {
-                    let _ = receipt_future
+                    let receipt = receipt_future
                         .await
                         .context("Failed while waiting for transaction inclusion in block")?;
+
+                    if !receipt.status() {
+                        error!(
+                            ?tx,
+                            tx.hash = %receipt.transaction_hash,
+                            ?receipt,
+                            "Encountered a failing benchmark transaction"
+                        );
+                        bail!(
+                            "Encountered a failing transaction in benchmarks: {}",
+                            receipt.transaction_hash
+                        )
+                    }
                 }
 
                 Ok(tx_hash)
@@ -694,7 +704,12 @@ where
     #[instrument(
         level = "info",
         skip_all,
-        fields(driver_id = self.driver_id, transaction_hash = tracing::field::Empty)
+        fields(
+            driver_id = self.driver_id,
+            transaction = ?transaction,
+            transaction_hash = tracing::field::Empty
+        ),
+        err(Debug)
     )]
     async fn execute_transaction(
         &self,
@@ -703,10 +718,19 @@ where
         receipt_wait_duration: Duration,
     ) -> anyhow::Result<(TxHash, impl Future<Output = Result<TransactionReceipt>>)> {
         let node = self.platform_information.node;
-        let transaction_hash = node
-            .submit_transaction(transaction)
+        let provider = node.provider().await.context("Creating provider failed")?;
+
+        let pending_transaction_builder = provider
+            .send_transaction(transaction)
             .await
             .context("Failed to submit transaction")?;
+
+        let transaction_hash = *pending_transaction_builder.tx_hash();
+        let receipt_future = pending_transaction_builder
+            .with_timeout(Some(receipt_wait_duration))
+            .with_required_confirmations(2)
+            .get_receipt()
+            .map(|res| res.context("Failed to get the receipt of the transaction"));
         Span::current().record("transaction_hash", display(transaction_hash));
 
         info!("Submitted transaction");
@@ -719,28 +743,7 @@ where
                 .context("Failed to send the transaction hash to the watcher")?;
         };
 
-        Ok((transaction_hash, async move {
-            info!("Starting to poll for transaction receipt");
-            poll(
-                receipt_wait_duration,
-                PollingWaitBehavior::Constant(Duration::from_secs(1)),
-                || {
-                    async move {
-                        match node.get_receipt(transaction_hash).await {
-                            Ok(receipt) => {
-                                info!("Polling succeeded, receipt found");
-                                Ok(ControlFlow::Break(receipt))
-                            }
-                            Err(_) => Ok(ControlFlow::Continue(())),
-                        }
-                    }
-                    .instrument(info_span!("Polling for receipt"))
-                },
-            )
-            .instrument(info_span!("Polling for receipt", %transaction_hash))
-            .await
-            .inspect(|_| info!("Found the transaction receipt"))
-        }))
+        Ok((transaction_hash, receipt_future))
     }
     // endregion:Transaction Execution
 }

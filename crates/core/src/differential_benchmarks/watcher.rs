@@ -139,23 +139,18 @@ impl Watcher {
                         break;
                     }
 
-                    info!(
-                        block_number = block.ethereum_block_information.block_number,
-                        block_tx_count = block.ethereum_block_information.transaction_hashes.len(),
-                        remaining_transactions = watch_for_transaction_hashes.read().await.len(),
-                        "Observed a block"
-                    );
-
                     // Remove all of the transaction hashes observed in this block from the txs we
                     // are currently watching for.
                     let mut watch_for_transaction_hashes =
                         watch_for_transaction_hashes.write().await;
+                    let mut relevant_transactions_observed = 0;
                     for tx_hash in block.ethereum_block_information.transaction_hashes.iter() {
                         let Some((step_path, submission_time)) =
                             watch_for_transaction_hashes.remove(tx_hash)
                         else {
                             continue;
                         };
+                        relevant_transactions_observed += 1;
                         let transaction_information = TransactionInformation {
                             transaction_hash: *tx_hash,
                             submission_timestamp: submission_time
@@ -172,6 +167,14 @@ impl Watcher {
                             )
                             .expect("Can't fail")
                     }
+
+                    info!(
+                        block_number = block.ethereum_block_information.block_number,
+                        block_tx_count = block.ethereum_block_information.transaction_hashes.len(),
+                        relevant_transactions_observed,
+                        remaining_transactions = watch_for_transaction_hashes.len(),
+                        "Observed a block"
+                    );
                 }
 
                 info!("Watcher's Block Watching Task Finished");
