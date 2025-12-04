@@ -28,7 +28,7 @@ from __future__ import annotations
 import json
 import sys
 import csv
-from typing import List, Mapping, TypedDict
+from typing import List, Mapping, TypedDict, no_type_check
 
 
 class EthereumMinedBlockInformation(TypedDict):
@@ -69,7 +69,43 @@ class MinedBlockInformation(TypedDict):
     """Block-level information for a mined block with both EVM and optional Substrate fields."""
 
     ethereum_block_information: EthereumMinedBlockInformation
-    substrate_block_information: SubstrateMinedBlockInformation
+    substrate_block_information: SubstrateMinedBlockInformation | None
+
+
+def substrate_block_information_ref_time(
+    block: SubstrateMinedBlockInformation | None,
+) -> int | None:
+    if block is None:
+        return None
+    else:
+        return block["ref_time"]
+
+
+def substrate_block_information_max_ref_time(
+    block: SubstrateMinedBlockInformation | None,
+) -> int | None:
+    if block is None:
+        return None
+    else:
+        return block["max_ref_time"]
+
+
+def substrate_block_information_proof_size(
+    block: SubstrateMinedBlockInformation | None,
+) -> int | None:
+    if block is None:
+        return None
+    else:
+        return block["proof_size"]
+
+
+def substrate_block_information_max_proof_size(
+    block: SubstrateMinedBlockInformation | None,
+) -> int | None:
+    if block is None:
+        return None
+    else:
+        return block["max_proof_size"]
 
 
 class Metric(TypedDict):
@@ -100,8 +136,19 @@ class Metrics(TypedDict):
     transaction_per_second: Metric
     gas_per_second: Metric
     gas_block_fullness: Metric
-    ref_time_block_fullness: Metric
-    proof_size_block_fullness: Metric
+    ref_time_block_fullness: Metric | None
+    proof_size_block_fullness: Metric | None
+
+
+@no_type_check
+def metrics_raw_item(
+    metrics: Metrics, name: str, target: str, index: int
+) -> int | None:
+    l: list[int] = metrics.get(name, dict()).get("raw", dict()).get(target, dict())
+    try:
+        return l[index]
+    except:
+        return None
 
 
 class ExecutionReport(TypedDict):
@@ -144,12 +191,15 @@ BlockInformation = TypedDict(
         "Transaction Count": int,
         "TPS": int | None,
         "GPS": int | None,
-        "Ref Time": int,
-        "Max Ref Time": int,
-        "Block Fullness Ref Time": int,
-        "Proof Size": int,
-        "Max Proof Size": int,
-        "Block Fullness Proof Size": int,
+        "Gas Mined": int,
+        "Block Gas Limit": int,
+        "Block Fullness Gas": float,
+        "Ref Time": int | None,
+        "Max Ref Time": int | None,
+        "Block Fullness Ref Time": int | None,
+        "Proof Size": int | None,
+        "Max Proof Size": int | None,
+        "Block Fullness Proof Size": int | None,
     },
 )
 """A typed dictionary used to hold all of the block information"""
@@ -175,7 +225,7 @@ def main() -> None:
     report: ReportRoot = load_report(report_path)
 
     # TODO: Remove this in the future, but for now, the target is fixed.
-    target: str = "revive-dev-node-revm-solc"
+    target: str = sys.argv[2]
 
     csv_writer = csv.writer(sys.stdout)
 
@@ -188,6 +238,12 @@ def main() -> None:
 
                 resolved_blocks: list[BlockInformation] = []
                 for i, block_information in enumerate(blocks_information):
+                    mined_gas: int = block_information["ethereum_block_information"][
+                        "mined_gas"
+                    ]
+                    block_gas_limit: int = block_information[
+                        "ethereum_block_information"
+                    ]["block_gas_limit"]
                     resolved_blocks.append(
                         {
                             "Block Number": block_information[
@@ -216,24 +272,37 @@ def main() -> None:
                                     "raw"
                                 ][target][i - 1]
                             ),
-                            "Ref Time": block_information[
-                                "substrate_block_information"
-                            ]["ref_time"],
-                            "Max Ref Time": block_information[
-                                "substrate_block_information"
-                            ]["max_ref_time"],
-                            "Block Fullness Ref Time": execution_report["metrics"][
-                                "ref_time_block_fullness"
-                            ]["raw"][target][i],
-                            "Proof Size": block_information[
-                                "substrate_block_information"
-                            ]["proof_size"],
-                            "Max Proof Size": block_information[
-                                "substrate_block_information"
-                            ]["max_proof_size"],
-                            "Block Fullness Proof Size": execution_report["metrics"][
-                                "proof_size_block_fullness"
-                            ]["raw"][target][i],
+                            "Gas Mined": block_information[
+                                "ethereum_block_information"
+                            ]["mined_gas"],
+                            "Block Gas Limit": block_information[
+                                "ethereum_block_information"
+                            ]["block_gas_limit"],
+                            "Block Fullness Gas": mined_gas / block_gas_limit,
+                            "Ref Time": substrate_block_information_ref_time(
+                                block_information["substrate_block_information"]
+                            ),
+                            "Max Ref Time": substrate_block_information_max_ref_time(
+                                block_information["substrate_block_information"]
+                            ),
+                            "Block Fullness Ref Time": metrics_raw_item(
+                                execution_report["metrics"],
+                                "ref_time_block_fullness",
+                                target,
+                                i,
+                            ),
+                            "Proof Size": substrate_block_information_proof_size(
+                                block_information["substrate_block_information"]
+                            ),
+                            "Max Proof Size": substrate_block_information_max_proof_size(
+                                block_information["substrate_block_information"]
+                            ),
+                            "Block Fullness Proof Size": metrics_raw_item(
+                                execution_report["metrics"],
+                                "proof_size_block_fullness",
+                                target,
+                                i,
+                            ),
                         }
                     )
 

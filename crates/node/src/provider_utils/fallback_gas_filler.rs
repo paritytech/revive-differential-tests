@@ -4,7 +4,7 @@ use alloy::{
         Provider, SendableTx,
         fillers::{GasFiller, TxFiller},
     },
-    transports::TransportResult,
+    transports::{TransportError, TransportResult},
 };
 
 // Percentage padding applied to estimated gas (e.g. 120 = 20% padding)
@@ -17,6 +17,7 @@ pub struct FallbackGasFiller {
     default_gas_limit: u64,
     default_max_fee_per_gas: u128,
     default_priority_fee: u128,
+    use_fallback_gas_filler: bool,
 }
 
 impl FallbackGasFiller {
@@ -24,19 +25,41 @@ impl FallbackGasFiller {
         default_gas_limit: u64,
         default_max_fee_per_gas: u128,
         default_priority_fee: u128,
+        use_fallback_gas_filler: bool,
     ) -> Self {
         Self {
             inner: GasFiller,
             default_gas_limit,
             default_max_fee_per_gas,
             default_priority_fee,
+            use_fallback_gas_filler,
         }
+    }
+
+    pub fn with_default_gas_limit(mut self, default_gas_limit: u64) -> Self {
+        self.default_gas_limit = default_gas_limit;
+        self
+    }
+
+    pub fn with_default_max_fee_per_gas(mut self, default_max_fee_per_gas: u128) -> Self {
+        self.default_max_fee_per_gas = default_max_fee_per_gas;
+        self
+    }
+
+    pub fn with_default_priority_fee(mut self, default_priority_fee: u128) -> Self {
+        self.default_priority_fee = default_priority_fee;
+        self
+    }
+
+    pub fn with_use_fallback_gas_filler(mut self, use_fallback_gas_filler: bool) -> Self {
+        self.use_fallback_gas_filler = use_fallback_gas_filler;
+        self
     }
 }
 
 impl Default for FallbackGasFiller {
     fn default() -> Self {
-        FallbackGasFiller::new(25_000_000, 1_000_000_000, 1_000_000_000)
+        FallbackGasFiller::new(25_000_000, 1_000_000_000, 1_000_000_000, true)
     }
 }
 
@@ -64,7 +87,12 @@ where
             Ok(fill) => Ok(Some(fill)),
             Err(err) => {
                 tracing::debug!(error = ?err, "Gas Provider Estimation Failed, using fallback");
-                Ok(None)
+
+                if !self.use_fallback_gas_filler {
+                    Err(err)
+                } else {
+                    Ok(None)
+                }
             }
         }
     }
@@ -86,13 +114,17 @@ where
                 }
             }
             Ok(tx)
-        } else {
+        } else if self.use_fallback_gas_filler {
             if let Some(builder) = tx.as_mut_builder() {
                 builder.set_gas_limit(self.default_gas_limit);
                 builder.set_max_fee_per_gas(self.default_max_fee_per_gas);
                 builder.set_max_priority_fee_per_gas(self.default_priority_fee);
             }
             Ok(tx)
+        } else {
+            Err(TransportError::UnsupportedFeature(
+                "Fallback gas filler is disabled and we're attempting to do a gas estimate on a failing transaction",
+            ))
         }
     }
 }

@@ -79,6 +79,7 @@ pub struct SubstrateNode {
     nonce_manager: CachedNonceManager,
     provider: OnceCell<ConcreteProvider<Ethereum, Arc<EthereumWallet>>>,
     consensus: Option<String>,
+    use_fallback_gas_filler: bool,
 }
 
 impl SubstrateNode {
@@ -105,6 +106,7 @@ impl SubstrateNode {
         + AsRef<EthRpcConfiguration>
         + AsRef<WalletConfiguration>,
         existing_connection_strings: &[String],
+        use_fallback_gas_filler: bool,
     ) -> Self {
         let working_directory_path =
             AsRef::<WorkingDirectoryConfiguration>::as_ref(&context).as_path();
@@ -137,6 +139,7 @@ impl SubstrateNode {
             nonce_manager: Default::default(),
             provider: Default::default(),
             consensus,
+            use_fallback_gas_filler,
         }
     }
 
@@ -324,7 +327,12 @@ impl SubstrateNode {
             .get_or_try_init(|| async move {
                 construct_concurrency_limited_provider::<Ethereum, _>(
                     self.rpc_url.as_str(),
-                    FallbackGasFiller::new(u64::MAX, 50_000_000_000, 1_000_000_000),
+                    FallbackGasFiller::new(
+                        u64::MAX,
+                        50_000_000_000,
+                        1_000_000_000,
+                        self.use_fallback_gas_filler,
+                    ),
                     ChainIdFiller::new(Some(CHAIN_ID)),
                     NonceFiller::new(self.nonce_manager.clone()),
                     self.wallet.clone(),
@@ -825,6 +833,7 @@ mod tests {
             None,
             &context,
             &[],
+            true,
         );
         node.init(context.genesis_configuration.genesis().unwrap().clone())
             .expect("Failed to initialize the node")
@@ -896,6 +905,7 @@ mod tests {
             None,
             &context,
             &[],
+            true,
         );
 
         // Call `init()`
