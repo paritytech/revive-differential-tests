@@ -160,6 +160,7 @@ pub async fn handle_differential_benchmarks(
                 private_key_allocator,
                 cached_compiler.as_ref(),
                 watcher_tx.clone(),
+                context.await_transaction_inclusion,
                 test_definition
                     .case
                     .steps_iterator_for_benchmarks(context.default_repetition_count)

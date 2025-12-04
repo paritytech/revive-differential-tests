@@ -375,6 +375,23 @@ pub struct BenchmarkingContext {
     #[arg(short = 'r', long = "default-repetition-count", default_value_t = 1000)]
     pub default_repetition_count: usize,
 
+    /// This transaction controls whether the benchmarking driver should await for transactions to
+    /// be included in a block before moving on to the next transaction in the sequence or not.
+    ///
+    /// This behavior is useful in certain cases and not so useful in others. For example, in some
+    /// repetition block if there's some kind of relationship between txs n and n+1 (for example a
+    /// mint then a transfer) then you would want to wait for the minting to happen and then move on
+    /// to the transfers. On the other hand, if there's no relationship between the transactions n
+    /// and n+1 (e.g., mint and another mint of a different token) then awaiting the first mint to
+    /// be included in a block might not seem necessary.
+    ///
+    /// By default, this behavior is set to false to allow the benchmarking framework to saturate
+    /// the node's mempool as quickly as possible. However, as explained above, there are cases
+    /// where it's needed and certain workloads where failure to provide this argument would lead to
+    /// inaccurate results.
+    #[arg(long)]
+    pub await_transaction_inclusion: bool,
+
     /// Configuration parameters for the corpus files to use.
     #[clap(flatten, next_help_heading = "Corpus Configuration")]
     pub corpus_configuration: CorpusConfiguration,

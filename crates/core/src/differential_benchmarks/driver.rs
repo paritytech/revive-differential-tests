@@ -73,6 +73,10 @@ pub struct Driver<'a, I> {
     /// The number of steps that were executed on the driver.
     steps_executed: usize,
 
+    /// This function controls if the driver should wait for transactions to be included in a block
+    /// or not before proceeding forward.
+    await_transaction_inclusion: bool,
+
     /// This is the queue of steps that are to be executed by the driver for this test case. Each
     /// time `execute_step` is called one of the steps is executed.
     steps_iterator: I,
@@ -89,6 +93,7 @@ where
         private_key_allocator: Arc<Mutex<PrivateKeyAllocator>>,
         cached_compiler: &CachedCompiler<'a>,
         watcher_tx: UnboundedSender<WatcherEvent>,
+        await_transaction_inclusion: bool,
         steps: I,
     ) -> Result<Self> {
         let mut this = Driver {
@@ -104,6 +109,7 @@ where
             execution_state: ExecutionState::empty(),
             steps_executed: 0,
             steps_iterator: steps,
+            await_transaction_inclusion,
             watcher_tx,
         };
         this.init_execution_state(cached_compiler)
@@ -166,7 +172,7 @@ where
                 code,
             );
             let receipt = self
-                .execute_transaction(tx, None)
+                .execute_transaction(tx, None, Duration::from_secs(5 * 60))
                 .and_then(|(_, receipt_fut)| receipt_fut)
                 .await
                 .inspect_err(|err| {
@@ -365,7 +371,17 @@ where
                 let tx = step
                     .as_transaction(self.resolver.as_ref(), self.default_resolution_context())
                     .await?;
-                Ok(self.execute_transaction(tx, Some(step_path)).await?.0)
+
+                let (tx_hash, receipt_future) = self
+                    .execute_transaction(tx, Some(step_path), Duration::from_secs(30 * 60))
+                    .await?;
+                if self.await_transaction_inclusion {
+                    let _ = receipt_future
+                        .await
+                        .context("Failed while waiting for transaction inclusion in block")?;
+                }
+
+                Ok(tx_hash)
             }
         }
     }
@@ -466,6 +482,7 @@ where
                         .collect::<Vec<_>>();
                     steps.into_iter()
                 },
+                await_transaction_inclusion: self.await_transaction_inclusion,
                 watcher_tx: self.watcher_tx.clone(),
             })
             .map(|driver| driver.execute_all());
@@ -632,7 +649,7 @@ where
         };
 
         let receipt = match self
-            .execute_transaction(tx, step_path)
+            .execute_transaction(tx, step_path, Duration::from_secs(5 * 60))
             .and_then(|(_, receipt_fut)| receipt_fut)
             .await
         {
@@ -683,6 +700,7 @@ where
         &self,
         transaction: TransactionRequest,
         step_path: Option<&StepPath>,
+        receipt_wait_duration: Duration,
     ) -> anyhow::Result<(TxHash, impl Future<Output = Result<TransactionReceipt>>)> {
         let node = self.platform_information.node;
         let transaction_hash = node
@@ -704,7 +722,7 @@ where
         Ok((transaction_hash, async move {
             info!("Starting to poll for transaction receipt");
             poll(
-                Duration::from_secs(30 * 60),
+                receipt_wait_duration,
                 PollingWaitBehavior::Constant(Duration::from_secs(1)),
                 || {
                     async move {
