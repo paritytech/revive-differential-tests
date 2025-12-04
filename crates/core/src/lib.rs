@@ -91,7 +91,8 @@ impl Platform for GethEvmSolcPlatform {
         let genesis_configuration = AsRef::<GenesisConfiguration>::as_ref(&context);
         let genesis = genesis_configuration.genesis()?.clone();
         Ok(thread::spawn(move || {
-            let node = GethNode::new(context);
+            let use_fallback_gas_filler = matches!(context, Context::Test(..));
+            let node = GethNode::new(context, use_fallback_gas_filler);
             let node = spawn_node::<GethNode>(node, genesis)?;
             Ok(Box::new(node) as Box<_>)
         }))
@@ -145,7 +146,8 @@ impl Platform for LighthouseGethEvmSolcPlatform {
         let genesis_configuration = AsRef::<GenesisConfiguration>::as_ref(&context);
         let genesis = genesis_configuration.genesis()?.clone();
         Ok(thread::spawn(move || {
-            let node = LighthouseGethNode::new(context);
+            let use_fallback_gas_filler = matches!(context, Context::Test(..));
+            let node = LighthouseGethNode::new(context, use_fallback_gas_filler);
             let node = spawn_node::<LighthouseGethNode>(node, genesis)?;
             Ok(Box::new(node) as Box<_>)
         }))
@@ -206,12 +208,14 @@ impl Platform for ReviveDevNodePolkavmResolcPlatform {
 
         let genesis = genesis_configuration.genesis()?.clone();
         Ok(thread::spawn(move || {
+            let use_fallback_gas_filler = matches!(context, Context::Test(..));
             let node = SubstrateNode::new(
                 revive_dev_node_path,
                 SubstrateNode::REVIVE_DEV_NODE_EXPORT_CHAINSPEC_COMMAND,
                 Some(revive_dev_node_consensus),
                 context,
                 &eth_rpc_connection_strings,
+                use_fallback_gas_filler,
             );
             let node = spawn_node(node, genesis)?;
             Ok(Box::new(node) as Box<_>)
@@ -274,12 +278,14 @@ impl Platform for ReviveDevNodeRevmSolcPlatform {
 
         let genesis = genesis_configuration.genesis()?.clone();
         Ok(thread::spawn(move || {
+            let use_fallback_gas_filler = matches!(context, Context::Test(..));
             let node = SubstrateNode::new(
                 revive_dev_node_path,
                 SubstrateNode::REVIVE_DEV_NODE_EXPORT_CHAINSPEC_COMMAND,
                 Some(revive_dev_node_consensus),
                 context,
                 &eth_rpc_connection_strings,
+                use_fallback_gas_filler,
             );
             let node = spawn_node(node, genesis)?;
             Ok(Box::new(node) as Box<_>)
@@ -338,7 +344,9 @@ impl Platform for ZombienetPolkavmResolcPlatform {
             .clone();
         let genesis = genesis_configuration.genesis()?.clone();
         Ok(thread::spawn(move || {
-            let node = ZombienetNode::new(polkadot_parachain_path, context);
+            let use_fallback_gas_filler = matches!(context, Context::Test(..));
+            let node =
+                ZombienetNode::new(polkadot_parachain_path, context, use_fallback_gas_filler);
             let node = spawn_node(node, genesis)?;
             Ok(Box::new(node) as Box<_>)
         }))
@@ -395,7 +403,9 @@ impl Platform for ZombienetRevmSolcPlatform {
             .clone();
         let genesis = genesis_configuration.genesis()?.clone();
         Ok(thread::spawn(move || {
-            let node = ZombienetNode::new(polkadot_parachain_path, context);
+            let use_fallback_gas_filler = matches!(context, Context::Test(..));
+            let node =
+                ZombienetNode::new(polkadot_parachain_path, context, use_fallback_gas_filler);
             let node = spawn_node(node, genesis)?;
             Ok(Box::new(node) as Box<_>)
         }))

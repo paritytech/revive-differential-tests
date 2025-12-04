@@ -114,6 +114,8 @@ pub struct ZombienetNode {
     nonce_manager: CachedNonceManager,
 
     provider: OnceCell<ConcreteProvider<Ethereum, Arc<EthereumWallet>>>,
+
+    use_fallback_gas_filler: bool,
 }
 
 impl ZombienetNode {
@@ -137,6 +139,7 @@ impl ZombienetNode {
         context: impl AsRef<WorkingDirectoryConfiguration>
         + AsRef<EthRpcConfiguration>
         + AsRef<WalletConfiguration>,
+        use_fallback_gas_filler: bool,
     ) -> Self {
         let eth_proxy_binary = AsRef::<EthRpcConfiguration>::as_ref(&context)
             .path
@@ -164,6 +167,7 @@ impl ZombienetNode {
             connection_string: String::new(),
             node_rpc_port: None,
             provider: Default::default(),
+            use_fallback_gas_filler,
         }
     }
 
@@ -330,7 +334,12 @@ impl ZombienetNode {
             .get_or_try_init(|| async move {
                 construct_concurrency_limited_provider::<Ethereum, _>(
                     self.connection_string.as_str(),
-                    FallbackGasFiller::new(u64::MAX, 5_000_000_000, 1_000_000_000),
+                    FallbackGasFiller::new(
+                        u64::MAX,
+                        5_000_000_000,
+                        1_000_000_000,
+                        self.use_fallback_gas_filler,
+                    ),
                     ChainIdFiller::default(), // TODO: use CHAIN_ID constant
                     NonceFiller::new(self.nonce_manager.clone()),
                     self.wallet.clone(),
@@ -823,6 +832,7 @@ mod tests {
             let mut node = ZombienetNode::new(
                 context.polkadot_parachain_configuration.path.clone(),
                 &context,
+                true,
             );
             let genesis = context.genesis_configuration.genesis().unwrap().clone();
             node.init(genesis).unwrap();
@@ -936,6 +946,7 @@ mod tests {
         let node = ZombienetNode::new(
             context.polkadot_parachain_configuration.path.clone(),
             &context,
+            true,
         );
 
         // Act
@@ -956,6 +967,7 @@ mod tests {
         let node = ZombienetNode::new(
             context.polkadot_parachain_configuration.path.clone(),
             &context,
+            true,
         );
 
         // Act

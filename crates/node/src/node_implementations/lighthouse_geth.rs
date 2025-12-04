@@ -106,6 +106,8 @@ pub struct LighthouseGethNode {
 
     persistent_http_provider: OnceCell<ConcreteProvider<Ethereum, Arc<EthereumWallet>>>,
     persistent_ws_provider: OnceCell<ConcreteProvider<Ethereum, Arc<EthereumWallet>>>,
+
+    use_fallback_gas_filler: bool,
 }
 
 impl LighthouseGethNode {
@@ -127,6 +129,7 @@ impl LighthouseGethNode {
         + AsRef<WalletConfiguration>
         + AsRef<KurtosisConfiguration>
         + Clone,
+        use_fallback_gas_filler: bool,
     ) -> Self {
         let working_directory_configuration =
             AsRef::<WorkingDirectoryConfiguration>::as_ref(&context);
@@ -176,6 +179,7 @@ impl LighthouseGethNode {
             nonce_manager: Default::default(),
             persistent_http_provider: OnceCell::const_new(),
             persistent_ws_provider: OnceCell::const_new(),
+            use_fallback_gas_filler,
         }
     }
 
@@ -374,7 +378,8 @@ impl LighthouseGethNode {
             .get_or_try_init(|| async move {
                 construct_concurrency_limited_provider::<Ethereum, _>(
                     self.ws_connection_string.as_str(),
-                    FallbackGasFiller::default(),
+                    FallbackGasFiller::default()
+                        .with_use_fallback_gas_filler(self.use_fallback_gas_filler),
                     ChainIdFiller::new(Some(CHAIN_ID)),
                     NonceFiller::new(self.nonce_manager.clone()),
                     self.wallet.clone(),
@@ -1152,7 +1157,7 @@ mod tests {
         let _guard = NODE_START_MUTEX.lock().unwrap();
 
         let context = test_config();
-        let mut node = LighthouseGethNode::new(&context);
+        let mut node = LighthouseGethNode::new(&context, true);
         node.init(context.genesis_configuration.genesis().unwrap().clone())
             .expect("Failed to initialize the node")
             .spawn_process()

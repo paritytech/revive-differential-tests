@@ -76,6 +76,7 @@ pub struct GethNode {
     wallet: Arc<EthereumWallet>,
     nonce_manager: CachedNonceManager,
     provider: OnceCell<ConcreteProvider<Ethereum, Arc<EthereumWallet>>>,
+    use_fallback_gas_filler: bool,
 }
 
 impl GethNode {
@@ -100,6 +101,7 @@ impl GethNode {
         + AsRef<WalletConfiguration>
         + AsRef<GethConfiguration>
         + Clone,
+        use_fallback_gas_filler: bool,
     ) -> Self {
         let working_directory_configuration =
             AsRef::<WorkingDirectoryConfiguration>::as_ref(&context);
@@ -126,6 +128,7 @@ impl GethNode {
             wallet: wallet.clone(),
             nonce_manager: Default::default(),
             provider: Default::default(),
+            use_fallback_gas_filler,
         }
     }
 
@@ -246,7 +249,8 @@ impl GethNode {
             .get_or_try_init(|| async move {
                 construct_concurrency_limited_provider::<Ethereum, _>(
                     self.connection_string.as_str(),
-                    FallbackGasFiller::default(),
+                    FallbackGasFiller::default()
+                        .with_use_fallback_gas_filler(self.use_fallback_gas_filler),
                     ChainIdFiller::new(Some(CHAIN_ID)),
                     NonceFiller::new(self.nonce_manager.clone()),
                     self.wallet.clone(),
@@ -742,7 +746,7 @@ mod tests {
 
     fn new_node() -> (TestExecutionContext, GethNode) {
         let context = test_config();
-        let mut node = GethNode::new(&context);
+        let mut node = GethNode::new(&context, true);
         node.init(context.genesis_configuration.genesis().unwrap().clone())
             .expect("Failed to initialize the node")
             .spawn_process()
