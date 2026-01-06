@@ -51,7 +51,7 @@ impl ReportAggregator {
         }
     }
 
-    pub fn into_task(mut self) -> (Reporter, impl Future<Output = Result<()>>) {
+    pub fn into_task(mut self) -> (Reporter, impl Future<Output = Result<Report>>) {
         let reporter = self
             .runner_tx
             .take()
@@ -60,7 +60,7 @@ impl ReportAggregator {
         (reporter, async move { self.aggregate().await })
     }
 
-    async fn aggregate(mut self) -> Result<()> {
+    async fn aggregate(mut self) -> Result<Report> {
         debug!("Starting to aggregate report");
 
         while let Some(event) = self.runner_rx.recv().await {
@@ -152,7 +152,7 @@ impl ReportAggregator {
             format!("Failed to serialize report JSON to {}", file_path.display())
         })?;
 
-        Ok(())
+        Ok(self.report)
     }
 
     fn handle_subscribe_to_events_event(&self, event: SubscribeToEventsEvent) {
