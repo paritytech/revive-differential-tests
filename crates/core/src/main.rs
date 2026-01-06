@@ -2,9 +2,10 @@ mod differential_benchmarks;
 mod differential_tests;
 mod helpers;
 
-use anyhow::Context as _;
+use anyhow::{Context as _, bail};
 use clap::Parser;
-use revive_dt_report::ReportAggregator;
+use revive_dt_common::types::ParsedTestSpecifier;
+use revive_dt_report::{ReportAggregator, TestCaseStatus};
 use schemars::schema_for;
 use tracing::{info, level_filters::LevelFilter};
 use tracing_subscriber::{EnvFilter, FmtSubscriber};
@@ -57,8 +58,47 @@ fn main() -> anyhow::Result<()> {
                 let differential_tests_handling_task =
                     handle_differential_tests(*context, reporter);
 
-                futures::future::try_join(differential_tests_handling_task, report_aggregator_task)
-                    .await?;
+                let (_, report) = futures::future::try_join(
+                    differential_tests_handling_task,
+                    report_aggregator_task,
+                )
+                .await?;
+
+                // Error out if there are any failing tests.
+                let failures = report
+                    .execution_information
+                    .into_iter()
+                    .flat_map(|(metadata_file_path, metadata_file_report)| {
+                        metadata_file_report.case_reports.into_iter().flat_map(
+                            move |(case_idx, case_report)| {
+                                let metadata_file_path = metadata_file_path.clone();
+                                case_report.mode_execution_reports.into_iter().filter_map(
+                                    move |(mode, execution_report)| {
+                                        if let Some(TestCaseStatus::Failed { reason }) =
+                                            execution_report.status
+                                        {
+                                            let parsed_test_specifier =
+                                                ParsedTestSpecifier::CaseWithMode {
+                                                    metadata_file_path: metadata_file_path
+                                                        .clone()
+                                                        .into_inner(),
+                                                    case_idx: case_idx.into_inner(),
+                                                    mode,
+                                                };
+                                            Some((parsed_test_specifier, reason))
+                                        } else {
+                                            None
+                                        }
+                                    },
+                                )
+                            },
+                        )
+                    })
+                    .collect::<Vec<_>>();
+
+                if !failures.is_empty() {
+                    bail!("Some tests failed: {failures:#?}")
+                }
 
                 Ok(())
             }),
@@ -71,11 +111,47 @@ fn main() -> anyhow::Result<()> {
                 let differential_benchmarks_handling_task =
                     handle_differential_benchmarks(*context, reporter);
 
-                futures::future::try_join(
+                let (_, report) = futures::future::try_join(
                     differential_benchmarks_handling_task,
                     report_aggregator_task,
                 )
                 .await?;
+
+                // Error out if there are any failing tests.
+                let failures = report
+                    .execution_information
+                    .into_iter()
+                    .flat_map(|(metadata_file_path, metadata_file_report)| {
+                        metadata_file_report.case_reports.into_iter().flat_map(
+                            move |(case_idx, case_report)| {
+                                let metadata_file_path = metadata_file_path.clone();
+                                case_report.mode_execution_reports.into_iter().filter_map(
+                                    move |(mode, execution_report)| {
+                                        if let Some(TestCaseStatus::Failed { reason }) =
+                                            execution_report.status
+                                        {
+                                            let parsed_test_specifier =
+                                                ParsedTestSpecifier::CaseWithMode {
+                                                    metadata_file_path: metadata_file_path
+                                                        .clone()
+                                                        .into_inner(),
+                                                    case_idx: case_idx.into_inner(),
+                                                    mode,
+                                                };
+                                            Some((parsed_test_specifier, reason))
+                                        } else {
+                                            None
+                                        }
+                                    },
+                                )
+                            },
+                        )
+                    })
+                    .collect::<Vec<_>>();
+
+                if !failures.is_empty() {
+                    bail!("Some tests failed: {failures:#?}")
+                }
 
                 Ok(())
             }),
@@ -85,11 +161,17 @@ fn main() -> anyhow::Result<()> {
             let genesis_json = serde_json::to_string_pretty(&genesis)
                 .context("Failed to serialize the genesis to JSON")?;
             println!("{genesis_json}");
+
             Ok(())
         }
         Context::ExportJsonSchema => {
             let schema = schema_for!(Metadata);
-            println!("{}", serde_json::to_string_pretty(&schema).unwrap());
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&schema)
+                    .context("Failed to export the JSON schema")?
+            );
+
             Ok(())
         }
     }

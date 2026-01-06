@@ -5,51 +5,54 @@ CI. The full models used in the JSON report can be found in the revive different
 the models used in this script are just a partial reproduction of the full report models.
 """
 
-from typing import TypedDict, Literal, Union
-
-import json, io
+import json, typing, io, sys
 
 
-class Report(TypedDict):
+class Report(typing.TypedDict):
     context: "Context"
-    execution_information: dict[
-        "MetadataFilePathString",
-        dict["ModeString", dict["CaseIdxString", "CaseReport"]],
-    ]
+    execution_information: dict["MetadataFilePathString", "MetadataFileReport"]
 
 
-class Context(TypedDict):
+class MetadataFileReport(typing.TypedDict):
+    case_reports: dict["CaseIdxString", "CaseReport"]
+
+
+class CaseReport(typing.TypedDict):
+    mode_execution_reports: dict["ModeString", "ExecutionReport"]
+
+
+class ExecutionReport(typing.TypedDict):
+    status: "TestCaseStatus"
+
+
+class Context(typing.TypedDict):
     Test: "TestContext"
 
 
-class TestContext(TypedDict):
+class TestContext(typing.TypedDict):
     corpus_configuration: "CorpusConfiguration"
 
 
-class CorpusConfiguration(TypedDict):
+class CorpusConfiguration(typing.TypedDict):
     test_specifiers: list["TestSpecifier"]
 
 
-class CaseReport(TypedDict):
-    status: "CaseStatus"
-
-
-class CaseStatusSuccess(TypedDict):
-    status: Literal["Succeeded"]
+class CaseStatusSuccess(typing.TypedDict):
+    status: typing.Literal["Succeeded"]
     steps_executed: int
 
 
-class CaseStatusFailure(TypedDict):
-    status: Literal["Failed"]
+class CaseStatusFailure(typing.TypedDict):
+    status: typing.Literal["Failed"]
     reason: str
 
 
-class CaseStatusIgnored(TypedDict):
-    status: Literal["Ignored"]
+class CaseStatusIgnored(typing.TypedDict):
+    status: typing.Literal["Ignored"]
     reason: str
 
 
-CaseStatus = Union[CaseStatusSuccess, CaseStatusFailure, CaseStatusIgnored]
+TestCaseStatus = typing.Union[CaseStatusSuccess, CaseStatusFailure, CaseStatusIgnored]
 """A union type of all of the possible statuses that could be reported for a case."""
 
 TestSpecifier = str
@@ -63,6 +66,12 @@ MetadataFilePathString = str
 
 CaseIdxString = str
 """The index of a case as a string. For example '0'"""
+
+PlatformString = typing.Union[
+    typing.Literal["revive-dev-node-revm-solc"],
+    typing.Literal["revive-dev-node-polkavm-resolc"],
+]
+"""A string of the platform on which the test was run"""
 
 
 def path_relative_to_resolc_compiler_test_directory(path: str) -> str:
@@ -78,12 +87,22 @@ def path_relative_to_resolc_compiler_test_directory(path: str) -> str:
 
 
 def main() -> None:
-    with open("report.json", "r") as file:
+    with open(sys.argv[1], "r") as file:
         report: Report = json.load(file)
+
+    # Getting the platform string and resolving it into a simpler version of
+    # itself.
+    platform_identifier: PlatformString = typing.cast(PlatformString, sys.argv[2])
+    if platform_identifier == "revive-dev-node-polkavm-resolc":
+        platform: str = "PolkaVM"
+    elif platform_identifier == "revive-dev-node-revm-solc":
+        platform: str = "REVM"
+    else:
+        platform: str = platform_identifier
 
     # Starting the markdown document and adding information to it as we go.
     markdown_document: io.TextIOWrapper = open("report.md", "w")
-    print("# Differential Tests Results", file=markdown_document)
+    print(f"# Differential Tests Results ({platform})", file=markdown_document)
 
     # Getting all of the test specifiers from the report and making them relative to the tests dir.
     test_specifiers: list[str] = list(
@@ -94,7 +113,7 @@ def main() -> None:
     )
     print("## Specified Tests", file=markdown_document)
     for test_specifier in test_specifiers:
-        print(f"* `{test_specifier}`", file=markdown_document)
+        print(f"* ``{test_specifier}``", file=markdown_document)
 
     # Counting the total number of test cases, successes, failures, and ignored tests
     total_number_of_cases: int = 0
@@ -102,9 +121,13 @@ def main() -> None:
     total_number_of_failures: int = 0
     total_number_of_ignores: int = 0
     for _, mode_to_case_mapping in report["execution_information"].items():
-        for _, case_idx_to_report_mapping in mode_to_case_mapping.items():
-            for _, case_report in case_idx_to_report_mapping.items():
-                status: CaseStatus = case_report["status"]
+        for _, case_idx_to_report_mapping in mode_to_case_mapping[
+            "case_reports"
+        ].items():
+            for _, execution_report in case_idx_to_report_mapping[
+                "mode_execution_reports"
+            ].items():
+                status: TestCaseStatus = execution_report["status"]
 
                 total_number_of_cases += 1
                 if status["status"] == "Succeeded":
@@ -144,9 +167,13 @@ def main() -> None:
     for metadata_file_path, mode_to_case_mapping in report[
         "execution_information"
     ].items():
-        for mode_string, case_idx_to_report_mapping in mode_to_case_mapping.items():
-            for case_idx_string, case_report in case_idx_to_report_mapping.items():
-                status: CaseStatus = case_report["status"]
+        for case_idx_string, case_idx_to_report_mapping in mode_to_case_mapping[
+            "case_reports"
+        ].items():
+            for mode_string, execution_report in case_idx_to_report_mapping[
+                "mode_execution_reports"
+            ].items():
+                status: TestCaseStatus = execution_report["status"]
                 metadata_file_path: str = (
                     path_relative_to_resolc_compiler_test_directory(metadata_file_path)
                 )
@@ -183,9 +210,13 @@ def main() -> None:
     for metadata_file_path, mode_to_case_mapping in report[
         "execution_information"
     ].items():
-        for mode_string, case_idx_to_report_mapping in mode_to_case_mapping.items():
-            for case_idx_string, case_report in case_idx_to_report_mapping.items():
-                status: CaseStatus = case_report["status"]
+        for case_idx_string, case_idx_to_report_mapping in mode_to_case_mapping[
+            "case_reports"
+        ].items():
+            for mode_string, execution_report in case_idx_to_report_mapping[
+                "mode_execution_reports"
+            ].items():
+                status: TestCaseStatus = execution_report["status"]
                 metadata_file_path: str = (
                     path_relative_to_resolc_compiler_test_directory(metadata_file_path)
                 )
@@ -194,7 +225,9 @@ def main() -> None:
                 if status["status"] != "Failed":
                     continue
 
-                failure_reason: str = status["reason"].replace("\n", " ")
+                failure_reason: str = (
+                    status["reason"].replace("\n", " ").replace("|", " ")
+                )
 
                 note: str = ""
                 modes_where_this_case_succeeded: set[ModeString] = (
@@ -212,7 +245,7 @@ def main() -> None:
                     f"{metadata_file_path}::{case_idx_string}::{mode_string}"
                 )
                 print(
-                    f"| `{test_specifier}` | `{failure_reason}` | {note} |",
+                    f"| ``{test_specifier}`` | ``{failure_reason}`` | {note} |",
                     file=markdown_document,
                 )
     print("\n\n</details>", file=markdown_document)
