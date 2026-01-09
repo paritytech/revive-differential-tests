@@ -208,14 +208,18 @@ impl SolidityCompiler for Resolc {
                 anyhow::bail!("Compilation failed with an error: {message}");
             }
 
-            let parsed = serde_json::from_slice::<SolcStandardJsonOutput>(&stdout)
-                .map_err(|e| {
-                    anyhow::anyhow!(
-                        "failed to parse resolc JSON output: {e}\nstderr: {}",
-                        String::from_utf8_lossy(&stderr)
-                    )
-                })
-                .context("Failed to parse resolc standard JSON output")?;
+            let parsed: SolcStandardJsonOutput = {
+                let mut deserializer = serde_json::Deserializer::from_slice(&stdout);
+                deserializer.disable_recursion_limit();
+                serde::de::Deserialize::deserialize(&mut deserializer)
+                    .map_err(|e| {
+                        anyhow::anyhow!(
+                            "failed to parse resolc JSON output: {e}\nstderr: {}",
+                            String::from_utf8_lossy(&stderr)
+                        )
+                    })
+                    .context("Failed to parse resolc standard JSON output")?
+            };
 
             tracing::debug!(
                 output = %serde_json::to_string(&parsed).unwrap(),
