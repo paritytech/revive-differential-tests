@@ -4,7 +4,6 @@ mod helpers;
 
 use anyhow::{Context as _, bail};
 use clap::Parser;
-use revive_dt_common::types::ParsedTestSpecifier;
 use revive_dt_report::{ReportAggregator, TestCaseStatus};
 use schemars::schema_for;
 use tracing::{info, level_filters::LevelFilter};
@@ -64,40 +63,15 @@ fn main() -> anyhow::Result<()> {
                 )
                 .await?;
 
-                // Error out if there are any failing tests.
-                let failures = report
+                let contains_failure = report
                     .execution_information
-                    .into_iter()
-                    .flat_map(|(metadata_file_path, metadata_file_report)| {
-                        metadata_file_report.case_reports.into_iter().flat_map(
-                            move |(case_idx, case_report)| {
-                                let metadata_file_path = metadata_file_path.clone();
-                                case_report.mode_execution_reports.into_iter().filter_map(
-                                    move |(mode, execution_report)| {
-                                        if let Some(TestCaseStatus::Failed { reason }) =
-                                            execution_report.status
-                                        {
-                                            let parsed_test_specifier =
-                                                ParsedTestSpecifier::CaseWithMode {
-                                                    metadata_file_path: metadata_file_path
-                                                        .clone()
-                                                        .into_inner(),
-                                                    case_idx: case_idx.into_inner(),
-                                                    mode,
-                                                };
-                                            Some((parsed_test_specifier, reason))
-                                        } else {
-                                            None
-                                        }
-                                    },
-                                )
-                            },
-                        )
-                    })
-                    .collect::<Vec<_>>();
+                    .values()
+                    .flat_map(|values| values.case_reports.values())
+                    .flat_map(|values| values.mode_execution_reports.values())
+                    .any(|report| matches!(report.status, Some(TestCaseStatus::Failed { .. })));
 
-                if !failures.is_empty() {
-                    bail!("Some tests failed: {failures:#?}")
+                if contains_failure {
+                    bail!("Some tests failed")
                 }
 
                 Ok(())
@@ -117,40 +91,15 @@ fn main() -> anyhow::Result<()> {
                 )
                 .await?;
 
-                // Error out if there are any failing tests.
-                let failures = report
+                let contains_failure = report
                     .execution_information
-                    .into_iter()
-                    .flat_map(|(metadata_file_path, metadata_file_report)| {
-                        metadata_file_report.case_reports.into_iter().flat_map(
-                            move |(case_idx, case_report)| {
-                                let metadata_file_path = metadata_file_path.clone();
-                                case_report.mode_execution_reports.into_iter().filter_map(
-                                    move |(mode, execution_report)| {
-                                        if let Some(TestCaseStatus::Failed { reason }) =
-                                            execution_report.status
-                                        {
-                                            let parsed_test_specifier =
-                                                ParsedTestSpecifier::CaseWithMode {
-                                                    metadata_file_path: metadata_file_path
-                                                        .clone()
-                                                        .into_inner(),
-                                                    case_idx: case_idx.into_inner(),
-                                                    mode,
-                                                };
-                                            Some((parsed_test_specifier, reason))
-                                        } else {
-                                            None
-                                        }
-                                    },
-                                )
-                            },
-                        )
-                    })
-                    .collect::<Vec<_>>();
+                    .values()
+                    .flat_map(|values| values.case_reports.values())
+                    .flat_map(|values| values.mode_execution_reports.values())
+                    .any(|report| matches!(report.status, Some(TestCaseStatus::Failed { .. })));
 
-                if !failures.is_empty() {
-                    bail!("Some tests failed: {failures:#?}")
+                if contains_failure {
+                    bail!("Some benchmarks failed")
                 }
 
                 Ok(())
