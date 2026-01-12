@@ -14,9 +14,12 @@ use revive_dt_common::types::*;
 use revive_dt_compiler::{SolidityCompiler, revive_resolc::Resolc, solc::Solc};
 use revive_dt_config::*;
 use revive_dt_node::{
-    Node, node_implementations::geth::GethNode,
-    node_implementations::lighthouse_geth::LighthouseGethNode,
-    node_implementations::substrate::SubstrateNode, node_implementations::zombienet::ZombienetNode,
+    Node,
+    node_implementations::{
+        geth::GethNode, lighthouse_geth::LighthouseGethNode,
+        polkadot_omni_node::PolkadotOmnichainNode, substrate::SubstrateNode,
+        zombienet::ZombienetNode,
+    },
 };
 use revive_dt_node_interaction::EthereumNode;
 use tracing::info;
@@ -432,6 +435,134 @@ impl Platform for ZombienetRevmSolcPlatform {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Default, Hash)]
+pub struct PolkadotOmniNodePolkavmResolcPlatform;
+
+impl Platform for PolkadotOmniNodePolkavmResolcPlatform {
+    fn platform_identifier(&self) -> PlatformIdentifier {
+        PlatformIdentifier::PolkadotOmniNodePolkavmResolc
+    }
+
+    fn node_identifier(&self) -> NodeIdentifier {
+        NodeIdentifier::PolkadotOmniNode
+    }
+
+    fn vm_identifier(&self) -> VmIdentifier {
+        VmIdentifier::PolkaVM
+    }
+
+    fn compiler_identifier(&self) -> CompilerIdentifier {
+        CompilerIdentifier::Resolc
+    }
+
+    fn new_node(
+        &self,
+        context: Context,
+    ) -> anyhow::Result<JoinHandle<anyhow::Result<Box<dyn EthereumNode + Send + Sync>>>> {
+        let genesis_configuration = AsRef::<GenesisConfiguration>::as_ref(&context);
+        let genesis = genesis_configuration.genesis()?.clone();
+        Ok(thread::spawn(move || {
+            let use_fallback_gas_filler = matches!(context, Context::Test(..));
+            let node = PolkadotOmnichainNode::new(context, use_fallback_gas_filler);
+            let node = spawn_node(node, genesis)?;
+            Ok(Box::new(node) as Box<_>)
+        }))
+    }
+
+    fn new_compiler(
+        &self,
+        context: Context,
+        version: Option<VersionOrRequirement>,
+    ) -> Pin<Box<dyn Future<Output = anyhow::Result<Box<dyn SolidityCompiler>>>>> {
+        Box::pin(async move {
+            let compiler = Resolc::new(context, version).await;
+            compiler.map(|compiler| Box::new(compiler) as Box<dyn SolidityCompiler>)
+        })
+    }
+
+    fn export_genesis(&self, context: Context) -> anyhow::Result<serde_json::Value> {
+        let polkadot_omnichain_node_configuration =
+            AsRef::<PolkadotOmnichainNodeConfiguration>::as_ref(&context);
+        let wallet = AsRef::<WalletConfiguration>::as_ref(&context).wallet();
+
+        PolkadotOmnichainNode::node_genesis(
+            &polkadot_omnichain_node_configuration.path,
+            &wallet,
+            polkadot_omnichain_node_configuration
+                .parachain_id
+                .context("No parachain id found in the configuration of the polkadot-omni-node")?,
+            polkadot_omnichain_node_configuration
+                .runtime_wasm_path
+                .as_ref()
+                .context("No WASM runtime path found in the polkadot-omni-node configuration")?,
+        )
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Default, Hash)]
+pub struct PolkadotOmniNodeRevmSolcPlatform;
+
+impl Platform for PolkadotOmniNodeRevmSolcPlatform {
+    fn platform_identifier(&self) -> PlatformIdentifier {
+        PlatformIdentifier::PolkadotOmniNodeRevmSolc
+    }
+
+    fn node_identifier(&self) -> NodeIdentifier {
+        NodeIdentifier::PolkadotOmniNode
+    }
+
+    fn vm_identifier(&self) -> VmIdentifier {
+        VmIdentifier::Evm
+    }
+
+    fn compiler_identifier(&self) -> CompilerIdentifier {
+        CompilerIdentifier::Solc
+    }
+
+    fn new_node(
+        &self,
+        context: Context,
+    ) -> anyhow::Result<JoinHandle<anyhow::Result<Box<dyn EthereumNode + Send + Sync>>>> {
+        let genesis_configuration = AsRef::<GenesisConfiguration>::as_ref(&context);
+        let genesis = genesis_configuration.genesis()?.clone();
+        Ok(thread::spawn(move || {
+            let use_fallback_gas_filler = matches!(context, Context::Test(..));
+            let node = PolkadotOmnichainNode::new(context, use_fallback_gas_filler);
+            let node = spawn_node(node, genesis)?;
+            Ok(Box::new(node) as Box<_>)
+        }))
+    }
+
+    fn new_compiler(
+        &self,
+        context: Context,
+        version: Option<VersionOrRequirement>,
+    ) -> Pin<Box<dyn Future<Output = anyhow::Result<Box<dyn SolidityCompiler>>>>> {
+        Box::pin(async move {
+            let compiler = Solc::new(context, version).await;
+            compiler.map(|compiler| Box::new(compiler) as Box<dyn SolidityCompiler>)
+        })
+    }
+
+    fn export_genesis(&self, context: Context) -> anyhow::Result<serde_json::Value> {
+        let polkadot_omnichain_node_configuration =
+            AsRef::<PolkadotOmnichainNodeConfiguration>::as_ref(&context);
+        let wallet = AsRef::<WalletConfiguration>::as_ref(&context).wallet();
+
+        PolkadotOmnichainNode::node_genesis(
+            &polkadot_omnichain_node_configuration.path,
+            &wallet,
+            polkadot_omnichain_node_configuration
+                .parachain_id
+                .context("No parachain id found in the configuration of the polkadot-omni-node")?,
+            polkadot_omnichain_node_configuration
+                .runtime_wasm_path
+                .as_ref()
+                .context("No WASM runtime path found in the polkadot-omni-node configuration")?,
+        )
+    }
+}
+
 impl From<PlatformIdentifier> for Box<dyn Platform> {
     fn from(value: PlatformIdentifier) -> Self {
         match value {
@@ -449,6 +580,12 @@ impl From<PlatformIdentifier> for Box<dyn Platform> {
                 Box::new(ZombienetPolkavmResolcPlatform) as Box<_>
             }
             PlatformIdentifier::ZombienetRevmSolc => Box::new(ZombienetRevmSolcPlatform) as Box<_>,
+            PlatformIdentifier::PolkadotOmniNodePolkavmResolc => {
+                Box::new(PolkadotOmniNodePolkavmResolcPlatform) as Box<_>
+            }
+            PlatformIdentifier::PolkadotOmniNodeRevmSolc => {
+                Box::new(PolkadotOmniNodeRevmSolcPlatform) as Box<_>
+            }
         }
     }
 }
@@ -470,6 +607,12 @@ impl From<PlatformIdentifier> for &dyn Platform {
                 &ZombienetPolkavmResolcPlatform as &dyn Platform
             }
             PlatformIdentifier::ZombienetRevmSolc => &ZombienetRevmSolcPlatform as &dyn Platform,
+            PlatformIdentifier::PolkadotOmniNodePolkavmResolc => {
+                &PolkadotOmniNodePolkavmResolcPlatform as &dyn Platform
+            }
+            PlatformIdentifier::PolkadotOmniNodeRevmSolc => {
+                &PolkadotOmniNodeRevmSolcPlatform as &dyn Platform
+            }
         }
     }
 }

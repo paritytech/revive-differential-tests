@@ -143,6 +143,17 @@ impl AsRef<ReviveDevNodeConfiguration> for Context {
     }
 }
 
+impl AsRef<PolkadotOmnichainNodeConfiguration> for Context {
+    fn as_ref(&self) -> &PolkadotOmnichainNodeConfiguration {
+        match self {
+            Self::Test(context) => context.as_ref().as_ref(),
+            Self::Benchmark(context) => context.as_ref().as_ref(),
+            Self::ExportGenesis(context) => context.as_ref().as_ref(),
+            Self::ExportJsonSchema => unreachable!(),
+        }
+    }
+}
+
 impl AsRef<EthRpcConfiguration> for Context {
     fn as_ref(&self) -> &EthRpcConfiguration {
         match self {
@@ -228,6 +239,7 @@ pub struct TestExecutionContext {
     #[arg(
         short = 'p',
         long = "platform",
+        id = "platforms",
         default_values = ["geth-evm-solc", "revive-dev-node-polkavm-resolc"]
     )]
     pub platforms: Vec<PlatformIdentifier>,
@@ -276,6 +288,10 @@ pub struct TestExecutionContext {
     /// Configuration parameters for the Revive Dev Node.
     #[clap(flatten, next_help_heading = "Revive Dev Node Configuration")]
     pub revive_dev_node_configuration: ReviveDevNodeConfiguration,
+
+    /// Configuration parameters for the Polkadot Omnichain Node.
+    #[clap(flatten, next_help_heading = "Polkadot Omnichain Node Configuration")]
+    pub polkadot_omnichain_node_configuration: PolkadotOmnichainNodeConfiguration,
 
     /// Configuration parameters for the Eth Rpc.
     #[clap(flatten, next_help_heading = "Eth RPC Configuration")]
@@ -420,6 +436,10 @@ pub struct BenchmarkingContext {
     #[clap(flatten, next_help_heading = "Revive Dev Node Configuration")]
     pub revive_dev_node_configuration: ReviveDevNodeConfiguration,
 
+    /// Configuration parameters for the Polkadot Omnichain Node.
+    #[clap(flatten, next_help_heading = "Polkadot Omnichain Node Configuration")]
+    pub polkadot_omnichain_node_configuration: PolkadotOmnichainNodeConfiguration,
+
     /// Configuration parameters for the Eth Rpc.
     #[clap(flatten, next_help_heading = "Eth RPC Configuration")]
     pub eth_rpc_configuration: EthRpcConfiguration,
@@ -498,6 +518,10 @@ pub struct ExportGenesisContext {
     #[clap(flatten, next_help_heading = "Revive Dev Node Configuration")]
     pub revive_dev_node_configuration: ReviveDevNodeConfiguration,
 
+    /// Configuration parameters for the Polkadot Omnichain Node.
+    #[clap(flatten, next_help_heading = "Polkadot Omnichain Node Configuration")]
+    pub polkadot_omnichain_node_configuration: PolkadotOmnichainNodeConfiguration,
+
     /// Configuration parameters for the wallet.
     #[clap(flatten, next_help_heading = "Wallet Configuration")]
     pub wallet_configuration: WalletConfiguration,
@@ -554,6 +578,12 @@ impl AsRef<KurtosisConfiguration> for TestExecutionContext {
 impl AsRef<ReviveDevNodeConfiguration> for TestExecutionContext {
     fn as_ref(&self) -> &ReviveDevNodeConfiguration {
         &self.revive_dev_node_configuration
+    }
+}
+
+impl AsRef<PolkadotOmnichainNodeConfiguration> for TestExecutionContext {
+    fn as_ref(&self) -> &PolkadotOmnichainNodeConfiguration {
+        &self.polkadot_omnichain_node_configuration
     }
 }
 
@@ -653,6 +683,12 @@ impl AsRef<ReviveDevNodeConfiguration> for BenchmarkingContext {
     }
 }
 
+impl AsRef<PolkadotOmnichainNodeConfiguration> for BenchmarkingContext {
+    fn as_ref(&self) -> &PolkadotOmnichainNodeConfiguration {
+        &self.polkadot_omnichain_node_configuration
+    }
+}
+
 impl AsRef<EthRpcConfiguration> for BenchmarkingContext {
     fn as_ref(&self) -> &EthRpcConfiguration {
         &self.eth_rpc_configuration
@@ -710,6 +746,12 @@ impl AsRef<PolkadotParachainConfiguration> for ExportGenesisContext {
 impl AsRef<ReviveDevNodeConfiguration> for ExportGenesisContext {
     fn as_ref(&self) -> &ReviveDevNodeConfiguration {
         &self.revive_dev_node_configuration
+    }
+}
+
+impl AsRef<PolkadotOmnichainNodeConfiguration> for ExportGenesisContext {
+    fn as_ref(&self) -> &PolkadotOmnichainNodeConfiguration {
+        &self.polkadot_omnichain_node_configuration
     }
 }
 
@@ -867,6 +909,55 @@ pub struct ReviveDevNodeConfiguration {
         long = "revive-dev-node.existing-rpc-url"
     )]
     pub existing_rpc_url: Vec<String>,
+}
+
+/// A set of configuration parameters for the polkadot-omni-node.
+#[derive(Clone, Debug, Parser, Serialize, Deserialize)]
+pub struct PolkadotOmnichainNodeConfiguration {
+    /// Specifies the path of the polkadot-omni-node to be used by the tool.
+    ///
+    /// If this is not specified, then the tool assumes that it should use the polkadot-omni-node
+    /// binary that's provided in the user's $PATH.
+    #[clap(
+        id = "polkadot-omni-node.path",
+        long = "polkadot-omni-node.path",
+        default_value = "polkadot-omni-node"
+    )]
+    pub path: PathBuf,
+
+    /// The amount of time to wait upon startup before considering that the node timed out.
+    #[clap(
+        id = "polkadot-omni-node.start-timeout-ms",
+        long = "polkadot-omni-node.start-timeout-ms",
+        default_value = "90000",
+        value_parser = parse_duration
+    )]
+    pub start_timeout_ms: Duration,
+
+    /// Defines how often blocks will be sealed by the node in milliseconds.
+    #[clap(
+        id = "polkadot-omni-node.block-time-ms",
+        long = "polkadot-omni-node.block-time-ms",
+        default_value = "200",
+        value_parser = parse_duration
+    )]
+    pub block_time: Duration,
+
+    /// The path of the WASM runtime to use for the polkadot-omni-node. This argument is required if
+    /// the polkadot-omni-node is one of the selected platforms for running the tests or benchmarks.
+    #[clap(
+        id = "polkadot-omni-node.runtime-wasm-path",
+        long = "polkadot-omni-node.runtime-wasm-path"
+    )]
+    pub runtime_wasm_path: Option<PathBuf>,
+
+    /// The ID of the parachain that the polkadot-omni-node will spawn. This argument is required if
+    /// the polkadot-omni-node is one of the selected platforms for running the tests or benchmarks.
+    #[clap(
+        id = "polkadot-omni-node.parachain-id",
+        long = "polkadot-omni-node.parachain-id"
+    )]
+    pub parachain_id: Option<usize>,
 }
 
 /// A set of configuration parameters for the ETH RPC.
