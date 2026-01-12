@@ -33,6 +33,14 @@ inputs:
     description: "The identifier of the platform to run the tests on (e.g., geth-evm-solc, revive-dev-node-revm-solc)"
     required: true
     type: string
+  polkadot-omnichain-node-runtime-path:
+    description: "The path of the WASM runtime to use with the polkadot-omni-node. This is only required if the polkadot-omni-node is one of the selected platforms."
+    required: false
+    type: string
+  polkadot-omnichain-node-parachain-id:
+    description: "The id of the parachain to spawn with the polkadot-omni-node. This is only required if the polkadot-omni-node is one of the selected platforms."
+    type: number
+    required: false
 
 runs:
   using: "composite"
@@ -68,10 +76,26 @@ runs:
         tar -zxf cache.tar.gz -C ./workdir > /dev/null 2>&1
     - name: Building the dependencies from the Polkadot SDK
       shell: bash
-      run: ${{ inputs['cargo-command'] }} build --locked --profile release -p pallet-revive-eth-rpc -p revive-dev-node --manifest-path ${{ inputs['polkadot-sdk-path'] }}/Cargo.toml
+      run: |
+        ${{ inputs['cargo-command'] }} build --locked --profile release -p pallet-revive-eth-rpc -p revive-dev-node --manifest-path ${{ inputs['polkadot-sdk-path'] }}/Cargo.toml
+        ${{ inputs['cargo-command'] }} build --locked --profile release --bin polkadot-omni-node --manifest-path ${{ inputs['polkadot-sdk-path'] }}/Cargo.toml
     - name: Running the Differential Tests
       shell: bash
       run: |
+        OMNI_ARGS=()
+        if [[ -n "${{ inputs['polkadot-omnichain-node-parachain-id'] }}" ]]; then
+          OMNI_ARGS+=(
+            --polkadot-omni-node.parachain-id
+            "${{ inputs['polkadot-omnichain-node-parachain-id'] }}"
+          )
+        fi
+        if [[ -n "${{ inputs['polkadot-omnichain-node-runtime-path'] }}" ]]; then
+          OMNI_ARGS+=(
+            --polkadot-omni-node.runtime-wasm-path
+            "${{ inputs['polkadot-omnichain-node-runtime-path'] }}"
+          )
+        fi
+
         ${{ inputs['cargo-command'] }} run --locked --manifest-path revive-differential-tests/Cargo.toml -- test \
           --test ./revive-differential-tests/resolc-compiler-tests/fixtures/solidity/simple \
           --test ./revive-differential-tests/resolc-compiler-tests/fixtures/solidity/complex \
@@ -84,7 +108,9 @@ runs:
           --revive-dev-node.consensus manual-seal-200 \
           --revive-dev-node.path ${{ inputs['polkadot-sdk-path'] }}/target/release/revive-dev-node \
           --eth-rpc.path ${{ inputs['polkadot-sdk-path'] }}/target/release/eth-rpc \
-          --resolc.path ./resolc
+          --polkadot-omni-node.path ${{ inputs['polkadot-sdk-path'] }}/target/release/polkadot-omni-node \
+          --resolc.path ./resolc \
+          "${OMNI_ARGS[@]}"
     - name: Creating a markdown report of the test execution
       shell: bash
       if: ${{ always() }}
