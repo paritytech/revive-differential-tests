@@ -334,12 +334,8 @@ impl ZombienetNode {
             .get_or_try_init(|| async move {
                 construct_concurrency_limited_provider::<Ethereum, _>(
                     self.connection_string.as_str(),
-                    FallbackGasFiller::new(
-                        u64::MAX,
-                        5_000_000_000,
-                        1_000_000_000,
-                        self.use_fallback_gas_filler,
-                    ),
+                    FallbackGasFiller::default()
+                        .with_fallback_mechanism(self.use_fallback_gas_filler),
                     ChainIdFiller::default(), // TODO: use CHAIN_ID constant
                     NonceFiller::new(self.nonce_manager.clone()),
                     self.wallet.clone(),

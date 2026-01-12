@@ -1,65 +1,71 @@
+use std::{borrow::Cow, fmt::Display};
+
 use alloy::{
+    eips::BlockNumberOrTag,
     network::{Network, TransactionBuilder},
     providers::{
         Provider, SendableTx,
-        fillers::{GasFiller, TxFiller},
+        ext::DebugApi,
+        fillers::{GasFillable, GasFiller, TxFiller},
     },
-    transports::{TransportError, TransportResult},
+    rpc::types::trace::geth::{
+        GethDebugBuiltInTracerType, GethDebugTracerType, GethDebugTracingCallOptions,
+        GethDebugTracingOptions,
+    },
+    transports::{RpcError, TransportResult},
 };
 
-// Percentage padding applied to estimated gas (e.g. 120 = 20% padding)
-const GAS_ESTIMATE_PADDING_NUMERATOR: u64 = 120;
-const GAS_ESTIMATE_PADDING_DENOMINATOR: u64 = 100;
-
-#[derive(Clone, Debug)]
+/// An implementation of [`GasFiller`] with a fallback mechanism for reverting  transactions.
+///
+/// This struct provides a fallback mechanism for alloy's [`GasFiller`] which  kicks in when a
+/// transaction's dry run fails due to it reverting allowing us to get gas estimates even for
+/// failing transactions. In this codebase, this  is very important since the MatterLabs tests
+/// expect some transactions in the test suite revert. Since we're expected to run a number of
+/// assertions on these reverting transactions we must commit them to the ledger.
+///
+/// Therefore, this struct does the following:
+///
+/// 1. It first attempts to estimate the gas through the mechanism implemented in the [`GasFiller`].
+/// 2. If it fails, then we perform a debug trace of the transaction to find  out how much gas the
+///    transaction needs until it reverts.
+/// 3. We fill in these values (either the success or failure case) into the transaction.
+///
+/// The fallback mechanism of this filler can be completely disabled if we don't want it to be used.
+/// In that case, this gas filler will act in an identical  way to alloy's [`GasFiller`].
+///
+/// We then fill in these values into the transaction.
+///
+/// The previous implementation of this fallback gas filler relied on making use of default values
+/// for the gas limit in order to be able to submit the reverting transactions to the network. But,
+/// it introduced a number of issues that we weren't anticipating at the time when it was built.
+#[derive(Clone, Copy, Debug)]
 pub struct FallbackGasFiller {
+    /// The inner [`GasFiller`] which we pass all of the calls to in the happy path.
     inner: GasFiller,
-    default_gas_limit: u64,
-    default_max_fee_per_gas: u128,
-    default_priority_fee: u128,
-    use_fallback_gas_filler: bool,
+
+    /// A [`bool`] that controls if the fallback mechanism is enabled or not.
+    enable_fallback_mechanism: bool,
 }
 
 impl FallbackGasFiller {
-    pub fn new(
-        default_gas_limit: u64,
-        default_max_fee_per_gas: u128,
-        default_priority_fee: u128,
-        use_fallback_gas_filler: bool,
-    ) -> Self {
+    pub fn new() -> Self {
         Self {
-            inner: GasFiller,
-            default_gas_limit,
-            default_max_fee_per_gas,
-            default_priority_fee,
-            use_fallback_gas_filler,
+            inner: Default::default(),
+            enable_fallback_mechanism: true,
         }
     }
 
-    pub fn with_default_gas_limit(mut self, default_gas_limit: u64) -> Self {
-        self.default_gas_limit = default_gas_limit;
+    pub fn with_fallback_mechanism(mut self, enable: bool) -> Self {
+        self.enable_fallback_mechanism = enable;
         self
     }
 
-    pub fn with_default_max_fee_per_gas(mut self, default_max_fee_per_gas: u128) -> Self {
-        self.default_max_fee_per_gas = default_max_fee_per_gas;
-        self
+    pub fn with_fallback_mechanism_enabled(self) -> Self {
+        self.with_fallback_mechanism(true)
     }
 
-    pub fn with_default_priority_fee(mut self, default_priority_fee: u128) -> Self {
-        self.default_priority_fee = default_priority_fee;
-        self
-    }
-
-    pub fn with_use_fallback_gas_filler(mut self, use_fallback_gas_filler: bool) -> Self {
-        self.use_fallback_gas_filler = use_fallback_gas_filler;
-        self
-    }
-}
-
-impl Default for FallbackGasFiller {
-    fn default() -> Self {
-        FallbackGasFiller::new(25_000_000, 1_000_000_000, 1_000_000_000, true)
+    pub fn with_fallback_mechanism_disabled(self) -> Self {
+        self.with_fallback_mechanism(false)
     }
 }
 
@@ -67,32 +73,89 @@ impl<N> TxFiller<N> for FallbackGasFiller
 where
     N: Network,
 {
-    type Fillable = Option<<GasFiller as TxFiller<N>>::Fillable>;
+    type Fillable = <GasFiller as TxFiller<N>>::Fillable;
 
     fn status(
         &self,
         tx: &<N as Network>::TransactionRequest,
     ) -> alloy::providers::fillers::FillerControlFlow {
-        <GasFiller as TxFiller<N>>::status(&self.inner, tx)
+        TxFiller::<N>::status(&self.inner, tx)
     }
 
-    fn fill_sync(&self, _: &mut alloy::providers::SendableTx<N>) {}
+    fn fill_sync(&self, _: &mut SendableTx<N>) {}
 
     async fn prepare<P: Provider<N>>(
         &self,
         provider: &P,
         tx: &<N as Network>::TransactionRequest,
     ) -> TransportResult<Self::Fillable> {
-        match self.inner.prepare(provider, tx).await {
-            Ok(fill) => Ok(Some(fill)),
-            Err(err) => {
-                tracing::debug!(error = ?err, "Gas Provider Estimation Failed, using fallback");
+        match (
+            self.inner.prepare(provider, tx).await,
+            self.enable_fallback_mechanism,
+        ) {
+            // Return the same thing if either this calls succeeds, or if the call falls and the
+            // fallback mechanism is disabled.
+            (rtn @ Ok(..), ..) | (rtn @ Err(..), false) => rtn,
+            (Err(..), true) => {
+                // Perform a trace of the transaction.
+                let trace = provider
+                    .debug_trace_call(
+                        tx.clone(),
+                        BlockNumberOrTag::Latest.into(),
+                        GethDebugTracingCallOptions {
+                            tracing_options: GethDebugTracingOptions {
+                                tracer: Some(GethDebugTracerType::BuiltInTracer(
+                                    GethDebugBuiltInTracerType::CallTracer,
+                                )),
+                                ..Default::default()
+                            },
+                            state_overrides: Default::default(),
+                            block_overrides: Default::default(),
+                        },
+                    )
+                    .await?
+                    .try_into_call_frame()
+                    .map_err(|err| {
+                        RpcError::LocalUsageError(
+                            FallbackGasFillerError::new(format!(
+                                "Expected a callframe trace, but got: {err:?}"
+                            ))
+                            .boxed(),
+                        )
+                    })?;
 
-                if !self.use_fallback_gas_filler {
-                    Err(err)
-                } else {
-                    Ok(None)
+                let gas_used = u64::try_from(trace.gas_used).map_err(|_| {
+                    RpcError::LocalUsageError(
+                        FallbackGasFillerError::new(
+                            "Transaction trace returned a value of gas used that exceeds u64",
+                        )
+                        .boxed(),
+                    )
+                })?;
+                let gas_limit = gas_used.saturating_mul(120) / 100;
+
+                if let Some(gas_price) = tx.gas_price() {
+                    return Ok(GasFillable::Legacy {
+                        gas_limit,
+                        gas_price,
+                    });
                 }
+
+                let estimate = if let (Some(max_fee_per_gas), Some(max_priority_fee_per_gas)) =
+                    (tx.max_fee_per_gas(), tx.max_priority_fee_per_gas())
+                {
+                    alloy::eips::eip1559::Eip1559Estimation {
+                        max_fee_per_gas,
+                        max_priority_fee_per_gas,
+                    }
+                } else {
+                    provider.estimate_eip1559_fees().await?
+                };
+
+                Ok(GasFillable::Eip1559 {
+                    gas_limit,
+                    estimate,
+                })
             }
         }
     }
@@ -100,31 +163,35 @@ where
     async fn fill(
         &self,
         fillable: Self::Fillable,
-        mut tx: alloy::providers::SendableTx<N>,
+        tx: SendableTx<N>,
     ) -> TransportResult<SendableTx<N>> {
-        if let Some(fill) = fillable {
-            let mut tx = self.inner.fill(fill, tx).await?;
-            if let Some(builder) = tx.as_mut_builder() {
-                if let Some(estimated) = builder.gas_limit() {
-                    let padded = estimated
-                        .checked_mul(GAS_ESTIMATE_PADDING_NUMERATOR)
-                        .and_then(|v| v.checked_div(GAS_ESTIMATE_PADDING_DENOMINATOR))
-                        .unwrap_or(u64::MAX);
-                    builder.set_gas_limit(padded);
-                }
-            }
-            Ok(tx)
-        } else if self.use_fallback_gas_filler {
-            if let Some(builder) = tx.as_mut_builder() {
-                builder.set_gas_limit(self.default_gas_limit);
-                builder.set_max_fee_per_gas(self.default_max_fee_per_gas);
-                builder.set_max_priority_fee_per_gas(self.default_priority_fee);
-            }
-            Ok(tx)
-        } else {
-            Err(TransportError::UnsupportedFeature(
-                "Fallback gas filler is disabled and we're attempting to do a gas estimate on a failing transaction",
-            ))
-        }
+        self.inner.fill(fillable, tx).await
     }
 }
+
+impl Default for FallbackGasFiller {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+struct FallbackGasFillerError(Cow<'static, str>);
+
+impl FallbackGasFillerError {
+    pub fn new(string: impl Into<Cow<'static, str>>) -> Self {
+        Self(string.into())
+    }
+
+    pub fn boxed(self) -> Box<Self> {
+        Box::new(self)
+    }
+}
+
+impl Display for FallbackGasFillerError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        Display::fmt(&self.0, f)
+    }
+}
+
+impl std::error::Error for FallbackGasFillerError {}

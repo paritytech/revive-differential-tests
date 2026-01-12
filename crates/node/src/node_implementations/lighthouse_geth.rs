@@ -379,7 +379,7 @@ impl LighthouseGethNode {
                 construct_concurrency_limited_provider::<Ethereum, _>(
                     self.ws_connection_string.as_str(),
                     FallbackGasFiller::default()
-                        .with_use_fallback_gas_filler(self.use_fallback_gas_filler),
+                        .with_fallback_mechanism(self.use_fallback_gas_filler),
                     ChainIdFiller::new(Some(CHAIN_ID)),
                     NonceFiller::new(self.nonce_manager.clone()),
                     self.wallet.clone(),
