@@ -143,8 +143,8 @@ impl AsRef<ReviveDevNodeConfiguration> for Context {
     }
 }
 
-impl AsRef<PolkadotOmniNodeConfiguration> for Context {
-    fn as_ref(&self) -> &PolkadotOmniNodeConfiguration {
+impl AsRef<PolkadotOmnichainNodeConfiguration> for Context {
+    fn as_ref(&self) -> &PolkadotOmnichainNodeConfiguration {
         match self {
             Self::Test(context) => context.as_ref().as_ref(),
             Self::Benchmark(context) => context.as_ref().as_ref(),
@@ -239,6 +239,7 @@ pub struct TestExecutionContext {
     #[arg(
         short = 'p',
         long = "platform",
+        id = "platforms",
         default_values = ["geth-evm-solc", "revive-dev-node-polkavm-resolc"]
     )]
     pub platforms: Vec<PlatformIdentifier>,
@@ -290,7 +291,7 @@ pub struct TestExecutionContext {
 
     /// Configuration parameters for the Polkadot Omnichain Node.
     #[clap(flatten, next_help_heading = "Polkadot Omnichain Node Configuration")]
-    pub polkadot_omnichain_node_configuration: PolkadotOmniNodeConfiguration,
+    pub polkadot_omnichain_node_configuration: PolkadotOmnichainNodeConfiguration,
 
     /// Configuration parameters for the Eth Rpc.
     #[clap(flatten, next_help_heading = "Eth RPC Configuration")]
@@ -437,7 +438,7 @@ pub struct BenchmarkingContext {
 
     /// Configuration parameters for the Polkadot Omnichain Node.
     #[clap(flatten, next_help_heading = "Polkadot Omnichain Node Configuration")]
-    pub polkadot_omnichain_node_configuration: PolkadotOmniNodeConfiguration,
+    pub polkadot_omnichain_node_configuration: PolkadotOmnichainNodeConfiguration,
 
     /// Configuration parameters for the Eth Rpc.
     #[clap(flatten, next_help_heading = "Eth RPC Configuration")]
@@ -519,7 +520,7 @@ pub struct ExportGenesisContext {
 
     /// Configuration parameters for the Polkadot Omnichain Node.
     #[clap(flatten, next_help_heading = "Polkadot Omnichain Node Configuration")]
-    pub polkadot_omnichain_node_configuration: PolkadotOmniNodeConfiguration,
+    pub polkadot_omnichain_node_configuration: PolkadotOmnichainNodeConfiguration,
 
     /// Configuration parameters for the wallet.
     #[clap(flatten, next_help_heading = "Wallet Configuration")]
@@ -580,8 +581,8 @@ impl AsRef<ReviveDevNodeConfiguration> for TestExecutionContext {
     }
 }
 
-impl AsRef<PolkadotOmniNodeConfiguration> for TestExecutionContext {
-    fn as_ref(&self) -> &PolkadotOmniNodeConfiguration {
+impl AsRef<PolkadotOmnichainNodeConfiguration> for TestExecutionContext {
+    fn as_ref(&self) -> &PolkadotOmnichainNodeConfiguration {
         &self.polkadot_omnichain_node_configuration
     }
 }
@@ -682,8 +683,8 @@ impl AsRef<ReviveDevNodeConfiguration> for BenchmarkingContext {
     }
 }
 
-impl AsRef<PolkadotOmniNodeConfiguration> for BenchmarkingContext {
-    fn as_ref(&self) -> &PolkadotOmniNodeConfiguration {
+impl AsRef<PolkadotOmnichainNodeConfiguration> for BenchmarkingContext {
+    fn as_ref(&self) -> &PolkadotOmnichainNodeConfiguration {
         &self.polkadot_omnichain_node_configuration
     }
 }
@@ -748,8 +749,8 @@ impl AsRef<ReviveDevNodeConfiguration> for ExportGenesisContext {
     }
 }
 
-impl AsRef<PolkadotOmniNodeConfiguration> for ExportGenesisContext {
-    fn as_ref(&self) -> &PolkadotOmniNodeConfiguration {
+impl AsRef<PolkadotOmnichainNodeConfiguration> for ExportGenesisContext {
+    fn as_ref(&self) -> &PolkadotOmnichainNodeConfiguration {
         &self.polkadot_omnichain_node_configuration
     }
 }
@@ -912,7 +913,7 @@ pub struct ReviveDevNodeConfiguration {
 
 /// A set of configuration parameters for the polkadot-omni-node.
 #[derive(Clone, Debug, Parser, Serialize, Deserialize)]
-pub struct PolkadotOmniNodeConfiguration {
+pub struct PolkadotOmnichainNodeConfiguration {
     /// Specifies the path of the polkadot-omni-node to be used by the tool.
     ///
     /// If this is not specified, then the tool assumes that it should use the polkadot-omni-node
@@ -928,7 +929,7 @@ pub struct PolkadotOmniNodeConfiguration {
     #[clap(
         id = "polkadot-omni-node.start-timeout-ms",
         long = "polkadot-omni-node.start-timeout-ms",
-        default_value = "30000",
+        default_value = "90000",
         value_parser = parse_duration
     )]
     pub start_timeout_ms: Duration,
