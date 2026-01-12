@@ -47,7 +47,7 @@ use tracing::{instrument, trace};
 
 use crate::{
     Node,
-    constants::{CHAIN_ID, INITIAL_BALANCE},
+    constants::INITIAL_BALANCE,
     helpers::{Process, ProcessReadinessWaitBehavior},
     provider_utils::{
         ConcreteProvider, FallbackGasFiller, construct_concurrency_limited_provider,
@@ -327,13 +327,9 @@ impl SubstrateNode {
             .get_or_try_init(|| async move {
                 construct_concurrency_limited_provider::<Ethereum, _>(
                     self.rpc_url.as_str(),
-                    FallbackGasFiller::new(
-                        u64::MAX,
-                        50_000_000_000,
-                        1_000_000_000,
-                        self.use_fallback_gas_filler,
-                    ),
-                    ChainIdFiller::new(Some(CHAIN_ID)),
+                    FallbackGasFiller::default()
+                        .with_fallback_mechanism(self.use_fallback_gas_filler),
+                    ChainIdFiller::default(),
                     NonceFiller::new(self.nonce_manager.clone()),
                     self.wallet.clone(),
                 )
