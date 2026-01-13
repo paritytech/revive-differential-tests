@@ -409,7 +409,6 @@ where
             .handle_function_call_execution(step, deployment_receipts)
             .await
             .context("Failed to handle the function call execution")?;
-        tracing::Span::current().record("block_number", execution_receipt.block_number);
         let tracing_result = self
             .handle_function_call_call_frame_tracing(execution_receipt.transaction_hash)
             .await

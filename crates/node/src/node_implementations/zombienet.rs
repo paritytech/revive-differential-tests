@@ -76,10 +76,7 @@ use crate::{
     Node,
     constants::INITIAL_BALANCE,
     helpers::{Process, ProcessReadinessWaitBehavior},
-    provider_utils::{
-        ConcreteProvider, FallbackGasFiller, construct_concurrency_limited_provider,
-        execute_transaction,
-    },
+    provider_utils::{ConcreteProvider, FallbackGasFiller, construct_concurrency_limited_provider},
 };
 
 static NODE_COUNT: AtomicU32 = AtomicU32::new(0);
@@ -433,14 +430,18 @@ impl EthereumNode for ZombienetNode {
 
     fn execute_transaction(
         &self,
-        transaction: alloy::rpc::types::TransactionRequest,
+        transaction: TransactionRequest,
     ) -> Pin<Box<dyn Future<Output = anyhow::Result<TransactionReceipt>> + '_>> {
         Box::pin(async move {
-            let provider = self
-                .provider()
+            self.provider()
                 .await
-                .context("Failed to create the provider")?;
-            execute_transaction(provider, transaction).await
+                .context("Failed to create provider for transaction submission")?
+                .send_transaction(transaction)
+                .await
+                .context("Encountered an error when submitting a transaction")?
+                .get_receipt()
+                .await
+                .context("Failed to get the receipt for the transaction")
         })
     }
 

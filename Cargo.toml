@@ -22,6 +22,7 @@ revive-dt-node-pool = { version = "0.1.0", path = "crates/node-pool" }
 revive-dt-report = { version = "0.1.0", path = "crates/report" }
 revive-dt-solc-binaries = { version = "0.1.0", path = "crates/solc-binaries" }
 
+alloy = { version = "1.4.1", features = ["full", "genesis", "json-rpc"] }
 ansi_term = "0.12.1"
 anyhow = "1.0"
 bson = { version = "2.15.0" }
@@ -77,27 +78,6 @@ revive-common = { git = "https://github.com/paritytech/revive", rev = "3389865af
 revive-differential = { git = "https://github.com/paritytech/revive", rev = "3389865af7c3ff6f29a586d82157e8bc573c1a8e" }
 
 zombienet-sdk = { git = "https://github.com/paritytech/zombienet-sdk.git", rev = "891f6554354ce466abd496366dbf8b4f82141241" }
-
-[workspace.dependencies.alloy]
-version = "1.0.37"
-default-features = false
-features = [
-    "json-abi",
-    "providers",
-    "provider-ws",
-    "provider-ipc",
-    "provider-http",
-    "provider-debug-api",
-    "reqwest",
-    "rpc-types",
-    "signer-local",
-    "std",
-    "network",
-    "serde",
-    "rpc-types-eth",
-    "genesis",
-    "sol-types",
-]
 
 [profile.bench]
 inherits = "release"

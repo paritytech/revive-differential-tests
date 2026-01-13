@@ -1,18 +1,16 @@
-use std::{ops::ControlFlow, sync::LazyLock, time::Duration};
+use std::sync::LazyLock;
 
 use alloy::{
-    network::{Ethereum, Network, NetworkWallet, TransactionBuilder4844},
+    network::{Network, NetworkWallet, TransactionBuilder4844},
     providers::{
-        Identity, PendingTransactionBuilder, Provider, ProviderBuilder, RootProvider,
+        Identity, ProviderBuilder, RootProvider,
         fillers::{ChainIdFiller, FillProvider, JoinFill, NonceFiller, TxFiller, WalletFiller},
     },
     rpc::client::ClientBuilder,
 };
 use anyhow::{Context, Result};
-use revive_dt_common::futures::{PollingWaitBehavior, poll};
-use tracing::{Instrument, debug, info, info_span};
 
-use crate::provider_utils::{ConcurrencyLimiterLayer, FallbackGasFiller};
+use crate::provider_utils::{ConcurrencyLimiterLayer, FallbackGasFiller, RetryLayer};
 
 pub type ConcreteProvider<N, W> = FillProvider<
     JoinFill<
@@ -48,6 +46,7 @@ where
 
     let client = ClientBuilder::default()
         .layer(GLOBAL_CONCURRENCY_LIMITER_LAYER.clone())
+        .layer(RetryLayer::default())
         .connect(rpc_url)
         .await
         .context("Failed to construct the RPC client")?;
@@ -62,71 +61,4 @@ where
         .connect_client(client);
 
     Ok(provider)
-}
-
-pub async fn execute_transaction<N, W>(
-    provider: ConcreteProvider<N, W>,
-    transaction: N::TransactionRequest,
-) -> Result<N::ReceiptResponse>
-where
-    N: Network<
-            TransactionRequest: TransactionBuilder4844,
-            TxEnvelope = <Ethereum as Network>::TxEnvelope,
-        >,
-    W: NetworkWallet<N>,
-    Identity: TxFiller<N>,
-    FallbackGasFiller: TxFiller<N>,
-    ChainIdFiller: TxFiller<N>,
-    NonceFiller: TxFiller<N>,
-    WalletFiller<W>: TxFiller<N>,
-{
-    let sendable_transaction = provider
-        .fill(transaction)
-        .await
-        .context("Failed to fill transaction")?;
-
-    let transaction_envelope = sendable_transaction
-        .try_into_envelope()
-        .context("Failed to convert transaction into an envelope")?;
-    let tx_hash = *transaction_envelope.tx_hash();
-
-    let mut pending_transaction = match provider.send_tx_envelope(transaction_envelope).await {
-        Ok(pending_transaction) => pending_transaction,
-        Err(error) => {
-            let error_string = error.to_string();
-
-            if error_string.contains("Transaction Already Imported") {
-                PendingTransactionBuilder::<N>::new(provider.root().clone(), tx_hash)
-            } else {
-                return Err(error).context(format!("Failed to submit transaction {tx_hash}"));
-            }
-        }
-    };
-    debug!(%tx_hash, "Submitted Transaction");
-
-    pending_transaction.set_timeout(Some(Duration::from_secs(120)));
-    let tx_hash = pending_transaction.watch().await.context(format!(
-        "Transaction inclusion watching timeout for {tx_hash}"
-    ))?;
-
-    poll(
-        Duration::from_secs(60),
-        PollingWaitBehavior::Constant(Duration::from_secs(3)),
-        || {
-            let provider = provider.clone();
-
-            async move {
-                match provider.get_transaction_receipt(tx_hash).await {
-                    Ok(Some(receipt)) => {
-                        info!("Found the transaction receipt");
-                        Ok(ControlFlow::Break(receipt))
-                    }
-                    _ => Ok(ControlFlow::Continue(())),
-                }
-            }
-        },
-    )
-    .instrument(info_span!("Polling for receipt", %tx_hash))
-    .await
-    .context(format!("Polling for receipt failed for {tx_hash}"))
 }

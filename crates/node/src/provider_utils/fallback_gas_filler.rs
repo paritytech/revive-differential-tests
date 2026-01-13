@@ -1,5 +1,3 @@
-use std::{borrow::Cow, fmt::Display};
-
 use alloy::{
     eips::BlockNumberOrTag,
     network::{Network, TransactionBuilder},
@@ -111,28 +109,23 @@ where
                             },
                             state_overrides: Default::default(),
                             block_overrides: Default::default(),
+                            tx_index: Default::default(),
                         },
                     )
                     .await?
                     .try_into_call_frame()
                     .map_err(|err| {
-                        RpcError::LocalUsageError(
-                            FallbackGasFillerError::new(format!(
-                                "Expected a callframe trace, but got: {err:?}"
-                            ))
-                            .boxed(),
+                        RpcError::local_usage_str(
+                            format!("Expected a callframe trace, but got: {err:?}").as_str(),
                         )
                     })?;
 
                 let gas_used = u64::try_from(trace.gas_used).map_err(|_| {
-                    RpcError::LocalUsageError(
-                        FallbackGasFillerError::new(
-                            "Transaction trace returned a value of gas used that exceeds u64",
-                        )
-                        .boxed(),
+                    RpcError::local_usage_str(
+                        "Transaction trace returned a value of gas used that exceeds u64",
                     )
                 })?;
-                let gas_limit = gas_used.saturating_mul(120) / 100;
+                let gas_limit = gas_used.saturating_mul(2);
 
                 if let Some(gas_price) = tx.gas_price() {
                     return Ok(GasFillable::Legacy {
@@ -174,24 +167,3 @@ impl Default for FallbackGasFiller {
         Self::new()
     }
 }
-
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-struct FallbackGasFillerError(Cow<'static, str>);
-
-impl FallbackGasFillerError {
-    pub fn new(string: impl Into<Cow<'static, str>>) -> Self {
-        Self(string.into())
-    }
-
-    pub fn boxed(self) -> Box<Self> {
-        Box::new(self)
-    }
-}
-
-impl Display for FallbackGasFillerError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        Display::fmt(&self.0, f)
-    }
-}
-
-impl std::error::Error for FallbackGasFillerError {}
