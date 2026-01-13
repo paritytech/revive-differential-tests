@@ -1,12 +1,12 @@
-use std::{marker::PhantomData, time::Duration};
+use std::time::Duration;
 
 use alloy::{
-    network::Network,
-    primitives::TxHash,
-    providers::{Provider, ProviderCall, ProviderLayer, RootProvider},
-    transports::{RpcError, TransportErrorKind},
+    network::{AnyNetwork, Network},
+    rpc::json_rpc::{RequestPacket, ResponsePacket},
+    transports::{TransportError, TransportErrorKind, TransportFut},
 };
 use tokio::time::{interval, timeout};
+use tower::{Layer, Service};
 
 /// A layer that allows for automatic retries for getting the receipt.
 ///
@@ -57,95 +57,100 @@ impl Default for ReceiptRetryLayer {
     }
 }
 
-impl<P, N> ProviderLayer<P, N> for ReceiptRetryLayer
-where
-    P: Provider<N>,
-    N: Network,
-{
-    type Provider = ReceiptRetryProvider<P, N>;
+impl<S> Layer<S> for ReceiptRetryLayer {
+    type Service = ReceiptRetryService<S>;
 
-    fn layer(&self, inner: P) -> Self::Provider {
-        ReceiptRetryProvider::new(self.polling_duration, self.polling_interval, inner)
+    fn layer(&self, inner: S) -> Self::Service {
+        ReceiptRetryService {
+            service: inner,
+            polling_duration: self.polling_duration,
+            polling_interval: self.polling_interval,
+        }
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct ReceiptRetryProvider<P, N> {
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct ReceiptRetryService<S> {
+    /// The internal service.
+    service: S,
+
     /// The amount of time to keep polling for the receipt before considering it a timeout.
     polling_duration: Duration,
 
     /// The interval of time to wait between each poll for the receipt.
     polling_interval: Duration,
-
-    /// Inner provider.
-    inner: P,
-
-    /// Phantom data
-    phantom: PhantomData<N>,
 }
 
-impl<P, N> ReceiptRetryProvider<P, N>
+impl<S> Service<RequestPacket> for ReceiptRetryService<S>
 where
-    P: Provider<N>,
-    N: Network,
+    S: Service<RequestPacket, Future = TransportFut<'static>, Error = TransportError>
+        + Send
+        + 'static
+        + Clone,
 {
-    /// Instantiate a new cache provider.
-    pub const fn new(polling_duration: Duration, polling_interval: Duration, inner: P) -> Self {
-        Self {
-            inner,
-            polling_duration,
-            polling_interval,
-            phantom: PhantomData,
-        }
-    }
-}
+    type Response = ResponsePacket;
+    type Error = TransportError;
+    type Future = TransportFut<'static>;
 
-impl<P, N> Provider<N> for ReceiptRetryProvider<P, N>
-where
-    P: Provider<N>,
-    N: Network,
-{
-    #[inline(always)]
-    fn root(&self) -> &RootProvider<N> {
-        self.inner.root()
+    fn poll_ready(
+        &mut self,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Result<(), Self::Error>> {
+        self.service.poll_ready(cx)
     }
 
-    fn get_transaction_receipt(
-        &self,
-        hash: TxHash,
-    ) -> ProviderCall<(TxHash,), Option<<N as Network>::ReceiptResponse>> {
-        let client = self.inner.weak_client();
-        let polling_duration = self.polling_duration;
+    #[allow(clippy::nonminimal_bool)]
+    fn call(&mut self, req: RequestPacket) -> Self::Future {
+        type ReceiptOutput = <AnyNetwork as Network>::ReceiptResponse;
+
+        let mut service = self.service.clone();
         let polling_interval = self.polling_interval;
+        let polling_duration = self.polling_duration;
 
-        ProviderCall::BoxedFuture(Box::pin(async move {
-            let client = client
-                .upgrade()
-                .ok_or_else(|| TransportErrorKind::custom_str("RPC client dropped"))?;
+        Box::pin(async move {
+            let request = req.as_single().ok_or_else(|| {
+                TransportErrorKind::custom_str("Retry layer doesn't support batch requests")
+            })?;
+            let method = request.method();
+            let requires_retries = method == "eth_getTransactionReceipt"
+                || (method.contains("debug") && method.contains("trace"));
 
-            let receipt = timeout(polling_duration, async move {
+            if !requires_retries {
+                return service.call(req).await;
+            }
+
+            timeout(polling_duration, async {
                 let mut interval = interval(polling_interval);
 
                 loop {
-                    let result = client
-                        .request::<(TxHash,), Option<<N as Network>::ReceiptResponse>>(
-                            "eth_getTransactionReceipt",
-                            (hash,),
-                        )
-                        .await;
-                    if let Ok(Some(receipt)) = result {
-                        return receipt;
+                    interval.tick().await;
+
+                    let Ok(resp) = service.call(req.clone()).await else {
+                        continue;
+                    };
+                    let response = resp.as_single().expect("Can't fail");
+                    if response.is_error() {
+                        continue;
                     }
 
-                    interval.tick().await;
+                    if method == "eth_getTransactionReceipt"
+                        && response
+                            .payload()
+                            .clone()
+                            .deserialize_success::<ReceiptOutput>()
+                            .ok()
+                            .and_then(|resp| resp.try_into_success().ok())
+                            .is_some()
+                        || method != "eth_getTransactionReceipt"
+                    {
+                        return resp;
+                    } else {
+                        continue;
+                    }
                 }
             })
             .await
-            .map_err(|_| {
-                RpcError::local_usage_str("Timeout when waiting for transaction receipt")
-            })?;
-
-            Ok(Some(receipt))
-        }))
+            .map_err(|_| TransportErrorKind::custom_str("Timeout when retrying request"))
+        })
     }
 }

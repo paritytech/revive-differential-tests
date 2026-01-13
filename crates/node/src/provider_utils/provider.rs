@@ -1,4 +1,4 @@
-use std::{sync::LazyLock, time::Duration};
+use std::sync::LazyLock;
 
 use alloy::{
     network::{Network, NetworkWallet, TransactionBuilder4844},
@@ -10,16 +10,14 @@ use alloy::{
 };
 use anyhow::{Context, Result};
 
-use crate::provider_utils::{
-    ConcurrencyLimiterLayer, FallbackGasFiller, ReceiptRetryLayer, ReceiptRetryProvider,
-};
+use crate::provider_utils::{ConcurrencyLimiterLayer, FallbackGasFiller, ReceiptRetryLayer};
 
 pub type ConcreteProvider<N, W> = FillProvider<
     JoinFill<
         JoinFill<JoinFill<JoinFill<Identity, FallbackGasFiller>, ChainIdFiller>, NonceFiller>,
         WalletFiller<W>,
     >,
-    ReceiptRetryProvider<RootProvider<N>, N>,
+    RootProvider<N>,
     N,
 >;
 
@@ -48,6 +46,7 @@ where
 
     let client = ClientBuilder::default()
         .layer(GLOBAL_CONCURRENCY_LIMITER_LAYER.clone())
+        .layer(ReceiptRetryLayer::default())
         .connect(rpc_url)
         .await
         .context("Failed to construct the RPC client")?;
@@ -55,11 +54,6 @@ where
     let provider = ProviderBuilder::new()
         .disable_recommended_fillers()
         .network::<N>()
-        .layer(
-            ReceiptRetryLayer::default()
-                .with_polling_duration(Duration::from_secs(90))
-                .with_polling_interval(Duration::from_millis(500)),
-        )
         .filler(fallback_gas_filler)
         .filler(chain_id_filler)
         .filler(nonce_filler)
