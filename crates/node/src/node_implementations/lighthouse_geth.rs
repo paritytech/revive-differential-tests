@@ -12,7 +12,6 @@ use std::{
     collections::{BTreeMap, HashSet},
     fs::{File, create_dir_all},
     io::Read,
-    ops::ControlFlow,
     path::PathBuf,
     pin::Pin,
     process::{Command, Stdio},
@@ -50,10 +49,7 @@ use serde_with::serde_as;
 use tokio::sync::OnceCell;
 use tracing::{info, instrument};
 
-use revive_dt_common::{
-    fs::clear_directory,
-    futures::{PollingWaitBehavior, poll},
-};
+use revive_dt_common::fs::clear_directory;
 use revive_dt_config::*;
 use revive_dt_format::traits::ResolverApi;
 use revive_dt_node_interaction::EthereumNode;
@@ -115,10 +111,6 @@ impl LighthouseGethNode {
     const LOGS_DIRECTORY: &str = "logs";
 
     const CONFIG_FILE_NAME: &str = "config.yaml";
-
-    const TRANSACTION_TRACING_ERROR: &str = "historical state not available in path scheme yet";
-
-    const TRACE_POLLING_DURATION: Duration = Duration::from_secs(60);
 
     const VALIDATOR_MNEMONIC: &str = "giant issue aisle success illegal bike spike question tent bar rely arctic volcano long crawl hungry vocal artwork sniff fantasy very lucky have athlete";
 
@@ -576,35 +568,12 @@ impl EthereumNode for LighthouseGethNode {
         trace_options: GethDebugTracingOptions,
     ) -> Pin<Box<dyn Future<Output = anyhow::Result<GethTrace>> + '_>> {
         Box::pin(async move {
-            let provider = Arc::new(
-                self.http_provider()
-                    .await
-                    .context("Failed to create provider for tracing")?,
-            );
-            poll(
-                Self::TRACE_POLLING_DURATION,
-                PollingWaitBehavior::Constant(Duration::from_millis(200)),
-                move || {
-                    let provider = provider.clone();
-                    let trace_options = trace_options.clone();
-                    async move {
-                        match provider
-                            .debug_trace_transaction(tx_hash, trace_options)
-                            .await
-                        {
-                            Ok(trace) => Ok(ControlFlow::Break(trace)),
-                            Err(error) => {
-                                let error_string = error.to_string();
-                                match error_string.contains(Self::TRANSACTION_TRACING_ERROR) {
-                                    true => Ok(ControlFlow::Continue(())),
-                                    false => Err(error.into()),
-                                }
-                            }
-                        }
-                    }
-                },
-            )
-            .await
+            self.provider()
+                .await
+                .context("Failed to create provider for tracing")?
+                .debug_trace_transaction(tx_hash, trace_options)
+                .await
+                .context("Failed to get the transaction trace")
         })
     }
 

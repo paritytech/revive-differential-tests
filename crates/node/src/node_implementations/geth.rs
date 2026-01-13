@@ -3,7 +3,6 @@
 use std::{
     fs::{File, create_dir_all, remove_dir_all},
     io::Read,
-    ops::ControlFlow,
     path::PathBuf,
     pin::Pin,
     process::{Command, Stdio},
@@ -37,10 +36,7 @@ use revive_common::EVMVersion;
 use tokio::sync::OnceCell;
 use tracing::{error, instrument};
 
-use revive_dt_common::{
-    fs::clear_directory,
-    futures::{PollingWaitBehavior, poll},
-};
+use revive_dt_common::fs::clear_directory;
 use revive_dt_config::*;
 use revive_dt_format::traits::ResolverApi;
 use revive_dt_node_interaction::EthereumNode;
@@ -89,10 +85,6 @@ impl GethNode {
 
     const READY_MARKER: &str = "IPC endpoint opened";
     const ERROR_MARKER: &str = "Fatal:";
-
-    const TRANSACTION_TRACING_ERROR: &str = "historical state not available in path scheme yet";
-
-    const TRACE_POLLING_DURATION: Duration = Duration::from_secs(60);
 
     pub fn new(
         context: impl AsRef<WorkingDirectoryConfiguration>
@@ -358,34 +350,12 @@ impl EthereumNode for GethNode {
         trace_options: GethDebugTracingOptions,
     ) -> Pin<Box<dyn Future<Output = anyhow::Result<GethTrace>> + '_>> {
         Box::pin(async move {
-            let provider = self
-                .provider()
+            self.provider()
                 .await
-                .context("Failed to create provider for tracing")?;
-            poll(
-                Self::TRACE_POLLING_DURATION,
-                PollingWaitBehavior::Constant(Duration::from_millis(200)),
-                move || {
-                    let provider = provider.clone();
-                    let trace_options = trace_options.clone();
-                    async move {
-                        match provider
-                            .debug_trace_transaction(tx_hash, trace_options)
-                            .await
-                        {
-                            Ok(trace) => Ok(ControlFlow::Break(trace)),
-                            Err(error) => {
-                                let error_string = error.to_string();
-                                match error_string.contains(Self::TRANSACTION_TRACING_ERROR) {
-                                    true => Ok(ControlFlow::Continue(())),
-                                    false => Err(error.into()),
-                                }
-                            }
-                        }
-                    }
-                },
-            )
-            .await
+                .context("Failed to create provider for tracing")?
+                .debug_trace_transaction(tx_hash, trace_options)
+                .await
+                .context("Failed to get the transaction trace")
         })
     }
 
