@@ -20,8 +20,10 @@ use tower::{Layer, Service};
 /// considers that a timeout. It attempts to poll for the receipt for the `polling_duration` with an
 /// interval of `polling_interval` between each poll. If by the end of the `polling_duration` it was
 /// not able to get the receipt successfully then this is considered to be a timeout.
+///
+/// Additionally, this layer allows for retries for other rpc methods such as all tracing methods.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct ReceiptRetryLayer {
+pub struct RetryLayer {
     /// The amount of time to keep polling for the receipt before considering it a timeout.
     polling_duration: Duration,
 
@@ -29,7 +31,7 @@ pub struct ReceiptRetryLayer {
     polling_interval: Duration,
 }
 
-impl ReceiptRetryLayer {
+impl RetryLayer {
     pub fn new(polling_duration: Duration, polling_interval: Duration) -> Self {
         Self {
             polling_duration,
@@ -48,7 +50,7 @@ impl ReceiptRetryLayer {
     }
 }
 
-impl Default for ReceiptRetryLayer {
+impl Default for RetryLayer {
     fn default() -> Self {
         Self {
             polling_duration: Duration::from_secs(90),
@@ -57,11 +59,11 @@ impl Default for ReceiptRetryLayer {
     }
 }
 
-impl<S> Layer<S> for ReceiptRetryLayer {
-    type Service = ReceiptRetryService<S>;
+impl<S> Layer<S> for RetryLayer {
+    type Service = RetryService<S>;
 
     fn layer(&self, inner: S) -> Self::Service {
-        ReceiptRetryService {
+        RetryService {
             service: inner,
             polling_duration: self.polling_duration,
             polling_interval: self.polling_interval,
@@ -70,7 +72,7 @@ impl<S> Layer<S> for ReceiptRetryLayer {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct ReceiptRetryService<S> {
+pub struct RetryService<S> {
     /// The internal service.
     service: S,
 
@@ -81,7 +83,7 @@ pub struct ReceiptRetryService<S> {
     polling_interval: Duration,
 }
 
-impl<S> Service<RequestPacket> for ReceiptRetryService<S>
+impl<S> Service<RequestPacket> for RetryService<S>
 where
     S: Service<RequestPacket, Future = TransportFut<'static>, Error = TransportError>
         + Send

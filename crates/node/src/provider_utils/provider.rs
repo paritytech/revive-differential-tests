@@ -10,7 +10,7 @@ use alloy::{
 };
 use anyhow::{Context, Result};
 
-use crate::provider_utils::{ConcurrencyLimiterLayer, FallbackGasFiller, ReceiptRetryLayer};
+use crate::provider_utils::{ConcurrencyLimiterLayer, FallbackGasFiller, RetryLayer};
 
 pub type ConcreteProvider<N, W> = FillProvider<
     JoinFill<
@@ -46,7 +46,7 @@ where
 
     let client = ClientBuilder::default()
         .layer(GLOBAL_CONCURRENCY_LIMITER_LAYER.clone())
-        .layer(ReceiptRetryLayer::default())
+        .layer(RetryLayer::default())
         .connect(rpc_url)
         .await
         .context("Failed to construct the RPC client")?;
