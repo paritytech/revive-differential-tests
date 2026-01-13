@@ -5764,7 +5764,6 @@ dependencies = [
  "semver 1.0.26",
  "serde",
  "strum",
- "tokio",
 ]
 
 [[package]]
