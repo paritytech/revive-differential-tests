@@ -35,7 +35,7 @@ use anyhow::Context as _;
 use futures::{FutureExt, Stream, StreamExt};
 use revive_common::EVMVersion;
 use tokio::sync::OnceCell;
-use tracing::{Instrument, error, instrument};
+use tracing::{error, instrument};
 
 use revive_dt_common::{
     fs::clear_directory,
@@ -90,10 +90,8 @@ impl GethNode {
     const READY_MARKER: &str = "IPC endpoint opened";
     const ERROR_MARKER: &str = "Fatal:";
 
-    const TRANSACTION_INDEXING_ERROR: &str = "transaction indexing is in progress";
     const TRANSACTION_TRACING_ERROR: &str = "historical state not available in path scheme yet";
 
-    const RECEIPT_POLLING_DURATION: Duration = Duration::from_secs(5 * 60);
     const TRACE_POLLING_DURATION: Duration = Duration::from_secs(60);
 
     pub fn new(
@@ -341,62 +339,15 @@ impl EthereumNode for GethNode {
         transaction: TransactionRequest,
     ) -> Pin<Box<dyn Future<Output = anyhow::Result<TransactionReceipt>> + '_>> {
         Box::pin(async move {
-            let provider = self
-                .provider()
+            self.provider()
                 .await
-                .context("Failed to create provider for transaction submission")?;
-
-            let pending_transaction = provider
+                .context("Failed to create provider for transaction submission")?
                 .send_transaction(transaction)
                 .await
-                .inspect_err(
-                    |err| error!(%err, "Encountered an error when submitting the transaction"),
-                )
-                .context("Failed to submit transaction to geth node")?;
-            let transaction_hash = *pending_transaction.tx_hash();
-
-            // The following is a fix for the "transaction indexing is in progress" error that we used
-            // to get. You can find more information on this in the following GH issue in geth
-            // https://github.com/ethereum/go-ethereum/issues/28877. To summarize what's going on,
-            // before we can get the receipt of the transaction it needs to have been indexed by the
-            // node's indexer. Just because the transaction has been confirmed it doesn't mean that it
-            // has been indexed. When we call alloy's `get_receipt` it checks if the transaction was
-            // confirmed. If it has been, then it will call `eth_getTransactionReceipt` method which
-            // _might_ return the above error if the tx has not yet been indexed yet. So, we need to
-            // implement a retry mechanism for the receipt to keep retrying to get it until it
-            // eventually works, but we only do that if the error we get back is the "transaction
-            // indexing is in progress" error or if the receipt is None.
-            //
-            // Getting the transaction indexed and taking a receipt can take a long time especially when
-            // a lot of transactions are being submitted to the node. Thus, while initially we only
-            // allowed for 60 seconds of waiting with a 1 second delay in polling, we need to allow for
-            // a larger wait time. Therefore, in here we allow for 5 minutes of waiting with exponential
-            // backoff each time we attempt to get the receipt and find that it's not available.
-            poll(
-                Self::RECEIPT_POLLING_DURATION,
-                PollingWaitBehavior::Constant(Duration::from_millis(200)),
-                move || {
-                    let provider = provider.clone();
-                    async move {
-                        match provider.get_transaction_receipt(transaction_hash).await {
-                            Ok(Some(receipt)) => Ok(ControlFlow::Break(receipt)),
-                            Ok(None) => Ok(ControlFlow::Continue(())),
-                            Err(error) => {
-                                let error_string = error.to_string();
-                                match error_string.contains(Self::TRANSACTION_INDEXING_ERROR) {
-                                    true => Ok(ControlFlow::Continue(())),
-                                    false => Err(error.into()),
-                                }
-                            }
-                        }
-                    }
-                },
-            )
-            .instrument(tracing::info_span!(
-                "Awaiting transaction receipt",
-                ?transaction_hash
-            ))
-            .await
+                .context("Encountered an error when submitting a transaction")?
+                .get_receipt()
+                .await
+                .context("Failed to get the receipt for the transaction")
         })
     }
 
