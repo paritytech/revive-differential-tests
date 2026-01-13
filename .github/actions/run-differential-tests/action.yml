@@ -33,8 +33,8 @@ inputs:
     description: "The identifier of the platform to run the tests on (e.g., geth-evm-solc, revive-dev-node-revm-solc)"
     required: true
     type: string
-  polkadot-omnichain-node-runtime-path:
-    description: "The path of the WASM runtime to use with the polkadot-omni-node. This is only required if the polkadot-omni-node is one of the selected platforms."
+  polkadot-omnichain-node-chain-spec-path:
+    description: "The path of the chain-spec of the chain we're spawning'. This is only required if the polkadot-omni-node is one of the selected platforms."
     required: false
     type: string
   polkadot-omnichain-node-parachain-id:
@@ -89,10 +89,10 @@ runs:
             "${{ inputs['polkadot-omnichain-node-parachain-id'] }}"
           )
         fi
-        if [[ -n "${{ inputs['polkadot-omnichain-node-runtime-path'] }}" ]]; then
+        if [[ -n "${{ inputs['polkadot-omnichain-node-chain-spec-path'] }}" ]]; then
           OMNI_ARGS+=(
-            --polkadot-omni-node.runtime-wasm-path
-            "${{ inputs['polkadot-omnichain-node-runtime-path'] }}"
+            --polkadot-omni-node.chain-spec-path
+            "${{ inputs['polkadot-omnichain-node-chain-spec-path'] }}"
           )
         fi
 

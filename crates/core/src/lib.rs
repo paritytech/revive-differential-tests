@@ -486,13 +486,9 @@ impl Platform for PolkadotOmniNodePolkavmResolcPlatform {
         let wallet = AsRef::<WalletConfiguration>::as_ref(&context).wallet();
 
         PolkadotOmnichainNode::node_genesis(
-            &polkadot_omnichain_node_configuration.path,
             &wallet,
             polkadot_omnichain_node_configuration
-                .parachain_id
-                .context("No parachain id found in the configuration of the polkadot-omni-node")?,
-            polkadot_omnichain_node_configuration
-                .runtime_wasm_path
+                .chain_spec_path
                 .as_ref()
                 .context("No WASM runtime path found in the polkadot-omni-node configuration")?,
         )
@@ -550,13 +546,9 @@ impl Platform for PolkadotOmniNodeRevmSolcPlatform {
         let wallet = AsRef::<WalletConfiguration>::as_ref(&context).wallet();
 
         PolkadotOmnichainNode::node_genesis(
-            &polkadot_omnichain_node_configuration.path,
             &wallet,
             polkadot_omnichain_node_configuration
-                .parachain_id
-                .context("No parachain id found in the configuration of the polkadot-omni-node")?,
-            polkadot_omnichain_node_configuration
-                .runtime_wasm_path
+                .chain_spec_path
                 .as_ref()
                 .context("No WASM runtime path found in the polkadot-omni-node configuration")?,
         )
