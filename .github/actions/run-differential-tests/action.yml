@@ -120,22 +120,22 @@ runs:
           --eth-rpc.path ${{ inputs['polkadot-sdk-path'] }}/target/release/eth-rpc \
           --polkadot-omni-node.path ${{ inputs['polkadot-sdk-path'] }}/target/release/polkadot-omni-node \
           --resolc.path ./resolc \
-          --report.file-name ${{ inputs['platform'] }}.json \
+          --report.file-name report.json \
           "${OMNI_ARGS[@]}" || true
     - name: Generate the expectation file
       shell: bash
-      run: report-processor --report-path ./revive-differential-tests/workdir/${{ inputs['platform'] }}.json --output-path ${{ inputs['platform'] }}.json --remove-prefix ./revive-differential-tests/resolc-compiler-tests
+      run: report-processor generate-expectations-file --report-path ./revive-differential-tests/workdir/report.json --output-path ./revive-differential-tests/workdir/expectations.json --remove-prefix ./revive-differential-tests/resolc-compiler-tests
     - name: Upload the Report to the CI
       uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
       with:
         name: ${{ inputs['platform'] }}-report.json
-        path: ./revive-differential-tests/workdir/${{ inputs['platform'] }}.json
+        path: ./revive-differential-tests/workdir/report.json
     - name: Upload the Report to the CI
       uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
       with:
         name: ${{ inputs['platform'] }}.json
-        path: ./${{ inputs['platform'] }}.json
+        path: ./revive-differential-tests/workdir/expectations.json
     - name: Check Expectations
       shell: bash
       if: ${{ inputs['expectations-file-path'] != '' }}
-      run: report-processor compare-expectation-files --base-expectation-path ${{ inputs['expectations-file-path'] }}.json --other-expectation-path ${{ inputs['platform'] }}.json
+      run: report-processor compare-expectation-files --base-expectation-path ${{ inputs['expectations-file-path'] }}.json --other-expectation-path ./revive-differential-tests/workdir/expectations.json
