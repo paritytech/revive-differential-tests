@@ -36,6 +36,8 @@ pub struct ReportAggregator {
     runner_tx: Option<UnboundedSender<RunnerEvent>>,
     runner_rx: UnboundedReceiver<RunnerEvent>,
     listener_tx: Sender<ReporterEvent>,
+    /* Context */
+    file_name: Option<String>,
 }
 
 impl ReportAggregator {
@@ -43,6 +45,11 @@ impl ReportAggregator {
         let (runner_tx, runner_rx) = unbounded_channel::<RunnerEvent>();
         let (listener_tx, _) = channel::<ReporterEvent>(0xFFFF);
         Self {
+            file_name: match context {
+                Context::Test(ref context) => context.report_configuration.file_name.clone(),
+                Context::Benchmark(ref context) => context.report_configuration.file_name.clone(),
+                Context::ExportJsonSchema | Context::ExportGenesis(..) => None,
+            },
             report: Report::new(context),
             remaining_cases: Default::default(),
             runner_tx: Some(runner_tx),
@@ -121,7 +128,7 @@ impl ReportAggregator {
         self.handle_completion(CompletionEvent {});
         debug!("Report aggregation completed");
 
-        let file_name = {
+        let default_file_name = {
             let current_timestamp = SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .context("System clock is before UNIX_EPOCH; cannot compute report timestamp")?
@@ -130,6 +137,7 @@ impl ReportAggregator {
             file_name.push_str(".json");
             file_name
         };
+        let file_name = self.file_name.unwrap_or(default_file_name);
         let file_path = self
             .report
             .context

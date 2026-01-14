@@ -41,6 +41,10 @@ inputs:
     description: "The id of the parachain to spawn with the polkadot-omni-node. This is only required if the polkadot-omni-node is one of the selected platforms."
     type: number
     required: false
+  expectations-file-path:
+    description: "Path to the expectations file to use to compare against."
+    type: string
+    required: false
 
 runs:
   using: "composite"
@@ -79,6 +83,12 @@ runs:
       run: |
         ${{ inputs['cargo-command'] }} build --locked --profile release -p pallet-revive-eth-rpc -p revive-dev-node --manifest-path ${{ inputs['polkadot-sdk-path'] }}/Cargo.toml
         ${{ inputs['cargo-command'] }} build --locked --profile release --bin polkadot-omni-node --manifest-path ${{ inputs['polkadot-sdk-path'] }}/Cargo.toml
+    - name: Installing retester
+      shell: bash
+      run: ${{ inputs['cargo-command'] }} install --path ./revive-differential-tests/crates/core
+    - name: Installing report-processor
+      shell: bash
+      run: ${{ inputs['cargo-command'] }} install --path ./revive-differential-tests/crates/report-processor
     - name: Running the Differential Tests
       shell: bash
       run: |
@@ -96,7 +106,7 @@ runs:
           )
         fi
 
-        ${{ inputs['cargo-command'] }} run --locked --manifest-path revive-differential-tests/Cargo.toml -- test \
+        retester test \
           --test ./revive-differential-tests/resolc-compiler-tests/fixtures/solidity/simple \
           --test ./revive-differential-tests/resolc-compiler-tests/fixtures/solidity/complex \
           --test ./revive-differential-tests/resolc-compiler-tests/fixtures/solidity/translated_semantic_tests \
@@ -110,22 +120,22 @@ runs:
           --eth-rpc.path ${{ inputs['polkadot-sdk-path'] }}/target/release/eth-rpc \
           --polkadot-omni-node.path ${{ inputs['polkadot-sdk-path'] }}/target/release/polkadot-omni-node \
           --resolc.path ./resolc \
-          "${OMNI_ARGS[@]}"
-    - name: Creating a markdown report of the test execution
+          --report.file-name ${{ inputs['platform'] }}.json \
+          "${OMNI_ARGS[@]}" || true
+    - name: Generate the expectation file
       shell: bash
-      if: ${{ always() }}
-      run: |
-        mv ./workdir/*.json report.json
-        python3 revive-differential-tests/scripts/process-differential-tests-report.py report.json ${{ inputs['platform'] }}
+      run: report-processor --report-path ./revive-differential-tests/workdir/${{ inputs['platform'] }}.json --output-path ${{ inputs['platform'] }}.json --remove-prefix ./revive-differential-tests/resolc-compiler-tests
     - name: Upload the Report to the CI
       uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
-      if: ${{ always() }}
       with:
-        name: report-${{ inputs['platform'] }}.md
-        path: report.md
-    - name: Posting the report as a comment on the PR
-      uses: marocchino/sticky-pull-request-comment@773744901bac0e8cbb5a0dc842800d45e9b2b405
-      if: ${{ always() }}
+        name: ${{ inputs['platform'] }}-report.json
+        path: ./revive-differential-tests/workdir/${{ inputs['platform'] }}.json
+    - name: Upload the Report to the CI
+      uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
       with:
-        header: diff-tests-report-${{ inputs['platform'] }}
-        path: report.md
+        name: ${{ inputs['platform'] }}.json
+        path: ./${{ inputs['platform'] }}.json
+    - name: Check Expectations
+      shell: bash
+      if: ${{ inputs['expectations-file-path'] != '' }}
+      run: report-processor compare-expectation-files --base-expectation-path ${{ inputs['expectations-file-path'] }} --other-expectation-path ${{ inputs['platform'] }}.json

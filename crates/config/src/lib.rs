@@ -1113,6 +1113,10 @@ pub struct ReportConfiguration {
     /// Controls if the compiler output is included in the final report.
     #[clap(long = "report.include-compiler-output")]
     pub include_compiler_output: bool,
+
+    /// The filename to use for the report.
+    #[clap(long = "report.file-name")]
+    pub file_name: Option<String>,
 }
 
 #[derive(Clone, Debug, Parser, Serialize, Deserialize)]
