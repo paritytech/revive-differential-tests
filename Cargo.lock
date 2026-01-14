@@ -5911,6 +5911,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "revive-dt-report-processor"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "revive-dt-common",
+ "revive-dt-report",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "revive-dt-solc-binaries"
 version = "0.1.0"
 dependencies = [

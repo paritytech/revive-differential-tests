@@ -1,10 +1,15 @@
-use std::{fmt::Display, path::PathBuf, str::FromStr};
+use std::{
+    fmt::Display,
+    path::{Path, PathBuf},
+    str::FromStr,
+};
 
 use anyhow::{Context as _, bail};
+use serde::{Deserialize, Serialize};
 
 use crate::types::Mode;
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum ParsedTestSpecifier {
     /// All of the test cases in the file should be ran across all of the specified modes
     FileOrDirectory {
@@ -32,6 +37,22 @@ pub enum ParsedTestSpecifier {
         /// The parsed mode that the test should be run in.
         mode: Mode,
     },
+}
+
+impl ParsedTestSpecifier {
+    pub fn metadata_path(&self) -> &Path {
+        match self {
+            ParsedTestSpecifier::FileOrDirectory {
+                metadata_or_directory_file_path: metadata_file_path,
+            }
+            | ParsedTestSpecifier::Case {
+                metadata_file_path, ..
+            }
+            | ParsedTestSpecifier::CaseWithMode {
+                metadata_file_path, ..
+            } => metadata_file_path,
+        }
+    }
 }
 
 impl Display for ParsedTestSpecifier {
@@ -129,5 +150,24 @@ impl TryFrom<&str> for ParsedTestSpecifier {
 
     fn try_from(value: &str) -> Result<Self, Self::Error> {
         value.parse()
+    }
+}
+
+impl Serialize for ParsedTestSpecifier {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        self.to_string().serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for ParsedTestSpecifier {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let string = String::deserialize(deserializer)?;
+        string.parse().map_err(serde::de::Error::custom)
     }
 }
