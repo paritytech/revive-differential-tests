@@ -943,13 +943,12 @@ pub struct PolkadotOmnichainNodeConfiguration {
     )]
     pub block_time: Duration,
 
-    /// The path of the WASM runtime to use for the polkadot-omni-node. This argument is required if
-    /// the polkadot-omni-node is one of the selected platforms for running the tests or benchmarks.
+    /// The path of the chainspec of the chain that we're spawning
     #[clap(
-        id = "polkadot-omni-node.runtime-wasm-path",
-        long = "polkadot-omni-node.runtime-wasm-path"
+        id = "polkadot-omni-node.chain-spec-path",
+        long = "polkadot-omni-node.chain-spec-path"
     )]
-    pub runtime_wasm_path: Option<PathBuf>,
+    pub chain_spec_path: Option<PathBuf>,
 
     /// The ID of the parachain that the polkadot-omni-node will spawn. This argument is required if
     /// the polkadot-omni-node is one of the selected platforms for running the tests or benchmarks.

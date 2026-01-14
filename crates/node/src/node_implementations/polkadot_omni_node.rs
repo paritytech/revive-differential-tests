@@ -42,7 +42,6 @@ use revive_dt_report::{
     EthereumMinedBlockInformation, MinedBlockInformation, SubstrateMinedBlockInformation,
 };
 use subxt::{OnlineClient, SubstrateConfig};
-use temp_dir::TempDir;
 use tokio::sync::OnceCell;
 use tracing::{instrument, trace};
 
@@ -70,7 +69,7 @@ pub struct PolkadotOmnichainNode {
     /// The path of the eth-rpc binary.
     eth_rpc_binary_path: PathBuf,
     /// The path of the runtime's WASM that this node will be spawned with.
-    runtime_wasm_path: Option<PathBuf>,
+    chain_spec_path: Option<PathBuf>,
     /// The path of the base directory which contains all of the stored data for this node.
     base_directory_path: PathBuf,
     /// The path of the logs directory which contains all of the stored logs.
@@ -144,8 +143,8 @@ impl PolkadotOmnichainNode {
                 .path
                 .to_path_buf(),
             eth_rpc_binary_path: eth_rpc_path.to_path_buf(),
-            runtime_wasm_path: polkadot_omnichain_node_configuration
-                .runtime_wasm_path
+            chain_spec_path: polkadot_omnichain_node_configuration
+                .chain_spec_path
                 .clone(),
             base_directory_path: base_directory,
             logs_directory_path: logs_directory,
@@ -177,10 +176,8 @@ impl PolkadotOmnichainNode {
         let template_chainspec_path = self.base_directory_path.join(Self::CHAIN_SPEC_JSON_FILE);
 
         let chainspec_json = Self::node_genesis(
-            &self.polkadot_omnichain_node_binary_path,
             &self.wallet,
-            self.parachain_id.context("No parachain id provided")?,
-            self.runtime_wasm_path
+            self.chain_spec_path
                 .as_ref()
                 .context("No runtime path provided")?,
         )
@@ -199,7 +196,7 @@ impl PolkadotOmnichainNode {
     fn spawn_process(&mut self) -> anyhow::Result<()> {
         // Error out if the runtime's path or the parachain id are not set which means that the
         // arguments we require were not provided.
-        self.runtime_wasm_path
+        self.chain_spec_path
             .as_ref()
             .context("No WASM path provided for the runtime")?;
         self.parachain_id
@@ -358,40 +355,11 @@ impl PolkadotOmnichainNode {
     }
 
     pub fn node_genesis(
-        node_path: &Path,
         wallet: &EthereumWallet,
-        parachain_id: usize,
-        runtime_wasm_path: &Path,
+        chain_spec_path: &Path,
     ) -> anyhow::Result<serde_json::Value> {
-        let tempdir = TempDir::new().context("Failed to create a temporary directory")?;
-        let unmodified_chainspec_path = tempdir.path().join("chainspec.json");
-
-        let output = Command::new(node_path)
-            .arg("chain-spec-builder")
-            .arg("-c")
-            .arg(unmodified_chainspec_path.as_path())
-            .arg("create")
-            .arg("--para-id")
-            .arg(parachain_id.to_string())
-            .arg("--relay-chain")
-            .arg("dontcare")
-            .arg("--runtime")
-            .arg(runtime_wasm_path)
-            .arg("named-preset")
-            .arg("development")
-            .env_remove("RUST_LOG")
-            .output()
-            .context("Failed to export the chain-spec")?;
-
-        if !output.status.success() {
-            anyhow::bail!(
-                "Exporting chainspec from polkadot-omni-node failed: {}",
-                String::from_utf8_lossy(&output.stderr)
-            );
-        }
-
-        let unmodified_chainspec_file = File::open(unmodified_chainspec_path.as_path())
-            .context("Failed to open the unmodified chainspec file")?;
+        let unmodified_chainspec_file =
+            File::open(chain_spec_path).context("Failed to open the unmodified chainspec file")?;
         let mut chainspec_json =
             serde_json::from_reader::<_, serde_json::Value>(&unmodified_chainspec_file)
                 .context("Failed to read the unmodified chainspec JSON")?;
