@@ -82,6 +82,15 @@ impl Resolc {
             false,
         )
     }
+
+    fn inject_polkavm_settings(input: &SolcStandardJsonInput) -> Result<serde_json::Value> {
+        let mut input_value = serde_json::to_value(&input)
+            .context("Failed to serialize Standard JSON input for resolc")?;
+        if let Some(settings) = input_value.get_mut("settings") {
+            settings["polkavm"] = serde_json::to_value(&Self::polkavm_settings()).unwrap();
+        }
+        Ok(input_value)
+    }
 }
 
 impl SolidityCompiler for Resolc {
@@ -167,7 +176,13 @@ impl SolidityCompiler for Resolc {
                     detect_missing_libraries: false,
                 },
             };
-            Span::current().record("json_in", display(serde_json::to_string(&input).unwrap()));
+            // Manually inject polkavm settings since it's marked skip_serializing in the upstream crate
+            let std_input_json = Self::inject_polkavm_settings(&input)?;
+
+            Span::current().record(
+                "json_in",
+                display(serde_json::to_string(&std_input_json).unwrap()),
+            );
 
             let path = &self.0.resolc_path;
             let mut command = AsyncCommand::new(path);
@@ -196,8 +211,9 @@ impl SolidityCompiler for Resolc {
                 .with_context(|| format!("Failed to spawn resolc at {}", path.display()))?;
 
             let stdin_pipe = child.stdin.as_mut().expect("stdin must be piped");
-            let serialized_input = serde_json::to_vec(&input)
+            let serialized_input = serde_json::to_vec(&std_input_json)
                 .context("Failed to serialize Standard JSON input for resolc")?;
+
             stdin_pipe
                 .write_all(&serialized_input)
                 .await
