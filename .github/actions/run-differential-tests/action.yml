@@ -138,4 +138,4 @@ runs:
     - name: Check Expectations
       shell: bash
       if: ${{ inputs['expectations-file-path'] != '' }}
-      run: report-processor compare-expectation-files --base-expectation-path ${{ inputs['expectations-file-path'] }}.json --other-expectation-path ./workdir/expectations.json
+      run: report-processor compare-expectation-files --base-expectation-path ${{ inputs['expectations-file-path'] }} --other-expectation-path ./workdir/expectations.json
