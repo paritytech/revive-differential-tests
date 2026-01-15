@@ -42,6 +42,10 @@ struct ResolcInner {
     solc: Solc,
     /// Path to the `resolc` executable
     resolc_path: PathBuf,
+    /// The PVM heap size in bytes.
+    pvm_heap_size: u32,
+    /// The PVM stack size in bytes.
+    pvm_stack_size: u32,
 }
 
 impl Resolc {
@@ -68,26 +72,32 @@ impl Resolc {
                 Self(Arc::new(ResolcInner {
                     solc,
                     resolc_path: resolc_configuration.path.clone(),
+                    pvm_heap_size: resolc_configuration
+                        .heap_size
+                        .unwrap_or(PolkaVMDefaultHeapMemorySize),
+                    pvm_stack_size: resolc_configuration
+                        .stack_size
+                        .unwrap_or(PolkaVMDefaultStackMemorySize),
                 }))
             })
             .clone())
     }
 
-    fn polkavm_settings() -> SolcStandardJsonInputSettingsPolkaVM {
+    fn polkavm_settings(&self) -> SolcStandardJsonInputSettingsPolkaVM {
         SolcStandardJsonInputSettingsPolkaVM::new(
             Some(SolcStandardJsonInputSettingsPolkaVMMemory::new(
-                Some(PolkaVMDefaultHeapMemorySize),
-                Some(PolkaVMDefaultStackMemorySize),
+                Some(self.0.pvm_heap_size),
+                Some(self.0.pvm_stack_size),
             )),
             false,
         )
     }
 
-    fn inject_polkavm_settings(input: &SolcStandardJsonInput) -> Result<serde_json::Value> {
-        let mut input_value = serde_json::to_value(&input)
+    fn inject_polkavm_settings(&self, input: &SolcStandardJsonInput) -> Result<serde_json::Value> {
+        let mut input_value = serde_json::to_value(input)
             .context("Failed to serialize Standard JSON input for resolc")?;
         if let Some(settings) = input_value.get_mut("settings") {
-            settings["polkavm"] = serde_json::to_value(&Self::polkavm_settings()).unwrap();
+            settings["polkavm"] = serde_json::to_value(self.polkavm_settings()).unwrap();
         }
         Ok(input_value)
     }
@@ -171,13 +181,13 @@ impl SolidityCompiler for Resolc {
                         Optimizer::default_mode(),
                         Details::disabled(&Version::new(0, 0, 0)),
                     ),
-                    polkavm: Self::polkavm_settings(),
+                    polkavm: self.polkavm_settings(),
                     metadata: SolcStandardJsonInputSettingsMetadata::default(),
                     detect_missing_libraries: false,
                 },
             };
             // Manually inject polkavm settings since it's marked skip_serializing in the upstream crate
-            let std_input_json = Self::inject_polkavm_settings(&input)?;
+            let std_input_json = self.inject_polkavm_settings(&input)?;
 
             Span::current().record(
                 "json_in",
