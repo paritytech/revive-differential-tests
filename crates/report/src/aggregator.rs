@@ -36,6 +36,8 @@ pub struct ReportAggregator {
     runner_tx: Option<UnboundedSender<RunnerEvent>>,
     runner_rx: UnboundedReceiver<RunnerEvent>,
     listener_tx: Sender<ReporterEvent>,
+    /* Context */
+    file_name: Option<String>,
 }
 
 impl ReportAggregator {
@@ -43,6 +45,11 @@ impl ReportAggregator {
         let (runner_tx, runner_rx) = unbounded_channel::<RunnerEvent>();
         let (listener_tx, _) = channel::<ReporterEvent>(0xFFFF);
         Self {
+            file_name: match context {
+                Context::Test(ref context) => context.report_configuration.file_name.clone(),
+                Context::Benchmark(ref context) => context.report_configuration.file_name.clone(),
+                Context::ExportJsonSchema | Context::ExportGenesis(..) => None,
+            },
             report: Report::new(context),
             remaining_cases: Default::default(),
             runner_tx: Some(runner_tx),
@@ -121,7 +128,7 @@ impl ReportAggregator {
         self.handle_completion(CompletionEvent {});
         debug!("Report aggregation completed");
 
-        let file_name = {
+        let default_file_name = {
             let current_timestamp = SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .context("System clock is before UNIX_EPOCH; cannot compute report timestamp")?
@@ -130,6 +137,7 @@ impl ReportAggregator {
             file_name.push_str(".json");
             file_name
         };
+        let file_name = self.file_name.unwrap_or(default_file_name);
         let file_path = self
             .report
             .context
@@ -562,7 +570,7 @@ pub struct Report {
     /// The list of metadata files that were found by the tool.
     pub metadata_files: BTreeSet<MetadataFilePath>,
     /// Metrics from the execution.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub metrics: Option<Metrics>,
     /// Information relating to each test case.
     pub execution_information: BTreeMap<MetadataFilePath, MetadataFileReport>,
@@ -582,7 +590,7 @@ impl Report {
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
 pub struct MetadataFileReport {
     /// Metrics from the execution.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub metrics: Option<Metrics>,
     /// The report of each case keyed by the case idx.
     pub case_reports: BTreeMap<CaseIdx, CaseReport>,
@@ -592,7 +600,7 @@ pub struct MetadataFileReport {
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
 pub struct CaseReport {
     /// Metrics from the execution.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub metrics: Option<Metrics>,
     /// The [`ExecutionReport`] for each one of the [`Mode`]s.
     #[serde_as(as = "HashMap<DisplayFromStr, _>")]
@@ -602,31 +610,31 @@ pub struct CaseReport {
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
 pub struct ExecutionReport {
     /// Information on the status of the test case and whether it succeeded, failed, or was ignored.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub status: Option<TestCaseStatus>,
     /// Metrics from the execution.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub metrics: Option<Metrics>,
     /// Information related to the execution on one of the platforms.
-    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub platform_execution: PlatformKeyedInformation<Option<ExecutionInformation>>,
     /// Information on the compiled contracts.
-    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub compiled_contracts: BTreeMap<PathBuf, BTreeMap<String, ContractInformation>>,
     /// The addresses of the deployed contracts
-    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub contract_addresses: BTreeMap<ContractInstance, PlatformKeyedInformation<Vec<Address>>>,
     /// Information on the mined blocks as part of this execution.
-    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub mined_block_information: PlatformKeyedInformation<Vec<MinedBlockInformation>>,
     /// Information tracked for each step that was executed.
-    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub steps: BTreeMap<StepPath, StepReport>,
 }
 
 /// Information related to the status of the test. Could be that the test succeeded, failed, or that
 /// it was ignored.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "status")]
 pub enum TestCaseStatus {
     /// The test case succeeded.
@@ -664,19 +672,19 @@ pub struct TestCaseNodeInformation {
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct ExecutionInformation {
     /// Information related to the node assigned to this test case.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub node: Option<TestCaseNodeInformation>,
     /// Information on the pre-link compiled contracts.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pre_link_compilation_status: Option<CompilationStatus>,
     /// Information on the post-link compiled contracts.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub post_link_compilation_status: Option<CompilationStatus>,
     /// Information on the deployed libraries.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub deployed_libraries: Option<BTreeMap<ContractInstance, Address>>,
     /// Information on the deployed contracts.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub deployed_contracts: Option<BTreeMap<ContractInstance, Address>>,
 }
 
@@ -695,11 +703,11 @@ pub enum CompilationStatus {
         /// The input provided to the compiler to compile the contracts. This is only included if
         /// the appropriate flag is set in the CLI context and if the contracts were not cached and
         /// the compiler was invoked.
-        #[serde(skip_serializing_if = "Option::is_none")]
+        #[serde(default, skip_serializing_if = "Option::is_none")]
         compiler_input: Option<CompilerInput>,
         /// The output of the compiler. This is only included if the appropriate flag is set in the
         /// CLI contexts.
-        #[serde(skip_serializing_if = "Option::is_none")]
+        #[serde(default, skip_serializing_if = "Option::is_none")]
         compiler_output: Option<CompilerOutput>,
     },
     /// The compilation failed.
@@ -707,15 +715,15 @@ pub enum CompilationStatus {
         /// The failure reason.
         reason: String,
         /// The version of the compiler used to compile the contracts.
-        #[serde(skip_serializing_if = "Option::is_none")]
+        #[serde(default, skip_serializing_if = "Option::is_none")]
         compiler_version: Option<Version>,
         /// The path of the compiler used to compile the contracts.
-        #[serde(skip_serializing_if = "Option::is_none")]
+        #[serde(default, skip_serializing_if = "Option::is_none")]
         compiler_path: Option<PathBuf>,
         /// The input provided to the compiler to compile the contracts. This is only included if
         /// the appropriate flag is set in the CLI context and if the contracts were not cached and
         /// the compiler was invoked.
-        #[serde(skip_serializing_if = "Option::is_none")]
+        #[serde(default, skip_serializing_if = "Option::is_none")]
         compiler_input: Option<CompilerInput>,
     },
 }
@@ -743,24 +751,24 @@ pub struct Metrics {
     pub gas_per_second: Metric<u64>,
     /* Block Fullness */
     pub gas_block_fullness: Metric<u64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ref_time_block_fullness: Option<Metric<u64>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub proof_size_block_fullness: Option<Metric<u64>>,
 }
 
 /// The data that we store for a given metric (e.g., TPS).
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct Metric<T> {
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub minimum: Option<PlatformKeyedInformation<T>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub maximum: Option<PlatformKeyedInformation<T>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mean: Option<PlatformKeyedInformation<T>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub median: Option<PlatformKeyedInformation<T>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub raw: Option<PlatformKeyedInformation<Vec<T>>>,
 }
 

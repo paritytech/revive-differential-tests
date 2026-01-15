@@ -21,6 +21,7 @@ revive-dt-node-interaction = { version = "0.1.0", path = "crates/node-interactio
 revive-dt-node-pool = { version = "0.1.0", path = "crates/node-pool" }
 revive-dt-report = { version = "0.1.0", path = "crates/report" }
 revive-dt-solc-binaries = { version = "0.1.0", path = "crates/solc-binaries" }
+revive-dt-report-processor = { version = "0.1.0", path = "crates/report-processor" }
 
 alloy = { version = "1.4.1", features = ["full", "genesis", "json-rpc"] }
 ansi_term = "0.12.1"
@@ -81,7 +82,12 @@ zombienet-sdk = { git = "https://github.com/paritytech/zombienet-sdk.git", rev =
 
 [profile.bench]
 inherits = "release"
-lto = true
 codegen-units = 1
+lto = true
+
+[profile.production]
+inherits = "release"
+codegen-units = 1
+lto = true
 
 [workspace.lints.clippy]

@@ -1,0 +1,25 @@
+[package]
+name = "revive-dt-report-processor"
+description = "revive differential testing report processor utility"
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+edition.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "report-processor"
+path = "src/main.rs"
+
+[dependencies]
+revive-dt-report = { workspace = true }
+revive-dt-common = { workspace = true }
+
+anyhow = { workspace = true }
+clap = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[lints]
+workspace = true
