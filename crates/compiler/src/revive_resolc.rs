@@ -12,9 +12,13 @@ use dashmap::DashMap;
 use revive_dt_common::types::VersionOrRequirement;
 use revive_dt_config::{ResolcConfiguration, SolcConfiguration, WorkingDirectoryConfiguration};
 use revive_solc_json_interface::{
-    SolcStandardJsonInput, SolcStandardJsonInputLanguage, SolcStandardJsonInputSettings,
-    SolcStandardJsonInputSettingsOptimizer, SolcStandardJsonInputSettingsSelection,
-    SolcStandardJsonOutput,
+    PolkaVMDefaultHeapMemorySize, PolkaVMDefaultStackMemorySize, SolcStandardJsonInput,
+    SolcStandardJsonInputLanguage, SolcStandardJsonInputSettings,
+    SolcStandardJsonInputSettingsLibraries, SolcStandardJsonInputSettingsMetadata,
+    SolcStandardJsonInputSettingsOptimizer, SolcStandardJsonInputSettingsPolkaVM,
+    SolcStandardJsonInputSettingsPolkaVMMemory, SolcStandardJsonInputSettingsSelection,
+    SolcStandardJsonOutput, standard_json::input::settings::optimizer::Optimizer,
+    standard_json::input::settings::optimizer::details::Details,
 };
 use tracing::{Span, field::display};
 
@@ -25,6 +29,7 @@ use crate::{
 use alloy::json_abi::JsonAbi;
 use anyhow::{Context as _, Result};
 use semver::Version;
+use std::collections::BTreeSet;
 use tokio::{io::AsyncWriteExt, process::Command as AsyncCommand};
 
 /// A wrapper around the `resolc` binary, emitting PVM-compatible bytecode.
@@ -66,6 +71,16 @@ impl Resolc {
                 }))
             })
             .clone())
+    }
+
+    fn polkavm_settings() -> SolcStandardJsonInputSettingsPolkaVM {
+        SolcStandardJsonInputSettingsPolkaVM::new(
+            Some(SolcStandardJsonInputSettingsPolkaVMMemory::new(
+                Some(PolkaVMDefaultHeapMemorySize),
+                Some(PolkaVMDefaultStackMemorySize),
+            )),
+            false,
+        )
     }
 }
 
@@ -121,8 +136,8 @@ impl SolidityCompiler for Resolc {
                     .collect(),
                 settings: SolcStandardJsonInputSettings {
                     evm_version,
-                    libraries: Some(
-                        libraries
+                    libraries: SolcStandardJsonInputSettingsLibraries {
+                        inner: libraries
                             .into_iter()
                             .map(|(source_code, libraries_map)| {
                                 (
@@ -136,20 +151,20 @@ impl SolidityCompiler for Resolc {
                                 )
                             })
                             .collect(),
-                    ),
-                    remappings: None,
-                    output_selection: Some(SolcStandardJsonInputSettingsSelection::new_required()),
+                    },
+                    remappings: BTreeSet::<String>::new(),
+                    output_selection: SolcStandardJsonInputSettingsSelection::new_required(),
                     via_ir: Some(true),
                     optimizer: SolcStandardJsonInputSettingsOptimizer::new(
                         optimization
                             .unwrap_or(ModeOptimizerSetting::M0)
                             .optimizations_enabled(),
-                        None,
-                        &Version::new(0, 0, 0),
-                        false,
+                        Optimizer::default_mode(),
+                        Details::disabled(&Version::new(0, 0, 0)),
                     ),
-                    metadata: None,
-                    polkavm: None,
+                    polkavm: Self::polkavm_settings(),
+                    metadata: SolcStandardJsonInputSettingsMetadata::default(),
+                    detect_missing_libraries: false,
                 },
             };
             Span::current().record("json_in", display(serde_json::to_string(&input).unwrap()));
@@ -228,7 +243,7 @@ impl SolidityCompiler for Resolc {
 
             // Detecting if the compiler output contained errors and reporting them through logs and
             // errors instead of returning the compiler output that might contain errors.
-            for error in parsed.errors.iter().flatten() {
+            for error in parsed.errors.iter() {
                 if error.severity == "error" {
                     tracing::error!(
                         ?error,
@@ -240,12 +255,12 @@ impl SolidityCompiler for Resolc {
                 }
             }
 
-            let Some(contracts) = parsed.contracts else {
+            if parsed.contracts.is_empty() {
                 anyhow::bail!("Unexpected error - resolc output doesn't have a contracts section");
-            };
+            }
 
             let mut compiler_output = CompilerOutput::default();
-            for (source_path, contracts) in contracts.into_iter() {
+            for (source_path, contracts) in parsed.contracts.into_iter() {
                 let src_for_msg = source_path.clone();
                 let source_path = PathBuf::from(source_path)
                     .canonicalize()
@@ -258,10 +273,11 @@ impl SolidityCompiler for Resolc {
                         .and_then(|evm| evm.bytecode.clone())
                         .context("Unexpected - Contract compiled with resolc has no bytecode")?;
                     let abi = {
-                        let metadata = contract_information
-                            .metadata
-                            .as_ref()
-                            .context("No metadata found for the contract")?;
+                        let metadata = &contract_information.metadata;
+                        if metadata.is_null() {
+                            anyhow::bail!("No metadata found for the contract");
+                        }
+
                         let solc_metadata_str = match metadata {
                             serde_json::Value::String(solc_metadata_str) => {
                                 solc_metadata_str.as_str()

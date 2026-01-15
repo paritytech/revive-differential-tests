@@ -73,9 +73,9 @@ indexmap = { version = "2.10.0", default-features = false }
 itertools = { version = "0.14.0" }
 
 # revive compiler
-revive-solc-json-interface = { git = "https://github.com/paritytech/revive", rev = "3389865af7c3ff6f29a586d82157e8bc573c1a8e" }
-revive-common = { git = "https://github.com/paritytech/revive", rev = "3389865af7c3ff6f29a586d82157e8bc573c1a8e" }
-revive-differential = { git = "https://github.com/paritytech/revive", rev = "3389865af7c3ff6f29a586d82157e8bc573c1a8e" }
+revive-solc-json-interface = { version = "0.5.0" }
+revive-common = { version = "0.3.0"  }
+revive-differential = { version = "0.3.0" }
 
 zombienet-sdk = { git = "https://github.com/paritytech/zombienet-sdk.git", rev = "891f6554354ce466abd496366dbf8b4f82141241" }
 
