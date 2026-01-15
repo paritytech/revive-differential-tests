@@ -82,7 +82,12 @@ zombienet-sdk = { git = "https://github.com/paritytech/zombienet-sdk.git", rev =
 
 [profile.bench]
 inherits = "release"
-lto = true
 codegen-units = 1
+lto = true
+
+[profile.production]
+inherits = "release"
+codegen-units = 1
+lto = true
 
 [workspace.lints.clippy]
