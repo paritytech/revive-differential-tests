@@ -73,6 +73,7 @@ fn main() -> Result<()> {
                         Status::from(status),
                     )
                 })
+                .filter(|(_, status)| *status == Status::Failed)
                 .collect::<Expectations>();
 
             let output_file = OpenOptions::new()
