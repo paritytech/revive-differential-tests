@@ -294,10 +294,16 @@ impl SolidityCompiler for Resolc {
 
                 let map = compiler_output.contracts.entry(source_path).or_default();
                 for (contract_name, contract_information) in contracts.into_iter() {
-                    let bytecode = contract_information
+                    let Some(bytecode) = contract_information
                         .evm
                         .and_then(|evm| evm.bytecode.clone())
-                        .context("Unexpected - Contract compiled with resolc has no bytecode")?;
+                    else {
+                        tracing::debug!(
+                            "Skipping abstract or interface contract {} - no bytecode",
+                            contract_name
+                        );
+                        continue;
+                    };
                     let abi = {
                         let metadata = &contract_information.metadata;
                         if metadata.is_null() {
