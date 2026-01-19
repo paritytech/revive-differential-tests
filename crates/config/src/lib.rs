@@ -800,6 +800,17 @@ pub struct ResolcConfiguration {
     /// provided in the user's $PATH.
     #[clap(id = "resolc.path", long = "resolc.path", default_value = "resolc")]
     pub path: PathBuf,
+
+    /// Specifies the PVM heap size in bytes.
+    ///
+    /// If unspecified, the revive compiler default is used
+    #[clap(id = "resolc.heap-size", long = "resolc.heap-size")]
+    pub heap_size: Option<u32>,
+    /// Specifies the PVM stack size in bytes.
+    ///
+    /// If unspecified, the revive compiler default is used
+    #[clap(id = "resolc.stack-size", long = "resolc.stack-size")]
+    pub stack_size: Option<u32>,
 }
 
 /// A set of configuration parameters for Polkadot Parachain.
