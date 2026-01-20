@@ -29,6 +29,10 @@ inputs:
     default: true
     type: boolean
   # Test Execution Arguments
+  # TODO: We need a better way for people to pass arguments to retester. This way is not very good
+  # because we need to add support for each argument separately and support defaults and all of that
+  # perhaps having people pass in a JSON String of the arguments is the better long term solution
+  # for this.
   platform:
     description: "The identifier of the platform to run the tests on (e.g., geth-evm-solc, revive-dev-node-revm-solc)"
     required: true
@@ -121,6 +125,8 @@ runs:
           --eth-rpc.path ${{ inputs['polkadot-sdk-path'] }}/target/release/eth-rpc \
           --polkadot-omni-node.path ${{ inputs['polkadot-sdk-path'] }}/target/release/polkadot-omni-node \
           --resolc.path ./resolc \
+          --resolc.heap-size 128000 \
+          --resolc.stack-size 128000 \
           "${OMNI_ARGS[@]}" || true
     - name: Generate the expectation file
       shell: bash
