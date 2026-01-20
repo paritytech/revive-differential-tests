@@ -21,7 +21,7 @@ inputs:
   resolc-version:
     description: "The version of resolc to install and use in tests."
     required: false
-    default: "0.5.0"
+    default: "0.6.0"
     type: string
   use-compilation-caches:
     description: "Controls if the compilation caches will be used for the test run or not."
