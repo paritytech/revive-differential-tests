@@ -5886,6 +5886,7 @@ dependencies = [
  "revive-dt-report",
  "serde",
  "serde_json",
+ "strum",
 ]
 
 [[package]]

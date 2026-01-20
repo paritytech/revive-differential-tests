@@ -1,6 +1,6 @@
 use std::{
     borrow::Cow,
-    collections::{BTreeMap, BTreeSet},
+    collections::{BTreeMap, BTreeSet, HashSet},
     fmt::Display,
     fs::{File, OpenOptions},
     ops::{Deref, DerefMut},
@@ -9,11 +9,12 @@ use std::{
 };
 
 use anyhow::{Context as _, Error, Result, bail};
-use clap::Parser;
+use clap::{Parser, ValueEnum};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
 use revive_dt_common::types::{Mode, ParsedTestSpecifier};
 use revive_dt_report::{Report, TestCaseStatus};
+use strum::EnumString;
 
 fn main() -> Result<()> {
     let cli = Cli::try_parse().context("Failed to parse the CLI arguments")?;
@@ -23,11 +24,14 @@ fn main() -> Result<()> {
             report_path,
             output_path: output_file,
             remove_prefix,
+            include_status,
         } => {
             let remove_prefix = remove_prefix
                 .into_iter()
                 .map(|path| path.canonicalize().context("Failed to canonicalize path"))
                 .collect::<Result<Vec<_>>>()?;
+            let include_status =
+                include_status.map(|value| value.into_iter().collect::<HashSet<_>>());
 
             let expectations = report_path
                 .execution_information
@@ -73,7 +77,12 @@ fn main() -> Result<()> {
                         Status::from(status),
                     )
                 })
-                .filter(|(_, status)| *status == Status::Failed)
+                .filter(|(_, status)| {
+                    include_status
+                        .as_ref()
+                        .map(|allowed_status| allowed_status.contains(status))
+                        .unwrap_or(true)
+                })
                 .collect::<Expectations>();
 
             let output_file = OpenOptions::new()
@@ -143,6 +152,11 @@ pub enum Cli {
         /// Prefix paths to remove from the paths in the final expectations file.
         #[clap(long)]
         remove_prefix: Vec<PathBuf>,
+
+        /// Controls which test case statuses are included in the generated expectations file. If
+        /// nothing is specified then it will include all of the test case status.
+        #[clap(long)]
+        include_status: Option<Vec<Status>>,
     },
 
     /// Compares two expectation files to ensure that they match each other.
@@ -157,7 +171,21 @@ pub enum Cli {
     },
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    Serialize,
+    Deserialize,
+    ValueEnum,
+    EnumString,
+)]
+#[strum(serialize_all = "kebab-case")]
 pub enum Status {
     Succeeded,
     Failed,

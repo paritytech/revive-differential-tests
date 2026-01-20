@@ -21,7 +21,7 @@ inputs:
   resolc-version:
     description: "The version of resolc to install and use in tests."
     required: false
-    default: "0.6.0"
+    default: "0.5.0"
     type: string
   use-compilation-caches:
     description: "Controls if the compilation caches will be used for the test run or not."
@@ -130,7 +130,7 @@ runs:
           "${OMNI_ARGS[@]}" || true
     - name: Generate the expectation file
       shell: bash
-      run: report-processor generate-expectations-file --report-path ./workdir/report.json --output-path ./workdir/expectations.json --remove-prefix ./revive-differential-tests/resolc-compiler-tests
+      run: report-processor generate-expectations-file --report-path ./workdir/report.json --output-path ./workdir/expectations.json --remove-prefix ./revive-differential-tests/resolc-compiler-tests --include-status failed
     - name: Upload the Report to the CI
       uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
       with:
