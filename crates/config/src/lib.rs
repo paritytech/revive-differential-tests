@@ -806,6 +806,7 @@ pub struct ResolcConfiguration {
     /// If unspecified, the revive compiler default is used
     #[clap(id = "resolc.heap-size", long = "resolc.heap-size")]
     pub heap_size: Option<u32>,
+
     /// Specifies the PVM stack size in bytes.
     ///
     /// If unspecified, the revive compiler default is used
