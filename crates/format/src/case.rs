@@ -1,16 +1,22 @@
-use alloy::primitives::Address;
+use alloy::primitives::{Address, map::HashSet};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use revive_dt_common::{
     macros::define_wrapper_type,
-    types::{Mode, ParsedMode},
+    types::{Mode, ParsedMode, VmIdentifier},
 };
 
 use crate::steps::*;
 
 #[derive(Debug, Default, Serialize, Deserialize, Clone, Eq, PartialEq, JsonSchema)]
 pub struct Case {
+    /// An optional vector of targets that this Metadata file's cases can be executed on. As an
+    /// example, if we wish for the metadata file's cases to only be run on PolkaVM then we'd
+    /// specify a target of "PolkaVM" in here.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub targets: Option<HashSet<VmIdentifier>>,
+
     /// An optional name of the test case.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,

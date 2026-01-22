@@ -223,17 +223,24 @@ impl<'a> TestDefinition<'a> {
 
     /// Checks if the platforms all support the desired targets in the metadata file.
     fn check_target_compatibility(&self) -> TestCheckFunctionResult {
-        let mut error_map = indexmap! {
-            "test_desired_targets" => json!(self.metadata.targets.as_ref()),
+        // The case targets takes presence over the metadata targets.
+        let Some(targets) = self
+            .case
+            .targets
+            .as_ref()
+            .or(self.metadata.targets.as_ref())
+        else {
+            return Ok(());
         };
+
+        let mut error_map = indexmap! {
+            "test_desired_targets" => json!(targets),
+        };
+
         let mut is_allowed = true;
         for (_, platform_information) in self.platforms.iter() {
-            let is_allowed_for_platform = match self.metadata.targets.as_ref() {
-                None => true,
-                Some(required_vm_identifiers) => {
-                    required_vm_identifiers.contains(&platform_information.platform.vm_identifier())
-                }
-            };
+            let is_allowed_for_platform =
+                targets.contains(&platform_information.platform.vm_identifier());
             is_allowed &= is_allowed_for_platform;
             error_map.insert(
                 platform_information.platform.platform_identifier().into(),

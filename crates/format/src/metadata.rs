@@ -8,6 +8,7 @@ use std::{
     str::FromStr,
 };
 
+use alloy::primitives::map::HashSet;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -83,7 +84,7 @@ pub struct Metadata {
     /// example, if we wish for the metadata file's cases to only be run on PolkaVM then we'd
     /// specify a target of "PolkaVM" in here.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub targets: Option<Vec<VmIdentifier>>,
+    pub targets: Option<HashSet<VmIdentifier>>,
 
     /// A vector of the test cases and workloads contained within the metadata file. This is their
     /// primary description.
