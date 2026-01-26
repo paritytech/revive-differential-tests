@@ -1,6 +1,7 @@
 use std::{collections::HashMap, fmt::Display, str::FromStr};
 
 use alloy::hex::ToHexExt;
+use alloy::network::Network;
 use alloy::primitives::{FixedBytes, utils::parse_units};
 use alloy::{
     eips::BlockNumberOrTag,
@@ -11,6 +12,7 @@ use alloy::{
 };
 use anyhow::Context as _;
 use futures::{FutureExt, StreamExt, TryFutureExt, TryStreamExt, stream};
+use revive_dt_common::types::PlatformIdentifier;
 use schemars::JsonSchema;
 use semver::VersionReq;
 use serde::{Deserialize, Serialize};
@@ -152,6 +154,11 @@ pub struct FunctionCallStep {
     /// during the execution.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub variable_assignments: Option<VariableAssignments>,
+
+    /// Allows for the test to set a specific value for the various gas parameter for each one of
+    /// the platforms we support. This is ignored for steps that perform contract deployments.
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub gas_overrides: HashMap<PlatformIdentifier, GasOverrides>,
 }
 
 /// This represents a balance assertion step where the framework needs to query the balance of some
@@ -962,6 +969,62 @@ impl<'de> Deserialize<'de> for EtherValue {
             .map_err(|_| serde::de::Error::custom("Failed to parse units"))?
             .into();
         Ok(Self(parsed))
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, Eq, PartialEq, JsonSchema)]
+pub struct GasOverrides {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gas_limit: Option<u64>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gas_price: Option<u128>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_fee_per_gas: Option<u128>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_priority_fee_per_gas: Option<u128>,
+}
+
+impl GasOverrides {
+    pub fn new() -> Self {
+        Default::default()
+    }
+
+    pub fn with_gas_limit(mut self, value: impl Into<Option<u64>>) -> Self {
+        self.gas_limit = value.into();
+        self
+    }
+
+    pub fn with_gas_price(mut self, value: impl Into<Option<u128>>) -> Self {
+        self.gas_price = value.into();
+        self
+    }
+
+    pub fn with_max_fee_per_gas(mut self, value: impl Into<Option<u128>>) -> Self {
+        self.max_fee_per_gas = value.into();
+        self
+    }
+
+    pub fn with_max_priority_fee_per_gas(mut self, value: impl Into<Option<u128>>) -> Self {
+        self.max_priority_fee_per_gas = value.into();
+        self
+    }
+
+    pub fn apply_to<N: Network>(&self, transaction_request: &mut N::TransactionRequest) {
+        if let Some(gas_limit) = self.gas_limit {
+            transaction_request.set_gas_limit(gas_limit);
+        }
+        if let Some(gas_price) = self.gas_price {
+            transaction_request.set_gas_price(gas_price);
+        }
+        if let Some(max_fee_per_gas) = self.max_fee_per_gas {
+            transaction_request.set_max_fee_per_gas(max_fee_per_gas);
+        }
+        if let Some(max_priority_fee_per_gas) = self.max_priority_fee_per_gas {
+            transaction_request.set_max_priority_fee_per_gas(max_priority_fee_per_gas)
+        }
     }
 }
 

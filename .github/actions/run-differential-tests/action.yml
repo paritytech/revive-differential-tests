@@ -18,10 +18,9 @@ inputs:
     required: false
     default: "main"
     type: string
-  resolc-version:
-    description: "The version of resolc to install and use in tests."
-    required: false
-    default: "0.5.0"
+  resolc-download-url:
+    description: "The URL to use to download the resolc compiler."
+    required: true
     type: string
   use-compilation-caches:
     description: "Controls if the compilation caches will be used for the test run or not."
@@ -62,11 +61,8 @@ runs:
         submodules: recursive
     - name: Installing the Latest Resolc
       shell: bash
-      if: ${{ runner.os == 'Linux' && runner.arch == 'X64' }}
       run: |
-        VERSION="${{ inputs['resolc-version'] }}"
-        ASSET_URL="https://github.com/paritytech/revive/releases/download/v$VERSION/resolc-x86_64-unknown-linux-musl"
-        echo "Downloading resolc v$VERSION from $ASSET_URL"
+        ASSET_URL="${{ inputs['resolc-download-url'] }}"
         curl -Lsf --show-error -o resolc "$ASSET_URL"
         chmod +x resolc
         ./resolc --version
