@@ -482,15 +482,16 @@ where
                 .context("Failed to find deployment receipt for constructor call"),
             Method::Fallback | Method::FunctionName(_) => {
                 let resolver = self.platform_information.node.resolver().await?;
-                let tx = match step
+                let mut tx = step
                     .as_transaction(resolver.as_ref(), self.default_resolution_context())
-                    .await
-                {
-                    Ok(tx) => tx,
-                    Err(err) => {
-                        return Err(err);
-                    }
-                };
+                    .await?;
+
+                let gas_overrides = step
+                    .gas_overrides
+                    .get(&self.platform_information.platform.platform_identifier())
+                    .copied()
+                    .unwrap_or_default();
+                gas_overrides.apply_to::<Ethereum>(&mut tx);
 
                 self.platform_information.node.execute_transaction(tx).await
             }
@@ -911,7 +912,6 @@ where
             .get(contract_instance)
         {
             info!(
-
                 %address,
                 "Contract instance already deployed."
             );
