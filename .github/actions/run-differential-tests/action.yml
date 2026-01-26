@@ -18,8 +18,8 @@ inputs:
     required: false
     default: "main"
     type: string
-  resolc-download-url:
-    description: "The URL to use to download the resolc compiler."
+  resolc-path:
+    description: "The path of the resolc compiler."
     required: true
     type: string
   use-compilation-caches:
@@ -59,13 +59,6 @@ runs:
         ref: ${{ inputs['revive-differential-tests-ref'] }}
         path: revive-differential-tests
         submodules: recursive
-    - name: Installing the Latest Resolc
-      shell: bash
-      run: |
-        ASSET_URL="${{ inputs['resolc-download-url'] }}"
-        curl -Lsf --show-error -o resolc "$ASSET_URL"
-        chmod +x resolc
-        ./resolc --version
     - name: Installing Retester
       shell: bash
       run: ${{ inputs['cargo-command'] }} install --locked --path revive-differential-tests/crates/core
@@ -120,7 +113,7 @@ runs:
           --revive-dev-node.path ${{ inputs['polkadot-sdk-path'] }}/target/release/revive-dev-node \
           --eth-rpc.path ${{ inputs['polkadot-sdk-path'] }}/target/release/eth-rpc \
           --polkadot-omni-node.path ${{ inputs['polkadot-sdk-path'] }}/target/release/polkadot-omni-node \
-          --resolc.path ./resolc \
+          --resolc.path ${{ inputs['resolc-path'] }} \
           --resolc.heap-size 500000 \
           "${OMNI_ARGS[@]}" || true
     - name: Generate the expectation file
