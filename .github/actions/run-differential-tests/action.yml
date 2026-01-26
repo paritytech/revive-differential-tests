@@ -121,8 +121,7 @@ runs:
           --eth-rpc.path ${{ inputs['polkadot-sdk-path'] }}/target/release/eth-rpc \
           --polkadot-omni-node.path ${{ inputs['polkadot-sdk-path'] }}/target/release/polkadot-omni-node \
           --resolc.path ./resolc \
-          --resolc.heap-size 128000 \
-          --resolc.stack-size 128000 \
+          --resolc.heap-size 500000 \
           "${OMNI_ARGS[@]}" || true
     - name: Generate the expectation file
       shell: bash
