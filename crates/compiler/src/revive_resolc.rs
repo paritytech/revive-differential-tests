@@ -172,7 +172,7 @@ impl SolidityCompiler for Resolc {
                             .collect(),
                     },
                     remappings: BTreeSet::<String>::new(),
-                    output_selection: SolcStandardJsonInputSettingsSelection::new_required(),
+                    output_selection: SolcStandardJsonInputSettingsSelection::new_required_for_tests(),
                     via_ir: Some(true),
                     optimizer: SolcStandardJsonInputSettingsOptimizer::new(
                         optimization
