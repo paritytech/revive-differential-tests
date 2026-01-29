@@ -50,7 +50,7 @@ All of the above need to be installed and available in the path in order for the
 
 ## Running The Tool
 
-This tool is being updated quite frequently. Therefore, it's recommended that you don't install the tool and then run it, but rather that you run it from the root of the directory using `cargo run --release`. The help command of the tool gives you all of the information you need to know about each of the options and flags that the tool offers.
+This tool is being updated quite frequently. Therefore, it's recommended that you don't install the tool and then run it, but rather that you run it from the root of the directory using `cargo run --release --bin retester`. The help command of the tool gives you all of the information you need to know about each of the options and flags that the tool offers.
 
 > [!NOTE]  
 > Note that the tests can be found in the [`resolc-compiler-tests`](https://github.com/paritytech/resolc-compiler-tests) repository.
@@ -58,7 +58,7 @@ This tool is being updated quite frequently. Therefore, it's recommended that yo
 The simplest command to run this tool is the following:
 
 ```bash
-RUST_LOG="info" cargo run --release -- test \
+RUST_LOG="info" cargo run --release --bin retester -- test \
     --test ./resolc-compiler-tests/fixtures/solidity \
     --platform geth-evm-solc \
     --working-directory workdir \
@@ -109,7 +109,7 @@ sleep 5
 # Run the tests (logs to files as before)
 RUST_LOG="info" retester test \
   --platform "$PLATFORM" \
-  --corpus ./revive-differential-tests/fixtures/solidity \
+  --test ./resolc-compiler-tests/fixtures/solidity \
   --working-directory ./workdir \
   --concurrency.number-of-nodes 1 \
   --concurrency.number-of-concurrent-tasks 5 \
