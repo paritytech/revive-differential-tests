@@ -10,7 +10,7 @@ use std::{
 use ansi_term::{ANSIStrings, Color};
 use anyhow::Context as _;
 use futures::{FutureExt, StreamExt};
-use revive_dt_common::{cached_fs::read_to_string, types::PrivateKeyAllocator};
+use revive_dt_common::types::PrivateKeyAllocator;
 use revive_dt_core::Platform;
 use revive_dt_format::corpus::Corpus;
 use tokio::sync::{Mutex, RwLock, Semaphore};
@@ -21,7 +21,10 @@ use revive_dt_report::{Reporter, ReporterEvent, TestCaseStatus};
 
 use crate::{
     differential_tests::Driver,
-    helpers::{CachedCompiler, NodePool, create_test_definitions_stream},
+    helpers::{
+        CachedCompiler, NodePool, TestCaseIgnoreResolvedConfiguration,
+        create_test_definitions_stream,
+    },
 };
 
 /// Handles the differential testing executing it according to the information defined in the
@@ -81,20 +84,14 @@ pub async fn handle_differential_tests(
     info!("Spawned the platform nodes");
 
     // Preparing test definitions.
-    let only_execute_failed_tests = match context.ignore_success_configuration.path.as_ref() {
-        Some(path) => {
-            let report = read_to_string(path)
-                .context("Failed to read the report file to ignore the succeeding test cases")?;
-            Some(serde_json::from_str(&report).context("Failed to deserialize report")?)
-        }
-        None => None,
-    };
+    let test_case_ignore_configuration =
+        TestCaseIgnoreResolvedConfiguration::try_from(context.ignore_configuration.clone())?;
     let full_context = Context::Test(Box::new(context.clone()));
     let test_definitions = create_test_definitions_stream(
         &full_context,
         &corpus,
         &platforms_and_nodes,
-        only_execute_failed_tests.as_ref(),
+        &test_case_ignore_configuration,
         reporter.clone(),
     )
     .await
