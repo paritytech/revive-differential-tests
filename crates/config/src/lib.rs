@@ -858,6 +858,14 @@ pub struct GethConfiguration {
         value_parser = parse_duration
     )]
     pub start_timeout_ms: Duration,
+
+    /// The logging configuration to pass to the binary when it's being started.
+    #[clap(
+        id = "geth.logging-level",
+        long = "geth.logging-level",
+        default_value = "3"
+    )]
+    pub logging_level: String,
 }
 
 /// A set of configuration parameters for kurtosis.

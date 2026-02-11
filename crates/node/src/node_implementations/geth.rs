@@ -73,6 +73,7 @@ pub struct GethNode {
     nonce_manager: CachedNonceManager,
     provider: OnceCell<ConcreteProvider<Ethereum, Arc<EthereumWallet>>>,
     use_fallback_gas_filler: bool,
+    node_logging_level: String,
 }
 
 impl GethNode {
@@ -119,6 +120,7 @@ impl GethNode {
             nonce_manager: Default::default(),
             provider: Default::default(),
             use_fallback_gas_filler,
+            node_logging_level: geth_configuration.logging_level.clone(),
         }
     }
 
@@ -201,6 +203,8 @@ impl GethNode {
                     .arg("full")
                     .arg("--gcmode")
                     .arg("archive")
+                    .arg("--verbosity")
+                    .arg(self.node_logging_level.as_str())
                     .stderr(stderr_file)
                     .stdout(stdout_file);
             },
