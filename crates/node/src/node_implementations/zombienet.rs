@@ -113,6 +113,8 @@ pub struct ZombienetNode {
     provider: OnceCell<ConcreteProvider<Ethereum, Arc<EthereumWallet>>>,
 
     use_fallback_gas_filler: bool,
+
+    eth_rpc_logging_level: String,
 }
 
 impl ZombienetNode {
@@ -123,8 +125,6 @@ impl ZombienetNode {
     const NODE_BASE_RPC_PORT: u16 = 9946;
     const PARACHAIN_ID: u32 = 100;
     const ETH_RPC_BASE_PORT: u16 = 8545;
-
-    const PROXY_LOG_ENV: &str = "info,eth-rpc=debug";
 
     const ETH_RPC_READY_MARKER: &str = "Running JSON-RPC server";
 
@@ -165,6 +165,9 @@ impl ZombienetNode {
             node_rpc_port: None,
             provider: Default::default(),
             use_fallback_gas_filler,
+            eth_rpc_logging_level: AsRef::<EthRpcConfiguration>::as_ref(&context)
+                .logging_level
+                .clone(),
         }
     }
 
@@ -260,7 +263,7 @@ impl ZombienetNode {
                     .arg(u32::MAX.to_string())
                     .arg("--rpc-port")
                     .arg(eth_rpc_port.to_string())
-                    .env("RUST_LOG", Self::PROXY_LOG_ENV)
+                    .env("RUST_LOG", self.eth_rpc_logging_level.as_str())
                     .stdout(stdout_file)
                     .stderr(stderr_file);
             },

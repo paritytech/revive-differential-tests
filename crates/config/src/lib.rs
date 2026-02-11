@@ -904,6 +904,14 @@ pub struct ReviveDevNodeConfiguration {
     )]
     pub consensus: String,
 
+    /// The logging configuration to pass to the binary when it's being started.
+    #[clap(
+        id = "revive-dev-node.logging-level",
+        long = "revive-dev-node.logging-level",
+        default_value = "error,evm=debug,sc_rpc_server=info,runtime::revive=debug"
+    )]
+    pub logging_level: String,
+
     /// Specifies the connection string of an existing node that's not managed by the framework.
     ///
     /// If this argument is specified then the framework will not spawn certain nodes itself but
@@ -969,6 +977,14 @@ pub struct PolkadotOmnichainNodeConfiguration {
         long = "polkadot-omni-node.parachain-id"
     )]
     pub parachain_id: Option<usize>,
+
+    /// The logging configuration to pass to the binary when it's being started.
+    #[clap(
+        id = "polkadot-omni-node.logging-level",
+        long = "polkadot-omni-node.logging-level",
+        default_value = "error,evm=debug,sc_rpc_server=info,runtime::revive=debug"
+    )]
+    pub logging_level: String,
 }
 
 /// A set of configuration parameters for the ETH RPC.
@@ -989,6 +1005,14 @@ pub struct EthRpcConfiguration {
         value_parser = parse_duration
     )]
     pub start_timeout_ms: Duration,
+
+    /// The logging configuration to pass to the binary when it's being started.
+    #[clap(
+        id = "eth-rpc.logging-level",
+        long = "eth-rpc.logging-level",
+        default_value = "info,eth-rpc=debug"
+    )]
+    pub logging_level: String,
 }
 
 /// A set of configuration parameters for the genesis.
