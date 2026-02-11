@@ -203,11 +203,15 @@ impl Platform for ReviveDevNodePolkavmResolcPlatform {
     ) -> anyhow::Result<JoinHandle<anyhow::Result<Box<dyn EthereumNode + Send + Sync>>>> {
         let genesis_configuration = AsRef::<GenesisConfiguration>::as_ref(&context);
         let revive_dev_node_configuration = AsRef::<ReviveDevNodeConfiguration>::as_ref(&context);
+        let eth_rpc_configuration = AsRef::<EthRpcConfiguration>::as_ref(&context);
 
         let revive_dev_node_path = revive_dev_node_configuration.path.clone();
         let revive_dev_node_consensus = revive_dev_node_configuration.consensus.clone();
 
         let eth_rpc_connection_strings = revive_dev_node_configuration.existing_rpc_url.clone();
+
+        let node_logging_level = revive_dev_node_configuration.logging_level.clone();
+        let eth_rpc_logging_level = eth_rpc_configuration.logging_level.clone();
 
         let genesis = genesis_configuration.genesis()?.clone();
         Ok(thread::spawn(move || {
@@ -219,6 +223,8 @@ impl Platform for ReviveDevNodePolkavmResolcPlatform {
                 context,
                 &eth_rpc_connection_strings,
                 use_fallback_gas_filler,
+                node_logging_level,
+                eth_rpc_logging_level,
             );
             let node = spawn_node(node, genesis)?;
             Ok(Box::new(node) as Box<_>)
@@ -273,11 +279,15 @@ impl Platform for ReviveDevNodeRevmSolcPlatform {
     ) -> anyhow::Result<JoinHandle<anyhow::Result<Box<dyn EthereumNode + Send + Sync>>>> {
         let genesis_configuration = AsRef::<GenesisConfiguration>::as_ref(&context);
         let revive_dev_node_configuration = AsRef::<ReviveDevNodeConfiguration>::as_ref(&context);
+        let eth_rpc_configuration = AsRef::<EthRpcConfiguration>::as_ref(&context);
 
         let revive_dev_node_path = revive_dev_node_configuration.path.clone();
         let revive_dev_node_consensus = revive_dev_node_configuration.consensus.clone();
 
         let eth_rpc_connection_strings = revive_dev_node_configuration.existing_rpc_url.clone();
+
+        let node_logging_level = revive_dev_node_configuration.logging_level.clone();
+        let eth_rpc_logging_level = eth_rpc_configuration.logging_level.clone();
 
         let genesis = genesis_configuration.genesis()?.clone();
         Ok(thread::spawn(move || {
@@ -289,6 +299,8 @@ impl Platform for ReviveDevNodeRevmSolcPlatform {
                 context,
                 &eth_rpc_connection_strings,
                 use_fallback_gas_filler,
+                node_logging_level,
+                eth_rpc_logging_level,
             );
             let node = spawn_node(node, genesis)?;
             Ok(Box::new(node) as Box<_>)

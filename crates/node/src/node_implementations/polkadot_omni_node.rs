@@ -99,6 +99,9 @@ pub struct PolkadotOmnichainNode {
 
     /// A boolean that controls if the fallback gas filler should be used or not.
     use_fallback_gas_filler: bool,
+
+    node_logging_level: String,
+    eth_rpc_logging_level: String,
 }
 
 impl PolkadotOmnichainNode {
@@ -110,10 +113,6 @@ impl PolkadotOmnichainNode {
     const CHAIN_SPEC_JSON_FILE: &str = "template_chainspec.json";
     const BASE_POLKADOT_OMNICHAIN_NODE_RPC_PORT: u16 = 9944;
     const BASE_ETH_RPC_PORT: u16 = 8545;
-
-    const POLKADOT_OMNICHAIN_NODE_LOG_ENV: &str =
-        "error,evm=debug,sc_rpc_server=info,runtime::revive=debug";
-    const RPC_LOG_ENV: &str = "info,eth-rpc=debug";
 
     pub fn new(
         context: impl AsRef<WorkingDirectoryConfiguration>
@@ -158,6 +157,10 @@ impl PolkadotOmnichainNode {
             provider: Default::default(),
             use_fallback_gas_filler,
             node_start_timeout: polkadot_omnichain_node_configuration.start_timeout_ms,
+            node_logging_level: polkadot_omnichain_node_configuration.logging_level.clone(),
+            eth_rpc_logging_level: AsRef::<EthRpcConfiguration>::as_ref(&context)
+                .logging_level
+                .clone(),
         }
     }
 
@@ -218,7 +221,7 @@ impl PolkadotOmnichainNode {
             |command, stdout_file, stderr_file| {
                 command
                     .arg("--log")
-                    .arg(Self::POLKADOT_OMNICHAIN_NODE_LOG_ENV)
+                    .arg(self.node_logging_level.as_str())
                     .arg("--dev-block-time")
                     .arg(self.block_time.as_millis().to_string())
                     .arg("--rpc-port")
@@ -245,7 +248,7 @@ impl PolkadotOmnichainNode {
                     .arg(u32::MAX.to_string())
                     .arg("--state-pruning")
                     .arg(NUMBER_OF_CACHED_BLOCKS.to_string())
-                    .env("RUST_LOG", Self::POLKADOT_OMNICHAIN_NODE_LOG_ENV)
+                    .env("RUST_LOG", self.node_logging_level.as_str())
                     .stdout(stdout_file)
                     .stderr(stderr_file);
             },
@@ -289,7 +292,7 @@ impl PolkadotOmnichainNode {
                     .arg(NUMBER_OF_CACHED_BLOCKS.to_string())
                     .arg("--cache-size")
                     .arg(NUMBER_OF_CACHED_BLOCKS.to_string())
-                    .env("RUST_LOG", Self::RPC_LOG_ENV)
+                    .env("RUST_LOG", self.eth_rpc_logging_level.as_str())
                     .stdout(stdout_file)
                     .stderr(stderr_file);
             },

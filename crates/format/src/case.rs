@@ -128,6 +128,28 @@ impl Case {
             .next()
             .unwrap_or(FunctionCallStep::default_caller_address())
     }
+
+    pub fn any_step_expected_to_fail(&self) -> bool {
+        self.steps_iterator().any(|step| {
+            let Step::FunctionCall(function_call_step) = step else {
+                return false;
+            };
+            let FunctionCallStep {
+                expected: Some(expected),
+                ..
+            } = *function_call_step
+            else {
+                return false;
+            };
+            match expected {
+                Expected::Calldata(..) => false,
+                Expected::Expected(expected_output) => expected_output.exception,
+                Expected::ExpectedMany(expected_outputs) => {
+                    expected_outputs.iter().any(|value| value.exception)
+                }
+            }
+        })
+    }
 }
 
 define_wrapper_type!(

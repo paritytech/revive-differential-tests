@@ -77,6 +77,8 @@ pub struct SubstrateNode {
     provider: OnceCell<ConcreteProvider<Ethereum, Arc<EthereumWallet>>>,
     consensus: Option<String>,
     use_fallback_gas_filler: bool,
+    node_logging_level: String,
+    eth_rpc_logging_level: String,
 }
 
 impl SubstrateNode {
@@ -90,11 +92,9 @@ impl SubstrateNode {
     const BASE_SUBSTRATE_RPC_PORT: u16 = 9944;
     const BASE_PROXY_RPC_PORT: u16 = 8545;
 
-    const SUBSTRATE_LOG_ENV: &str = "error,evm=debug,sc_rpc_server=info,runtime::revive=debug";
-    const PROXY_LOG_ENV: &str = "info,eth-rpc=debug";
-
     pub const REVIVE_DEV_NODE_EXPORT_CHAINSPEC_COMMAND: &str = "build-spec";
 
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         node_path: PathBuf,
         export_chainspec_command: &str,
@@ -104,6 +104,8 @@ impl SubstrateNode {
         + AsRef<WalletConfiguration>,
         existing_connection_strings: &[String],
         use_fallback_gas_filler: bool,
+        node_logging_level: String,
+        eth_rpc_logging_level: String,
     ) -> Self {
         let working_directory_path =
             AsRef::<WorkingDirectoryConfiguration>::as_ref(&context).as_path();
@@ -137,6 +139,8 @@ impl SubstrateNode {
             provider: Default::default(),
             consensus,
             use_fallback_gas_filler,
+            node_logging_level,
+            eth_rpc_logging_level,
         }
     }
 
@@ -229,7 +233,7 @@ impl SubstrateNode {
                     .arg(u32::MAX.to_string())
                     .arg("--state-pruning")
                     .arg(NUMBER_OF_CACHED_BLOCKS.to_string())
-                    .env("RUST_LOG", Self::SUBSTRATE_LOG_ENV)
+                    .env("RUST_LOG", self.node_logging_level.as_str())
                     .stdout(stdout_file)
                     .stderr(stderr_file);
                 if let Some(consensus) = self.consensus.as_ref() {
@@ -272,7 +276,7 @@ impl SubstrateNode {
                     .arg(NUMBER_OF_CACHED_BLOCKS.to_string())
                     .arg("--cache-size")
                     .arg(NUMBER_OF_CACHED_BLOCKS.to_string())
-                    .env("RUST_LOG", Self::PROXY_LOG_ENV)
+                    .env("RUST_LOG", self.eth_rpc_logging_level.as_str())
                     .stdout(stdout_file)
                     .stderr(stderr_file);
             },
@@ -831,6 +835,8 @@ mod tests {
             &context,
             &[],
             true,
+            "".to_string(),
+            "".to_string(),
         );
         node.init(context.genesis_configuration.genesis().unwrap().clone())
             .expect("Failed to initialize the node")
@@ -903,6 +909,8 @@ mod tests {
             &context,
             &[],
             true,
+            "".to_string(),
+            "".to_string(),
         );
 
         // Call `init()`

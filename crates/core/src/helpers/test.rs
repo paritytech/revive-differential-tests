@@ -2,10 +2,12 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::{borrow::Cow, path::Path};
 
+use anyhow::Context as _;
 use futures::{Stream, StreamExt, stream};
 use indexmap::{IndexMap, indexmap};
+use revive_dt_common::cached_fs::read_to_string;
 use revive_dt_common::types::PlatformIdentifier;
-use revive_dt_config::Context;
+use revive_dt_config::{Context, IgnoreCasesConfiguration};
 use revive_dt_format::corpus::Corpus;
 use serde_json::{Value, json};
 
@@ -29,7 +31,7 @@ pub async fn create_test_definitions_stream<'a>(
     context: &Context,
     corpus: &'a Corpus,
     platforms_and_nodes: &'a BTreeMap<PlatformIdentifier, (&dyn Platform, NodePool)>,
-    only_execute_failed_tests: Option<&Report>,
+    test_case_ignore_configuration: &TestCaseIgnoreResolvedConfiguration,
     reporter: Reporter,
 ) -> impl Stream<Item = TestDefinition<'a>> {
     let cloned_reporter = reporter.clone();
@@ -130,7 +132,7 @@ pub async fn create_test_definitions_stream<'a>(
     )
     // Filter out the test cases which are incompatible or that can't run in the current setup.
     .filter_map(move |test| async move {
-        match test.check_compatibility(only_execute_failed_tests) {
+        match test.check_compatibility(test_case_ignore_configuration) {
             Ok(()) => Some(test),
             Err((reason, additional_information)) => {
                 debug!(
@@ -165,6 +167,69 @@ pub async fn create_test_definitions_stream<'a>(
     })
 }
 
+#[derive(Clone, Debug, Default)]
+pub struct TestCaseIgnoreResolvedConfiguration {
+    /// Some existing report which will be used for a number of purposes.
+    pub report: Option<Report>,
+
+    /// Controls if test cases which succeeded from the existing report should
+    /// be ignored or not.
+    pub ignore_succeeding_test_cases_from_report: bool,
+
+    /// Controls if test cases which contain steps expected to fail should be
+    /// ignored or not.
+    pub ignore_cases_with_failing_steps: bool,
+}
+
+impl TestCaseIgnoreResolvedConfiguration {
+    pub fn with_report(self, report: impl Into<Option<Report>>) -> Self {
+        self.mutate(|this| this.report = report.into())
+    }
+
+    pub fn with_ignore_succeeding_test_cases_from_report(
+        self,
+        ignore_succeeding_test_cases_from_report: bool,
+    ) -> Self {
+        self.mutate(|this| {
+            this.ignore_succeeding_test_cases_from_report = ignore_succeeding_test_cases_from_report
+        })
+    }
+
+    pub fn with_ignore_cases_with_failing_steps(
+        self,
+        ignore_cases_with_failing_steps: bool,
+    ) -> Self {
+        self.mutate(|this| this.ignore_cases_with_failing_steps = ignore_cases_with_failing_steps)
+    }
+
+    fn mutate(mut self, mutator: impl FnOnce(&mut Self)) -> Self {
+        mutator(&mut self);
+        self
+    }
+}
+
+impl TryFrom<IgnoreCasesConfiguration> for TestCaseIgnoreResolvedConfiguration {
+    type Error = anyhow::Error;
+
+    fn try_from(value: IgnoreCasesConfiguration) -> Result<Self, Self::Error> {
+        let mut this = Self::default()
+            .with_ignore_cases_with_failing_steps(value.ignore_cases_with_failing_steps);
+
+        this = if let Some(succeeding_cases_from_report) = value.succeeding_cases_from_report {
+            let content = read_to_string(succeeding_cases_from_report)
+                .context("Failed to read report at the specified path")?;
+            let report =
+                serde_json::from_str::<Report>(&content).context("Failed to deserialize report")?;
+            this.with_report(report)
+                .with_ignore_succeeding_test_cases_from_report(true)
+        } else {
+            this
+        };
+
+        Ok(this)
+    }
+}
+
 /// This is a full description of a differential test to run alongside the full metadata file, the
 /// specific case to be tested, the platforms that the tests should run on, the specific nodes of
 /// these platforms that they should run on, the compilers to use, and everything else needed making
@@ -192,14 +257,14 @@ impl<'a> TestDefinition<'a> {
     /// Checks if this test can be ran with the current configuration.
     pub fn check_compatibility(
         &self,
-        only_execute_failed_tests: Option<&Report>,
+        test_case_ignore_configuration: &TestCaseIgnoreResolvedConfiguration,
     ) -> TestCheckFunctionResult {
         self.check_metadata_file_ignored()?;
         self.check_case_file_ignored()?;
         self.check_target_compatibility()?;
         self.check_evm_version_compatibility()?;
         self.check_compiler_compatibility()?;
-        self.check_ignore_succeeded(only_execute_failed_tests)?;
+        self.check_ignore_configuration(test_case_ignore_configuration)?;
         Ok(())
     }
 
@@ -317,32 +382,49 @@ impl<'a> TestDefinition<'a> {
 
     /// Checks if the test case should be executed or not based on the passed report and whether the
     /// user has instructed the tool to ignore the already succeeding test cases.
-    fn check_ignore_succeeded(
+    fn check_ignore_configuration(
         &self,
-        only_execute_failed_tests: Option<&Report>,
+        test_case_ignore_configuration: &TestCaseIgnoreResolvedConfiguration,
     ) -> TestCheckFunctionResult {
-        let Some(report) = only_execute_failed_tests else {
-            return Ok(());
-        };
-
-        let test_case_status = report
-            .execution_information
-            .get(&(self.metadata_file_path.to_path_buf().into()))
-            .and_then(|obj| obj.case_reports.get(&self.case_idx))
-            .and_then(|obj| obj.mode_execution_reports.get(&self.mode))
-            .and_then(|obj| obj.status.as_ref());
-
-        match test_case_status {
-            Some(TestCaseStatus::Failed { .. }) => Ok(()),
-            Some(TestCaseStatus::Ignored { .. }) => Err((
-                "Ignored since it was ignored in a previous run",
+        // Check if the test case should be ignored based on it containing
+        // failing steps.
+        if test_case_ignore_configuration.ignore_cases_with_failing_steps
+            && self.case.any_step_expected_to_fail()
+        {
+            return Err((
+                "Ignored since it contains steps which are expected to fail",
                 indexmap! {},
-            )),
-            Some(TestCaseStatus::Succeeded { .. }) => {
-                Err(("Ignored since it succeeded in a prior run", indexmap! {}))
-            }
-            None => Ok(()),
+            ));
         }
+
+        // Check if the succeeding cases from the provided report should be
+        // ignored or not.
+        if let (Some(report), true) = (
+            test_case_ignore_configuration.report.as_ref(),
+            test_case_ignore_configuration.ignore_succeeding_test_cases_from_report,
+        ) {
+            let test_case_status = report
+                .execution_information
+                .get(&(self.metadata_file_path.to_path_buf().into()))
+                .and_then(|obj| obj.case_reports.get(&self.case_idx))
+                .and_then(|obj| obj.mode_execution_reports.get(&self.mode))
+                .and_then(|obj| obj.status.as_ref());
+
+            match test_case_status {
+                Some(TestCaseStatus::Failed { .. }) | None => {}
+                Some(TestCaseStatus::Ignored { .. }) => {
+                    return Err((
+                        "Ignored since it was ignored in a previous run",
+                        indexmap! {},
+                    ));
+                }
+                Some(TestCaseStatus::Succeeded { .. }) => {
+                    return Err(("Ignored since it succeeded in a prior run", indexmap! {}));
+                }
+            }
+        }
+
+        Ok(())
     }
 }
 

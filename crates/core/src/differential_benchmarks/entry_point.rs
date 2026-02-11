@@ -97,7 +97,7 @@ pub async fn handle_differential_benchmarks(
         &full_context,
         &corpus,
         &platforms_and_nodes,
-        None,
+        &Default::default(),
         reporter.clone(),
     )
     .await
