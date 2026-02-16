@@ -293,10 +293,7 @@ impl SolidityCompiler for Resolc {
                     .canonicalize()
                     .with_context(|| format!("Failed to canonicalize path {src_for_msg}"))?;
 
-                let contracts_at_path = compiler_output
-                    .contracts
-                    .entry(source_path.clone())
-                    .or_default();
+                let contracts_at_path = compiler_output.contracts.entry(source_path).or_default();
                 for (contract_name, contract_information) in contracts.into_iter() {
                     let Some(bytecode) = contract_information
                         .evm
