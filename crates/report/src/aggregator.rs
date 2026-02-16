@@ -10,6 +10,7 @@ use std::{
 };
 
 use alloy::{
+    hex,
     json_abi::JsonAbi,
     primitives::{Address, B256, BlockNumber, BlockTimestamp, TxHash},
 };
@@ -572,18 +573,21 @@ impl ReportAggregator {
             let mut contracts_info_at_path = HashMap::new();
 
             for (contract_name, (bytecode, abi)) in contracts {
-                let bytecode_hash = Self::hash(&bytecode);
+                let (is_valid_hex, bytecode_hash) = Self::hex_decode_and_hash(&bytecode);
+                let requires_linking = !is_valid_hex;
                 let info = if include_compiler_output {
                     CompiledContractInformation {
                         abi: Some(abi),
                         bytecode: Some(bytecode),
                         bytecode_hash,
+                        requires_linking,
                     }
                 } else {
                     CompiledContractInformation {
                         abi: None,
                         bytecode: None,
                         bytecode_hash,
+                        requires_linking,
                     }
                 };
                 contracts_info_at_path.insert(contract_name, info);
@@ -595,9 +599,18 @@ impl ReportAggregator {
         compiled_contracts_info
     }
 
-    /// Computes the hash of the `input`.
-    fn hash(input: &str) -> B256 {
-        B256::from_slice(&Sha256::digest(input.as_bytes()))
+    /// Attempts to hex decode the input before hashing the result. If the input
+    /// is prefixed with `0x`, the prefix is stripped before decoding and hashing.
+    ///
+    /// Returns `(true, hash)` if decoding succeeded, with a hash of the raw bytes.
+    /// Returns `(false, hash)` if decoding failed due to invalid hex, with a hash of the string.
+    fn hex_decode_and_hash(input: &str) -> (bool, B256) {
+        let input = input.strip_prefix("0x").unwrap_or(input);
+
+        match hex::decode(input) {
+            Ok(bytes) => (true, B256::from_slice(&Sha256::digest(&bytes))),
+            Err(_) => (false, B256::from_slice(&Sha256::digest(input.as_bytes()))),
+        }
     }
 }
 
@@ -776,6 +789,8 @@ pub struct CompiledContractInformation {
     pub bytecode: Option<String>,
     /// The hash of the bytecode.
     pub bytecode_hash: B256,
+    /// Whether the bytecode contains unresolved library placeholders and requires linking.
+    pub requires_linking: bool,
 }
 
 /// Information on each step in the execution.
