@@ -788,6 +788,8 @@ pub struct CompiledContractInformation {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub bytecode: Option<String>,
     /// The hash of the bytecode.
+    /// Note that it is the hash of the raw bytecode bytes (the decoded `bytecode` string)
+    /// if `requires_linking` is false, otherwise it is the hash of the `bytecode` string.
     pub bytecode_hash: B256,
     /// Whether the bytecode contains unresolved library placeholders and requires linking.
     pub requires_linking: bool,
