@@ -250,7 +250,7 @@ impl SolidityCompiler for Solc {
 
             let mut compiler_output = CompilerOutput::default();
             for (contract_path, contracts) in parsed.contracts {
-                let map = compiler_output
+                let contracts_at_path = compiler_output
                     .contracts
                     .entry(contract_path.canonicalize().with_context(|| {
                         format!(
@@ -271,7 +271,7 @@ impl SolidityCompiler for Solc {
                     let abi = contract_info
                         .abi
                         .context("Unexpected - contract compiled with solc as no ABI")?;
-                    map.insert(contract_name, (source_code, abi));
+                    contracts_at_path.insert(contract_name, (source_code, abi));
                 }
             }
 
