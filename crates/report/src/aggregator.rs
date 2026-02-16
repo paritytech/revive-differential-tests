@@ -10,9 +10,8 @@ use std::{
 };
 
 use alloy::{
-    hex,
     json_abi::JsonAbi,
-    primitives::{Address, BlockNumber, BlockTimestamp, TxHash},
+    primitives::{Address, B256, BlockNumber, BlockTimestamp, TxHash},
 };
 use anyhow::{Context as _, Result};
 use indexmap::IndexMap;
@@ -573,7 +572,7 @@ impl ReportAggregator {
             let mut contracts_info_at_path = HashMap::new();
 
             for (contract_name, (bytecode, abi)) in contracts {
-                let bytecode_hash = Self::sha256_hash(&bytecode);
+                let bytecode_hash = Self::hash(&bytecode);
                 let info = if include_compiler_output {
                     CompiledContractInformation {
                         abi: Some(abi),
@@ -596,9 +595,9 @@ impl ReportAggregator {
         compiled_contracts_info
     }
 
-    /// Computes the SHA-256 hash of the `input`.
-    fn sha256_hash(input: &str) -> String {
-        hex::encode(Sha256::digest(input.as_bytes()))
+    /// Computes the hash of the `input`.
+    fn hash(input: &str) -> B256 {
+        B256::from_slice(&Sha256::digest(input.as_bytes()))
     }
 }
 
@@ -776,7 +775,7 @@ pub struct CompiledContractInformation {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub bytecode: Option<String>,
     /// The hash of the bytecode.
-    pub bytecode_hash: String,
+    pub bytecode_hash: B256,
 }
 
 /// Information on each step in the execution.
