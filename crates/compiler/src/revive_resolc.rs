@@ -293,7 +293,7 @@ impl SolidityCompiler for Resolc {
                     .canonicalize()
                     .with_context(|| format!("Failed to canonicalize path {src_for_msg}"))?;
 
-                let map = compiler_output.contracts.entry(source_path).or_default();
+                let contracts_at_path = compiler_output.contracts.entry(source_path).or_default();
                 for (contract_name, contract_information) in contracts.into_iter() {
                     let Some(bytecode) = contract_information
                         .evm
@@ -345,7 +345,7 @@ impl SolidityCompiler for Resolc {
                         serde_json::from_value::<JsonAbi>(abi_value.clone())
                             .context("ABI found in solc_metadata output is not valid ABI")?
                     };
-                    map.insert(contract_name, (bytecode.object, abi));
+                    contracts_at_path.insert(contract_name, (bytecode.object, abi));
                 }
             }
 
