@@ -18,7 +18,7 @@ use alloy::{
 };
 use anyhow::Context as _;
 use clap::{Parser, ValueEnum, ValueHint};
-use revive_dt_common::types::{ParsedTestSpecifier, PlatformIdentifier};
+use revive_dt_common::types::{ParsedCompileSpecifier, ParsedTestSpecifier, PlatformIdentifier};
 use semver::Version;
 use serde::{Deserialize, Serialize, Serializer};
 use strum::{AsRefStr, Display, EnumString, IntoStaticStr};
@@ -38,6 +38,9 @@ pub enum Context {
 
     /// Exports the genesis file of the desired platform.
     ExportGenesis(Box<ExportGenesisContext>),
+
+    /// Compiles contracts using the provided compiler build, without executing any tests.
+    Compile(Box<CompilationContext>),
 }
 
 impl Context {
@@ -51,10 +54,9 @@ impl Context {
 
     pub fn update_for_profile(&mut self) {
         match self {
-            Context::Test(ctx) => ctx.update_for_profile(),
-            Context::Benchmark(ctx) => ctx.update_for_profile(),
-            Context::ExportJsonSchema => {}
-            Context::ExportGenesis(..) => {}
+            Self::Test(ctx) => ctx.update_for_profile(),
+            Self::Benchmark(ctx) => ctx.update_for_profile(),
+            Self::ExportJsonSchema | Self::ExportGenesis(..) | Self::Compile(..) => {}
         }
     }
 }
@@ -65,16 +67,29 @@ impl AsRef<WorkingDirectoryConfiguration> for Context {
             Self::Test(context) => context.as_ref().as_ref(),
             Self::Benchmark(context) => context.as_ref().as_ref(),
             Self::ExportJsonSchema | Self::ExportGenesis(..) => unreachable!(),
+            Self::Compile(context) => context.as_ref().as_ref(),
         }
     }
 }
 
-impl AsRef<CorpusConfiguration> for Context {
-    fn as_ref(&self) -> &CorpusConfiguration {
+impl AsRef<CorpusExecutionConfiguration> for Context {
+    fn as_ref(&self) -> &CorpusExecutionConfiguration {
         match self {
             Self::Test(context) => context.as_ref().as_ref(),
             Self::Benchmark(context) => context.as_ref().as_ref(),
-            Self::ExportJsonSchema | Self::ExportGenesis(..) => unreachable!(),
+            Self::ExportJsonSchema | Self::ExportGenesis(..) | Self::Compile(..) => unreachable!(),
+        }
+    }
+}
+
+impl AsRef<CorpusCompilationConfiguration> for Context {
+    fn as_ref(&self) -> &CorpusCompilationConfiguration {
+        match self {
+            Self::Test(..)
+            | Self::Benchmark(..)
+            | Self::ExportJsonSchema
+            | Self::ExportGenesis(..) => unreachable!(),
+            Self::Compile(context) => context.as_ref().as_ref(),
         }
     }
 }
@@ -85,6 +100,7 @@ impl AsRef<SolcConfiguration> for Context {
             Self::Test(context) => context.as_ref().as_ref(),
             Self::Benchmark(context) => context.as_ref().as_ref(),
             Self::ExportJsonSchema | Self::ExportGenesis(..) => unreachable!(),
+            Self::Compile(context) => context.as_ref().as_ref(),
         }
     }
 }
@@ -95,6 +111,7 @@ impl AsRef<ResolcConfiguration> for Context {
             Self::Test(context) => context.as_ref().as_ref(),
             Self::Benchmark(context) => context.as_ref().as_ref(),
             Self::ExportJsonSchema | Self::ExportGenesis(..) => unreachable!(),
+            Self::Compile(context) => context.as_ref().as_ref(),
         }
     }
 }
@@ -105,7 +122,7 @@ impl AsRef<GethConfiguration> for Context {
             Self::Test(context) => context.as_ref().as_ref(),
             Self::Benchmark(context) => context.as_ref().as_ref(),
             Self::ExportGenesis(context) => context.as_ref().as_ref(),
-            Self::ExportJsonSchema => unreachable!(),
+            Self::ExportJsonSchema | Self::Compile(..) => unreachable!(),
         }
     }
 }
@@ -116,7 +133,7 @@ impl AsRef<KurtosisConfiguration> for Context {
             Self::Test(context) => context.as_ref().as_ref(),
             Self::Benchmark(context) => context.as_ref().as_ref(),
             Self::ExportGenesis(context) => context.as_ref().as_ref(),
-            Self::ExportJsonSchema => unreachable!(),
+            Self::ExportJsonSchema | Self::Compile(..) => unreachable!(),
         }
     }
 }
@@ -127,7 +144,7 @@ impl AsRef<PolkadotParachainConfiguration> for Context {
             Self::Test(context) => context.as_ref().as_ref(),
             Self::Benchmark(context) => context.as_ref().as_ref(),
             Self::ExportGenesis(context) => context.as_ref().as_ref(),
-            Self::ExportJsonSchema => unreachable!(),
+            Self::ExportJsonSchema | Self::Compile(..) => unreachable!(),
         }
     }
 }
@@ -138,7 +155,7 @@ impl AsRef<ReviveDevNodeConfiguration> for Context {
             Self::Test(context) => context.as_ref().as_ref(),
             Self::Benchmark(context) => context.as_ref().as_ref(),
             Self::ExportGenesis(context) => context.as_ref().as_ref(),
-            Self::ExportJsonSchema => unreachable!(),
+            Self::ExportJsonSchema | Self::Compile(..) => unreachable!(),
         }
     }
 }
@@ -149,7 +166,7 @@ impl AsRef<PolkadotOmnichainNodeConfiguration> for Context {
             Self::Test(context) => context.as_ref().as_ref(),
             Self::Benchmark(context) => context.as_ref().as_ref(),
             Self::ExportGenesis(context) => context.as_ref().as_ref(),
-            Self::ExportJsonSchema => unreachable!(),
+            Self::ExportJsonSchema | Self::Compile(..) => unreachable!(),
         }
     }
 }
@@ -159,7 +176,7 @@ impl AsRef<EthRpcConfiguration> for Context {
         match self {
             Self::Test(context) => context.as_ref().as_ref(),
             Self::Benchmark(context) => context.as_ref().as_ref(),
-            Self::ExportJsonSchema | Self::ExportGenesis(..) => unreachable!(),
+            Self::ExportJsonSchema | Self::ExportGenesis(..) | Self::Compile(..) => unreachable!(),
         }
     }
 }
@@ -172,7 +189,7 @@ impl AsRef<GenesisConfiguration> for Context {
                 static GENESIS: LazyLock<GenesisConfiguration> = LazyLock::new(Default::default);
                 &GENESIS
             }
-            Self::ExportJsonSchema => unreachable!(),
+            Self::ExportJsonSchema | Self::Compile(..) => unreachable!(),
         }
     }
 }
@@ -183,7 +200,7 @@ impl AsRef<WalletConfiguration> for Context {
             Self::Test(context) => context.as_ref().as_ref(),
             Self::Benchmark(context) => context.as_ref().as_ref(),
             Self::ExportGenesis(context) => context.as_ref().as_ref(),
-            Self::ExportJsonSchema => unreachable!(),
+            Self::ExportJsonSchema | Self::Compile(..) => unreachable!(),
         }
     }
 }
@@ -194,6 +211,7 @@ impl AsRef<ConcurrencyConfiguration> for Context {
             Self::Test(context) => context.as_ref().as_ref(),
             Self::Benchmark(context) => context.as_ref().as_ref(),
             Self::ExportJsonSchema | Self::ExportGenesis(..) => unreachable!(),
+            Self::Compile(context) => context.as_ref().as_ref(),
         }
     }
 }
@@ -204,6 +222,7 @@ impl AsRef<CompilationConfiguration> for Context {
             Self::Test(context) => context.as_ref().as_ref(),
             Self::Benchmark(context) => context.as_ref().as_ref(),
             Self::ExportJsonSchema | Self::ExportGenesis(..) => unreachable!(),
+            Self::Compile(context) => context.as_ref().as_ref(),
         }
     }
 }
@@ -214,6 +233,7 @@ impl AsRef<ReportConfiguration> for Context {
             Self::Test(context) => context.as_ref().as_ref(),
             Self::Benchmark(context) => context.as_ref().as_ref(),
             Self::ExportJsonSchema | Self::ExportGenesis(..) => unreachable!(),
+            Self::Compile(context) => context.as_ref().as_ref(),
         }
     }
 }
@@ -224,8 +244,12 @@ impl AsRef<IgnoreCasesConfiguration> for Context {
 
         match self {
             Self::Test(context) => context.as_ref().as_ref(),
-            Self::Benchmark(..) => &DEFAULT,
-            Self::ExportJsonSchema | Self::ExportGenesis(..) => &DEFAULT,
+            // TODO: Shouldn't these return `unreachable!()` instead if `&DEFAULT`?
+            // Only the `TestExecutionContext` has an `ignore_configuration` field.
+            Self::Benchmark(..)
+            | Self::ExportJsonSchema
+            | Self::ExportGenesis(..)
+            | Self::Compile(..) => &DEFAULT,
         }
     }
 }
@@ -265,7 +289,7 @@ pub struct TestExecutionContext {
 
     /// Configuration parameters for the corpus files to use.
     #[clap(flatten, next_help_heading = "Corpus Configuration")]
-    pub corpus_configuration: CorpusConfiguration,
+    pub corpus_configuration: CorpusExecutionConfiguration,
 
     /// Configuration parameters for the solc compiler.
     #[clap(flatten, next_help_heading = "Solc Configuration")]
@@ -412,7 +436,7 @@ pub struct BenchmarkingContext {
 
     /// Configuration parameters for the corpus files to use.
     #[clap(flatten, next_help_heading = "Corpus Configuration")]
-    pub corpus_configuration: CorpusConfiguration,
+    pub corpus_configuration: CorpusExecutionConfiguration,
 
     /// Configuration parameters for the solc compiler.
     #[clap(flatten, next_help_heading = "Solc Configuration")]
@@ -529,6 +553,50 @@ pub struct ExportGenesisContext {
     pub wallet_configuration: WalletConfiguration,
 }
 
+#[derive(Clone, Debug, Parser, Serialize, Deserialize)]
+pub struct CompilationContext {
+    /// The label for the resolc build used (e.g., linux, macos, windows, wasm).
+    #[arg(long)]
+    pub build_label: String,
+
+    /// The working directory that the program will use for all of the temporary artifacts needed at
+    /// runtime.
+    ///
+    /// If not specified, then a temporary directory will be created and used by the program for all
+    /// temporary artifacts.
+    #[clap(
+        short,
+        long,
+        default_value = "",
+        value_hint = ValueHint::DirPath,
+    )]
+    pub working_directory: WorkingDirectoryConfiguration,
+
+    /// Configuration parameters for the corpus files to use.
+    #[clap(flatten, next_help_heading = "Corpus Configuration")]
+    pub corpus_configuration: CorpusCompilationConfiguration,
+
+    /// Configuration parameters for the solc compiler.
+    #[clap(flatten, next_help_heading = "Solc Configuration")]
+    pub solc_configuration: SolcConfiguration,
+
+    /// Configuration parameters for the resolc compiler.
+    #[clap(flatten, next_help_heading = "Resolc Configuration")]
+    pub resolc_configuration: ResolcConfiguration,
+
+    /// Configuration parameters for concurrency.
+    #[clap(flatten, next_help_heading = "Concurrency Configuration")]
+    pub concurrency_configuration: ConcurrencyConfiguration,
+
+    /// Configuration parameters for the compilers and compilation.
+    #[clap(flatten, next_help_heading = "Compilation Configuration")]
+    pub compilation_configuration: CompilationConfiguration,
+
+    /// Configuration parameters for the report.
+    #[clap(flatten, next_help_heading = "Report Configuration")]
+    pub report_configuration: ReportConfiguration,
+}
+
 impl Default for TestExecutionContext {
     fn default() -> Self {
         Self::parse_from(["execution-context", "--test", "."])
@@ -541,8 +609,8 @@ impl AsRef<WorkingDirectoryConfiguration> for TestExecutionContext {
     }
 }
 
-impl AsRef<CorpusConfiguration> for TestExecutionContext {
-    fn as_ref(&self) -> &CorpusConfiguration {
+impl AsRef<CorpusExecutionConfiguration> for TestExecutionContext {
+    fn as_ref(&self) -> &CorpusExecutionConfiguration {
         &self.corpus_configuration
     }
 }
@@ -643,8 +711,8 @@ impl AsRef<WorkingDirectoryConfiguration> for BenchmarkingContext {
     }
 }
 
-impl AsRef<CorpusConfiguration> for BenchmarkingContext {
-    fn as_ref(&self) -> &CorpusConfiguration {
+impl AsRef<CorpusExecutionConfiguration> for BenchmarkingContext {
+    fn as_ref(&self) -> &CorpusExecutionConfiguration {
         &self.corpus_configuration
     }
 }
@@ -763,17 +831,65 @@ impl AsRef<WalletConfiguration> for ExportGenesisContext {
     }
 }
 
+impl Default for CompilationContext {
+    fn default() -> Self {
+        Self::parse_from(["compilation-context", "--compile", "."])
+    }
+}
+
+impl AsRef<WorkingDirectoryConfiguration> for CompilationContext {
+    fn as_ref(&self) -> &WorkingDirectoryConfiguration {
+        &self.working_directory
+    }
+}
+
+impl AsRef<CorpusCompilationConfiguration> for CompilationContext {
+    fn as_ref(&self) -> &CorpusCompilationConfiguration {
+        &self.corpus_configuration
+    }
+}
+
+impl AsRef<SolcConfiguration> for CompilationContext {
+    fn as_ref(&self) -> &SolcConfiguration {
+        &self.solc_configuration
+    }
+}
+
+impl AsRef<ResolcConfiguration> for CompilationContext {
+    fn as_ref(&self) -> &ResolcConfiguration {
+        &self.resolc_configuration
+    }
+}
+
+impl AsRef<ConcurrencyConfiguration> for CompilationContext {
+    fn as_ref(&self) -> &ConcurrencyConfiguration {
+        &self.concurrency_configuration
+    }
+}
+
+impl AsRef<CompilationConfiguration> for CompilationContext {
+    fn as_ref(&self) -> &CompilationConfiguration {
+        &self.compilation_configuration
+    }
+}
+
+impl AsRef<ReportConfiguration> for CompilationContext {
+    fn as_ref(&self) -> &ReportConfiguration {
+        &self.report_configuration
+    }
+}
+
 /// A set of configuration parameters for the corpus files to use for the execution.
 #[serde_with::serde_as]
 #[derive(Clone, Debug, Parser, Serialize, Deserialize)]
-pub struct CorpusConfiguration {
+pub struct CorpusExecutionConfiguration {
     /// A list of test specifiers for the tests that the tool should run.
     ///
     /// Test specifiers follow the following format:
     ///
     /// - `{directory_path|metadata_file_path}`: A path to a metadata file where all of the cases
     ///   live and should be run. Alternatively, it points to a directory instructing the framework
-    ///   to discover of the metadata files that live there an execute them.
+    ///   to discover the metadata files that live there an execute them.
     /// - `{metadata_file_path}::{case_idx}`: The path to a metadata file and then a case idx
     ///   separated by two colons. This specifies that only this specific test case within the
     ///   metadata file should be executed.
@@ -782,6 +898,22 @@ pub struct CorpusConfiguration {
     #[serde_as(as = "Vec<serde_with::DisplayFromStr>")]
     #[arg(short = 't', long = "test", required = true)]
     pub test_specifiers: Vec<ParsedTestSpecifier>,
+}
+
+/// A set of configuration parameters for the corpus files to use for the compilation.
+#[serde_with::serde_as]
+#[derive(Clone, Debug, Parser, Serialize, Deserialize)]
+pub struct CorpusCompilationConfiguration {
+    /// A list of compile specifiers for the compilations that the tool should run.
+    ///
+    /// Compile specifiers follow the following format:
+    ///
+    /// - `{directory_path|metadata_file_path}`: A path to a metadata file where all of the contracts,
+    ///   or references to the contracts, live and should be compiled. Alternatively, it points to a
+    ///   directory instructing the framework to discover the metadata files that live there and compile them.
+    #[serde_as(as = "Vec<serde_with::DisplayFromStr>")]
+    #[arg(short = 'c', long = "compile", required = true)]
+    pub compile_specifiers: Vec<ParsedCompileSpecifier>,
 }
 
 /// A set of configuration parameters for Solc.

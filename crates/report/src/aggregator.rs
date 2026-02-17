@@ -54,6 +54,7 @@ impl ReportAggregator {
                 Context::Test(ref context) => context.report_configuration.file_name.clone(),
                 Context::Benchmark(ref context) => context.report_configuration.file_name.clone(),
                 Context::ExportJsonSchema | Context::ExportGenesis(..) => None,
+                Context::Compile(ref context) => context.report_configuration.file_name.clone(),
             },
             report: Report::new(context),
             remaining_cases: Default::default(),

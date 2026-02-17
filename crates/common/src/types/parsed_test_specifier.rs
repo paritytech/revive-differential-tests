@@ -11,7 +11,7 @@ use crate::types::Mode;
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum ParsedTestSpecifier {
-    /// All of the test cases in the file should be ran across all of the specified modes
+    /// All of the test cases in the file should be ran across all of the specified modes.
     FileOrDirectory {
         /// The path of the metadata file containing the test cases.
         metadata_or_directory_file_path: PathBuf,

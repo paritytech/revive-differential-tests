@@ -123,5 +123,11 @@ fn main() -> anyhow::Result<()> {
 
             Ok(())
         }
+        // TODO:
+        Context::Compile(context) => {
+            println!("In Context::Compile");
+            println!("{:?}", context);
+            todo!()
+        }
     }
 }
