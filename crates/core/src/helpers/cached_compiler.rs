@@ -9,14 +9,16 @@ use std::{
 };
 
 use futures::FutureExt;
-use revive_dt_common::{iterators::FilesWithExtensionIterator, types::CompilerIdentifier};
+use revive_dt_common::{
+    iterators::FilesWithExtensionIterator,
+    types::{CompilerIdentifier, PlatformIdentifier},
+};
 use revive_dt_compiler::{Compiler, CompilerOutput, Mode, SolidityCompiler};
-use revive_dt_core::Platform;
 use revive_dt_format::metadata::{ContractIdent, ContractInstance, Metadata};
 
 use alloy::{hex::ToHexExt, json_abi::JsonAbi, primitives::Address};
 use anyhow::{Context as _, Error, Result};
-use revive_dt_report::ExecutionSpecificReporter;
+use revive_dt_report::CompilationReporter;
 use semver::Version;
 use serde::{Deserialize, Serialize};
 use tokio::sync::{Mutex, RwLock, Semaphore};
@@ -55,7 +57,8 @@ impl<'a> CachedCompiler<'a> {
         fields(
             metadata_file_path = %metadata_file_path.display(),
             %mode,
-            platform = %platform.platform_identifier()
+            compiler = %compiler_identifier,
+            platform = ?platform_identifier,
         ),
         err
     )]
@@ -66,11 +69,12 @@ impl<'a> CachedCompiler<'a> {
         mode: Cow<'a, Mode>,
         deployed_libraries: Option<&HashMap<ContractInstance, (ContractIdent, Address, JsonAbi)>>,
         compiler: &dyn SolidityCompiler,
-        platform: &dyn Platform,
-        reporter: &ExecutionSpecificReporter,
+        compiler_identifier: CompilerIdentifier,
+        platform_identifier: Option<PlatformIdentifier>,
+        reporter: &CompilationReporter<'_>,
     ) -> Result<CompilerOutput> {
         let cache_key = CacheKey {
-            compiler_identifier: platform.compiler_identifier(),
+            compiler_identifier,
             compiler_version: compiler.version().clone(),
             metadata_file_path,
             solc_mode: mode.clone(),
@@ -142,25 +146,45 @@ impl<'a> CachedCompiler<'a> {
                 match self.artifacts_cache.get(&cache_key).await {
                     Some(cache_value) => {
                         if deployed_libraries.is_some() {
-                            reporter
-                                .report_post_link_contracts_compilation_succeeded_event(
-                                    compiler.version().clone(),
-                                    compiler.path(),
-                                    true,
-                                    None,
-                                    cache_value.compiler_output.clone(),
-                                )
-                                .expect("Can't happen");
+                            match reporter {
+                                CompilationReporter::Execution(reporter) => reporter
+                                    .report_post_link_contracts_compilation_succeeded_event(
+                                        compiler.version().clone(),
+                                        compiler.path(),
+                                        true,
+                                        None,
+                                        cache_value.compiler_output.clone(),
+                                    ),
+                                CompilationReporter::Standalone(reporter) => reporter
+                                    .report_standalone_contracts_compilation_succeeded_event(
+                                        compiler.version().clone(),
+                                        compiler.path(),
+                                        true,
+                                        None,
+                                        cache_value.compiler_output.clone(),
+                                    ),
+                            }
+                            .expect("Can't happen");
                         } else {
-                            reporter
-                                .report_pre_link_contracts_compilation_succeeded_event(
-                                    compiler.version().clone(),
-                                    compiler.path(),
-                                    true,
-                                    None,
-                                    cache_value.compiler_output.clone(),
-                                )
-                                .expect("Can't happen");
+                            match reporter {
+                                CompilationReporter::Execution(reporter) => reporter
+                                    .report_pre_link_contracts_compilation_succeeded_event(
+                                        compiler.version().clone(),
+                                        compiler.path(),
+                                        true,
+                                        None,
+                                        cache_value.compiler_output.clone(),
+                                    ),
+                                CompilationReporter::Standalone(reporter) => reporter
+                                    .report_standalone_contracts_compilation_succeeded_event(
+                                        compiler.version().clone(),
+                                        compiler.path(),
+                                        true,
+                                        None,
+                                        cache_value.compiler_output.clone(),
+                                    ),
+                            }
+                            .expect("Can't happen");
                         }
                         cache_value.compiler_output
                     }
@@ -196,7 +220,7 @@ async fn compile_contracts(
     mode: &Mode,
     deployed_libraries: Option<&HashMap<ContractInstance, (ContractIdent, Address, JsonAbi)>>,
     compiler: &dyn SolidityCompiler,
-    reporter: &ExecutionSpecificReporter,
+    reporter: &CompilationReporter<'_>,
 ) -> Result<CompilerOutput> {
     // Puts a limit on how many compilations we can perform at any given instance which helps us
     // with some of the errors we've been seeing with high concurrency on MacOS (we have not tried
@@ -239,46 +263,84 @@ async fn compile_contracts(
 
     match (output.as_ref(), deployed_libraries.is_some()) {
         (Ok(output), true) => {
-            reporter
-                .report_post_link_contracts_compilation_succeeded_event(
-                    compiler.version().clone(),
-                    compiler.path(),
-                    false,
-                    input,
-                    output.clone(),
-                )
-                .expect("Can't happen");
+            match reporter {
+                CompilationReporter::Execution(reporter) => reporter
+                    .report_post_link_contracts_compilation_succeeded_event(
+                        compiler.version().clone(),
+                        compiler.path(),
+                        false,
+                        input,
+                        output.clone(),
+                    ),
+                CompilationReporter::Standalone(reporter) => reporter
+                    .report_standalone_contracts_compilation_succeeded_event(
+                        compiler.version().clone(),
+                        compiler.path(),
+                        false,
+                        input,
+                        output.clone(),
+                    ),
+            }
+            .expect("Can't happen");
         }
         (Ok(output), false) => {
-            reporter
-                .report_pre_link_contracts_compilation_succeeded_event(
-                    compiler.version().clone(),
-                    compiler.path(),
-                    false,
-                    input,
-                    output.clone(),
-                )
-                .expect("Can't happen");
+            match reporter {
+                CompilationReporter::Execution(reporter) => reporter
+                    .report_pre_link_contracts_compilation_succeeded_event(
+                        compiler.version().clone(),
+                        compiler.path(),
+                        false,
+                        input,
+                        output.clone(),
+                    ),
+                CompilationReporter::Standalone(reporter) => reporter
+                    .report_standalone_contracts_compilation_succeeded_event(
+                        compiler.version().clone(),
+                        compiler.path(),
+                        false,
+                        input,
+                        output.clone(),
+                    ),
+            }
+            .expect("Can't happen");
         }
         (Err(err), true) => {
-            reporter
-                .report_post_link_contracts_compilation_failed_event(
-                    compiler.version().clone(),
-                    compiler.path().to_path_buf(),
-                    input,
-                    format!("{err:#}"),
-                )
-                .expect("Can't happen");
+            match reporter {
+                CompilationReporter::Execution(reporter) => reporter
+                    .report_post_link_contracts_compilation_failed_event(
+                        compiler.version().clone(),
+                        compiler.path().to_path_buf(),
+                        input,
+                        format!("{err:#}"),
+                    ),
+                CompilationReporter::Standalone(reporter) => reporter
+                    .report_standalone_contracts_compilation_failed_event(
+                        compiler.version().clone(),
+                        compiler.path().to_path_buf(),
+                        input,
+                        format!("{err:#}"),
+                    ),
+            }
+            .expect("Can't happen");
         }
         (Err(err), false) => {
-            reporter
-                .report_pre_link_contracts_compilation_failed_event(
-                    compiler.version().clone(),
-                    compiler.path().to_path_buf(),
-                    input,
-                    format!("{err:#}"),
-                )
-                .expect("Can't happen");
+            match reporter {
+                CompilationReporter::Execution(reporter) => reporter
+                    .report_pre_link_contracts_compilation_failed_event(
+                        compiler.version().clone(),
+                        compiler.path().to_path_buf(),
+                        input,
+                        format!("{err:#}"),
+                    ),
+                CompilationReporter::Standalone(reporter) => reporter
+                    .report_standalone_contracts_compilation_failed_event(
+                        compiler.version().clone(),
+                        compiler.path().to_path_buf(),
+                        input,
+                        format!("{err:#}"),
+                    ),
+            }
+            .expect("Can't happen");
         }
     }
 

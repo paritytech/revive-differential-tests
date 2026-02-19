@@ -18,7 +18,9 @@ use alloy::{
 };
 use anyhow::Context as _;
 use clap::{Parser, ValueEnum, ValueHint};
-use revive_dt_common::types::{ParsedCompileSpecifier, ParsedTestSpecifier, PlatformIdentifier};
+use revive_dt_common::types::{
+    ParsedCompilationSpecifier, ParsedTestSpecifier, PlatformIdentifier,
+};
 use semver::Version;
 use serde::{Deserialize, Serialize, Serializer};
 use strum::{AsRefStr, Display, EnumString, IntoStaticStr};
@@ -40,7 +42,7 @@ pub enum Context {
     ExportGenesis(Box<ExportGenesisContext>),
 
     /// Compiles contracts using the provided compiler build, without executing any tests.
-    Compile(Box<CompilationContext>),
+    Compile(Box<StandaloneCompilationContext>),
 }
 
 impl Context {
@@ -554,7 +556,7 @@ pub struct ExportGenesisContext {
 }
 
 #[derive(Clone, Debug, Parser, Serialize, Deserialize)]
-pub struct CompilationContext {
+pub struct StandaloneCompilationContext {
     /// The label for the resolc build used (e.g., linux, macos, windows, wasm).
     #[arg(long)]
     pub build_label: String,
@@ -595,6 +597,10 @@ pub struct CompilationContext {
     /// Configuration parameters for the report.
     #[clap(flatten, next_help_heading = "Report Configuration")]
     pub report_configuration: ReportConfiguration,
+
+    /// The output format to use for the tool's output.
+    #[arg(short, long, default_value_t = OutputFormat::CargoTestLike)]
+    pub output_format: OutputFormat,
 }
 
 impl Default for TestExecutionContext {
@@ -831,49 +837,49 @@ impl AsRef<WalletConfiguration> for ExportGenesisContext {
     }
 }
 
-impl Default for CompilationContext {
+impl Default for StandaloneCompilationContext {
     fn default() -> Self {
         Self::parse_from(["compilation-context", "--compile", "."])
     }
 }
 
-impl AsRef<WorkingDirectoryConfiguration> for CompilationContext {
+impl AsRef<WorkingDirectoryConfiguration> for StandaloneCompilationContext {
     fn as_ref(&self) -> &WorkingDirectoryConfiguration {
         &self.working_directory
     }
 }
 
-impl AsRef<CorpusCompilationConfiguration> for CompilationContext {
+impl AsRef<CorpusCompilationConfiguration> for StandaloneCompilationContext {
     fn as_ref(&self) -> &CorpusCompilationConfiguration {
         &self.corpus_configuration
     }
 }
 
-impl AsRef<SolcConfiguration> for CompilationContext {
+impl AsRef<SolcConfiguration> for StandaloneCompilationContext {
     fn as_ref(&self) -> &SolcConfiguration {
         &self.solc_configuration
     }
 }
 
-impl AsRef<ResolcConfiguration> for CompilationContext {
+impl AsRef<ResolcConfiguration> for StandaloneCompilationContext {
     fn as_ref(&self) -> &ResolcConfiguration {
         &self.resolc_configuration
     }
 }
 
-impl AsRef<ConcurrencyConfiguration> for CompilationContext {
+impl AsRef<ConcurrencyConfiguration> for StandaloneCompilationContext {
     fn as_ref(&self) -> &ConcurrencyConfiguration {
         &self.concurrency_configuration
     }
 }
 
-impl AsRef<CompilationConfiguration> for CompilationContext {
+impl AsRef<CompilationConfiguration> for StandaloneCompilationContext {
     fn as_ref(&self) -> &CompilationConfiguration {
         &self.compilation_configuration
     }
 }
 
-impl AsRef<ReportConfiguration> for CompilationContext {
+impl AsRef<ReportConfiguration> for StandaloneCompilationContext {
     fn as_ref(&self) -> &ReportConfiguration {
         &self.report_configuration
     }
@@ -913,7 +919,7 @@ pub struct CorpusCompilationConfiguration {
     ///   directory instructing the framework to discover the metadata files that live there and compile them.
     #[serde_as(as = "Vec<serde_with::DisplayFromStr>")]
     #[arg(short = 'c', long = "compile", required = true)]
-    pub compile_specifiers: Vec<ParsedCompileSpecifier>,
+    pub compilation_specifiers: Vec<ParsedCompilationSpecifier>,
 }
 
 /// A set of configuration parameters for Solc.

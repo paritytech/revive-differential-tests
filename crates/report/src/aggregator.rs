@@ -112,6 +112,15 @@ impl ReportAggregator {
                 RunnerEvent::PostLinkContractsCompilationFailed(event) => {
                     self.handle_post_link_contracts_compilation_failed_event(*event)
                 }
+                RunnerEvent::StandaloneContractsCompilationSucceeded(event) => {
+                    self.handle_standalone_contracts_compilation_succeeded_event(*event)
+                }
+                RunnerEvent::StandaloneContractsCompilationFailed(event) => {
+                    self.handle_standalone_contracts_compilation_failed_event(*event)
+                }
+                RunnerEvent::StandaloneContractsCompilationIgnored(event) => {
+                    self.handle_standalone_contracts_compilation_ignored_event(*event);
+                }
                 RunnerEvent::LibrariesDeployed(event) => {
                     self.handle_libraries_deployed_event(*event);
                 }
@@ -389,6 +398,66 @@ impl ReportAggregator {
         });
     }
 
+    fn handle_standalone_contracts_compilation_succeeded_event(
+        &mut self,
+        event: StandaloneContractsCompilationSucceededEvent,
+    ) {
+        let include_input = self
+            .report
+            .context
+            .report_configuration()
+            .include_compiler_input;
+        let include_output = self
+            .report
+            .context
+            .report_configuration()
+            .include_compiler_output;
+
+        let compilation_report = self.compilation_report(&event.compilation_specifier);
+
+        let compiler_input = if include_input {
+            event.compiler_input
+        } else {
+            None
+        };
+
+        compilation_report.status = Some(CompilationStatus::Success {
+            is_cached: event.is_cached,
+            compiler_version: event.compiler_version,
+            compiler_path: event.compiler_path,
+            compiler_input,
+            compiled_contracts_info: Self::generate_compiled_contracts_info(
+                event.compiler_output,
+                include_output,
+            ),
+        });
+    }
+
+    fn handle_standalone_contracts_compilation_failed_event(
+        &mut self,
+        event: StandaloneContractsCompilationFailedEvent,
+    ) {
+        let compilation_report = self.compilation_report(&event.compilation_specifier);
+
+        compilation_report.status = Some(CompilationStatus::Failure {
+            reason: event.reason,
+            compiler_version: event.compiler_version,
+            compiler_path: event.compiler_path,
+            compiler_input: event.compiler_input,
+        });
+    }
+
+    fn handle_standalone_contracts_compilation_ignored_event(
+        &mut self,
+        event: StandaloneContractsCompilationIgnoredEvent,
+    ) {
+        let report = self.compilation_report(&event.compilation_specifier);
+        report.status = Some(CompilationStatus::Ignored {
+            reason: event.reason,
+            additional_fields: event.additional_fields,
+        });
+    }
+
     fn handle_libraries_deployed_event(&mut self, event: LibrariesDeployedEvent) {
         self.execution_information(&event.execution_specifier)
             .deployed_libraries = Some(event.libraries);
@@ -563,6 +632,13 @@ impl ReportAggregator {
             .get_or_insert_default()
     }
 
+    fn compilation_report(&mut self, specifier: &CompilationSpecifier) -> &mut CompilationReport {
+        self.report
+            .compilation_information
+            .entry(specifier.metadata_file_path.clone().into())
+            .or_default()
+    }
+
     /// Generates the compiled contract information for each contract at each path.
     fn generate_compiled_contracts_info(
         compiler_output: CompilerOutput,
@@ -626,7 +702,11 @@ pub struct Report {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub metrics: Option<Metrics>,
     /// Information relating to each test case.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub execution_information: BTreeMap<MetadataFilePath, MetadataFileReport>,
+    /// Information relating to each compilation if in standalone compilation mode.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub compilation_information: BTreeMap<MetadataFilePath, CompilationReport>,
 }
 
 impl Report {
@@ -636,6 +716,7 @@ impl Report {
             metrics: Default::default(),
             metadata_files: Default::default(),
             execution_information: Default::default(),
+            compilation_information: Default::default(),
         }
     }
 }
@@ -741,6 +822,14 @@ pub struct ExecutionInformation {
     pub deployed_contracts: Option<BTreeMap<ContractInstance, Address>>,
 }
 
+/// The compilation report.
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
+pub struct CompilationReport {
+    /// The compilation status.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status: Option<CompilationStatus>,
+}
+
 /// Information related to compilation
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "status")]
@@ -776,6 +865,14 @@ pub enum CompilationStatus {
         /// the compiler was invoked.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         compiler_input: Option<CompilerInput>,
+    },
+    /// The compilation was ignored.
+    Ignored {
+        /// The reason behind the compilation being ignored.
+        reason: String,
+        /// Additional fields that describe more information on why the compilation is ignored.
+        #[serde(flatten)]
+        additional_fields: IndexMap<String, serde_json::Value>,
     },
 }
 

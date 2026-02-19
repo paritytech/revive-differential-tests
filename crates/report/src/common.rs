@@ -35,3 +35,10 @@ pub struct StepExecutionSpecifier {
     pub execution_specifier: Arc<ExecutionSpecifier>,
     pub step_idx: StepPath,
 }
+
+/// An absolute specifier for a compilation.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct CompilationSpecifier {
+    pub solc_mode: Mode,
+    pub metadata_file_path: PathBuf,
+}

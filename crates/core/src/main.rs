@@ -1,10 +1,11 @@
+mod compilations;
 mod differential_benchmarks;
 mod differential_tests;
 mod helpers;
 
 use anyhow::{Context as _, bail};
 use clap::Parser;
-use revive_dt_report::{ReportAggregator, TestCaseStatus};
+use revive_dt_report::{CompilationStatus, ReportAggregator, TestCaseStatus};
 use schemars::schema_for;
 use tracing::{info, level_filters::LevelFilter};
 use tracing_subscriber::{EnvFilter, FmtSubscriber};
@@ -14,7 +15,7 @@ use revive_dt_core::Platform;
 use revive_dt_format::metadata::Metadata;
 
 use crate::{
-    differential_benchmarks::handle_differential_benchmarks,
+    compilations::handle_compilations, differential_benchmarks::handle_differential_benchmarks,
     differential_tests::handle_differential_tests,
 };
 
@@ -123,11 +124,28 @@ fn main() -> anyhow::Result<()> {
 
             Ok(())
         }
-        // TODO:
-        Context::Compile(context) => {
-            println!("In Context::Compile");
-            println!("{:?}", context);
-            todo!()
-        }
+        Context::Compile(context) => tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(context.concurrency_configuration.number_of_threads)
+            .enable_all()
+            .build()
+            .expect("Failed building the Runtime")
+            .block_on(async move {
+                let compilations_handling_task = handle_compilations(*context, reporter);
+
+                let (_, report) =
+                    futures::future::try_join(compilations_handling_task, report_aggregator_task)
+                        .await?;
+
+                let contains_failure = report
+                    .compilation_information
+                    .values()
+                    .any(|report| matches!(report.status, Some(CompilationStatus::Failure { .. })));
+
+                if contains_failure {
+                    bail!("Some compilations failed")
+                }
+
+                Ok(())
+            }),
     }
 }

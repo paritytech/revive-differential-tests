@@ -16,7 +16,10 @@ use tokio::sync::{broadcast, oneshot};
 
 use crate::MinedBlockInformation;
 use crate::TransactionInformation;
-use crate::{ExecutionSpecifier, ReporterEvent, TestSpecifier, common::MetadataFilePath};
+use crate::{
+    CompilationSpecifier, ExecutionSpecifier, ReporterEvent, TestSpecifier,
+    common::MetadataFilePath,
+};
 
 macro_rules! __report_gen_emit_test_specific {
     (
@@ -303,6 +306,106 @@ macro_rules! __report_gen_for_variant_step {
     };
 }
 
+macro_rules! __report_gen_emit_compilation_specific {
+    (
+        $ident:ident,
+        $variant_ident:ident,
+        $skip_field:ident;
+        $( $bname:ident : $bty:ty, )*
+        ;
+        $( $aname:ident : $aty:ty, )*
+    ) => {
+        paste::paste! {
+            pub fn [< report_ $variant_ident:snake _event >](
+                &self
+                $(, $bname: impl Into<$bty> )*
+                $(, $aname: impl Into<$aty> )*
+            ) -> anyhow::Result<()> {
+                self.report([< $variant_ident Event >] {
+                    $skip_field: self.compilation_specifier.clone()
+                    $(, $bname: $bname.into() )*
+                    $(, $aname: $aname.into() )*
+                })
+            }
+        }
+    };
+}
+
+macro_rules! __report_gen_emit_compilation_specific_by_parse {
+    (
+        $ident:ident,
+        $variant_ident:ident,
+        $skip_field:ident;
+        $( $bname:ident : $bty:ty, )* ; $( $aname:ident : $aty:ty, )*
+    ) => {
+        __report_gen_emit_compilation_specific!(
+            $ident, $variant_ident, $skip_field;
+            $( $bname : $bty, )* ; $( $aname : $aty, )*
+        );
+    };
+}
+
+macro_rules! __report_gen_scan_before_compilation {
+    // Match case: found `compilation_specifier` field - generate the method.
+    (
+        $ident:ident, $variant_ident:ident;
+        $( $before:ident : $bty:ty, )*
+        ;
+        compilation_specifier : $skip_ty:ty,
+        $( $after:ident : $aty:ty, )*
+        ;
+    ) => {
+        __report_gen_emit_compilation_specific_by_parse!(
+            $ident, $variant_ident, compilation_specifier;
+            $( $before : $bty, )* ; $( $after : $aty, )*
+        );
+    };
+    // Recursive case: field doesn't match, move it to "before" and continue scanning.
+    (
+        $ident:ident, $variant_ident:ident;
+        $( $before:ident : $bty:ty, )*
+        ;
+        $name:ident : $ty:ty, $( $after:ident : $aty:ty, )*
+        ;
+    ) => {
+        __report_gen_scan_before_compilation!(
+            $ident, $variant_ident;
+            $( $before : $bty, )* $name : $ty,
+            ;
+            $( $after : $aty, )*
+            ;
+        );
+    };
+    // Terminal case: no more fields to scan, no `compilation_specifier` found - do nothing.
+    (
+        $ident:ident, $variant_ident:ident;
+        $( $before:ident : $bty:ty, )*
+        ;
+        ;
+    ) => {};
+}
+
+macro_rules! __report_gen_for_variant_compilation {
+    // Empty variant case.
+    (
+        $ident:ident,
+        $variant_ident:ident;
+    ) => {};
+    // Variant with fields - start scanning.
+    (
+        $ident:ident,
+        $variant_ident:ident;
+        $( $field_ident:ident : $field_ty:ty ),+ $(,)?
+    ) => {
+        __report_gen_scan_before_compilation!(
+            $ident, $variant_ident;
+            ;
+            $( $field_ident : $field_ty, )*
+            ;
+        );
+    };
+}
+
 /// Defines the runner-event which is sent from the test runners to the report aggregator.
 ///
 /// This macro defines a number of things related to the reporting infrastructure and the interface
@@ -401,6 +504,16 @@ macro_rules! define_event {
                     }
                 }
 
+                pub fn compilation_specific_reporter(
+                    &self,
+                    compilation_specifier: impl Into<std::sync::Arc<crate::common::CompilationSpecifier>>
+                ) -> [< $ident StandaloneCompilationSpecificReporter >] {
+                    [< $ident StandaloneCompilationSpecificReporter >] {
+                        reporter: self.clone(),
+                        compilation_specifier: compilation_specifier.into(),
+                    }
+                }
+
                 fn report(&self, event: impl Into<$ident>) -> anyhow::Result<()> {
                     self.0.send(event.into()).map_err(Into::into)
                 }
@@ -478,6 +591,23 @@ macro_rules! define_event {
 
                 $(
                     __report_gen_for_variant_step! { $ident, $variant_ident; $( $field_ident : $field_ty ),* }
+                )*
+            }
+
+            /// A reporter that's tied to a specific compilation.
+            #[derive(Clone, Debug)]
+            pub struct [< $ident StandaloneCompilationSpecificReporter >] {
+                $vis reporter: [< $ident Reporter >],
+                $vis compilation_specifier: std::sync::Arc<crate::common::CompilationSpecifier>,
+            }
+
+            impl [< $ident StandaloneCompilationSpecificReporter >] {
+                fn report(&self, event: impl Into<$ident>) -> anyhow::Result<()> {
+                    self.reporter.report(event)
+                }
+
+                $(
+                    __report_gen_for_variant_compilation! { $ident, $variant_ident; $( $field_ident : $field_ty ),* }
                 )*
             }
         }
@@ -605,6 +735,47 @@ define_event! {
             /// The failure reason.
             reason: String,
         },
+        /// An event emitted by the runners when the compilation of the contracts has succeeded.
+        /// Unlike [`PreLinkContractsCompilationSucceeded`], this should be used in standalone compilation mode.
+        StandaloneContractsCompilationSucceeded {
+            /// A specifier for the compilation that's taking place.
+            compilation_specifier: Arc<CompilationSpecifier>,
+            /// The version of the compiler used to compile the contracts.
+            compiler_version: Version,
+            /// The path of the compiler used to compile the contracts.
+            compiler_path: PathBuf,
+            /// A flag of whether the contract bytecode and ABI were cached or if they were compiled anew.
+            is_cached: bool,
+            /// The input provided to the compiler - this is optional and not provided if the
+            /// contracts were obtained from the cache.
+            compiler_input: Option<CompilerInput>,
+            /// The output of the compiler.
+            compiler_output: CompilerOutput
+        },
+        /// An event emitted by the runners when the compilation of the contracts has failed.
+        /// Unlike [`PreLinkContractsCompilationFailed`], this should be used in standalone compilation mode.
+        StandaloneContractsCompilationFailed {
+            /// A specifier for the compilation that's taking place.
+            compilation_specifier: Arc<CompilationSpecifier>,
+            /// The version of the compiler used to compile the contracts.
+            compiler_version: Option<Version>,
+            /// The path of the compiler used to compile the contracts.
+            compiler_path: Option<PathBuf>,
+            /// The input provided to the compiler - this is optional and not provided if the
+            /// contracts were obtained from the cache.
+            compiler_input: Option<CompilerInput>,
+            /// The failure reason.
+            reason: String,
+        },
+        /// An event emitted by the runners when a compilation is ignored.
+        StandaloneContractsCompilationIgnored {
+            /// A specifier for the compilation that has been ignored.
+            compilation_specifier: Arc<CompilationSpecifier>,
+            /// A reason for the compilation to be ignored.
+            reason: String,
+            /// Additional fields that describe more information on why the compilation was ignored.
+            additional_fields: IndexMap<String, serde_json::Value>
+        },
         /// An event emitted by the runners when a library has been deployed.
         LibrariesDeployed {
             /// A specifier for the execution that's taking place.
@@ -667,3 +838,10 @@ impl RunnerEventReporter {
 pub type Reporter = RunnerEventReporter;
 pub type TestSpecificReporter = RunnerEventTestSpecificReporter;
 pub type ExecutionSpecificReporter = RunnerEventExecutionSpecificReporter;
+pub type StandaloneCompilationSpecificReporter = RunnerEventStandaloneCompilationSpecificReporter;
+
+/// A wrapper that allows functions to accept either reporter type for compilation events.
+pub enum CompilationReporter<'a> {
+    Execution(&'a ExecutionSpecificReporter),
+    Standalone(&'a StandaloneCompilationSpecificReporter),
+}

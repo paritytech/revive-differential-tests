@@ -8,7 +8,7 @@ use anyhow::Context as _;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum ParsedCompileSpecifier {
+pub enum ParsedCompilationSpecifier {
     /// All of the contracts in the file should be compiled.
     FileOrDirectory {
         /// The path of the metadata file containing the contracts or the references to the contracts.
@@ -16,20 +16,20 @@ pub enum ParsedCompileSpecifier {
     },
 }
 
-impl ParsedCompileSpecifier {
+impl ParsedCompilationSpecifier {
     pub fn metadata_path(&self) -> &Path {
         match self {
-            ParsedCompileSpecifier::FileOrDirectory {
+            ParsedCompilationSpecifier::FileOrDirectory {
                 metadata_or_directory_file_path: metadata_file_path,
             } => metadata_file_path,
         }
     }
 }
 
-impl Display for ParsedCompileSpecifier {
+impl Display for ParsedCompilationSpecifier {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ParsedCompileSpecifier::FileOrDirectory {
+            ParsedCompilationSpecifier::FileOrDirectory {
                 metadata_or_directory_file_path,
             } => {
                 write!(f, "{}", metadata_or_directory_file_path.display())
@@ -38,7 +38,7 @@ impl Display for ParsedCompileSpecifier {
     }
 }
 
-impl FromStr for ParsedCompileSpecifier {
+impl FromStr for ParsedCompilationSpecifier {
     type Err = anyhow::Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
@@ -52,13 +52,13 @@ impl FromStr for ParsedCompileSpecifier {
     }
 }
 
-impl From<ParsedCompileSpecifier> for String {
-    fn from(value: ParsedCompileSpecifier) -> Self {
+impl From<ParsedCompilationSpecifier> for String {
+    fn from(value: ParsedCompilationSpecifier) -> Self {
         value.to_string()
     }
 }
 
-impl TryFrom<String> for ParsedCompileSpecifier {
+impl TryFrom<String> for ParsedCompilationSpecifier {
     type Error = anyhow::Error;
 
     fn try_from(value: String) -> Result<Self, Self::Error> {
@@ -66,7 +66,7 @@ impl TryFrom<String> for ParsedCompileSpecifier {
     }
 }
 
-impl TryFrom<&str> for ParsedCompileSpecifier {
+impl TryFrom<&str> for ParsedCompilationSpecifier {
     type Error = anyhow::Error;
 
     fn try_from(value: &str) -> Result<Self, Self::Error> {
@@ -74,7 +74,7 @@ impl TryFrom<&str> for ParsedCompileSpecifier {
     }
 }
 
-impl Serialize for ParsedCompileSpecifier {
+impl Serialize for ParsedCompilationSpecifier {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
@@ -83,7 +83,7 @@ impl Serialize for ParsedCompileSpecifier {
     }
 }
 
-impl<'de> Deserialize<'de> for ParsedCompileSpecifier {
+impl<'de> Deserialize<'de> for ParsedCompilationSpecifier {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: serde::Deserializer<'de>,
