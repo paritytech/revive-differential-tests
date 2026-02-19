@@ -21,11 +21,13 @@ use crate::{
     common::MetadataFilePath,
 };
 
-macro_rules! __report_gen_emit_test_specific {
+/// Generates a report method that emits an event, auto-filling the specifier from self.
+macro_rules! __report_gen_emit_with_specifier {
     (
         $ident:ident,
         $variant_ident:ident,
-        $skip_field:ident;
+        $specifier_field_on_self:ident,
+        $specifier_field_on_event:ident;
         $( $bname:ident : $bty:ty, )*
         ;
         $( $aname:ident : $aty:ty, )*
@@ -37,7 +39,7 @@ macro_rules! __report_gen_emit_test_specific {
                 $(, $aname: impl Into<$aty> )*
             ) -> anyhow::Result<()> {
                 self.report([< $variant_ident Event >] {
-                    $skip_field: self.test_specifier.clone()
+                    $specifier_field_on_event: self.$specifier_field_on_self.clone()
                     $(, $bname: $bname.into() )*
                     $(, $aname: $aname.into() )*
                 })
@@ -46,359 +48,147 @@ macro_rules! __report_gen_emit_test_specific {
     };
 }
 
-macro_rules! __report_gen_emit_test_specific_by_parse {
+/// Scans event fields looking for a matching specifier field name.
+///
+/// Each MATCH arm maps a specifier field on `self` (the reporter) to a specifier field
+/// on the event enum variant. This allows for the event's field to have a different name
+/// than the reporter's specifier field if needed (e.g., `specifier` instead of `test_specifier`).
+///
+/// To support a new specifier field, just add a corresponding MATCH arm.
+macro_rules! __report_gen_scan_for_specifier {
+    // MATCH: test_specifier (on self) -> test_specifier (on event).
     (
         $ident:ident,
         $variant_ident:ident,
-        $skip_field:ident;
-        $( $bname:ident : $bty:ty, )* ; $( $aname:ident : $aty:ty, )*
-    ) => {
-        __report_gen_emit_test_specific!(
-            $ident, $variant_ident, $skip_field;
-            $( $bname : $bty, )* ; $( $aname : $aty, )*
-        );
-    };
-}
-
-macro_rules! __report_gen_scan_before {
-    (
-        $ident:ident, $variant_ident:ident;
+        test_specifier;
         $( $before:ident : $bty:ty, )*
         ;
         test_specifier : $skip_ty:ty,
         $( $after:ident : $aty:ty, )*
         ;
     ) => {
-        __report_gen_emit_test_specific_by_parse!(
-            $ident, $variant_ident, test_specifier;
+        __report_gen_emit_with_specifier!(
+            $ident,
+            $variant_ident,
+            test_specifier,
+            test_specifier;
             $( $before : $bty, )* ; $( $after : $aty, )*
         );
     };
-    (
-        $ident:ident, $variant_ident:ident;
-        $( $before:ident : $bty:ty, )*
-        ;
-        $name:ident : $ty:ty, $( $after:ident : $aty:ty, )*
-        ;
-    ) => {
-        __report_gen_scan_before!(
-            $ident, $variant_ident;
-            $( $before : $bty, )* $name : $ty,
-            ;
-            $( $after : $aty, )*
-            ;
-        );
-    };
-    (
-        $ident:ident, $variant_ident:ident;
-        $( $before:ident : $bty:ty, )*
-        ;
-        ;
-    ) => {};
-}
 
-macro_rules! __report_gen_for_variant {
-    (
-        $ident:ident,
-        $variant_ident:ident;
-    ) => {};
-    (
-        $ident:ident,
-        $variant_ident:ident;
-        $( $field_ident:ident : $field_ty:ty ),+ $(,)?
-    ) => {
-        __report_gen_scan_before!(
-            $ident, $variant_ident;
-            ;
-            $( $field_ident : $field_ty, )*
-            ;
-        );
-    };
-}
-
-macro_rules! __report_gen_emit_execution_specific {
+    // MATCH: execution_specifier (on self) -> execution_specifier (on event).
     (
         $ident:ident,
         $variant_ident:ident,
-        $skip_field:ident;
-        $( $bname:ident : $bty:ty, )*
-        ;
-        $( $aname:ident : $aty:ty, )*
-    ) => {
-        paste::paste! {
-            pub fn [< report_ $variant_ident:snake _event >](
-                &self
-                $(, $bname: impl Into<$bty> )*
-                $(, $aname: impl Into<$aty> )*
-            ) -> anyhow::Result<()> {
-                self.report([< $variant_ident Event >] {
-                    $skip_field: self.execution_specifier.clone()
-                    $(, $bname: $bname.into() )*
-                    $(, $aname: $aname.into() )*
-                })
-            }
-        }
-    };
-}
-
-macro_rules! __report_gen_emit_execution_specific_by_parse {
-    (
-        $ident:ident,
-        $variant_ident:ident,
-        $skip_field:ident;
-        $( $bname:ident : $bty:ty, )* ; $( $aname:ident : $aty:ty, )*
-    ) => {
-        __report_gen_emit_execution_specific!(
-            $ident, $variant_ident, $skip_field;
-            $( $bname : $bty, )* ; $( $aname : $aty, )*
-        );
-    };
-}
-
-macro_rules! __report_gen_scan_before_exec {
-    (
-        $ident:ident, $variant_ident:ident;
+        execution_specifier;
         $( $before:ident : $bty:ty, )*
         ;
         execution_specifier : $skip_ty:ty,
         $( $after:ident : $aty:ty, )*
         ;
     ) => {
-        __report_gen_emit_execution_specific_by_parse!(
-            $ident, $variant_ident, execution_specifier;
+        __report_gen_emit_with_specifier!(
+            $ident,
+            $variant_ident,
+            execution_specifier,
+            execution_specifier;
             $( $before : $bty, )* ; $( $after : $aty, )*
         );
     };
-    (
-        $ident:ident, $variant_ident:ident;
-        $( $before:ident : $bty:ty, )*
-        ;
-        $name:ident : $ty:ty, $( $after:ident : $aty:ty, )*
-        ;
-    ) => {
-        __report_gen_scan_before_exec!(
-            $ident, $variant_ident;
-            $( $before : $bty, )* $name : $ty,
-            ;
-            $( $after : $aty, )*
-            ;
-        );
-    };
-    (
-        $ident:ident, $variant_ident:ident;
-        $( $before:ident : $bty:ty, )*
-        ;
-        ;
-    ) => {};
-}
 
-macro_rules! __report_gen_for_variant_exec {
-    (
-        $ident:ident,
-        $variant_ident:ident;
-    ) => {};
-    (
-        $ident:ident,
-        $variant_ident:ident;
-        $( $field_ident:ident : $field_ty:ty ),+ $(,)?
-    ) => {
-        __report_gen_scan_before_exec!(
-            $ident, $variant_ident;
-            ;
-            $( $field_ident : $field_ty, )*
-            ;
-        );
-    };
-}
-
-macro_rules! __report_gen_emit_step_execution_specific {
+    // MATCH: step_specifier (on self) -> step_specifier (on event).
     (
         $ident:ident,
         $variant_ident:ident,
-        $skip_field:ident;
-        $( $bname:ident : $bty:ty, )*
-        ;
-        $( $aname:ident : $aty:ty, )*
-    ) => {
-        paste::paste! {
-            pub fn [< report_ $variant_ident:snake _event >](
-                &self
-                $(, $bname: impl Into<$bty> )*
-                $(, $aname: impl Into<$aty> )*
-            ) -> anyhow::Result<()> {
-                self.report([< $variant_ident Event >] {
-                    $skip_field: self.step_specifier.clone()
-                    $(, $bname: $bname.into() )*
-                    $(, $aname: $aname.into() )*
-                })
-            }
-        }
-    };
-}
-
-macro_rules! __report_gen_emit_step_execution_specific_by_parse {
-    (
-        $ident:ident,
-        $variant_ident:ident,
-        $skip_field:ident;
-        $( $bname:ident : $bty:ty, )* ; $( $aname:ident : $aty:ty, )*
-    ) => {
-        __report_gen_emit_step_execution_specific!(
-            $ident, $variant_ident, $skip_field;
-            $( $bname : $bty, )* ; $( $aname : $aty, )*
-        );
-    };
-}
-
-macro_rules! __report_gen_scan_before_step {
-    (
-        $ident:ident, $variant_ident:ident;
+        step_specifier;
         $( $before:ident : $bty:ty, )*
         ;
         step_specifier : $skip_ty:ty,
         $( $after:ident : $aty:ty, )*
         ;
     ) => {
-        __report_gen_emit_step_execution_specific_by_parse!(
-            $ident, $variant_ident, step_specifier;
+        __report_gen_emit_with_specifier!(
+            $ident,
+            $variant_ident,
+            step_specifier,
+            step_specifier;
             $( $before : $bty, )* ; $( $after : $aty, )*
         );
     };
-    (
-        $ident:ident, $variant_ident:ident;
-        $( $before:ident : $bty:ty, )*
-        ;
-        $name:ident : $ty:ty, $( $after:ident : $aty:ty, )*
-        ;
-    ) => {
-        __report_gen_scan_before_step!(
-            $ident, $variant_ident;
-            $( $before : $bty, )* $name : $ty,
-            ;
-            $( $after : $aty, )*
-            ;
-        );
-    };
-    (
-        $ident:ident, $variant_ident:ident;
-        $( $before:ident : $bty:ty, )*
-        ;
-        ;
-    ) => {};
-}
 
-macro_rules! __report_gen_for_variant_step {
-    (
-        $ident:ident,
-        $variant_ident:ident;
-    ) => {};
-    (
-        $ident:ident,
-        $variant_ident:ident;
-        $( $field_ident:ident : $field_ty:ty ),+ $(,)?
-    ) => {
-        __report_gen_scan_before_step!(
-            $ident, $variant_ident;
-            ;
-            $( $field_ident : $field_ty, )*
-            ;
-        );
-    };
-}
-
-macro_rules! __report_gen_emit_compilation_specific {
+    // MATCH: compilation_specifier (on self) -> compilation_specifier (on event).
     (
         $ident:ident,
         $variant_ident:ident,
-        $skip_field:ident;
-        $( $bname:ident : $bty:ty, )*
-        ;
-        $( $aname:ident : $aty:ty, )*
-    ) => {
-        paste::paste! {
-            pub fn [< report_ $variant_ident:snake _event >](
-                &self
-                $(, $bname: impl Into<$bty> )*
-                $(, $aname: impl Into<$aty> )*
-            ) -> anyhow::Result<()> {
-                self.report([< $variant_ident Event >] {
-                    $skip_field: self.compilation_specifier.clone()
-                    $(, $bname: $bname.into() )*
-                    $(, $aname: $aname.into() )*
-                })
-            }
-        }
-    };
-}
-
-macro_rules! __report_gen_emit_compilation_specific_by_parse {
-    (
-        $ident:ident,
-        $variant_ident:ident,
-        $skip_field:ident;
-        $( $bname:ident : $bty:ty, )* ; $( $aname:ident : $aty:ty, )*
-    ) => {
-        __report_gen_emit_compilation_specific!(
-            $ident, $variant_ident, $skip_field;
-            $( $bname : $bty, )* ; $( $aname : $aty, )*
-        );
-    };
-}
-
-macro_rules! __report_gen_scan_before_compilation {
-    // Match case: found `compilation_specifier` field - generate the method.
-    (
-        $ident:ident, $variant_ident:ident;
+        compilation_specifier;
         $( $before:ident : $bty:ty, )*
         ;
         compilation_specifier : $skip_ty:ty,
         $( $after:ident : $aty:ty, )*
         ;
     ) => {
-        __report_gen_emit_compilation_specific_by_parse!(
-            $ident, $variant_ident, compilation_specifier;
+        __report_gen_emit_with_specifier!(
+            $ident,
+            $variant_ident,
+            compilation_specifier,
+            compilation_specifier;
             $( $before : $bty, )* ; $( $after : $aty, )*
         );
     };
-    // Recursive case: field doesn't match, move it to "before" and continue scanning.
+
+    // RECURSIVE: Field doesn't match, continue scanning.
     (
-        $ident:ident, $variant_ident:ident;
+        $ident:ident,
+        $variant_ident:ident,
+        $specifier_field_on_self:ident;
         $( $before:ident : $bty:ty, )*
         ;
-        $name:ident : $ty:ty, $( $after:ident : $aty:ty, )*
+        $name:ident : $ty:ty,
+        $( $after:ident : $aty:ty, )*
         ;
     ) => {
-        __report_gen_scan_before_compilation!(
-            $ident, $variant_ident;
+        __report_gen_scan_for_specifier!(
+            $ident,
+            $variant_ident,
+            $specifier_field_on_self;
             $( $before : $bty, )* $name : $ty,
             ;
             $( $after : $aty, )*
             ;
         );
     };
-    // Terminal case: no more fields to scan, no `compilation_specifier` found - do nothing.
+
+    // TERMINAL: No matching specifier found.
     (
-        $ident:ident, $variant_ident:ident;
+        $ident:ident,
+        $variant_ident:ident,
+        $specifier_field_on_self:ident;
         $( $before:ident : $bty:ty, )*
         ;
         ;
     ) => {};
 }
 
-macro_rules! __report_gen_for_variant_compilation {
-    // Empty variant case.
+/// Entry point: Processes a variant and starts scanning for specifier fields.
+macro_rules! __report_gen_for_variant {
+    // Empty variant - no fields.
     (
         $ident:ident,
-        $variant_ident:ident;
+        $variant_ident:ident,
+        $specifier_field_on_self:ident;
     ) => {};
+
     // Variant with fields - start scanning.
     (
         $ident:ident,
-        $variant_ident:ident;
+        $variant_ident:ident,
+        $specifier_field_on_self:ident;
         $( $field_ident:ident : $field_ty:ty ),+ $(,)?
     ) => {
-        __report_gen_scan_before_compilation!(
-            $ident, $variant_ident;
+        __report_gen_scan_for_specifier!(
+            $ident,
+            $variant_ident,
+            $specifier_field_on_self;
             ;
             $( $field_ident : $field_ty, )*
             ;
@@ -555,7 +345,12 @@ macro_rules! define_event {
                 }
 
                 $(
-                    __report_gen_for_variant! { $ident, $variant_ident; $( $field_ident : $field_ty ),* }
+                    __report_gen_for_variant! {
+                        $ident,
+                        $variant_ident,
+                        test_specifier;
+                        $( $field_ident : $field_ty ),*
+                    }
                 )*
             }
 
@@ -573,7 +368,12 @@ macro_rules! define_event {
                 }
 
                 $(
-                    __report_gen_for_variant_exec! { $ident, $variant_ident; $( $field_ident : $field_ty ),* }
+                    __report_gen_for_variant! {
+                        $ident,
+                        $variant_ident,
+                        execution_specifier;
+                        $( $field_ident : $field_ty ),*
+                    }
                 )*
             }
 
@@ -590,7 +390,12 @@ macro_rules! define_event {
                 }
 
                 $(
-                    __report_gen_for_variant_step! { $ident, $variant_ident; $( $field_ident : $field_ty ),* }
+                    __report_gen_for_variant! {
+                        $ident,
+                        $variant_ident,
+                        step_specifier;
+                        $( $field_ident : $field_ty ),*
+                    }
                 )*
             }
 
@@ -607,7 +412,12 @@ macro_rules! define_event {
                 }
 
                 $(
-                    __report_gen_for_variant_compilation! { $ident, $variant_ident; $( $field_ident : $field_ty ),* }
+                    __report_gen_for_variant! {
+                        $ident,
+                        $variant_ident,
+                        compilation_specifier;
+                        $( $field_ident : $field_ty ),*
+                    }
                 )*
             }
         }
