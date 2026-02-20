@@ -915,7 +915,7 @@ pub struct CorpusExecutionConfiguration {
 #[serde_with::serde_as]
 #[derive(Clone, Debug, Parser, Serialize, Deserialize)]
 pub struct CorpusCompilationConfiguration {
-    /// A list of compile specifiers for the compilations that the tool should run.
+    /// A list of compilation specifiers for the compilations that the tool should run.
     ///
     /// Compile specifiers follow the following format:
     ///

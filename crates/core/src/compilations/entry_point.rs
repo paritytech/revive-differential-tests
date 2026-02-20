@@ -247,7 +247,7 @@ async fn start_cli_reporting_task(output_format: OutputFormat, verbose: bool, re
                             writeln!(buf, "compiling {} contracts", contract_count).unwrap();
 
                             for (source_path, contracts) in compiled_contracts_info {
-                                for (contract_name, _) in contracts {
+                                for contract_name in contracts.keys() {
                                     writeln!(
                                         buf,
                                         "compile {}::{} ... {}",
