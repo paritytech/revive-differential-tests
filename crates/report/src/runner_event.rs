@@ -445,6 +445,11 @@ define_event! {
             /// A specifier for the test that was discovered.
             test_specifier: Arc<TestSpecifier>,
         },
+        /// An event emitted by the runners when they discover a standalone compilation.
+        StandaloneCompilationDiscovery {
+            /// A specifier for the compilation that was discovered.
+            compilation_specifier: Arc<CompilationSpecifier>,
+        },
         /// An event emitted by the runners when a test case is ignored.
         TestIgnored {
             /// A specifier for the test that's been ignored.

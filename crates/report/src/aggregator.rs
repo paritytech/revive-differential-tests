@@ -37,6 +37,7 @@ pub struct ReportAggregator {
     /* Internal Report State */
     report: Report,
     remaining_cases: HashMap<MetadataFilePath, HashMap<Mode, HashSet<CaseIdx>>>,
+    remaining_compilation_modes: HashMap<MetadataFilePath, HashSet<Mode>>,
     /* Channels */
     runner_tx: Option<UnboundedSender<RunnerEvent>>,
     runner_rx: UnboundedReceiver<RunnerEvent>,
@@ -58,6 +59,7 @@ impl ReportAggregator {
             },
             report: Report::new(context),
             remaining_cases: Default::default(),
+            remaining_compilation_modes: Default::default(),
             runner_tx: Some(runner_tx),
             runner_rx,
             listener_tx,
@@ -87,6 +89,9 @@ impl ReportAggregator {
                 }
                 RunnerEvent::TestCaseDiscovery(event) => {
                     self.handle_test_case_discovery(*event);
+                }
+                RunnerEvent::StandaloneCompilationDiscovery(event) => {
+                    self.handle_standalone_compilation_discovery(*event);
                 }
                 RunnerEvent::TestSucceeded(event) => {
                     self.handle_test_succeeded_event(*event);
@@ -195,14 +200,25 @@ impl ReportAggregator {
             .insert(event.test_specifier.case_idx);
     }
 
+    fn handle_standalone_compilation_discovery(
+        &mut self,
+        event: StandaloneCompilationDiscoveryEvent,
+    ) {
+        self.remaining_compilation_modes
+            .entry(
+                event
+                    .compilation_specifier
+                    .metadata_file_path
+                    .clone()
+                    .into(),
+            )
+            .or_default()
+            .insert(event.compilation_specifier.solc_mode.clone());
+    }
+
     fn handle_test_succeeded_event(&mut self, event: TestSucceededEvent) {
         // Remove this from the set of cases we're tracking since it has completed.
-        self.remaining_cases
-            .entry(event.test_specifier.metadata_file_path.clone().into())
-            .or_default()
-            .entry(event.test_specifier.solc_mode.clone())
-            .or_default()
-            .remove(&event.test_specifier.case_idx);
+        self.remove_remaining_case(&event.test_specifier);
 
         // Add information on the fact that the case was ignored to the report.
         let test_case_report = self.test_case_report(&event.test_specifier);
@@ -214,12 +230,7 @@ impl ReportAggregator {
 
     fn handle_test_failed_event(&mut self, event: TestFailedEvent) {
         // Remove this from the set of cases we're tracking since it has completed.
-        self.remaining_cases
-            .entry(event.test_specifier.metadata_file_path.clone().into())
-            .or_default()
-            .entry(event.test_specifier.solc_mode.clone())
-            .or_default()
-            .remove(&event.test_specifier.case_idx);
+        self.remove_remaining_case(&event.test_specifier);
 
         // Add information on the fact that the case was ignored to the report.
         let test_case_report = self.test_case_report(&event.test_specifier);
@@ -231,12 +242,7 @@ impl ReportAggregator {
 
     fn handle_test_ignored_event(&mut self, event: TestIgnoredEvent) {
         // Remove this from the set of cases we're tracking since it has completed.
-        self.remaining_cases
-            .entry(event.test_specifier.metadata_file_path.clone().into())
-            .or_default()
-            .entry(event.test_specifier.solc_mode.clone())
-            .or_default()
-            .remove(&event.test_specifier.case_idx);
+        self.remove_remaining_case(&event.test_specifier);
 
         // Add information on the fact that the case was ignored to the report.
         let test_case_report = self.test_case_report(&event.test_specifier);
@@ -402,6 +408,9 @@ impl ReportAggregator {
         &mut self,
         event: StandaloneContractsCompilationSucceededEvent,
     ) {
+        // Remove this from the set we're tracking since it has completed.
+        self.remove_remaining_compilation_mode(&event.compilation_specifier);
+
         let include_input = self
             .report
             .context
@@ -435,7 +444,6 @@ impl ReportAggregator {
 
         self.handle_post_standalone_contracts_compilation_status_update(
             &event.compilation_specifier,
-            status,
         );
     }
 
@@ -443,6 +451,9 @@ impl ReportAggregator {
         &mut self,
         event: StandaloneContractsCompilationFailedEvent,
     ) {
+        // Remove this from the set we're tracking since it has completed.
+        self.remove_remaining_compilation_mode(&event.compilation_specifier);
+
         let status = CompilationStatus::Failure {
             reason: event.reason,
             compiler_version: event.compiler_version,
@@ -455,7 +466,6 @@ impl ReportAggregator {
 
         self.handle_post_standalone_contracts_compilation_status_update(
             &event.compilation_specifier,
-            status,
         );
     }
 
@@ -463,6 +473,9 @@ impl ReportAggregator {
         &mut self,
         event: StandaloneContractsCompilationIgnoredEvent,
     ) {
+        // Remove this from the set we're tracking since it has completed.
+        self.remove_remaining_compilation_mode(&event.compilation_specifier);
+
         let status = CompilationStatus::Ignored {
             reason: event.reason,
             additional_fields: event.additional_fields,
@@ -473,19 +486,36 @@ impl ReportAggregator {
 
         self.handle_post_standalone_contracts_compilation_status_update(
             &event.compilation_specifier,
-            status,
         );
     }
 
     fn handle_post_standalone_contracts_compilation_status_update(
         &mut self,
         specifier: &CompilationSpecifier,
-        status: CompilationStatus,
     ) {
-        let event = ReporterEvent::MetadataFileStandaloneCompilationCompleted {
+        let remaining_modes = self
+            .remaining_compilation_modes
+            .entry(specifier.metadata_file_path.clone().into())
+            .or_default();
+        if !remaining_modes.is_empty() {
+            return;
+        }
+
+        let final_status = self
+            .report
+            .compilation_information
+            .entry(specifier.metadata_file_path.clone().into())
+            .or_default()
+            .iter()
+            .flat_map(|(mode, report)| {
+                let status = report.status.clone().expect("Can't be uninitialized");
+                Some((mode.clone(), status))
+            })
+            .collect::<BTreeMap<_, _>>();
+
+        let event = ReporterEvent::MetadataFileModeCombinationCompilationCompleted {
             metadata_file_path: specifier.metadata_file_path.clone().into(),
-            mode: specifier.solc_mode.clone(),
-            status,
+            compilation_status: final_status,
         };
 
         // According to the documentation on send, the sending fails if there are no more receiver
@@ -726,6 +756,22 @@ impl ReportAggregator {
             Ok(bytes) => (true, B256::from_slice(&Sha256::digest(&bytes))),
             Err(_) => (false, B256::from_slice(&Sha256::digest(input.as_bytes()))),
         }
+    }
+
+    fn remove_remaining_case(&mut self, specifier: &TestSpecifier) {
+        self.remaining_cases
+            .entry(specifier.metadata_file_path.clone().into())
+            .or_default()
+            .entry(specifier.solc_mode.clone())
+            .or_default()
+            .remove(&specifier.case_idx);
+    }
+
+    fn remove_remaining_compilation_mode(&mut self, specifier: &CompilationSpecifier) {
+        self.remaining_compilation_modes
+            .entry(specifier.metadata_file_path.clone().into())
+            .or_default()
+            .remove(&specifier.solc_mode);
     }
 }
 

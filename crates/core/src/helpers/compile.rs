@@ -44,6 +44,11 @@ pub async fn create_compilation_definitions_stream<'a>(
                         metadata_file_path: metadata_file.metadata_file_path.clone(),
                     })),
                 )
+            })
+            .inspect(|(_, _, reporter)| {
+                reporter
+                    .report_standalone_compilation_discovery_event()
+                    .expect("Can't fail");
             }),
     )
     // Creating the `CompilationDefinition` objects from all of the various objects we have.
