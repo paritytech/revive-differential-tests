@@ -673,6 +673,8 @@ impl ReportAggregator {
             .compilation_information
             .entry(specifier.metadata_file_path.clone().into())
             .or_default()
+            .entry(specifier.solc_mode.clone())
+            .or_default()
     }
 
     /// Generates the compiled contract information for each contract at each path.
@@ -742,7 +744,8 @@ pub struct Report {
     pub execution_information: BTreeMap<MetadataFilePath, MetadataFileReport>,
     /// Information relating to each compilation if in standalone compilation mode.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    pub compilation_information: BTreeMap<MetadataFilePath, CompilationReport>,
+    #[serde_as(as = "BTreeMap<_, BTreeMap<DisplayFromStr, _>>")]
+    pub compilation_information: BTreeMap<MetadataFilePath, BTreeMap<Mode, CompilationReport>>,
 }
 
 impl Report {

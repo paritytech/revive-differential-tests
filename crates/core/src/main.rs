@@ -139,6 +139,7 @@ fn main() -> anyhow::Result<()> {
                 let contains_failure = report
                     .compilation_information
                     .values()
+                    .flat_map(|reports_per_mode| reports_per_mode.values())
                     .any(|report| matches!(report.status, Some(CompilationStatus::Failure { .. })));
 
                 if contains_failure {
