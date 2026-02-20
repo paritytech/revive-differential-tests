@@ -601,6 +601,11 @@ pub struct StandaloneCompilationContext {
     /// The output format to use for the tool's output.
     #[arg(short, long, default_value_t = OutputFormat::CargoTestLike)]
     pub output_format: OutputFormat,
+
+    /// Show verbose compilation details for each contract, rather than for
+    /// all contracts referenced in/by a metadata file combined.
+    #[arg(short, long)]
+    pub verbose: bool,
 }
 
 impl Default for TestExecutionContext {

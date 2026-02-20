@@ -413,15 +413,13 @@ impl ReportAggregator {
             .report_configuration()
             .include_compiler_output;
 
-        let compilation_report = self.compilation_report(&event.compilation_specifier);
-
         let compiler_input = if include_input {
             event.compiler_input
         } else {
             None
         };
 
-        compilation_report.status = Some(CompilationStatus::Success {
+        let status = CompilationStatus::Success {
             is_cached: event.is_cached,
             compiler_version: event.compiler_version,
             compiler_path: event.compiler_path,
@@ -430,32 +428,70 @@ impl ReportAggregator {
                 event.compiler_output,
                 include_output,
             ),
-        });
+        };
+
+        let report = self.compilation_report(&event.compilation_specifier);
+        report.status = Some(status.clone());
+
+        self.handle_post_standalone_contracts_compilation_status_update(
+            &event.compilation_specifier,
+            status,
+        );
     }
 
     fn handle_standalone_contracts_compilation_failed_event(
         &mut self,
         event: StandaloneContractsCompilationFailedEvent,
     ) {
-        let compilation_report = self.compilation_report(&event.compilation_specifier);
-
-        compilation_report.status = Some(CompilationStatus::Failure {
+        let status = CompilationStatus::Failure {
             reason: event.reason,
             compiler_version: event.compiler_version,
             compiler_path: event.compiler_path,
             compiler_input: event.compiler_input,
-        });
+        };
+
+        let report = self.compilation_report(&event.compilation_specifier);
+        report.status = Some(status.clone());
+
+        self.handle_post_standalone_contracts_compilation_status_update(
+            &event.compilation_specifier,
+            status,
+        );
     }
 
     fn handle_standalone_contracts_compilation_ignored_event(
         &mut self,
         event: StandaloneContractsCompilationIgnoredEvent,
     ) {
-        let report = self.compilation_report(&event.compilation_specifier);
-        report.status = Some(CompilationStatus::Ignored {
+        let status = CompilationStatus::Ignored {
             reason: event.reason,
             additional_fields: event.additional_fields,
-        });
+        };
+
+        let report = self.compilation_report(&event.compilation_specifier);
+        report.status = Some(status.clone());
+
+        self.handle_post_standalone_contracts_compilation_status_update(
+            &event.compilation_specifier,
+            status,
+        );
+    }
+
+    fn handle_post_standalone_contracts_compilation_status_update(
+        &mut self,
+        specifier: &CompilationSpecifier,
+        status: CompilationStatus,
+    ) {
+        let event = ReporterEvent::MetadataFileStandaloneCompilationCompleted {
+            metadata_file_path: specifier.metadata_file_path.clone().into(),
+            mode: specifier.solc_mode.clone(),
+            status,
+        };
+
+        // According to the documentation on send, the sending fails if there are no more receiver
+        // handles. Therefore, this isn't an error that we want to bubble up or anything. If we fail
+        // to send then we ignore the error.
+        let _ = self.listener_tx.send(event);
     }
 
     fn handle_libraries_deployed_event(&mut self, event: LibrariesDeployedEvent) {
