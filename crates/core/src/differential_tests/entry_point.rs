@@ -3,13 +3,17 @@
 use std::{
     collections::{BTreeMap, BTreeSet},
     io::{BufWriter, Write, stderr},
-    sync::Arc,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
     time::{Duration, Instant},
 };
 
 use ansi_term::{ANSIStrings, Color};
 use anyhow::Context as _;
 use futures::{FutureExt, StreamExt};
+use indexmap::IndexMap;
 use revive_dt_common::types::PrivateKeyAllocator;
 use revive_dt_core::Platform;
 use revive_dt_format::corpus::Corpus;
@@ -123,10 +127,13 @@ pub async fn handle_differential_tests(
         .map(Semaphore::new)
         .map(Arc::new);
     let running_task_list = Arc::new(RwLock::new(BTreeSet::<usize>::new()));
+    let fail_fast_triggered = Arc::new(AtomicBool::new(false));
     let driver_task = futures::future::join_all(test_definitions.iter().enumerate().map(
         |(test_id, test_definition)| {
             let running_task_list = running_task_list.clone();
             let semaphore = semaphore.clone();
+            let fail_fast_triggered = fail_fast_triggered.clone();
+            let fail_fast = context.fail_fast;
 
             let private_key_allocator = private_key_allocator.clone();
             let cached_compiler = cached_compiler.clone();
@@ -139,10 +146,33 @@ pub async fn handle_differential_tests(
                 mode = %mode,
             );
             async move {
+                if fail_fast && fail_fast_triggered.load(Ordering::Relaxed) {
+                    test_definition
+                        .reporter
+                        .report_test_ignored_event(
+                            "Skipped due to fail-fast: a prior test failed".to_string(),
+                            IndexMap::new(),
+                        )
+                        .expect("aggregator task is joined later so the receiver is alive");
+                    return;
+                }
+
                 let permit = match semaphore.as_ref() {
                     Some(semaphore) => Some(semaphore.acquire().await.expect("Can't fail")),
                     None => None,
                 };
+
+                if fail_fast && fail_fast_triggered.load(Ordering::Relaxed) {
+                    test_definition
+                        .reporter
+                        .report_test_ignored_event(
+                            "Skipped due to fail-fast: a prior test failed".to_string(),
+                            IndexMap::new(),
+                        )
+                        .expect("aggregator task is joined later so the receiver is alive");
+                    drop(permit);
+                    return;
+                }
 
                 running_task_list.write().await.insert(test_id);
                 let driver = match Driver::new_root(
@@ -158,6 +188,9 @@ pub async fn handle_differential_tests(
                             .reporter
                             .report_test_failed_event(format!("{error:#}"))
                             .expect("Can't fail");
+                        if fail_fast {
+                            fail_fast_triggered.store(true, Ordering::Relaxed);
+                        }
                         error!("Test Case Failed");
                         drop(permit);
                         running_task_list.write().await.remove(&test_id);
@@ -176,6 +209,9 @@ pub async fn handle_differential_tests(
                             .reporter
                             .report_test_failed_event(format!("{error:#}"))
                             .expect("Can't fail");
+                        if fail_fast {
+                            fail_fast_triggered.store(true, Ordering::Relaxed);
+                        }
                         error!("Test Case Failed");
                     }
                 };
