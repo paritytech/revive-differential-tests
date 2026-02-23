@@ -1,10 +1,32 @@
-use syn::{Attribute, Item, ItemMod, Path, spanned::Spanned};
+use syn::{Attribute, Ident, Item, ItemMod, Path, spanned::Spanned};
 
-use super::parse::{TypeKind, classify_type, type_name};
+use super::parse::{TypeKind, classify_type, type_ident};
 use super::types::{Configuration, ContextArgs, Subcommand, TypeDef, ValidatedModule};
 
 fn is_context_attr(attr: &Attribute) -> bool {
     attr.path().is_ident("subcommand") || attr.path().is_ident("configuration")
+}
+
+/// Check if a field has a `#[clap(...)]` or `#[arg(...)]` attribute containing any of the
+/// given nested meta names.
+fn has_clap_attr(field: &syn::Field, names: &[&str]) -> bool {
+    field.attrs.iter().any(|attr| {
+        if !attr.path().is_ident("clap") && !attr.path().is_ident("arg") {
+            return false;
+        }
+        let mut found = false;
+        let _ = attr.parse_nested_meta(|meta| {
+            if names.iter().any(|name| meta.path.is_ident(name)) {
+                found = true;
+            }
+            if meta.input.peek(syn::Token![=]) {
+                meta.input.parse::<syn::Token![=]>()?;
+                let _ = meta.input.parse::<syn::Lit>()?;
+            }
+            Ok(())
+        });
+        found
+    })
 }
 
 /// Strip `#[subcommand]` and `#[configuration]` attributes from a type definition.
@@ -53,27 +75,7 @@ pub(crate) fn apply_config_key_prefixes(type_def: &mut TypeDef, key: &str) {
             continue;
         };
 
-        // Check if any existing clap/arg attribute already has `long` or `id`
-        let has_explicit_long_or_id = field.attrs.iter().any(|attr| {
-            if !attr.path().is_ident("clap") && !attr.path().is_ident("arg") {
-                return false;
-            }
-            let mut found = false;
-            let _ = attr.parse_nested_meta(|meta| {
-                if meta.path.is_ident("long") || meta.path.is_ident("id") {
-                    found = true;
-                }
-                // Skip the value if present
-                if meta.input.peek(syn::Token![=]) {
-                    meta.input.parse::<syn::Token![=]>()?;
-                    let _ = meta.input.parse::<syn::Lit>()?;
-                }
-                Ok(())
-            });
-            found
-        });
-
-        if has_explicit_long_or_id {
+        if has_clap_attr(field, &["long", "id", "skip"]) {
             continue;
         }
 
@@ -85,6 +87,40 @@ pub(crate) fn apply_config_key_prefixes(type_def: &mut TypeDef, key: &str) {
     }
 }
 
+/// For each subcommand field whose type matches a configuration type name,
+/// auto-add `#[clap(flatten)]` if the field doesn't already have it.
+fn apply_auto_flatten(
+    subcommands: &mut [super::types::Subcommand],
+    configurations: &[super::types::Configuration],
+) {
+    let config_idents: std::collections::HashSet<&Ident> =
+        configurations.iter().map(|c| c.type_def.ident()).collect();
+
+    if config_idents.is_empty() {
+        return;
+    }
+
+    for subcmd in subcommands {
+        let fields = match &mut subcmd.type_def {
+            TypeDef::Struct(s) => &mut s.fields,
+            TypeDef::Enum(_) => continue,
+        };
+
+        for field in fields.iter_mut() {
+            let Some(field_ty_ident) = type_ident(&field.ty) else {
+                continue;
+            };
+            if !config_idents.contains(field_ty_ident) {
+                continue;
+            }
+
+            if !has_clap_attr(field, &["flatten"]) {
+                field.attrs.push(syn::parse_quote! { #[clap(flatten)] });
+            }
+        }
+    }
+}
+
 /// For each subcommand field whose type matches a configuration with a `help_heading`,
 /// add `#[clap(next_help_heading = "...")]` if the field has `#[clap(flatten)]` and
 /// doesn't already have `next_help_heading`.
@@ -92,16 +128,14 @@ fn apply_help_headings(
     subcommands: &mut [super::types::Subcommand],
     configurations: &[super::types::Configuration],
 ) {
-    use super::parse::type_name;
-
-    // Build a map: config type name → help_heading
-    let config_headings: std::collections::HashMap<String, &str> = configurations
+    // Build a map: config type ident → help_heading
+    let config_headings: std::collections::HashMap<&Ident, &str> = configurations
         .iter()
         .filter_map(|c| {
             c.args
                 .help_heading
                 .as_ref()
-                .map(|h| (c.type_def.ident().to_string(), h.as_str()))
+                .map(|h| (c.type_def.ident(), h.as_str()))
         })
         .collect();
 
@@ -116,35 +150,14 @@ fn apply_help_headings(
         };
 
         for field in fields.iter_mut() {
-            // Look up the config heading for this field's type
-            let Some(field_ty_name) = type_name(&field.ty) else {
+            let Some(field_ty_ident) = type_ident(&field.ty) else {
                 continue;
             };
-            let Some(heading) = config_headings.get(&field_ty_name) else {
+            let Some(heading) = config_headings.get(field_ty_ident) else {
                 continue;
             };
 
-            // Check if any existing clap/arg attribute already has next_help_heading
-            let has_heading = field.attrs.iter().any(|attr| {
-                if !attr.path().is_ident("clap") && !attr.path().is_ident("arg") {
-                    return false;
-                }
-                let mut found = false;
-                let _ = attr.parse_nested_meta(|meta| {
-                    if meta.path.is_ident("next_help_heading") {
-                        found = true;
-                    }
-                    // Skip value if present
-                    if meta.input.peek(syn::Token![=]) {
-                        meta.input.parse::<syn::Token![=]>()?;
-                        let _ = meta.input.parse::<syn::Lit>()?;
-                    }
-                    Ok(())
-                });
-                found
-            });
-
-            if !has_heading {
+            if !has_clap_attr(field, &["next_help_heading"]) {
                 field
                     .attrs
                     .push(syn::parse_quote! { #[clap(next_help_heading = #heading)] });
@@ -161,19 +174,23 @@ pub(crate) fn validate(module: ItemMod, args: &ContextArgs) -> syn::Result<Valid
         ));
     };
 
-    // First pass: collect all type names defined in the module.
-    let mut defined_type_names = std::collections::HashSet::new();
+    // First pass: collect all type idents defined in the module.
+    let mut defined_type_idents: std::collections::HashSet<Ident> =
+        std::collections::HashSet::new();
     for item in &items {
         match item {
             Item::Struct(s) => {
-                defined_type_names.insert(s.ident.to_string());
+                defined_type_idents.insert(s.ident.clone());
             }
             Item::Enum(e) => {
-                defined_type_names.insert(e.ident.to_string());
+                defined_type_idents.insert(e.ident.clone());
             }
             _ => {}
         }
     }
+
+    // Also register the context type ident so that `impl ContextV2 { ... }` is valid.
+    defined_type_idents.insert(args.context_type_ident().clone());
 
     let mut subcommands = Vec::new();
     let mut configurations = Vec::new();
@@ -183,53 +200,26 @@ pub(crate) fn validate(module: ItemMod, args: &ContextArgs) -> syn::Result<Valid
     // Second pass: validate every item and collect into typed output.
     for item in items {
         match item {
-            Item::Struct(s) => {
-                let Some(kind) = classify_type(&s.attrs) else {
+            item @ (Item::Struct(_) | Item::Enum(_)) => {
+                let type_def = match item {
+                    Item::Struct(s) => TypeDef::Struct(s),
+                    Item::Enum(e) => TypeDef::Enum(e),
+                    _ => unreachable!(),
+                };
+                let Some(kind) = classify_type(type_def.attrs()) else {
                     return Err(syn::Error::new(
-                        s.ident.span(),
+                        type_def.ident().span(),
                         format!(
-                            "struct `{}` must have a `#[subcommand]` or `#[configuration]` attribute",
-                            s.ident
+                            "`{}` must have a `#[subcommand]` or `#[configuration]` attribute",
+                            type_def.ident()
                         ),
                     ));
                 };
-                let mut type_def = TypeDef::Struct(s);
+                let mut type_def = type_def;
                 strip_context_attrs(&mut type_def);
                 apply_default_derives(&mut type_def, &args.default_derives);
                 match kind {
-                    TypeKind::Subcommand(sub_args) => subcommands.push(Subcommand {
-                        type_def,
-                        args: sub_args,
-                    }),
-                    TypeKind::Configuration(config_args) => {
-                        if let Some(key) = &config_args.key {
-                            apply_config_key_prefixes(&mut type_def, key);
-                        }
-                        configurations.push(Configuration {
-                            type_def,
-                            args: config_args,
-                        })
-                    }
-                }
-            }
-            Item::Enum(e) => {
-                let Some(kind) = classify_type(&e.attrs) else {
-                    return Err(syn::Error::new(
-                        e.ident.span(),
-                        format!(
-                            "enum `{}` must have a `#[subcommand]` or `#[configuration]` attribute",
-                            e.ident
-                        ),
-                    ));
-                };
-                let mut type_def = TypeDef::Enum(e);
-                strip_context_attrs(&mut type_def);
-                apply_default_derives(&mut type_def, &args.default_derives);
-                match kind {
-                    TypeKind::Subcommand(sub_args) => subcommands.push(Subcommand {
-                        type_def,
-                        args: sub_args,
-                    }),
+                    TypeKind::Subcommand => subcommands.push(Subcommand { type_def }),
                     TypeKind::Configuration(config_args) => {
                         if let Some(key) = &config_args.key {
                             apply_config_key_prefixes(&mut type_def, key);
@@ -242,9 +232,9 @@ pub(crate) fn validate(module: ItemMod, args: &ContextArgs) -> syn::Result<Valid
                 }
             }
             Item::Impl(impl_block) => {
-                let self_ty_name = type_name(&impl_block.self_ty);
-                match self_ty_name {
-                    Some(name) if defined_type_names.contains(&name) => {}
+                let self_ty_ident = type_ident(&impl_block.self_ty);
+                match self_ty_ident {
+                    Some(ident) if defined_type_idents.contains(ident) => {}
                     _ => {
                         return Err(syn::Error::new(
                             impl_block.self_ty.span(),
@@ -265,6 +255,9 @@ pub(crate) fn validate(module: ItemMod, args: &ContextArgs) -> syn::Result<Valid
             }
         }
     }
+
+    // Post-process: auto-add #[clap(flatten)] on subcommand fields that reference configs.
+    apply_auto_flatten(&mut subcommands, &configurations);
 
     // Post-process: inject next_help_heading on subcommand fields that reference configs.
     apply_help_headings(&mut subcommands, &configurations);

@@ -27,14 +27,17 @@ impl TypeDef {
     }
 
     pub(crate) fn doc_attrs(&self) -> Vec<&Attribute> {
-        let attrs = match self {
-            Self::Struct(item) => &item.attrs,
-            Self::Enum(item) => &item.attrs,
-        };
-        attrs
+        self.attrs()
             .iter()
             .filter(|attr| attr.path().is_ident("doc"))
             .collect()
+    }
+
+    pub(crate) fn attrs(&self) -> &[Attribute] {
+        match self {
+            Self::Struct(item) => &item.attrs,
+            Self::Enum(item) => &item.attrs,
+        }
     }
 
     pub(crate) fn attrs_mut(&mut self) -> &mut Vec<Attribute> {
@@ -66,8 +69,6 @@ impl ToTokens for TypeDef {
     }
 }
 
-pub(crate) struct SubcommandArgs {}
-
 pub(crate) struct ConfigurationArgs {
     pub(crate) key: Option<String>,
     pub(crate) help_heading: Option<String>,
@@ -75,8 +76,6 @@ pub(crate) struct ConfigurationArgs {
 
 pub(crate) struct Subcommand {
     pub(crate) type_def: TypeDef,
-    #[allow(dead_code)]
-    pub(crate) args: SubcommandArgs,
 }
 
 pub(crate) struct Configuration {
@@ -94,15 +93,13 @@ pub(crate) struct ValidatedModule {
 }
 
 pub(crate) struct ContextArgs {
-    pub(crate) context_type_ident: Option<Ident>,
+    pub(crate) context_type_ident: Ident,
     pub(crate) default_derives: Vec<Path>,
 }
 
 impl ContextArgs {
-    pub(crate) fn context_type_ident(&self) -> Ident {
-        self.context_type_ident
-            .clone()
-            .unwrap_or_else(|| Ident::new("Context", proc_macro2::Span::call_site()))
+    pub(crate) fn context_type_ident(&self) -> &Ident {
+        &self.context_type_ident
     }
 }
 

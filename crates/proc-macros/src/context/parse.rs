@@ -1,9 +1,9 @@
 use syn::{Ident, Path, Token, parse::Parse};
 
-use super::types::{ConfigurationArgs, ContextArgs, SubcommandArgs};
+use super::types::{ConfigurationArgs, ContextArgs};
 
 pub(crate) enum TypeKind {
-    Subcommand(SubcommandArgs),
+    Subcommand,
     Configuration(ConfigurationArgs),
 }
 
@@ -12,7 +12,7 @@ pub(crate) enum TypeKind {
 pub(crate) fn classify_type(attrs: &[syn::Attribute]) -> Option<TypeKind> {
     for attr in attrs {
         if attr.path().is_ident("subcommand") {
-            return Some(TypeKind::Subcommand(SubcommandArgs {}));
+            return Some(TypeKind::Subcommand);
         }
         if attr.path().is_ident("configuration") {
             let mut key = None;
@@ -63,10 +63,10 @@ fn derive_help_heading(key: &str) -> String {
     format!("{} Configuration", words.join(" "))
 }
 
-/// Extract the simple type name from a `syn::Type` (handles paths like `Self` or `Foo`).
-pub(crate) fn type_name(ty: &syn::Type) -> Option<String> {
+/// Extract the simple type ident from a `syn::Type` (handles paths like `Self` or `Foo`).
+pub(crate) fn type_ident(ty: &syn::Type) -> Option<&Ident> {
     if let syn::Type::Path(type_path) = ty {
-        type_path.path.get_ident().map(|id| id.to_string())
+        type_path.path.get_ident()
     } else {
         None
     }
@@ -107,7 +107,8 @@ impl Parse for ContextArgs {
         }
 
         Ok(Self {
-            context_type_ident,
+            context_type_ident: context_type_ident
+                .unwrap_or_else(|| Ident::new("Context", proc_macro2::Span::call_site())),
             default_derives,
         })
     }
