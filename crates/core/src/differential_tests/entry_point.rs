@@ -3,21 +3,25 @@
 use std::{
     collections::{BTreeMap, BTreeSet},
     io::{BufWriter, Write, stderr},
-    sync::Arc,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
     time::{Duration, Instant},
 };
 
 use ansi_term::{ANSIStrings, Color};
 use anyhow::Context as _;
-use futures::{FutureExt, StreamExt};
+use futures::StreamExt;
+use indexmap::IndexMap;
 use revive_dt_common::types::PrivateKeyAllocator;
 use revive_dt_core::Platform;
 use revive_dt_format::corpus::Corpus;
-use tokio::sync::{Mutex, RwLock, Semaphore};
+use tokio::sync::{Mutex, Notify, RwLock, Semaphore};
 use tracing::{Instrument, error, info, info_span, instrument};
 
 use revive_dt_config::{Context, OutputFormat, TestExecutionContext};
-use revive_dt_report::{Reporter, ReporterEvent, TestCaseStatus};
+use revive_dt_report::{Reporter, ReporterEvent, TestCaseStatus, TestSpecificReporter};
 
 use crate::{
     differential_tests::Driver,
@@ -26,6 +30,30 @@ use crate::{
         create_test_definitions_stream,
     },
 };
+
+/// A guard that reports a test as ignored when dropped without a terminal status.
+///
+/// When `--fail-fast` aborts in-flight tests via `select!`, the futures are dropped. This guard
+/// ensures that each dropped test still sends an ignored event to the aggregator so the report
+/// is complete.
+struct FailFastGuard {
+    reporter: Option<TestSpecificReporter>,
+}
+
+impl FailFastGuard {
+    fn reported(&mut self) {
+        self.reporter = None;
+    }
+}
+
+impl Drop for FailFastGuard {
+    fn drop(&mut self) {
+        if let Some(ref reporter) = self.reporter {
+            let _ = reporter
+                .report_test_ignored_event("Aborted due to fail-fast".to_string(), IndexMap::new());
+        }
+    }
+}
 
 /// Handles the differential testing executing it according to the information defined in the
 /// context
@@ -123,10 +151,15 @@ pub async fn handle_differential_tests(
         .map(Semaphore::new)
         .map(Arc::new);
     let running_task_list = Arc::new(RwLock::new(BTreeSet::<usize>::new()));
+    let fail_fast_triggered = Arc::new(AtomicBool::new(false));
+    let fail_fast_notify = Arc::new(Notify::new());
     let driver_task = futures::future::join_all(test_definitions.iter().enumerate().map(
         |(test_id, test_definition)| {
             let running_task_list = running_task_list.clone();
             let semaphore = semaphore.clone();
+            let fail_fast_triggered = fail_fast_triggered.clone();
+            let fail_fast_notify = fail_fast_notify.clone();
+            let fail_fast = context.fail_fast;
 
             let private_key_allocator = private_key_allocator.clone();
             let cached_compiler = cached_compiler.clone();
@@ -139,10 +172,52 @@ pub async fn handle_differential_tests(
                 mode = %mode,
             );
             async move {
+                let mut fail_fast_guard = FailFastGuard {
+                    reporter: fail_fast.then(|| test_definition.reporter.clone()),
+                };
+
+                if fail_fast && fail_fast_triggered.load(Ordering::Relaxed) {
+                    test_definition
+                        .reporter
+                        .report_test_ignored_event(
+                            "Skipped due to fail-fast: a prior test failed".to_string(),
+                            IndexMap::new(),
+                        )
+                        .expect("aggregator task is joined later so the receiver is alive");
+                    fail_fast_guard.reported();
+                    return;
+                }
+
                 let permit = match semaphore.as_ref() {
-                    Some(semaphore) => Some(semaphore.acquire().await.expect("Can't fail")),
+                    Some(semaphore) => match semaphore.acquire().await {
+                        Ok(permit) => Some(permit),
+                        Err(_) => {
+                            test_definition
+                                .reporter
+                                .report_test_ignored_event(
+                                    "Skipped due to fail-fast: a prior test failed".to_string(),
+                                    IndexMap::new(),
+                                )
+                                .expect("aggregator task is joined later so the receiver is alive");
+                            fail_fast_guard.reported();
+                            return;
+                        }
+                    },
                     None => None,
                 };
+
+                if fail_fast && fail_fast_triggered.load(Ordering::Relaxed) {
+                    test_definition
+                        .reporter
+                        .report_test_ignored_event(
+                            "Skipped due to fail-fast: a prior test failed".to_string(),
+                            IndexMap::new(),
+                        )
+                        .expect("aggregator task is joined later so the receiver is alive");
+                    fail_fast_guard.reported();
+                    drop(permit);
+                    return;
+                }
 
                 running_task_list.write().await.insert(test_id);
                 let driver = match Driver::new_root(
@@ -158,6 +233,14 @@ pub async fn handle_differential_tests(
                             .reporter
                             .report_test_failed_event(format!("{error:#}"))
                             .expect("Can't fail");
+                        fail_fast_guard.reported();
+                        if fail_fast {
+                            fail_fast_triggered.store(true, Ordering::Relaxed);
+                            if let Some(ref sem) = semaphore {
+                                sem.close();
+                            }
+                            fail_fast_notify.notify_one();
+                        }
                         error!("Test Case Failed");
                         drop(permit);
                         running_task_list.write().await.remove(&test_id);
@@ -176,23 +259,26 @@ pub async fn handle_differential_tests(
                             .reporter
                             .report_test_failed_event(format!("{error:#}"))
                             .expect("Can't fail");
+                        if fail_fast {
+                            fail_fast_triggered.store(true, Ordering::Relaxed);
+                            if let Some(ref sem) = semaphore {
+                                sem.close();
+                            }
+                            fail_fast_notify.notify_one();
+                        }
                         error!("Test Case Failed");
                     }
                 };
+                fail_fast_guard.reported();
                 info!("Finished the execution of the test case");
                 drop(permit);
                 running_task_list.write().await.remove(&test_id);
             }
             .instrument(span)
         },
-    ))
-    .inspect(|_| {
-        info!("Finished executing all test cases");
-        reporter_clone
-            .report_completion_event()
-            .expect("Can't fail")
-    });
-    let cli_reporting_task = start_cli_reporting_task(context.output_format, reporter);
+    ));
+    let cli_reporting_task =
+        tokio::spawn(start_cli_reporting_task(context.output_format, reporter));
 
     tokio::task::spawn(async move {
         loop {
@@ -207,7 +293,28 @@ pub async fn handle_differential_tests(
         }
     });
 
-    futures::future::join(driver_task, cli_reporting_task).await;
+    if context.fail_fast {
+        tokio::pin!(driver_task);
+        tokio::select! {
+            biased;
+            _ = fail_fast_notify.notified() => {
+                info!("Fail-fast triggered, aborting remaining tests");
+            }
+            _ = &mut driver_task => {}
+        }
+    } else {
+        driver_task.await;
+    }
+
+    info!("Finished executing all test cases");
+    reporter_clone
+        .report_completion_event()
+        .expect("Can't fail");
+    drop(reporter_clone);
+
+    cli_reporting_task
+        .await
+        .expect("CLI reporting task panicked");
 
     Ok(())
 }
