@@ -21,6 +21,7 @@ revive-dt-node-interaction = { version = "0.1.0", path = "crates/node-interactio
 revive-dt-node-pool = { version = "0.1.0", path = "crates/node-pool" }
 revive-dt-report = { version = "0.1.0", path = "crates/report" }
 revive-dt-solc-binaries = { version = "0.1.0", path = "crates/solc-binaries" }
+revive-dt-proc-macros = { version = "0.1.0", path = "crates/proc-macros" }
 revive-dt-report-processor = { version = "0.1.0", path = "crates/report-processor" }
 
 alloy = { version = "1.4.1", features = ["full", "genesis", "json-rpc"] }
@@ -33,9 +34,11 @@ dashmap = { version = "6.1.0" }
 foundry-compilers-artifacts = { version = "0.18.0" }
 futures = { version = "0.3.31" }
 hex = "0.4.3"
+quote = "1.0.44"
 regex = "1"
 moka = "0.12.10"
 paste = "1.0.15"
+proc-macro2 = "1.0.106"
 reqwest = { version = "0.12.15", features = ["json"] }
 once_cell = "1.21"
 schemars = { version = "1.0.4", features = ["semver1"] }
@@ -52,6 +55,7 @@ sha2 = { version = "0.10.9" }
 sp-core = "36.1.0"
 sp-runtime = "41.1.0"
 strum = { version = "0.27.2", features = ["derive"] }
+syn = { version = "2.0.117", features = ["full"] }
 subxt = { version = "0.44.0" }
 temp-dir = { version = "0.1.16" }
 tempfile = "3.3"
