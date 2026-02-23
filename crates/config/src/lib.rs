@@ -250,8 +250,8 @@ pub struct TestExecutionContext {
     #[arg(short, long, default_value_t = OutputFormat::CargoTestLike)]
     pub output_format: OutputFormat,
 
-    /// Stop executing tests after the first failure. Remaining tests will be marked as ignored
-    /// in the report.
+    /// Abort test execution after the first failure. Pending tests are marked as ignored in the
+    /// report. In-flight tests are cancelled immediately (their report status will be absent).
     #[arg(long = "fail-fast")]
     pub fail_fast: bool,
 

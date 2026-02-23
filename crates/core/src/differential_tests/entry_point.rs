@@ -21,7 +21,7 @@ use tokio::sync::{Mutex, Notify, RwLock, Semaphore};
 use tracing::{Instrument, error, info, info_span, instrument};
 
 use revive_dt_config::{Context, OutputFormat, TestExecutionContext};
-use revive_dt_report::{Reporter, ReporterEvent, TestCaseStatus};
+use revive_dt_report::{Reporter, ReporterEvent, TestCaseStatus, TestSpecificReporter};
 
 use crate::{
     differential_tests::Driver,
@@ -30,6 +30,30 @@ use crate::{
         create_test_definitions_stream,
     },
 };
+
+/// A guard that reports a test as ignored when dropped without a terminal status.
+///
+/// When `--fail-fast` aborts in-flight tests via `select!`, the futures are dropped. This guard
+/// ensures that each dropped test still sends an ignored event to the aggregator so the report
+/// is complete.
+struct FailFastGuard {
+    reporter: Option<TestSpecificReporter>,
+}
+
+impl FailFastGuard {
+    fn reported(&mut self) {
+        self.reporter = None;
+    }
+}
+
+impl Drop for FailFastGuard {
+    fn drop(&mut self) {
+        if let Some(ref reporter) = self.reporter {
+            let _ = reporter
+                .report_test_ignored_event("Aborted due to fail-fast".to_string(), IndexMap::new());
+        }
+    }
+}
 
 /// Handles the differential testing executing it according to the information defined in the
 /// context
@@ -148,6 +172,10 @@ pub async fn handle_differential_tests(
                 mode = %mode,
             );
             async move {
+                let mut fail_fast_guard = FailFastGuard {
+                    reporter: fail_fast.then(|| test_definition.reporter.clone()),
+                };
+
                 if fail_fast && fail_fast_triggered.load(Ordering::Relaxed) {
                     test_definition
                         .reporter
@@ -156,6 +184,7 @@ pub async fn handle_differential_tests(
                             IndexMap::new(),
                         )
                         .expect("aggregator task is joined later so the receiver is alive");
+                    fail_fast_guard.reported();
                     return;
                 }
 
@@ -170,6 +199,7 @@ pub async fn handle_differential_tests(
                                     IndexMap::new(),
                                 )
                                 .expect("aggregator task is joined later so the receiver is alive");
+                            fail_fast_guard.reported();
                             return;
                         }
                     },
@@ -184,6 +214,7 @@ pub async fn handle_differential_tests(
                             IndexMap::new(),
                         )
                         .expect("aggregator task is joined later so the receiver is alive");
+                    fail_fast_guard.reported();
                     drop(permit);
                     return;
                 }
@@ -202,6 +233,7 @@ pub async fn handle_differential_tests(
                             .reporter
                             .report_test_failed_event(format!("{error:#}"))
                             .expect("Can't fail");
+                        fail_fast_guard.reported();
                         if fail_fast {
                             fail_fast_triggered.store(true, Ordering::Relaxed);
                             if let Some(ref sem) = semaphore {
@@ -237,6 +269,7 @@ pub async fn handle_differential_tests(
                         error!("Test Case Failed");
                     }
                 };
+                fail_fast_guard.reported();
                 info!("Finished the execution of the test case");
                 drop(permit);
                 running_task_list.write().await.remove(&test_id);
