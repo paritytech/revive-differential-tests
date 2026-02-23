@@ -5780,6 +5780,7 @@ dependencies = [
  "clap",
  "futures",
  "indexmap 2.13.0",
+ "regex",
  "revive-dt-common",
  "revive-dt-compiler",
  "revive-dt-config",

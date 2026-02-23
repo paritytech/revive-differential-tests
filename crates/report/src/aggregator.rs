@@ -501,7 +501,7 @@ impl ReportAggregator {
             return;
         }
 
-        let final_status = self
+        let status_per_mode = self
             .report
             .compilation_information
             .entry(specifier.metadata_file_path.clone().into())
@@ -515,7 +515,7 @@ impl ReportAggregator {
 
         let event = ReporterEvent::MetadataFileModeCombinationCompilationCompleted {
             metadata_file_path: specifier.metadata_file_path.clone().into(),
-            compilation_status: final_status,
+            compilation_status: status_per_mode,
         };
 
         // According to the documentation on send, the sending fails if there are no more receiver

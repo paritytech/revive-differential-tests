@@ -1,18 +1,16 @@
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 use std::{borrow::Cow, path::Path};
 
 use futures::{Stream, StreamExt, stream};
 use indexmap::{IndexMap, indexmap};
-use revive_dt_common::types::CompilerIdentifier;
-use revive_dt_compiler::revive_resolc::Resolc;
+use regex::Regex;
+use revive_dt_common::{cached_fs::read_to_string, types::CompilerIdentifier};
+use revive_dt_compiler::{Mode, SolidityCompiler, revive_resolc::Resolc};
 use revive_dt_config::Context;
-use revive_dt_format::corpus::Corpus;
-use serde_json::{Value, json};
-
-use revive_dt_compiler::Mode;
-use revive_dt_compiler::SolidityCompiler;
-use revive_dt_format::metadata::MetadataFile;
+use revive_dt_format::{corpus::Corpus, metadata::MetadataFile};
 use revive_dt_report::{CompilationSpecifier, Reporter, StandaloneCompilationSpecificReporter};
+use semver::VersionReq;
+use serde_json::{self, json};
 use tracing::{debug, error, info};
 
 pub async fn create_compilation_definitions_stream<'a>(
@@ -122,6 +120,7 @@ impl<'a> CompilationDefinition<'a> {
     pub fn check_compatibility(&self) -> CompilationCheckFunctionResult {
         self.check_metadata_file_ignored()?;
         self.check_compiler_compatibility()?;
+        self.check_pragma_solidity_compatibility()?;
         Ok(())
     }
 
@@ -148,6 +147,166 @@ impl<'a> CompilationDefinition<'a> {
             Err(("The compiler does not support this mode.", error_map))
         }
     }
+
+    /// Checks if the file-specified Solidity version is compatible with the configured version.
+    fn check_pragma_solidity_compatibility(&self) -> CompilationCheckFunctionResult {
+        let files_to_compile = self.metadata.files_to_compile().map_err(|e| {
+            (
+                "Failed to enumerate files to compile.",
+                indexmap! {
+                    "metadata_file_path" => json!(self.metadata_file_path.display().to_string()),
+                    "error" => json!(e.to_string()),
+                },
+            )
+        })?;
+        let mut incompatible_files: Vec<serde_json::Value> = Vec::new();
+
+        for source_path in files_to_compile {
+            let source = read_to_string(&source_path).map_err(|e| {
+                (
+                    "Failed to read source file.",
+                    indexmap! {
+                        "source_path" => json!(source_path.display().to_string()),
+                        "error" => json!(e.to_string()),
+                    },
+                )
+            })?;
+
+            if let Some(version_requirement) = Self::parse_pragma_solidity_requirement(&source) {
+                if !version_requirement.matches(self.compiler.version()) {
+                    incompatible_files.push(json!({
+                        "source_path": source_path.display().to_string(),
+                        "pragma": version_requirement.to_string(),
+                    }));
+                }
+            }
+        }
+
+        if incompatible_files.is_empty() {
+            Ok(())
+        } else {
+            Err((
+                "Source pragma is incompatible with the Solidity compiler version.",
+                indexmap! {
+                    "compiler_version" => json!(self.compiler.version().to_string()),
+                    "incompatible_files" => json!(incompatible_files),
+                },
+            ))
+        }
+    }
+
+    /// Parses the Solidity version requirement from `source`.
+    /// Returns `None` if no pragma is found or if it cannot be parsed.
+    fn parse_pragma_solidity_requirement(source: &str) -> Option<VersionReq> {
+        static PRAGMA_REGEX: LazyLock<Regex> =
+            LazyLock::new(|| Regex::new(r"pragma\s+solidity\s+(?P<version>[^;]+);").unwrap());
+
+        let caps = PRAGMA_REGEX.captures(source)?;
+        let solidity_version_format = caps.name("version")?.as_str().trim();
+        let semver_format = Self::solidity_version_to_semver(solidity_version_format);
+
+        VersionReq::parse(&semver_format).ok()
+    }
+
+    /// Converts Solidity version constraints to semver-compatible format.
+    /// Example:
+    /// ```txt
+    /// Solidity: ">=0.8.0 <0.9.0" or "^0.8.0" or "0.8.33"
+    /// semver:   ">=0.8.0, <0.9.0" or "^0.8.0" or "=0.8.33"
+    /// ```
+    fn solidity_version_to_semver(version: &str) -> String {
+        version
+            .split_whitespace()
+            .map(|part| {
+                let is_exact_version = part.starts_with(|c: char| c.is_ascii_digit());
+                if is_exact_version {
+                    format!("={}", part)
+                } else {
+                    part.to_string()
+                }
+            })
+            .collect::<Vec<_>>()
+            .join(", ")
+    }
 }
 
-type CompilationCheckFunctionResult = Result<(), (&'static str, IndexMap<&'static str, Value>)>;
+type CompilationCheckFunctionResult =
+    Result<(), (&'static str, IndexMap<&'static str, serde_json::Value>)>;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use semver::Version;
+
+    #[test]
+    fn test_parse_pragma_compound_constraint() {
+        let source = r#"
+            // SPDX-License-Identifier: MIT
+            pragma solidity >=0.8.0 <0.9.0;
+
+            contract Test {}
+        "#;
+        let req = CompilationDefinition::parse_pragma_solidity_requirement(source).unwrap();
+        assert_eq!(req, VersionReq::parse(">=0.8.0, <0.9.0").unwrap());
+        assert!(req.matches(&Version::new(0, 8, 0)));
+        assert!(req.matches(&Version::new(0, 8, 99)));
+        assert!(!req.matches(&Version::new(0, 7, 99)));
+        assert!(!req.matches(&Version::new(0, 9, 0)));
+    }
+
+    #[test]
+    fn test_parse_pragma_exact_version() {
+        let source = r#"
+            // SPDX-License-Identifier: MIT
+            pragma   solidity   0.8.19;
+
+            contract Test {}
+        "#;
+        let req = CompilationDefinition::parse_pragma_solidity_requirement(source).unwrap();
+        assert_eq!(req, VersionReq::parse("=0.8.19").unwrap());
+        assert!(req.matches(&Version::new(0, 8, 19)));
+        assert!(!req.matches(&Version::new(0, 8, 20)));
+    }
+
+    #[test]
+    fn test_parse_pragma_caret_version() {
+        let source = "pragma solidity ^0.8.0;";
+        let req = CompilationDefinition::parse_pragma_solidity_requirement(source).unwrap();
+        assert_eq!(req, VersionReq::parse("^0.8.0").unwrap());
+        assert!(req.matches(&Version::new(0, 8, 0)));
+        assert!(req.matches(&Version::new(0, 8, 33)));
+        assert!(!req.matches(&Version::new(0, 9, 0)));
+        assert!(!req.matches(&Version::new(0, 7, 0)));
+    }
+
+    #[test]
+    fn test_parse_pragma_tilde_version() {
+        let source = "pragma solidity ~0.8.19;";
+        let req = CompilationDefinition::parse_pragma_solidity_requirement(source).unwrap();
+        assert_eq!(req, VersionReq::parse("~0.8.19").unwrap());
+        assert!(req.matches(&Version::new(0, 8, 19)));
+        assert!(req.matches(&Version::new(0, 8, 33)));
+        assert!(!req.matches(&Version::new(0, 8, 18)));
+        assert!(!req.matches(&Version::new(0, 9, 0)));
+    }
+
+    #[test]
+    fn test_parse_pragma_upper_bound_version() {
+        let source = "pragma solidity <=0.4.21;";
+        let req = CompilationDefinition::parse_pragma_solidity_requirement(source).unwrap();
+        assert_eq!(req, VersionReq::parse("<=0.4.21").unwrap());
+        assert!(req.matches(&Version::new(0, 4, 21)));
+        assert!(req.matches(&Version::new(0, 4, 20)));
+        assert!(!req.matches(&Version::new(0, 8, 33)));
+    }
+
+    #[test]
+    fn test_parse_pragma_missing() {
+        let source = r#"
+            // SPDX-License-Identifier: MIT
+            contract Test {}
+        "#;
+        let req = CompilationDefinition::parse_pragma_solidity_requirement(source);
+        assert!(req.is_none());
+    }
+}

@@ -42,7 +42,7 @@ pub async fn handle_compilations(
         .clone()
         .into_iter()
         .try_fold(Corpus::default(), Corpus::with_compilation_specifier)
-        .context("Failed to parse the compile corpus")?;
+        .context("Failed to parse the compilation corpus")?;
     info!(
         len = corpus.metadata_file_count(),
         "Discovered metadata files"

@@ -29,6 +29,7 @@ cacache = { workspace = true }
 clap = { workspace = true }
 futures = { workspace = true }
 indexmap = { workspace = true }
+regex = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
 tracing-appender = { workspace = true }
