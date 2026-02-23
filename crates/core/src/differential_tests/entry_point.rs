@@ -16,7 +16,7 @@ use revive_dt_format::corpus::Corpus;
 use tokio::sync::{Mutex, RwLock, Semaphore};
 use tracing::{Instrument, error, info, info_span, instrument};
 
-use revive_dt_config::{Context, OutputFormat, TestExecutionContext};
+use revive_dt_config::{Context, OutputFormat, Test};
 use revive_dt_report::{Reporter, ReporterEvent, TestCaseStatus};
 
 use crate::{
@@ -30,15 +30,12 @@ use crate::{
 /// Handles the differential testing executing it according to the information defined in the
 /// context
 #[instrument(level = "info", err(Debug), skip_all)]
-pub async fn handle_differential_tests(
-    context: TestExecutionContext,
-    reporter: Reporter,
-) -> anyhow::Result<()> {
+pub async fn handle_differential_tests(context: Test, reporter: Reporter) -> anyhow::Result<()> {
     let reporter_clone = reporter.clone();
 
     // Discover all of the metadata files that are defined in the context.
     let corpus = context
-        .corpus_configuration
+        .corpus
         .test_specifiers
         .clone()
         .into_iter()
@@ -51,6 +48,7 @@ pub async fn handle_differential_tests(
 
     // Discover the list of platforms that the tests should run on based on the context.
     let platforms = context
+        .platforms
         .platforms
         .iter()
         .copied()
@@ -85,7 +83,7 @@ pub async fn handle_differential_tests(
 
     // Preparing test definitions.
     let test_case_ignore_configuration =
-        TestCaseIgnoreResolvedConfiguration::try_from(context.ignore_configuration.clone())?;
+        TestCaseIgnoreResolvedConfiguration::try_from(context.ignore.clone())?;
     let full_context = Context::Test(Box::new(context.clone()));
     let test_definitions = create_test_definitions_stream(
         &full_context,
@@ -103,22 +101,21 @@ pub async fn handle_differential_tests(
     let cached_compiler = CachedCompiler::new(
         context
             .working_directory
+            .working_directory
             .as_path()
             .join("compilation_cache"),
-        context
-            .compilation_configuration
-            .invalidate_compilation_cache,
+        context.compilation.invalidate_cache,
     )
     .await
     .map(Arc::new)
     .context("Failed to initialize cached compiler")?;
     let private_key_allocator = Arc::new(Mutex::new(PrivateKeyAllocator::new(
-        context.wallet_configuration.highest_private_key_exclusive(),
+        context.wallet.highest_private_key_exclusive(),
     )));
 
     // Creating the driver and executing all of the steps.
     let semaphore = context
-        .concurrency_configuration
+        .concurrency
         .concurrency_limit()
         .map(Semaphore::new)
         .map(Arc::new);
@@ -192,7 +189,8 @@ pub async fn handle_differential_tests(
             .report_completion_event()
             .expect("Can't fail")
     });
-    let cli_reporting_task = start_cli_reporting_task(context.output_format, reporter);
+    let cli_reporting_task =
+        start_cli_reporting_task(context.output_format.output_format, reporter);
 
     tokio::task::spawn(async move {
         loop {

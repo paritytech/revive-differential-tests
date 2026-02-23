@@ -17,7 +17,7 @@ pub struct NodePool {
 impl NodePool {
     /// Create a new Pool. This will start as many nodes as there are workers in `config`.
     pub async fn new(context: Context, platform: &dyn Platform) -> anyhow::Result<Self> {
-        let concurrency_configuration = AsRef::<ConcurrencyConfiguration>::as_ref(&context);
+        let concurrency_configuration = context.as_concurrency_configuration();
         let nodes = concurrency_configuration.number_of_nodes;
 
         let mut handles = Vec::with_capacity(nodes);

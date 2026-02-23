@@ -133,22 +133,19 @@ impl ZombienetNode {
 
     pub fn new(
         polkadot_parachain_path: PathBuf,
-        context: impl AsRef<WorkingDirectoryConfiguration>
-        + AsRef<EthRpcConfiguration>
-        + AsRef<WalletConfiguration>,
+        context: impl HasWorkingDirectoryConfiguration + HasEthRpcConfiguration + HasWalletConfiguration,
         use_fallback_gas_filler: bool,
     ) -> Self {
-        let eth_proxy_binary = AsRef::<EthRpcConfiguration>::as_ref(&context)
-            .path
-            .to_owned();
-        let working_directory_path = AsRef::<WorkingDirectoryConfiguration>::as_ref(&context);
+        let eth_proxy_binary = context.as_eth_rpc_configuration().path.to_owned();
+        let working_directory_path = context.as_working_directory_configuration();
         let id = NODE_COUNT.fetch_add(1, Ordering::SeqCst);
         let base_directory = working_directory_path
+            .working_directory
             .join(Self::BASE_DIRECTORY)
             .join(id.to_string());
         let base_directory = base_directory.canonicalize().unwrap_or(base_directory);
         let logs_directory = base_directory.join(Self::LOGS_DIRECTORY);
-        let wallet = AsRef::<WalletConfiguration>::as_ref(&context).wallet();
+        let wallet = context.as_wallet_configuration().wallet();
 
         Self {
             id,
@@ -165,9 +162,7 @@ impl ZombienetNode {
             node_rpc_port: None,
             provider: Default::default(),
             use_fallback_gas_filler,
-            eth_rpc_logging_level: AsRef::<EthRpcConfiguration>::as_ref(&context)
-                .logging_level
-                .clone(),
+            eth_rpc_logging_level: context.as_eth_rpc_configuration().logging_level.clone(),
         }
     }
 
@@ -823,18 +818,15 @@ mod tests {
         use std::sync::Arc;
         use tokio::sync::OnceCell;
 
-        pub fn test_config() -> TestExecutionContext {
-            TestExecutionContext::default()
+        pub fn test_config() -> Test {
+            Test::default()
         }
 
-        pub async fn new_node() -> (TestExecutionContext, ZombienetNode) {
+        pub async fn new_node() -> (Test, ZombienetNode) {
             let context = test_config();
-            let mut node = ZombienetNode::new(
-                context.polkadot_parachain_configuration.path.clone(),
-                &context,
-                true,
-            );
-            let genesis = context.genesis_configuration.genesis().unwrap().clone();
+            let parachain_path = context.polkadot_parachain.path.clone();
+            let genesis = context.genesis.genesis().unwrap().clone();
+            let mut node = ZombienetNode::new(parachain_path, context.clone(), true);
             node.init(genesis).unwrap();
 
             // Run spawn_process in a blocking thread
@@ -848,9 +840,8 @@ mod tests {
             (context, node)
         }
 
-        pub async fn shared_state() -> &'static (TestExecutionContext, Arc<ZombienetNode>) {
-            static NODE: OnceCell<(TestExecutionContext, Arc<ZombienetNode>)> =
-                OnceCell::const_new();
+        pub async fn shared_state() -> &'static (Test, Arc<ZombienetNode>) {
+            static NODE: OnceCell<(Test, Arc<ZombienetNode>)> = OnceCell::const_new();
 
             NODE.get_or_init(|| async {
                 let (context, node) = new_node().await;
@@ -872,7 +863,7 @@ mod tests {
         let (ctx, node) = new_node().await;
 
         let provider = node.provider().await.expect("Failed to create provider");
-        let account_address = ctx.wallet_configuration.wallet().default_signer().address();
+        let account_address = ctx.wallet.wallet().default_signer().address();
         let transaction = TransactionRequest::default()
             .to(account_address)
             .value(U256::from(100_000_000_000_000u128));
@@ -943,11 +934,7 @@ mod tests {
     fn eth_rpc_version_works() {
         // Arrange
         let context = test_config();
-        let node = ZombienetNode::new(
-            context.polkadot_parachain_configuration.path.clone(),
-            &context,
-            true,
-        );
+        let node = ZombienetNode::new(context.polkadot_parachain.path.clone(), context, true);
 
         // Act
         let version = node.eth_rpc_version().unwrap();
@@ -964,11 +951,7 @@ mod tests {
     fn version_works() {
         // Arrange
         let context = test_config();
-        let node = ZombienetNode::new(
-            context.polkadot_parachain_configuration.path.clone(),
-            &context,
-            true,
-        );
+        let node = ZombienetNode::new(context.polkadot_parachain.path.clone(), context, true);
 
         // Act
         let version = node.version().unwrap();

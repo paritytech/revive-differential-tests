@@ -2,7 +2,6 @@
 
 use std::{
     fmt::Display,
-    fs::read_to_string,
     ops::Deref,
     path::{Path, PathBuf},
     str::FromStr,
@@ -24,1182 +23,581 @@ use serde::{Deserialize, Serialize, Serializer};
 use strum::{AsRefStr, Display, EnumString, IntoStaticStr};
 use temp_dir::TempDir;
 
-#[derive(Clone, Debug, Parser, Serialize, Deserialize)]
+/// The CLI for the differential testing and benchmarking framework.
+#[revive_dt_proc_macros::context(
+    context_type_ident = "Context",
+    default_derives = "Clone, Debug, Parser, Serialize, Deserialize"
+)]
 #[command(name = "retester", term_width = 100)]
-pub enum Context {
+mod context {
+    use super::*;
+
     /// Executes tests in the MatterLabs format differentially on multiple targets concurrently.
-    Test(Box<TestExecutionContext>),
+    #[subcommand]
+    pub struct Test {
+        pub profile: ProfileConfiguration,
+        pub output_format: OutputFormatConfiguration,
+        pub platforms: PlatformConfiguration,
+        pub working_directory: WorkingDirectoryConfiguration,
+        pub corpus: CorpusConfiguration,
+        pub solc: SolcConfiguration,
+        pub resolc: ResolcConfiguration,
+        pub polkadot_parachain: PolkadotParachainConfiguration,
+        pub geth: GethConfiguration,
+        pub kurtosis: KurtosisConfiguration,
+        pub revive_dev_node: ReviveDevNodeConfiguration,
+        pub polkadot_omnichain_node: PolkadotOmnichainNodeConfiguration,
+        pub eth_rpc: EthRpcConfiguration,
+        pub genesis: GenesisConfiguration,
+        pub wallet: WalletConfiguration,
+        pub concurrency: ConcurrencyConfiguration,
+        pub compilation: CompilationConfiguration,
+        pub report: ReportConfiguration,
+        pub ignore: IgnoreCasesConfiguration,
+    }
 
     /// Executes differential benchmarks on various platforms.
-    Benchmark(Box<BenchmarkingContext>),
-
-    /// Exports the JSON schema of the MatterLabs test format used by the tool.
-    ExportJsonSchema,
+    #[subcommand]
+    pub struct Benchmark {
+        pub profile: ProfileConfiguration,
+        pub platforms: PlatformConfiguration,
+        pub working_directory: WorkingDirectoryConfiguration,
+        pub benchmark_run: BenchmarkRunConfiguration,
+        pub corpus: CorpusConfiguration,
+        pub solc: SolcConfiguration,
+        pub resolc: ResolcConfiguration,
+        pub polkadot_parachain: PolkadotParachainConfiguration,
+        pub geth: GethConfiguration,
+        pub kurtosis: KurtosisConfiguration,
+        pub revive_dev_node: ReviveDevNodeConfiguration,
+        pub polkadot_omnichain_node: PolkadotOmnichainNodeConfiguration,
+        pub eth_rpc: EthRpcConfiguration,
+        pub wallet: WalletConfiguration,
+        pub concurrency: ConcurrencyConfiguration,
+        pub compilation: CompilationConfiguration,
+        pub report: ReportConfiguration,
+    }
 
     /// Exports the genesis file of the desired platform.
-    ExportGenesis(Box<ExportGenesisContext>),
-}
-
-impl Context {
-    pub fn working_directory_configuration(&self) -> &WorkingDirectoryConfiguration {
-        self.as_ref()
+    #[subcommand]
+    pub struct ExportGenesis {
+        pub target: ExportGenesisTargetConfiguration,
+        pub geth: GethConfiguration,
+        pub kurtosis: KurtosisConfiguration,
+        pub polkadot_parachain: PolkadotParachainConfiguration,
+        pub revive_dev_node: ReviveDevNodeConfiguration,
+        pub polkadot_omnichain_node: PolkadotOmnichainNodeConfiguration,
+        pub wallet: WalletConfiguration,
     }
 
-    pub fn report_configuration(&self) -> &ReportConfiguration {
-        self.as_ref()
+    /// Exports the JSON schema of the MatterLabs test format used by the tool.
+    #[subcommand]
+    pub struct ExportJsonSchema;
+
+    /// Configuration for the commandline profile.
+    #[configuration]
+    pub struct ProfileConfiguration {
+        /// The commandline profile to use. Different profiles change the defaults of the various
+        /// cli arguments.
+        #[arg(long = "profile", default_value_t = Profile::Default)]
+        pub profile: Profile,
     }
 
-    pub fn update_for_profile(&mut self) {
-        match self {
-            Context::Test(ctx) => ctx.update_for_profile(),
-            Context::Benchmark(ctx) => ctx.update_for_profile(),
-            Context::ExportJsonSchema => {}
-            Context::ExportGenesis(..) => {}
-        }
+    /// Configuration for the output format.
+    #[configuration]
+    pub struct OutputFormatConfiguration {
+        /// The output format to use for the tool's output.
+        #[arg(short, long, default_value_t = OutputFormat::CargoTestLike)]
+        pub output_format: OutputFormat,
     }
-}
 
-impl AsRef<WorkingDirectoryConfiguration> for Context {
-    fn as_ref(&self) -> &WorkingDirectoryConfiguration {
-        match self {
-            Self::Test(context) => context.as_ref().as_ref(),
-            Self::Benchmark(context) => context.as_ref().as_ref(),
-            Self::ExportJsonSchema | Self::ExportGenesis(..) => unreachable!(),
-        }
+    /// Configuration for the set of platforms.
+    #[configuration]
+    pub struct PlatformConfiguration {
+        /// The set of platforms that the differential tests should run on.
+        #[arg(
+            short = 'p',
+            long = "platform",
+            id = "platforms",
+            default_values = ["geth-evm-solc", "revive-dev-node-polkavm-resolc"]
+        )]
+        pub platforms: Vec<PlatformIdentifier>,
     }
-}
 
-impl AsRef<CorpusConfiguration> for Context {
-    fn as_ref(&self) -> &CorpusConfiguration {
-        match self {
-            Self::Test(context) => context.as_ref().as_ref(),
-            Self::Benchmark(context) => context.as_ref().as_ref(),
-            Self::ExportJsonSchema | Self::ExportGenesis(..) => unreachable!(),
-        }
+    /// Configuration for the working directory.
+    #[configuration]
+    pub struct WorkingDirectoryConfiguration {
+        /// The working directory that the program will use for all of the temporary artifacts
+        /// needed at runtime.
+        ///
+        /// If not specified, then a temporary directory will be created and used by the program
+        /// for all temporary artifacts.
+        #[clap(short, long = "working-directory", default_value = "", value_hint = ValueHint::DirPath)]
+        pub working_directory: WorkingDirectoryPath,
     }
-}
 
-impl AsRef<SolcConfiguration> for Context {
-    fn as_ref(&self) -> &SolcConfiguration {
-        match self {
-            Self::Test(context) => context.as_ref().as_ref(),
-            Self::Benchmark(context) => context.as_ref().as_ref(),
-            Self::ExportJsonSchema | Self::ExportGenesis(..) => unreachable!(),
-        }
+    /// Configuration for benchmark-specific parameters.
+    #[configuration(key = "benchmark")]
+    pub struct BenchmarkRunConfiguration {
+        /// The default repetition count for any workload specified but that doesn't contain a
+        /// repeat step.
+        #[arg(short = 'r', default_value_t = 1000)]
+        pub default_repetition_count: usize,
+
+        /// This transaction controls whether the benchmarking driver should await for
+        /// transactions to be included in a block before moving on to the next transaction in
+        /// the sequence or not.
+        pub await_transaction_inclusion: bool,
     }
-}
 
-impl AsRef<ResolcConfiguration> for Context {
-    fn as_ref(&self) -> &ResolcConfiguration {
-        match self {
-            Self::Test(context) => context.as_ref().as_ref(),
-            Self::Benchmark(context) => context.as_ref().as_ref(),
-            Self::ExportJsonSchema | Self::ExportGenesis(..) => unreachable!(),
-        }
+    /// Configuration for the export-genesis target platform.
+    #[configuration]
+    pub struct ExportGenesisTargetConfiguration {
+        /// The platform of choice to export the genesis for.
+        #[arg(default_value = "geth-evm-solc")]
+        pub platform: PlatformIdentifier,
     }
-}
 
-impl AsRef<GethConfiguration> for Context {
-    fn as_ref(&self) -> &GethConfiguration {
-        match self {
-            Self::Test(context) => context.as_ref().as_ref(),
-            Self::Benchmark(context) => context.as_ref().as_ref(),
-            Self::ExportGenesis(context) => context.as_ref().as_ref(),
-            Self::ExportJsonSchema => unreachable!(),
-        }
+    /// A set of configuration parameters for the corpus files to use for the execution.
+    #[serde_with::serde_as]
+    #[configuration(key = "corpus")]
+    pub struct CorpusConfiguration {
+        /// A list of test specifiers for the tests that the tool should run.
+        ///
+        /// Test specifiers follow the following format:
+        ///
+        /// - `{directory_path|metadata_file_path}`: A path to a metadata file where all of the
+        ///   cases live and should be run. Alternatively, it points to a directory instructing the
+        ///   framework to discover of the metadata files that live there an execute them.
+        /// - `{metadata_file_path}::{case_idx}`: The path to a metadata file and then a case idx
+        ///   separated by two colons. This specifies that only this specific test case within the
+        ///   metadata file should be executed.
+        /// - `{metadata_file_path}::{case_idx}::{mode}`: This is very similar to the above
+        ///   specifier with the exception that in this case the mode is specified and will be used
+        ///   in the test.
+        #[serde_as(as = "Vec<serde_with::DisplayFromStr>")]
+        #[arg(short = 't', long = "test", required = true)]
+        pub test_specifiers: Vec<ParsedTestSpecifier>,
     }
-}
 
-impl AsRef<KurtosisConfiguration> for Context {
-    fn as_ref(&self) -> &KurtosisConfiguration {
-        match self {
-            Self::Test(context) => context.as_ref().as_ref(),
-            Self::Benchmark(context) => context.as_ref().as_ref(),
-            Self::ExportGenesis(context) => context.as_ref().as_ref(),
-            Self::ExportJsonSchema => unreachable!(),
-        }
+    /// A set of configuration parameters for Solc.
+    #[configuration(key = "solc")]
+    pub struct SolcConfiguration {
+        /// Specifies the default version of the Solc compiler that should be used if there is no
+        /// override specified by one of the test cases.
+        #[clap(default_value = "0.8.29")]
+        pub version: Version,
     }
-}
 
-impl AsRef<PolkadotParachainConfiguration> for Context {
-    fn as_ref(&self) -> &PolkadotParachainConfiguration {
-        match self {
-            Self::Test(context) => context.as_ref().as_ref(),
-            Self::Benchmark(context) => context.as_ref().as_ref(),
-            Self::ExportGenesis(context) => context.as_ref().as_ref(),
-            Self::ExportJsonSchema => unreachable!(),
-        }
+    /// A set of configuration parameters for Resolc.
+    #[configuration(key = "resolc")]
+    pub struct ResolcConfiguration {
+        /// Specifies the path of the resolc compiler to be used by the tool.
+        ///
+        /// If this is not specified, then the tool assumes that it should use the resolc binary
+        /// that's provided in the user's $PATH.
+        #[clap(default_value = "resolc")]
+        pub path: PathBuf,
+
+        /// Specifies the PVM heap size in bytes.
+        ///
+        /// If unspecified, the revive compiler default is used
+        pub heap_size: Option<u32>,
+
+        /// Specifies the PVM stack size in bytes.
+        ///
+        /// If unspecified, the revive compiler default is used
+        pub stack_size: Option<u32>,
     }
-}
 
-impl AsRef<ReviveDevNodeConfiguration> for Context {
-    fn as_ref(&self) -> &ReviveDevNodeConfiguration {
-        match self {
-            Self::Test(context) => context.as_ref().as_ref(),
-            Self::Benchmark(context) => context.as_ref().as_ref(),
-            Self::ExportGenesis(context) => context.as_ref().as_ref(),
-            Self::ExportJsonSchema => unreachable!(),
-        }
+    /// A set of configuration parameters for Polkadot Parachain.
+    #[configuration(key = "polkadot-parachain")]
+    pub struct PolkadotParachainConfiguration {
+        /// Specifies the path of the polkadot-parachain node to be used by the tool.
+        ///
+        /// If this is not specified, then the tool assumes that it should use the
+        /// polkadot-parachain binary that's provided in the user's $PATH.
+        #[clap(default_value = "polkadot-parachain")]
+        pub path: PathBuf,
+
+        /// The amount of time to wait upon startup before considering that the node timed out.
+        #[clap(default_value = "5000", value_parser = parse_duration)]
+        pub start_timeout_ms: Duration,
     }
-}
 
-impl AsRef<PolkadotOmnichainNodeConfiguration> for Context {
-    fn as_ref(&self) -> &PolkadotOmnichainNodeConfiguration {
-        match self {
-            Self::Test(context) => context.as_ref().as_ref(),
-            Self::Benchmark(context) => context.as_ref().as_ref(),
-            Self::ExportGenesis(context) => context.as_ref().as_ref(),
-            Self::ExportJsonSchema => unreachable!(),
-        }
+    /// A set of configuration parameters for Geth.
+    #[configuration(key = "geth")]
+    pub struct GethConfiguration {
+        /// Specifies the path of the geth node to be used by the tool.
+        ///
+        /// If this is not specified, then the tool assumes that it should use the geth binary
+        /// that's provided in the user's $PATH.
+        #[clap(default_value = "geth")]
+        pub path: PathBuf,
+
+        /// The amount of time to wait upon startup before considering that the node timed out.
+        #[clap(default_value = "30000", value_parser = parse_duration)]
+        pub start_timeout_ms: Duration,
+
+        /// The logging configuration to pass to the binary when it's being started.
+        #[clap(default_value = "3")]
+        pub logging_level: String,
     }
-}
 
-impl AsRef<EthRpcConfiguration> for Context {
-    fn as_ref(&self) -> &EthRpcConfiguration {
-        match self {
-            Self::Test(context) => context.as_ref().as_ref(),
-            Self::Benchmark(context) => context.as_ref().as_ref(),
-            Self::ExportJsonSchema | Self::ExportGenesis(..) => unreachable!(),
-        }
+    /// A set of configuration parameters for kurtosis.
+    #[configuration(key = "kurtosis")]
+    pub struct KurtosisConfiguration {
+        /// Specifies the path of the kurtosis node to be used by the tool.
+        ///
+        /// If this is not specified, then the tool assumes that it should use the kurtosis binary
+        /// that's provided in the user's $PATH.
+        #[clap(default_value = "kurtosis")]
+        pub path: PathBuf,
     }
-}
 
-impl AsRef<GenesisConfiguration> for Context {
-    fn as_ref(&self) -> &GenesisConfiguration {
-        match self {
-            Self::Test(context) => context.as_ref().as_ref(),
-            Self::Benchmark(..) | Self::ExportGenesis(..) => {
-                static GENESIS: LazyLock<GenesisConfiguration> = LazyLock::new(Default::default);
-                &GENESIS
-            }
-            Self::ExportJsonSchema => unreachable!(),
-        }
+    /// A set of configuration parameters for the revive dev node.
+    #[configuration(key = "revive-dev-node")]
+    pub struct ReviveDevNodeConfiguration {
+        /// Specifies the path of the revive dev node to be used by the tool.
+        ///
+        /// If this is not specified, then the tool assumes that it should use the revive dev node
+        /// binary that's provided in the user's $PATH.
+        #[clap(default_value = "revive-dev-node")]
+        pub path: PathBuf,
+
+        /// The amount of time to wait upon startup before considering that the node timed out.
+        #[clap(default_value = "30000", value_parser = parse_duration)]
+        pub start_timeout_ms: Duration,
+
+        /// The consensus to use for the spawned revive-dev-node.
+        #[clap(default_value = "instant-seal")]
+        pub consensus: String,
+
+        /// The logging configuration to pass to the binary when it's being started.
+        #[clap(default_value = "error,evm=debug,sc_rpc_server=info,runtime::revive=debug")]
+        pub logging_level: String,
+
+        /// Specifies the connection string of an existing node that's not managed by the
+        /// framework.
+        ///
+        /// If this argument is specified then the framework will not spawn certain nodes itself
+        /// but rather it will opt to using the existing node's through their provided connection
+        /// strings.
+        pub existing_rpc_url: Vec<String>,
     }
-}
 
-impl AsRef<WalletConfiguration> for Context {
-    fn as_ref(&self) -> &WalletConfiguration {
-        match self {
-            Self::Test(context) => context.as_ref().as_ref(),
-            Self::Benchmark(context) => context.as_ref().as_ref(),
-            Self::ExportGenesis(context) => context.as_ref().as_ref(),
-            Self::ExportJsonSchema => unreachable!(),
-        }
+    /// A set of configuration parameters for the polkadot-omni-node.
+    #[configuration(key = "polkadot-omni-node")]
+    pub struct PolkadotOmnichainNodeConfiguration {
+        /// Specifies the path of the polkadot-omni-node to be used by the tool.
+        ///
+        /// If this is not specified, then the tool assumes that it should use the
+        /// polkadot-omni-node binary that's provided in the user's $PATH.
+        #[clap(default_value = "polkadot-omni-node")]
+        pub path: PathBuf,
+
+        /// The amount of time to wait upon startup before considering that the node timed out.
+        #[clap(default_value = "90000", value_parser = parse_duration)]
+        pub start_timeout_ms: Duration,
+
+        /// Defines how often blocks will be sealed by the node in milliseconds.
+        #[clap(default_value = "200", value_parser = parse_duration)]
+        pub block_time_ms: Duration,
+
+        /// The path of the chainspec of the chain that we're spawning
+        pub chain_spec_path: Option<PathBuf>,
+
+        /// The ID of the parachain that the polkadot-omni-node will spawn. This argument is
+        /// required if the polkadot-omni-node is one of the selected platforms for running the
+        /// tests or benchmarks.
+        pub parachain_id: Option<usize>,
+
+        /// The logging configuration to pass to the binary when it's being started.
+        #[clap(default_value = "error,evm=debug,sc_rpc_server=info,runtime::revive=debug")]
+        pub logging_level: String,
     }
-}
 
-impl AsRef<ConcurrencyConfiguration> for Context {
-    fn as_ref(&self) -> &ConcurrencyConfiguration {
-        match self {
-            Self::Test(context) => context.as_ref().as_ref(),
-            Self::Benchmark(context) => context.as_ref().as_ref(),
-            Self::ExportJsonSchema | Self::ExportGenesis(..) => unreachable!(),
-        }
+    /// A set of configuration parameters for the ETH RPC.
+    #[configuration(key = "eth-rpc")]
+    pub struct EthRpcConfiguration {
+        /// Specifies the path of the ETH RPC to be used by the tool.
+        ///
+        /// If this is not specified, then the tool assumes that it should use the ETH RPC binary
+        /// that's provided in the user's $PATH.
+        #[clap(default_value = "eth-rpc")]
+        pub path: PathBuf,
+
+        /// The amount of time to wait upon startup before considering that the node timed out.
+        #[clap(default_value = "30000", value_parser = parse_duration)]
+        pub start_timeout_ms: Duration,
+
+        /// The logging configuration to pass to the binary when it's being started.
+        #[clap(default_value = "info,eth-rpc=debug")]
+        pub logging_level: String,
     }
-}
 
-impl AsRef<CompilationConfiguration> for Context {
-    fn as_ref(&self) -> &CompilationConfiguration {
-        match self {
-            Self::Test(context) => context.as_ref().as_ref(),
-            Self::Benchmark(context) => context.as_ref().as_ref(),
-            Self::ExportJsonSchema | Self::ExportGenesis(..) => unreachable!(),
-        }
+    /// A set of configuration parameters for the genesis.
+    #[derive(Default)]
+    #[configuration(key = "genesis")]
+    pub struct GenesisConfiguration {
+        /// Specifies the path of the genesis file to use for the nodes that are started.
+        ///
+        /// This is expected to be the path of a JSON geth genesis file.
+        path: Option<PathBuf>,
+
+        /// The genesis object found at the provided path.
+        #[clap(skip)]
+        #[serde(skip)]
+        genesis: OnceLock<Genesis>,
     }
-}
 
-impl AsRef<ReportConfiguration> for Context {
-    fn as_ref(&self) -> &ReportConfiguration {
-        match self {
-            Self::Test(context) => context.as_ref().as_ref(),
-            Self::Benchmark(context) => context.as_ref().as_ref(),
-            Self::ExportJsonSchema | Self::ExportGenesis(..) => unreachable!(),
-        }
-    }
-}
+    impl GenesisConfiguration {
+        pub fn genesis(&self) -> anyhow::Result<&Genesis> {
+            static DEFAULT_GENESIS: LazyLock<Genesis> = LazyLock::new(|| {
+                let genesis = include_str!("../../../assets/dev-genesis.json");
+                serde_json::from_str(genesis).unwrap()
+            });
 
-impl AsRef<IgnoreCasesConfiguration> for Context {
-    fn as_ref(&self) -> &IgnoreCasesConfiguration {
-        static DEFAULT: LazyLock<IgnoreCasesConfiguration> = LazyLock::new(Default::default);
-
-        match self {
-            Self::Test(context) => context.as_ref().as_ref(),
-            Self::Benchmark(..) => &DEFAULT,
-            Self::ExportJsonSchema | Self::ExportGenesis(..) => &DEFAULT,
-        }
-    }
-}
-
-#[derive(Clone, Debug, Parser, Serialize, Deserialize)]
-pub struct TestExecutionContext {
-    /// The commandline profile to use. Different profiles change the defaults of the various cli
-    /// arguments.
-    #[arg(long = "profile", default_value_t = Profile::Default)]
-    pub profile: Profile,
-
-    /// The set of platforms that the differential tests should run on.
-    #[arg(
-        short = 'p',
-        long = "platform",
-        id = "platforms",
-        default_values = ["geth-evm-solc", "revive-dev-node-polkavm-resolc"]
-    )]
-    pub platforms: Vec<PlatformIdentifier>,
-
-    /// The output format to use for the tool's output.
-    #[arg(short, long, default_value_t = OutputFormat::CargoTestLike)]
-    pub output_format: OutputFormat,
-
-    /// The working directory that the program will use for all of the temporary artifacts needed at
-    /// runtime.
-    ///
-    /// If not specified, then a temporary directory will be created and used by the program for all
-    /// temporary artifacts.
-    #[clap(
-        short,
-        long,
-        default_value = "",
-        value_hint = ValueHint::DirPath,
-    )]
-    pub working_directory: WorkingDirectoryConfiguration,
-
-    /// Configuration parameters for the corpus files to use.
-    #[clap(flatten, next_help_heading = "Corpus Configuration")]
-    pub corpus_configuration: CorpusConfiguration,
-
-    /// Configuration parameters for the solc compiler.
-    #[clap(flatten, next_help_heading = "Solc Configuration")]
-    pub solc_configuration: SolcConfiguration,
-
-    /// Configuration parameters for the resolc compiler.
-    #[clap(flatten, next_help_heading = "Resolc Configuration")]
-    pub resolc_configuration: ResolcConfiguration,
-
-    /// Configuration parameters for the Polkadot Parachain.
-    #[clap(flatten, next_help_heading = "Polkadot Parachain Configuration")]
-    pub polkadot_parachain_configuration: PolkadotParachainConfiguration,
-
-    /// Configuration parameters for the geth node.
-    #[clap(flatten, next_help_heading = "Geth Configuration")]
-    pub geth_configuration: GethConfiguration,
-
-    /// Configuration parameters for the lighthouse node.
-    #[clap(flatten, next_help_heading = "Lighthouse Configuration")]
-    pub lighthouse_configuration: KurtosisConfiguration,
-
-    /// Configuration parameters for the Revive Dev Node.
-    #[clap(flatten, next_help_heading = "Revive Dev Node Configuration")]
-    pub revive_dev_node_configuration: ReviveDevNodeConfiguration,
-
-    /// Configuration parameters for the Polkadot Omnichain Node.
-    #[clap(flatten, next_help_heading = "Polkadot Omnichain Node Configuration")]
-    pub polkadot_omnichain_node_configuration: PolkadotOmnichainNodeConfiguration,
-
-    /// Configuration parameters for the Eth Rpc.
-    #[clap(flatten, next_help_heading = "Eth RPC Configuration")]
-    pub eth_rpc_configuration: EthRpcConfiguration,
-
-    /// Configuration parameters for the genesis.
-    #[clap(flatten, next_help_heading = "Genesis Configuration")]
-    pub genesis_configuration: GenesisConfiguration,
-
-    /// Configuration parameters for the wallet.
-    #[clap(flatten, next_help_heading = "Wallet Configuration")]
-    pub wallet_configuration: WalletConfiguration,
-
-    /// Configuration parameters for concurrency.
-    #[clap(flatten, next_help_heading = "Concurrency Configuration")]
-    pub concurrency_configuration: ConcurrencyConfiguration,
-
-    /// Configuration parameters for the compilers and compilation.
-    #[clap(flatten, next_help_heading = "Compilation Configuration")]
-    pub compilation_configuration: CompilationConfiguration,
-
-    /// Configuration parameters for the report.
-    #[clap(flatten, next_help_heading = "Report Configuration")]
-    pub report_configuration: ReportConfiguration,
-
-    /// Configuration parameters for ignoring certain test cases.
-    #[clap(flatten, next_help_heading = "Ignore Success Configuration")]
-    pub ignore_configuration: IgnoreCasesConfiguration,
-}
-
-impl TestExecutionContext {
-    pub fn update_for_profile(&mut self) {
-        match self.profile {
-            Profile::Default => {}
-            Profile::Debug => {
-                let default_concurrency_config =
-                    ConcurrencyConfiguration::parse_from(["concurrency-configuration"]);
-                let working_directory_config = WorkingDirectoryConfiguration::default();
-
-                if self.concurrency_configuration.number_of_nodes
-                    == default_concurrency_config.number_of_nodes
-                {
-                    self.concurrency_configuration.number_of_nodes = 1;
-                }
-                if self.concurrency_configuration.number_of_threads
-                    == default_concurrency_config.number_of_threads
-                {
-                    self.concurrency_configuration.number_of_threads = 5;
-                }
-                if self.concurrency_configuration.number_concurrent_tasks
-                    == default_concurrency_config.number_concurrent_tasks
-                {
-                    self.concurrency_configuration.number_concurrent_tasks = 1;
-                }
-
-                if working_directory_config == self.working_directory {
-                    let home_directory =
-                        PathBuf::from(std::env::var("HOME").expect("Home dir not found"));
-                    let working_directory = home_directory.join(".retester-workdir");
-                    self.working_directory = WorkingDirectoryConfiguration::Path(working_directory)
+            match self.genesis.get() {
+                Some(genesis) => Ok(genesis),
+                None => {
+                    let genesis = match self.path.as_ref() {
+                        Some(genesis_path) => {
+                            let genesis_content = std::fs::read_to_string(genesis_path)?;
+                            serde_json::from_str(genesis_content.as_str())?
+                        }
+                        None => DEFAULT_GENESIS.clone(),
+                    };
+                    Ok(self.genesis.get_or_init(|| genesis))
                 }
             }
         }
     }
-}
 
-#[derive(Clone, Debug, Parser, Serialize, Deserialize)]
-pub struct BenchmarkingContext {
-    /// The commandline profile to use. Different profiles change the defaults of the various cli
-    /// arguments.
-    #[arg(long = "profile", default_value_t = Profile::Default)]
-    pub profile: Profile,
+    /// A set of configuration parameters for the wallet.
+    #[configuration(key = "wallet")]
+    pub struct WalletConfiguration {
+        /// The private key of the default signer.
+        #[clap(
+            long = "wallet.default-private-key",
+            default_value = "0x4f3edf983ac636a65a842ce7c78d9aa706d3b113bce9c46f30d7d21715b23b1d"
+        )]
+        default_private_key: B256,
 
-    /// The working directory that the program will use for all of the temporary artifacts needed at
-    /// runtime.
-    ///
-    /// If not specified, then a temporary directory will be created and used by the program for all
-    /// temporary artifacts.
-    #[clap(
-        short,
-        long,
-        default_value = "",
-        value_hint = ValueHint::DirPath,
-    )]
-    pub working_directory: WorkingDirectoryConfiguration,
+        /// This argument controls which private keys the nodes should have access to and be added
+        /// to its wallet signers. With a value of N, private keys (0, N] will be added to the
+        /// signer set of the node.
+        #[clap(default_value_t = 100_000)]
+        pub additional_keys: usize,
 
-    /// The set of platforms that the differential tests should run on.
-    #[arg(
-        short = 'p',
-        long = "platform",
-        default_values = ["geth-evm-solc", "revive-dev-node-polkavm-resolc"]
-    )]
-    pub platforms: Vec<PlatformIdentifier>,
-
-    /// The default repetition count for any workload specified but that doesn't contain a repeat
-    /// step.
-    #[arg(short = 'r', long = "default-repetition-count", default_value_t = 1000)]
-    pub default_repetition_count: usize,
-
-    /// This transaction controls whether the benchmarking driver should await for transactions to
-    /// be included in a block before moving on to the next transaction in the sequence or not.
-    ///
-    /// This behavior is useful in certain cases and not so useful in others. For example, in some
-    /// repetition block if there's some kind of relationship between txs n and n+1 (for example a
-    /// mint then a transfer) then you would want to wait for the minting to happen and then move on
-    /// to the transfers. On the other hand, if there's no relationship between the transactions n
-    /// and n+1 (e.g., mint and another mint of a different token) then awaiting the first mint to
-    /// be included in a block might not seem necessary.
-    ///
-    /// By default, this behavior is set to false to allow the benchmarking framework to saturate
-    /// the node's mempool as quickly as possible. However, as explained above, there are cases
-    /// where it's needed and certain workloads where failure to provide this argument would lead to
-    /// inaccurate results.
-    #[arg(long)]
-    pub await_transaction_inclusion: bool,
-
-    /// Configuration parameters for the corpus files to use.
-    #[clap(flatten, next_help_heading = "Corpus Configuration")]
-    pub corpus_configuration: CorpusConfiguration,
-
-    /// Configuration parameters for the solc compiler.
-    #[clap(flatten, next_help_heading = "Solc Configuration")]
-    pub solc_configuration: SolcConfiguration,
-
-    /// Configuration parameters for the resolc compiler.
-    #[clap(flatten, next_help_heading = "Resolc Configuration")]
-    pub resolc_configuration: ResolcConfiguration,
-
-    /// Configuration parameters for the geth node.
-    #[clap(flatten, next_help_heading = "Geth Configuration")]
-    pub geth_configuration: GethConfiguration,
-
-    /// Configuration parameters for the lighthouse node.
-    #[clap(flatten, next_help_heading = "Lighthouse Configuration")]
-    pub lighthouse_configuration: KurtosisConfiguration,
-
-    /// Configuration parameters for the Polkadot Parachain.
-    #[clap(flatten, next_help_heading = "Polkadot Parachain Configuration")]
-    pub polkadot_parachain_configuration: PolkadotParachainConfiguration,
-
-    /// Configuration parameters for the Revive Dev Node.
-    #[clap(flatten, next_help_heading = "Revive Dev Node Configuration")]
-    pub revive_dev_node_configuration: ReviveDevNodeConfiguration,
-
-    /// Configuration parameters for the Polkadot Omnichain Node.
-    #[clap(flatten, next_help_heading = "Polkadot Omnichain Node Configuration")]
-    pub polkadot_omnichain_node_configuration: PolkadotOmnichainNodeConfiguration,
-
-    /// Configuration parameters for the Eth Rpc.
-    #[clap(flatten, next_help_heading = "Eth RPC Configuration")]
-    pub eth_rpc_configuration: EthRpcConfiguration,
-
-    /// Configuration parameters for the wallet.
-    #[clap(flatten, next_help_heading = "Wallet Configuration")]
-    pub wallet_configuration: WalletConfiguration,
-
-    /// Configuration parameters for concurrency.
-    #[clap(flatten, next_help_heading = "Concurrency Configuration")]
-    pub concurrency_configuration: ConcurrencyConfiguration,
-
-    /// Configuration parameters for the compilers and compilation.
-    #[clap(flatten, next_help_heading = "Compilation Configuration")]
-    pub compilation_configuration: CompilationConfiguration,
-
-    /// Configuration parameters for the report.
-    #[clap(flatten, next_help_heading = "Report Configuration")]
-    pub report_configuration: ReportConfiguration,
-}
-
-impl BenchmarkingContext {
-    pub fn update_for_profile(&mut self) {
-        match self.profile {
-            Profile::Default => {}
-            Profile::Debug => {
-                let default_concurrency_config =
-                    ConcurrencyConfiguration::parse_from(["concurrency-configuration"]);
-                let working_directory_config = WorkingDirectoryConfiguration::default();
-
-                if self.concurrency_configuration.number_of_nodes
-                    == default_concurrency_config.number_of_nodes
-                {
-                    self.concurrency_configuration.number_of_nodes = 1;
-                }
-                if self.concurrency_configuration.number_of_threads
-                    == default_concurrency_config.number_of_threads
-                {
-                    self.concurrency_configuration.number_of_threads = 5;
-                }
-                if self.concurrency_configuration.number_concurrent_tasks
-                    == default_concurrency_config.number_concurrent_tasks
-                {
-                    self.concurrency_configuration.number_concurrent_tasks = 1;
-                }
-
-                if working_directory_config == self.working_directory {
-                    let home_directory =
-                        PathBuf::from(std::env::var("HOME").expect("Home dir not found"));
-                    let working_directory = home_directory.join(".retester-workdir");
-                    self.working_directory = WorkingDirectoryConfiguration::Path(working_directory)
-                }
-            }
-        }
+        /// The wallet object that will be used.
+        #[clap(skip)]
+        #[serde(skip)]
+        wallet: OnceLock<Arc<EthereumWallet>>,
     }
-}
 
-#[derive(Clone, Debug, Parser, Serialize, Deserialize)]
-pub struct ExportGenesisContext {
-    /// The platform of choice to export the genesis for.
-    pub platform: PlatformIdentifier,
-
-    /// Configuration parameters for the geth node.
-    #[clap(flatten, next_help_heading = "Geth Configuration")]
-    pub geth_configuration: GethConfiguration,
-
-    /// Configuration parameters for the lighthouse node.
-    #[clap(flatten, next_help_heading = "Lighthouse Configuration")]
-    pub lighthouse_configuration: KurtosisConfiguration,
-
-    /// Configuration parameters for the Polkadot Parachain.
-    #[clap(flatten, next_help_heading = "Polkadot Parachain Configuration")]
-    pub polkadot_parachain_configuration: PolkadotParachainConfiguration,
-
-    /// Configuration parameters for the Revive Dev Node.
-    #[clap(flatten, next_help_heading = "Revive Dev Node Configuration")]
-    pub revive_dev_node_configuration: ReviveDevNodeConfiguration,
-
-    /// Configuration parameters for the Polkadot Omnichain Node.
-    #[clap(flatten, next_help_heading = "Polkadot Omnichain Node Configuration")]
-    pub polkadot_omnichain_node_configuration: PolkadotOmnichainNodeConfiguration,
-
-    /// Configuration parameters for the wallet.
-    #[clap(flatten, next_help_heading = "Wallet Configuration")]
-    pub wallet_configuration: WalletConfiguration,
-}
-
-impl Default for TestExecutionContext {
-    fn default() -> Self {
-        Self::parse_from(["execution-context", "--test", "."])
-    }
-}
-
-impl AsRef<WorkingDirectoryConfiguration> for TestExecutionContext {
-    fn as_ref(&self) -> &WorkingDirectoryConfiguration {
-        &self.working_directory
-    }
-}
-
-impl AsRef<CorpusConfiguration> for TestExecutionContext {
-    fn as_ref(&self) -> &CorpusConfiguration {
-        &self.corpus_configuration
-    }
-}
-
-impl AsRef<SolcConfiguration> for TestExecutionContext {
-    fn as_ref(&self) -> &SolcConfiguration {
-        &self.solc_configuration
-    }
-}
-
-impl AsRef<ResolcConfiguration> for TestExecutionContext {
-    fn as_ref(&self) -> &ResolcConfiguration {
-        &self.resolc_configuration
-    }
-}
-
-impl AsRef<GethConfiguration> for TestExecutionContext {
-    fn as_ref(&self) -> &GethConfiguration {
-        &self.geth_configuration
-    }
-}
-
-impl AsRef<PolkadotParachainConfiguration> for TestExecutionContext {
-    fn as_ref(&self) -> &PolkadotParachainConfiguration {
-        &self.polkadot_parachain_configuration
-    }
-}
-
-impl AsRef<KurtosisConfiguration> for TestExecutionContext {
-    fn as_ref(&self) -> &KurtosisConfiguration {
-        &self.lighthouse_configuration
-    }
-}
-
-impl AsRef<ReviveDevNodeConfiguration> for TestExecutionContext {
-    fn as_ref(&self) -> &ReviveDevNodeConfiguration {
-        &self.revive_dev_node_configuration
-    }
-}
-
-impl AsRef<PolkadotOmnichainNodeConfiguration> for TestExecutionContext {
-    fn as_ref(&self) -> &PolkadotOmnichainNodeConfiguration {
-        &self.polkadot_omnichain_node_configuration
-    }
-}
-
-impl AsRef<EthRpcConfiguration> for TestExecutionContext {
-    fn as_ref(&self) -> &EthRpcConfiguration {
-        &self.eth_rpc_configuration
-    }
-}
-
-impl AsRef<GenesisConfiguration> for TestExecutionContext {
-    fn as_ref(&self) -> &GenesisConfiguration {
-        &self.genesis_configuration
-    }
-}
-
-impl AsRef<WalletConfiguration> for TestExecutionContext {
-    fn as_ref(&self) -> &WalletConfiguration {
-        &self.wallet_configuration
-    }
-}
-
-impl AsRef<ConcurrencyConfiguration> for TestExecutionContext {
-    fn as_ref(&self) -> &ConcurrencyConfiguration {
-        &self.concurrency_configuration
-    }
-}
-
-impl AsRef<CompilationConfiguration> for TestExecutionContext {
-    fn as_ref(&self) -> &CompilationConfiguration {
-        &self.compilation_configuration
-    }
-}
-
-impl AsRef<ReportConfiguration> for TestExecutionContext {
-    fn as_ref(&self) -> &ReportConfiguration {
-        &self.report_configuration
-    }
-}
-
-impl AsRef<IgnoreCasesConfiguration> for TestExecutionContext {
-    fn as_ref(&self) -> &IgnoreCasesConfiguration {
-        &self.ignore_configuration
-    }
-}
-
-impl Default for BenchmarkingContext {
-    fn default() -> Self {
-        Self::parse_from(["benchmarking-context", "--test", "."])
-    }
-}
-
-impl AsRef<WorkingDirectoryConfiguration> for BenchmarkingContext {
-    fn as_ref(&self) -> &WorkingDirectoryConfiguration {
-        &self.working_directory
-    }
-}
-
-impl AsRef<CorpusConfiguration> for BenchmarkingContext {
-    fn as_ref(&self) -> &CorpusConfiguration {
-        &self.corpus_configuration
-    }
-}
-
-impl AsRef<SolcConfiguration> for BenchmarkingContext {
-    fn as_ref(&self) -> &SolcConfiguration {
-        &self.solc_configuration
-    }
-}
-
-impl AsRef<ResolcConfiguration> for BenchmarkingContext {
-    fn as_ref(&self) -> &ResolcConfiguration {
-        &self.resolc_configuration
-    }
-}
-
-impl AsRef<GethConfiguration> for BenchmarkingContext {
-    fn as_ref(&self) -> &GethConfiguration {
-        &self.geth_configuration
-    }
-}
-
-impl AsRef<KurtosisConfiguration> for BenchmarkingContext {
-    fn as_ref(&self) -> &KurtosisConfiguration {
-        &self.lighthouse_configuration
-    }
-}
-
-impl AsRef<PolkadotParachainConfiguration> for BenchmarkingContext {
-    fn as_ref(&self) -> &PolkadotParachainConfiguration {
-        &self.polkadot_parachain_configuration
-    }
-}
-
-impl AsRef<ReviveDevNodeConfiguration> for BenchmarkingContext {
-    fn as_ref(&self) -> &ReviveDevNodeConfiguration {
-        &self.revive_dev_node_configuration
-    }
-}
-
-impl AsRef<PolkadotOmnichainNodeConfiguration> for BenchmarkingContext {
-    fn as_ref(&self) -> &PolkadotOmnichainNodeConfiguration {
-        &self.polkadot_omnichain_node_configuration
-    }
-}
-
-impl AsRef<EthRpcConfiguration> for BenchmarkingContext {
-    fn as_ref(&self) -> &EthRpcConfiguration {
-        &self.eth_rpc_configuration
-    }
-}
-
-impl AsRef<WalletConfiguration> for BenchmarkingContext {
-    fn as_ref(&self) -> &WalletConfiguration {
-        &self.wallet_configuration
-    }
-}
-
-impl AsRef<ConcurrencyConfiguration> for BenchmarkingContext {
-    fn as_ref(&self) -> &ConcurrencyConfiguration {
-        &self.concurrency_configuration
-    }
-}
-
-impl AsRef<CompilationConfiguration> for BenchmarkingContext {
-    fn as_ref(&self) -> &CompilationConfiguration {
-        &self.compilation_configuration
-    }
-}
-
-impl AsRef<ReportConfiguration> for BenchmarkingContext {
-    fn as_ref(&self) -> &ReportConfiguration {
-        &self.report_configuration
-    }
-}
-
-impl Default for ExportGenesisContext {
-    fn default() -> Self {
-        Self::parse_from(["export-genesis-context"])
-    }
-}
-
-impl AsRef<GethConfiguration> for ExportGenesisContext {
-    fn as_ref(&self) -> &GethConfiguration {
-        &self.geth_configuration
-    }
-}
-
-impl AsRef<KurtosisConfiguration> for ExportGenesisContext {
-    fn as_ref(&self) -> &KurtosisConfiguration {
-        &self.lighthouse_configuration
-    }
-}
-
-impl AsRef<PolkadotParachainConfiguration> for ExportGenesisContext {
-    fn as_ref(&self) -> &PolkadotParachainConfiguration {
-        &self.polkadot_parachain_configuration
-    }
-}
-
-impl AsRef<ReviveDevNodeConfiguration> for ExportGenesisContext {
-    fn as_ref(&self) -> &ReviveDevNodeConfiguration {
-        &self.revive_dev_node_configuration
-    }
-}
-
-impl AsRef<PolkadotOmnichainNodeConfiguration> for ExportGenesisContext {
-    fn as_ref(&self) -> &PolkadotOmnichainNodeConfiguration {
-        &self.polkadot_omnichain_node_configuration
-    }
-}
-
-impl AsRef<WalletConfiguration> for ExportGenesisContext {
-    fn as_ref(&self) -> &WalletConfiguration {
-        &self.wallet_configuration
-    }
-}
-
-/// A set of configuration parameters for the corpus files to use for the execution.
-#[serde_with::serde_as]
-#[derive(Clone, Debug, Parser, Serialize, Deserialize)]
-pub struct CorpusConfiguration {
-    /// A list of test specifiers for the tests that the tool should run.
-    ///
-    /// Test specifiers follow the following format:
-    ///
-    /// - `{directory_path|metadata_file_path}`: A path to a metadata file where all of the cases
-    ///   live and should be run. Alternatively, it points to a directory instructing the framework
-    ///   to discover of the metadata files that live there an execute them.
-    /// - `{metadata_file_path}::{case_idx}`: The path to a metadata file and then a case idx
-    ///   separated by two colons. This specifies that only this specific test case within the
-    ///   metadata file should be executed.
-    /// - `{metadata_file_path}::{case_idx}::{mode}`: This is very similar to the above specifier
-    ///   with the exception that in this case the mode is specified and will be used in the test.
-    #[serde_as(as = "Vec<serde_with::DisplayFromStr>")]
-    #[arg(short = 't', long = "test", required = true)]
-    pub test_specifiers: Vec<ParsedTestSpecifier>,
-}
-
-/// A set of configuration parameters for Solc.
-#[derive(Clone, Debug, Parser, Serialize, Deserialize)]
-pub struct SolcConfiguration {
-    /// Specifies the default version of the Solc compiler that should be used if there is no
-    /// override specified by one of the test cases.
-    #[clap(long = "solc.version", default_value = "0.8.29")]
-    pub version: Version,
-}
-
-/// A set of configuration parameters for Resolc.
-#[derive(Clone, Debug, Parser, Serialize, Deserialize)]
-pub struct ResolcConfiguration {
-    /// Specifies the path of the resolc compiler to be used by the tool.
-    ///
-    /// If this is not specified, then the tool assumes that it should use the resolc binary that's
-    /// provided in the user's $PATH.
-    #[clap(id = "resolc.path", long = "resolc.path", default_value = "resolc")]
-    pub path: PathBuf,
-
-    /// Specifies the PVM heap size in bytes.
-    ///
-    /// If unspecified, the revive compiler default is used
-    #[clap(id = "resolc.heap-size", long = "resolc.heap-size")]
-    pub heap_size: Option<u32>,
-
-    /// Specifies the PVM stack size in bytes.
-    ///
-    /// If unspecified, the revive compiler default is used
-    #[clap(id = "resolc.stack-size", long = "resolc.stack-size")]
-    pub stack_size: Option<u32>,
-}
-
-/// A set of configuration parameters for Polkadot Parachain.
-#[derive(Clone, Debug, Parser, Serialize, Deserialize)]
-pub struct PolkadotParachainConfiguration {
-    /// Specifies the path of the polkadot-parachain node to be used by the tool.
-    ///
-    /// If this is not specified, then the tool assumes that it should use the polkadot-parachain binary
-    /// that's provided in the user's $PATH.
-    #[clap(
-        id = "polkadot-parachain.path",
-        long = "polkadot-parachain.path",
-        default_value = "polkadot-parachain"
-    )]
-    pub path: PathBuf,
-
-    /// The amount of time to wait upon startup before considering that the node timed out.
-    #[clap(
-        id = "polkadot-parachain.start-timeout-ms",
-        long = "polkadot-parachain.start-timeout-ms",
-        default_value = "5000",
-        value_parser = parse_duration
-    )]
-    pub start_timeout_ms: Duration,
-}
-
-/// A set of configuration parameters for Geth.
-#[derive(Clone, Debug, Parser, Serialize, Deserialize)]
-pub struct GethConfiguration {
-    /// Specifies the path of the geth node to be used by the tool.
-    ///
-    /// If this is not specified, then the tool assumes that it should use the geth binary that's
-    /// provided in the user's $PATH.
-    #[clap(id = "geth.path", long = "geth.path", default_value = "geth")]
-    pub path: PathBuf,
-
-    /// The amount of time to wait upon startup before considering that the node timed out.
-    #[clap(
-        id = "geth.start-timeout-ms",
-        long = "geth.start-timeout-ms",
-        default_value = "30000",
-        value_parser = parse_duration
-    )]
-    pub start_timeout_ms: Duration,
-
-    /// The logging configuration to pass to the binary when it's being started.
-    #[clap(
-        id = "geth.logging-level",
-        long = "geth.logging-level",
-        default_value = "3"
-    )]
-    pub logging_level: String,
-}
-
-/// A set of configuration parameters for kurtosis.
-#[derive(Clone, Debug, Parser, Serialize, Deserialize)]
-pub struct KurtosisConfiguration {
-    /// Specifies the path of the kurtosis node to be used by the tool.
-    ///
-    /// If this is not specified, then the tool assumes that it should use the kurtosis binary that's
-    /// provided in the user's $PATH.
-    #[clap(
-        id = "kurtosis.path",
-        long = "kurtosis.path",
-        default_value = "kurtosis"
-    )]
-    pub path: PathBuf,
-}
-
-/// A set of configuration parameters for the revive dev node.
-#[derive(Clone, Debug, Parser, Serialize, Deserialize)]
-pub struct ReviveDevNodeConfiguration {
-    /// Specifies the path of the revive dev node to be used by the tool.
-    ///
-    /// If this is not specified, then the tool assumes that it should use the revive dev node binary
-    /// that's provided in the user's $PATH.
-    #[clap(
-        id = "revive-dev-node.path",
-        long = "revive-dev-node.path",
-        default_value = "revive-dev-node"
-    )]
-    pub path: PathBuf,
-
-    /// The amount of time to wait upon startup before considering that the node timed out.
-    #[clap(
-        id = "revive-dev-node.start-timeout-ms",
-        long = "revive-dev-node.start-timeout-ms",
-        default_value = "30000",
-        value_parser = parse_duration
-    )]
-    pub start_timeout_ms: Duration,
-
-    /// The consensus to use for the spawned revive-dev-node.
-    #[clap(
-        id = "revive-dev-node.consensus",
-        long = "revive-dev-node.consensus",
-        default_value = "instant-seal"
-    )]
-    pub consensus: String,
-
-    /// The logging configuration to pass to the binary when it's being started.
-    #[clap(
-        id = "revive-dev-node.logging-level",
-        long = "revive-dev-node.logging-level",
-        default_value = "error,evm=debug,sc_rpc_server=info,runtime::revive=debug"
-    )]
-    pub logging_level: String,
-
-    /// Specifies the connection string of an existing node that's not managed by the framework.
-    ///
-    /// If this argument is specified then the framework will not spawn certain nodes itself but
-    /// rather it will opt to using the existing node's through their provided connection strings.
-    ///
-    /// This means that if `ConcurrencyConfiguration.number_of_nodes` is 10 and we only specify the
-    /// connection strings of 2 nodes here, then nodes 0 and 1 will use the provided connection
-    /// strings and nodes 2 through 10 (exclusive) will all be spawned and managed by the framework.
-    ///
-    /// Thus, if you want all of the transactions and tests to happen against the node that you
-    /// spawned and manage then you need to specify a `ConcurrencyConfiguration.number_of_nodes` of
-    /// 1.
-    #[clap(
-        id = "revive-dev-node.existing-rpc-url",
-        long = "revive-dev-node.existing-rpc-url"
-    )]
-    pub existing_rpc_url: Vec<String>,
-}
-
-/// A set of configuration parameters for the polkadot-omni-node.
-#[derive(Clone, Debug, Parser, Serialize, Deserialize)]
-pub struct PolkadotOmnichainNodeConfiguration {
-    /// Specifies the path of the polkadot-omni-node to be used by the tool.
-    ///
-    /// If this is not specified, then the tool assumes that it should use the polkadot-omni-node
-    /// binary that's provided in the user's $PATH.
-    #[clap(
-        id = "polkadot-omni-node.path",
-        long = "polkadot-omni-node.path",
-        default_value = "polkadot-omni-node"
-    )]
-    pub path: PathBuf,
-
-    /// The amount of time to wait upon startup before considering that the node timed out.
-    #[clap(
-        id = "polkadot-omni-node.start-timeout-ms",
-        long = "polkadot-omni-node.start-timeout-ms",
-        default_value = "90000",
-        value_parser = parse_duration
-    )]
-    pub start_timeout_ms: Duration,
-
-    /// Defines how often blocks will be sealed by the node in milliseconds.
-    #[clap(
-        id = "polkadot-omni-node.block-time-ms",
-        long = "polkadot-omni-node.block-time-ms",
-        default_value = "200",
-        value_parser = parse_duration
-    )]
-    pub block_time: Duration,
-
-    /// The path of the chainspec of the chain that we're spawning
-    #[clap(
-        id = "polkadot-omni-node.chain-spec-path",
-        long = "polkadot-omni-node.chain-spec-path"
-    )]
-    pub chain_spec_path: Option<PathBuf>,
-
-    /// The ID of the parachain that the polkadot-omni-node will spawn. This argument is required if
-    /// the polkadot-omni-node is one of the selected platforms for running the tests or benchmarks.
-    #[clap(
-        id = "polkadot-omni-node.parachain-id",
-        long = "polkadot-omni-node.parachain-id"
-    )]
-    pub parachain_id: Option<usize>,
-
-    /// The logging configuration to pass to the binary when it's being started.
-    #[clap(
-        id = "polkadot-omni-node.logging-level",
-        long = "polkadot-omni-node.logging-level",
-        default_value = "error,evm=debug,sc_rpc_server=info,runtime::revive=debug"
-    )]
-    pub logging_level: String,
-}
-
-/// A set of configuration parameters for the ETH RPC.
-#[derive(Clone, Debug, Parser, Serialize, Deserialize)]
-pub struct EthRpcConfiguration {
-    /// Specifies the path of the ETH RPC to be used by the tool.
-    ///
-    /// If this is not specified, then the tool assumes that it should use the ETH RPC binary
-    /// that's provided in the user's $PATH.
-    #[clap(id = "eth-rpc.path", long = "eth-rpc.path", default_value = "eth-rpc")]
-    pub path: PathBuf,
-
-    /// The amount of time to wait upon startup before considering that the node timed out.
-    #[clap(
-        id = "eth-rpc.start-timeout-ms",
-        long = "eth-rpc.start-timeout-ms",
-        default_value = "30000",
-        value_parser = parse_duration
-    )]
-    pub start_timeout_ms: Duration,
-
-    /// The logging configuration to pass to the binary when it's being started.
-    #[clap(
-        id = "eth-rpc.logging-level",
-        long = "eth-rpc.logging-level",
-        default_value = "info,eth-rpc=debug"
-    )]
-    pub logging_level: String,
-}
-
-/// A set of configuration parameters for the genesis.
-#[derive(Clone, Debug, Default, Parser, Serialize, Deserialize)]
-pub struct GenesisConfiguration {
-    /// Specifies the path of the genesis file to use for the nodes that are started.
-    ///
-    /// This is expected to be the path of a JSON geth genesis file.
-    #[clap(id = "genesis.path", long = "genesis.path")]
-    path: Option<PathBuf>,
-
-    /// The genesis object found at the provided path.
-    #[clap(skip)]
-    #[serde(skip)]
-    genesis: OnceLock<Genesis>,
-}
-
-impl GenesisConfiguration {
-    pub fn genesis(&self) -> anyhow::Result<&Genesis> {
-        static DEFAULT_GENESIS: LazyLock<Genesis> = LazyLock::new(|| {
-            let genesis = include_str!("../../../assets/dev-genesis.json");
-            serde_json::from_str(genesis).unwrap()
-        });
-
-        match self.genesis.get() {
-            Some(genesis) => Ok(genesis),
-            None => {
-                let genesis = match self.path.as_ref() {
-                    Some(genesis_path) => {
-                        let genesis_content = read_to_string(genesis_path)?;
-                        serde_json::from_str(genesis_content.as_str())?
+    impl WalletConfiguration {
+        pub fn wallet(&self) -> Arc<EthereumWallet> {
+            self.wallet
+                .get_or_init(|| {
+                    let mut wallet = EthereumWallet::new(
+                        PrivateKeySigner::from_bytes(&self.default_private_key).unwrap(),
+                    );
+                    for signer in (1..=self.additional_keys)
+                        .map(|id| U256::from(id))
+                        .map(|id| id.to_be_bytes::<32>())
+                        .map(|id| PrivateKeySigner::from_bytes(&FixedBytes(id)).unwrap())
+                    {
+                        wallet.register_signer(signer);
                     }
-                    None => DEFAULT_GENESIS.clone(),
-                };
-                Ok(self.genesis.get_or_init(|| genesis))
+                    Arc::new(wallet)
+                })
+                .clone()
+        }
+
+        pub fn highest_private_key_exclusive(&self) -> U256 {
+            U256::try_from(self.additional_keys).unwrap()
+        }
+    }
+
+    /// A set of configuration for concurrency.
+    #[configuration(key = "concurrency")]
+    pub struct ConcurrencyConfiguration {
+        /// Determines the amount of nodes that will be spawned for each chain.
+        #[clap(default_value_t = 5)]
+        pub number_of_nodes: usize,
+
+        /// Determines the amount of tokio worker threads that will will be used.
+        #[arg(
+            default_value_t = std::thread::available_parallelism()
+                .map(|n| n.get() * 4 / 6)
+                .unwrap_or(1)
+        )]
+        pub number_of_threads: usize,
+
+        /// Determines the amount of concurrent tasks that will be spawned to run tests. This
+        /// means that at any given time there is
+        /// `concurrency.number-of-concurrent-tasks` tests concurrently executing.
+        ///
+        /// Note that a task limit of `0` means no limit on the number of concurrent tasks.
+        #[arg(default_value_t = 500)]
+        number_of_concurrent_tasks: usize,
+    }
+
+    impl ConcurrencyConfiguration {
+        pub fn concurrency_limit(&self) -> Option<usize> {
+            if self.number_of_concurrent_tasks == 0 {
+                None
+            } else {
+                Some(self.number_of_concurrent_tasks)
             }
         }
     }
-}
 
-/// A set of configuration parameters for the wallet.
-#[derive(Clone, Debug, Parser, Serialize, Deserialize)]
-pub struct WalletConfiguration {
-    /// The private key of the default signer.
-    #[clap(
-        long = "wallet.default-private-key",
-        default_value = "0x4f3edf983ac636a65a842ce7c78d9aa706d3b113bce9c46f30d7d21715b23b1d"
-    )]
-    default_key: B256,
-
-    /// This argument controls which private keys the nodes should have access to and be added to
-    /// its wallet signers. With a value of N, private keys (0, N] will be added to the signer set
-    /// of the node.
-    #[clap(long = "wallet.additional-keys", default_value_t = 100_000)]
-    pub additional_keys: usize,
-
-    /// The wallet object that will be used.
-    #[clap(skip)]
-    #[serde(skip)]
-    wallet: OnceLock<Arc<EthereumWallet>>,
-}
-
-impl WalletConfiguration {
-    pub fn wallet(&self) -> Arc<EthereumWallet> {
-        self.wallet
-            .get_or_init(|| {
-                let mut wallet =
-                    EthereumWallet::new(PrivateKeySigner::from_bytes(&self.default_key).unwrap());
-                for signer in (1..=self.additional_keys)
-                    .map(|id| U256::from(id))
-                    .map(|id| id.to_be_bytes::<32>())
-                    .map(|id| PrivateKeySigner::from_bytes(&FixedBytes(id)).unwrap())
-                {
-                    wallet.register_signer(signer);
-                }
-                Arc::new(wallet)
-            })
-            .clone()
+    /// A set of configuration parameters for compilation.
+    #[configuration(key = "compilation")]
+    pub struct CompilationConfiguration {
+        /// Controls if the compilation cache should be invalidated or not.
+        pub invalidate_cache: bool,
     }
 
-    pub fn highest_private_key_exclusive(&self) -> U256 {
-        U256::try_from(self.additional_keys).unwrap()
+    /// A set of configuration parameters for the report.
+    #[configuration(key = "report")]
+    pub struct ReportConfiguration {
+        /// Controls if the compiler input is included in the final report.
+        pub include_compiler_input: bool,
+
+        /// Controls if the compiler output is included in the final report.
+        pub include_compiler_output: bool,
+
+        /// The filename to use for the report.
+        pub file_name: Option<String>,
     }
-}
 
-/// A set of configuration for concurrency.
-#[derive(Clone, Debug, Parser, Serialize, Deserialize)]
-pub struct ConcurrencyConfiguration {
-    /// Determines the amount of nodes that will be spawned for each chain.
-    #[clap(long = "concurrency.number-of-nodes", default_value_t = 5)]
-    pub number_of_nodes: usize,
+    /// A set of configuration parameters for ignoring certain test cases.
+    #[configuration(key = "ignore")]
+    pub struct IgnoreCasesConfiguration {
+        /// The path to a report where all of the succeeding cases found in should be ignored.
+        pub succeeding_cases_from_report: Option<PathBuf>,
 
-    /// Determines the amount of tokio worker threads that will will be used.
-    #[arg(
-        long = "concurrency.number-of-threads",
-        default_value_t = std::thread::available_parallelism()
-            .map(|n| n.get() * 4 / 6)
-            .unwrap_or(1)
-    )]
-    pub number_of_threads: usize,
+        /// Allows the tool to ignore any test case where there's a step that's expected to fail.
+        pub cases_with_failing_steps: bool,
+    }
 
-    /// Determines the amount of concurrent tasks that will be spawned to run tests. This means that
-    /// at any given time there is `concurrency.number-of-concurrent-tasks` tests concurrently
-    /// executing.
-    ///
-    /// Note that a task limit of `0` means no limit on the number of concurrent tasks.
-    #[arg(long = "concurrency.number-of-concurrent-tasks", default_value_t = 500)]
-    number_concurrent_tasks: usize,
-}
-
-impl ConcurrencyConfiguration {
-    pub fn concurrency_limit(&self) -> Option<usize> {
-        if self.number_concurrent_tasks == 0 {
-            None
-        } else {
-            Some(self.number_concurrent_tasks)
+    impl Default for IgnoreCasesConfiguration {
+        fn default() -> Self {
+            IgnoreCasesConfiguration::parse_from(["ignore-cases-configuration"])
         }
     }
-}
 
-#[derive(Clone, Debug, Parser, Serialize, Deserialize)]
-pub struct CompilationConfiguration {
-    /// Controls if the compilation cache should be invalidated or not.
-    #[arg(long = "compilation.invalidate-cache")]
-    pub invalidate_compilation_cache: bool,
-}
+    impl Context {
+        pub fn update_for_profile(&mut self) {
+            match self {
+                Context::Test(ctx) => ctx.update_for_profile(),
+                Context::Benchmark(ctx) => ctx.update_for_profile(),
+                Context::ExportJsonSchema(_) => {}
+                Context::ExportGenesis(_) => {}
+            }
+        }
+    }
 
-#[derive(Clone, Debug, Parser, Serialize, Deserialize)]
-pub struct ReportConfiguration {
-    /// Controls if the compiler input is included in the final report.
-    #[clap(long = "report.include-compiler-input")]
-    pub include_compiler_input: bool,
+    impl Test {
+        pub fn update_for_profile(&mut self) {
+            match self.profile.profile {
+                Profile::Default => {}
+                Profile::Debug => {
+                    let default_concurrency_config =
+                        ConcurrencyConfiguration::parse_from(["concurrency-configuration"]);
+                    let working_directory_config = WorkingDirectoryPath::default();
 
-    /// Controls if the compiler output is included in the final report.
-    #[clap(long = "report.include-compiler-output")]
-    pub include_compiler_output: bool,
+                    if self.concurrency.number_of_nodes
+                        == default_concurrency_config.number_of_nodes
+                    {
+                        self.concurrency.number_of_nodes = 1;
+                    }
+                    if self.concurrency.number_of_threads
+                        == default_concurrency_config.number_of_threads
+                    {
+                        self.concurrency.number_of_threads = 5;
+                    }
+                    if self.concurrency.number_of_concurrent_tasks
+                        == default_concurrency_config.number_of_concurrent_tasks
+                    {
+                        self.concurrency.number_of_concurrent_tasks = 1;
+                    }
 
-    /// The filename to use for the report.
-    #[clap(long = "report.file-name")]
-    pub file_name: Option<String>,
-}
+                    if working_directory_config == self.working_directory.working_directory {
+                        let home_directory = std::path::PathBuf::from(
+                            std::env::var("HOME").expect("Home dir not found"),
+                        );
+                        let wd = home_directory.join(".retester-workdir");
+                        self.working_directory.working_directory = WorkingDirectoryPath::Path(wd);
+                    }
+                }
+            }
+        }
+    }
 
-#[derive(Clone, Debug, Parser, Serialize, Deserialize)]
-pub struct IgnoreCasesConfiguration {
-    /// The path to a report where all of the succeeding cases found in should
-    /// be ignored.
-    #[clap(
-        id = "ignore.succeeding-cases-from-report",
-        long = "ignore.succeeding-cases-from-report"
-    )]
-    pub succeeding_cases_from_report: Option<PathBuf>,
+    impl Default for Test {
+        fn default() -> Self {
+            Self::parse_from(["test", "--test", "."])
+        }
+    }
 
-    /// Allows the tool to ignore any test case where there's a step that's
-    /// expected to fail
-    #[clap(
-        id = "ignore.cases-with-failing-steps",
-        long = "ignore.cases-with-failing-steps"
-    )]
-    pub ignore_cases_with_failing_steps: bool,
-}
+    impl Benchmark {
+        pub fn update_for_profile(&mut self) {
+            match self.profile.profile {
+                Profile::Default => {}
+                Profile::Debug => {
+                    let default_concurrency_config =
+                        ConcurrencyConfiguration::parse_from(["concurrency-configuration"]);
+                    let working_directory_config = WorkingDirectoryPath::default();
 
-impl Default for IgnoreCasesConfiguration {
-    fn default() -> Self {
-        IgnoreCasesConfiguration::parse_from(["ignore-cases-configuration"])
+                    if self.concurrency.number_of_nodes
+                        == default_concurrency_config.number_of_nodes
+                    {
+                        self.concurrency.number_of_nodes = 1;
+                    }
+                    if self.concurrency.number_of_threads
+                        == default_concurrency_config.number_of_threads
+                    {
+                        self.concurrency.number_of_threads = 5;
+                    }
+                    if self.concurrency.number_of_concurrent_tasks
+                        == default_concurrency_config.number_of_concurrent_tasks
+                    {
+                        self.concurrency.number_of_concurrent_tasks = 1;
+                    }
+
+                    if working_directory_config == self.working_directory.working_directory {
+                        let home_directory = std::path::PathBuf::from(
+                            std::env::var("HOME").expect("Home dir not found"),
+                        );
+                        let wd = home_directory.join(".retester-workdir");
+                        self.working_directory.working_directory = WorkingDirectoryPath::Path(wd);
+                    }
+                }
+            }
+        }
+    }
+
+    impl Default for Benchmark {
+        fn default() -> Self {
+            Self::parse_from(["benchmark", "--test", "."])
+        }
     }
 }
 
 /// Represents the working directory that the program uses.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum WorkingDirectoryConfiguration {
+pub enum WorkingDirectoryPath {
     /// A temporary directory is used as the working directory. This will be removed when dropped.
     TemporaryDirectory(Arc<TempDir>),
     /// A directory with a path is used as the working directory.
     Path(PathBuf),
 }
 
-impl Serialize for WorkingDirectoryConfiguration {
+impl Serialize for WorkingDirectoryPath {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
@@ -1208,7 +606,7 @@ impl Serialize for WorkingDirectoryConfiguration {
     }
 }
 
-impl<'a> Deserialize<'a> for WorkingDirectoryConfiguration {
+impl<'a> Deserialize<'a> for WorkingDirectoryPath {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: serde::Deserializer<'a>,
@@ -1217,13 +615,13 @@ impl<'a> Deserialize<'a> for WorkingDirectoryConfiguration {
     }
 }
 
-impl WorkingDirectoryConfiguration {
+impl WorkingDirectoryPath {
     pub fn as_path(&self) -> &Path {
         self.as_ref()
     }
 }
 
-impl Deref for WorkingDirectoryConfiguration {
+impl Deref for WorkingDirectoryPath {
     type Target = Path;
 
     fn deref(&self) -> &Self::Target {
@@ -1231,16 +629,16 @@ impl Deref for WorkingDirectoryConfiguration {
     }
 }
 
-impl AsRef<Path> for WorkingDirectoryConfiguration {
+impl AsRef<Path> for WorkingDirectoryPath {
     fn as_ref(&self) -> &Path {
         match self {
-            WorkingDirectoryConfiguration::TemporaryDirectory(temp_dir) => temp_dir.path(),
-            WorkingDirectoryConfiguration::Path(path) => path.as_path(),
+            WorkingDirectoryPath::TemporaryDirectory(temp_dir) => temp_dir.path(),
+            WorkingDirectoryPath::Path(path) => path.as_path(),
         }
     }
 }
 
-impl Default for WorkingDirectoryConfiguration {
+impl Default for WorkingDirectoryPath {
     fn default() -> Self {
         TempDir::new()
             .map(Arc::new)
@@ -1249,7 +647,7 @@ impl Default for WorkingDirectoryConfiguration {
     }
 }
 
-impl FromStr for WorkingDirectoryConfiguration {
+impl FromStr for WorkingDirectoryPath {
     type Err = anyhow::Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
@@ -1263,16 +661,10 @@ impl FromStr for WorkingDirectoryConfiguration {
     }
 }
 
-impl Display for WorkingDirectoryConfiguration {
+impl Display for WorkingDirectoryPath {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         Display::fmt(&self.as_path().display(), f)
     }
-}
-
-fn parse_duration(s: &str) -> anyhow::Result<Duration> {
-    u64::from_str(s)
-        .map(Duration::from_millis)
-        .map_err(Into::into)
 }
 
 /// The output format to use for the test execution output.
@@ -1336,4 +728,10 @@ pub enum Profile {
     /// * `concurrency.number-of-threads` set to 5.
     /// * `working-directory` set to ~/.retester-workdir
     Debug,
+}
+
+fn parse_duration(s: &str) -> anyhow::Result<Duration> {
+    u64::from_str(s)
+        .map(Duration::from_millis)
+        .map_err(Into::into)
 }
