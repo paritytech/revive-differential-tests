@@ -13,97 +13,6 @@ use semver::VersionReq;
 use serde_json::{self, json};
 use tracing::{debug, error, info};
 
-pub async fn create_compilation_definitions_stream<'a>(
-    context: &Context,
-    corpus: &'a Corpus,
-    mode: Mode,
-    reporter: Reporter,
-) -> impl Stream<Item = CompilationDefinition<'a>> {
-    let cloned_reporter = reporter.clone();
-    stream::iter(
-        corpus
-            .compilation_metadata_files_iterator()
-            .inspect(move |metadata_file| {
-                cloned_reporter
-                    .report_metadata_file_discovery_event(
-                        metadata_file.metadata_file_path.clone(),
-                        metadata_file.content.clone(),
-                    )
-                    .unwrap();
-            })
-            .map(move |metadata_file| {
-                let reporter = reporter.clone();
-
-                (
-                    metadata_file,
-                    Cow::<'_, Mode>::Owned(mode.clone()),
-                    reporter.compilation_specific_reporter(Arc::new(CompilationSpecifier {
-                        solc_mode: mode.clone(),
-                        metadata_file_path: metadata_file.metadata_file_path.clone(),
-                    })),
-                )
-            })
-            .inspect(|(_, _, reporter)| {
-                reporter
-                    .report_standalone_compilation_discovery_event()
-                    .expect("Can't fail");
-            }),
-    )
-    // Creating the `CompilationDefinition` objects from all of the various objects we have.
-    .filter_map(move |(metadata_file, mode, reporter)| async move {
-        // NOTE: Currently always specifying the resolc compiler.
-        let compiler = Resolc::new(context.clone(), mode.version.clone().map(Into::into))
-            .await
-            .map(|compiler| Box::new(compiler) as Box<dyn SolidityCompiler>)
-            .inspect_err(|err| error!(?err, "Failed to instantiate the compiler"))
-            .ok()?;
-
-        Some(CompilationDefinition {
-            metadata: metadata_file,
-            metadata_file_path: metadata_file.metadata_file_path.as_path(),
-            mode: mode.clone(),
-            // NOTE: Currently always specifying the resolc compiler.
-            compiler_identifier: CompilerIdentifier::Resolc,
-            compiler,
-            reporter,
-        })
-    })
-    // Filter out the compilations which are incompatible.
-    .filter_map(move |compilation| async move {
-        match compilation.check_compatibility() {
-            Ok(()) => Some(compilation),
-            Err((reason, additional_information)) => {
-                debug!(
-                    metadata_file_path = %compilation.metadata.metadata_file_path.display(),
-                    mode = %compilation.mode,
-                    reason,
-                    additional_information =
-                        serde_json::to_string(&additional_information).unwrap(),
-                    "Ignoring Compilation"
-                );
-                compilation
-                    .reporter
-                    .report_standalone_contracts_compilation_ignored_event(
-                        reason.to_string(),
-                        additional_information
-                            .into_iter()
-                            .map(|(k, v)| (k.into(), v))
-                            .collect::<IndexMap<_, _>>(),
-                    )
-                    .expect("Can't fail");
-                None
-            }
-        }
-    })
-    .inspect(|compilation| {
-        info!(
-            metadata_file_path = %compilation.metadata_file_path.display(),
-            mode = %compilation.mode,
-            "Created a compilation definition"
-        );
-    })
-}
-
 /// This is a full description of a compilation to run alongside the full metadata file
 /// and the specific mode to compile with.
 pub struct CompilationDefinition<'a> {
@@ -232,6 +141,98 @@ impl<'a> CompilationDefinition<'a> {
 
 type CompilationCheckFunctionResult =
     Result<(), (&'static str, IndexMap<&'static str, serde_json::Value>)>;
+
+/// Creates a stream of [`CompilationDefinition`]s for the contracts to be compiled.
+pub async fn create_compilation_definitions_stream<'a>(
+    context: &Context,
+    corpus: &'a Corpus,
+    mode: Mode,
+    reporter: Reporter,
+) -> impl Stream<Item = CompilationDefinition<'a>> {
+    let cloned_reporter = reporter.clone();
+    stream::iter(
+        corpus
+            .compilation_metadata_files_iterator()
+            .inspect(move |metadata_file| {
+                cloned_reporter
+                    .report_metadata_file_discovery_event(
+                        metadata_file.metadata_file_path.clone(),
+                        metadata_file.content.clone(),
+                    )
+                    .unwrap();
+            })
+            .map(move |metadata_file| {
+                let reporter = reporter.clone();
+
+                (
+                    metadata_file,
+                    Cow::<'_, Mode>::Owned(mode.clone()),
+                    reporter.compilation_specific_reporter(Arc::new(CompilationSpecifier {
+                        solc_mode: mode.clone(),
+                        metadata_file_path: metadata_file.metadata_file_path.clone(),
+                    })),
+                )
+            })
+            .inspect(|(_, _, reporter)| {
+                reporter
+                    .report_standalone_compilation_discovery_event()
+                    .expect("Can't fail");
+            }),
+    )
+    // Creating the `CompilationDefinition` objects from all of the various objects we have.
+    .filter_map(move |(metadata_file, mode, reporter)| async move {
+        // NOTE: Currently always specifying the resolc compiler.
+        let compiler = Resolc::new(context.clone(), mode.version.clone().map(Into::into))
+            .await
+            .map(|compiler| Box::new(compiler) as Box<dyn SolidityCompiler>)
+            .inspect_err(|err| error!(?err, "Failed to instantiate the compiler"))
+            .ok()?;
+
+        Some(CompilationDefinition {
+            metadata: metadata_file,
+            metadata_file_path: metadata_file.metadata_file_path.as_path(),
+            mode: mode.clone(),
+            // NOTE: Currently always specifying the resolc compiler.
+            compiler_identifier: CompilerIdentifier::Resolc,
+            compiler,
+            reporter,
+        })
+    })
+    // Filter out the compilations which are incompatible.
+    .filter_map(move |compilation| async move {
+        match compilation.check_compatibility() {
+            Ok(()) => Some(compilation),
+            Err((reason, additional_information)) => {
+                debug!(
+                    metadata_file_path = %compilation.metadata.metadata_file_path.display(),
+                    mode = %compilation.mode,
+                    reason,
+                    additional_information =
+                        serde_json::to_string(&additional_information).unwrap(),
+                    "Ignoring Compilation"
+                );
+                compilation
+                    .reporter
+                    .report_standalone_contracts_compilation_ignored_event(
+                        reason.to_string(),
+                        additional_information
+                            .into_iter()
+                            .map(|(k, v)| (k.into(), v))
+                            .collect::<IndexMap<_, _>>(),
+                    )
+                    .expect("Can't fail");
+                None
+            }
+        }
+    })
+    .inspect(|compilation| {
+        info!(
+            metadata_file_path = %compilation.metadata_file_path.display(),
+            mode = %compilation.mode,
+            "Created a compilation definition"
+        );
+    })
+}
 
 #[cfg(test)]
 mod tests {

@@ -4,18 +4,21 @@ use tracing::error;
 
 use crate::helpers::{CachedCompiler, CompilationDefinition};
 
+/// The compilation driver.
 pub struct Driver<'a> {
     /// The definition of the compilation that the driver is instructed to execute.
     compilation_definition: &'a CompilationDefinition<'a>,
 }
 
 impl<'a> Driver<'a> {
+    /// Creates a new driver.
     pub fn new(compilation_definition: &'a CompilationDefinition<'a>) -> Self {
         Self {
             compilation_definition,
         }
     }
 
+    /// Compiles all contracts specified by the [`CompilationDefinition`].
     pub async fn compile_all(&self, cached_compiler: &CachedCompiler<'a>) -> Result<()> {
         cached_compiler
             .compile_contracts(

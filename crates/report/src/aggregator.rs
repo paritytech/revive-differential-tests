@@ -758,6 +758,7 @@ impl ReportAggregator {
         }
     }
 
+    /// Removes the case specified by the `specifier` from the tracked remaining cases.
     fn remove_remaining_case(&mut self, specifier: &TestSpecifier) {
         self.remaining_cases
             .entry(specifier.metadata_file_path.clone().into())
@@ -767,6 +768,7 @@ impl ReportAggregator {
             .remove(&specifier.case_idx);
     }
 
+    /// Removes the compilation mode specified by the `specifier` from the tracked remaining compilation modes.
     fn remove_remaining_compilation_mode(&mut self, specifier: &CompilationSpecifier) {
         self.remaining_compilation_modes
             .entry(specifier.metadata_file_path.clone().into())

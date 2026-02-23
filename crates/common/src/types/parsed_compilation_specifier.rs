@@ -1,8 +1,4 @@
-use std::{
-    fmt::Display,
-    path::{Path, PathBuf},
-    str::FromStr,
-};
+use std::{fmt::Display, path::PathBuf, str::FromStr};
 
 use anyhow::Context as _;
 use serde::{Deserialize, Serialize};
@@ -14,16 +10,6 @@ pub enum ParsedCompilationSpecifier {
         /// The path of the metadata file containing the contracts or the references to the contracts.
         metadata_or_directory_file_path: PathBuf,
     },
-}
-
-impl ParsedCompilationSpecifier {
-    pub fn metadata_path(&self) -> &Path {
-        match self {
-            ParsedCompilationSpecifier::FileOrDirectory {
-                metadata_or_directory_file_path: metadata_file_path,
-            } => metadata_file_path,
-        }
-    }
 }
 
 impl Display for ParsedCompilationSpecifier {
