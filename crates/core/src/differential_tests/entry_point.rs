@@ -12,12 +12,12 @@ use std::{
 
 use ansi_term::{ANSIStrings, Color};
 use anyhow::Context as _;
-use futures::{FutureExt, StreamExt};
+use futures::StreamExt;
 use indexmap::IndexMap;
 use revive_dt_common::types::PrivateKeyAllocator;
 use revive_dt_core::Platform;
 use revive_dt_format::corpus::Corpus;
-use tokio::sync::{Mutex, RwLock, Semaphore};
+use tokio::sync::{Mutex, Notify, RwLock, Semaphore};
 use tracing::{Instrument, error, info, info_span, instrument};
 
 use revive_dt_config::{Context, OutputFormat, TestExecutionContext};
@@ -128,11 +128,13 @@ pub async fn handle_differential_tests(
         .map(Arc::new);
     let running_task_list = Arc::new(RwLock::new(BTreeSet::<usize>::new()));
     let fail_fast_triggered = Arc::new(AtomicBool::new(false));
+    let fail_fast_notify = Arc::new(Notify::new());
     let driver_task = futures::future::join_all(test_definitions.iter().enumerate().map(
         |(test_id, test_definition)| {
             let running_task_list = running_task_list.clone();
             let semaphore = semaphore.clone();
             let fail_fast_triggered = fail_fast_triggered.clone();
+            let fail_fast_notify = fail_fast_notify.clone();
             let fail_fast = context.fail_fast;
 
             let private_key_allocator = private_key_allocator.clone();
@@ -158,7 +160,19 @@ pub async fn handle_differential_tests(
                 }
 
                 let permit = match semaphore.as_ref() {
-                    Some(semaphore) => Some(semaphore.acquire().await.expect("Can't fail")),
+                    Some(semaphore) => match semaphore.acquire().await {
+                        Ok(permit) => Some(permit),
+                        Err(_) => {
+                            test_definition
+                                .reporter
+                                .report_test_ignored_event(
+                                    "Skipped due to fail-fast: a prior test failed".to_string(),
+                                    IndexMap::new(),
+                                )
+                                .expect("aggregator task is joined later so the receiver is alive");
+                            return;
+                        }
+                    },
                     None => None,
                 };
 
@@ -190,6 +204,10 @@ pub async fn handle_differential_tests(
                             .expect("Can't fail");
                         if fail_fast {
                             fail_fast_triggered.store(true, Ordering::Relaxed);
+                            if let Some(ref sem) = semaphore {
+                                sem.close();
+                            }
+                            fail_fast_notify.notify_one();
                         }
                         error!("Test Case Failed");
                         drop(permit);
@@ -211,6 +229,10 @@ pub async fn handle_differential_tests(
                             .expect("Can't fail");
                         if fail_fast {
                             fail_fast_triggered.store(true, Ordering::Relaxed);
+                            if let Some(ref sem) = semaphore {
+                                sem.close();
+                            }
+                            fail_fast_notify.notify_one();
                         }
                         error!("Test Case Failed");
                     }
@@ -221,14 +243,9 @@ pub async fn handle_differential_tests(
             }
             .instrument(span)
         },
-    ))
-    .inspect(|_| {
-        info!("Finished executing all test cases");
-        reporter_clone
-            .report_completion_event()
-            .expect("Can't fail")
-    });
-    let cli_reporting_task = start_cli_reporting_task(context.output_format, reporter);
+    ));
+    let cli_reporting_task =
+        tokio::spawn(start_cli_reporting_task(context.output_format, reporter));
 
     tokio::task::spawn(async move {
         loop {
@@ -243,7 +260,28 @@ pub async fn handle_differential_tests(
         }
     });
 
-    futures::future::join(driver_task, cli_reporting_task).await;
+    if context.fail_fast {
+        tokio::pin!(driver_task);
+        tokio::select! {
+            biased;
+            _ = fail_fast_notify.notified() => {
+                info!("Fail-fast triggered, aborting remaining tests");
+            }
+            _ = &mut driver_task => {}
+        }
+    } else {
+        driver_task.await;
+    }
+
+    info!("Finished executing all test cases");
+    reporter_clone
+        .report_completion_event()
+        .expect("Can't fail");
+    drop(reporter_clone);
+
+    cli_reporting_task
+        .await
+        .expect("CLI reporting task panicked");
 
     Ok(())
 }
