@@ -274,8 +274,10 @@ pub async fn handle_differential_tests(context: Test, reporter: Reporter) -> any
             .instrument(span)
         },
     ));
-    let cli_reporting_task =
-        tokio::spawn(start_cli_reporting_task(context.output_format.output_format, reporter));
+    let cli_reporting_task = tokio::spawn(start_cli_reporting_task(
+        context.output_format.output_format,
+        reporter,
+    ));
 
     tokio::task::spawn(async move {
         loop {
