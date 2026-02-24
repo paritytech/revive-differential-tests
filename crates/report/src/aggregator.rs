@@ -503,9 +503,10 @@ impl ReportAggregator {
 
         let status_per_mode = self
             .report
-            .compilation_information
+            .execution_information
             .entry(specifier.metadata_file_path.clone().into())
             .or_default()
+            .compilation_reports
             .iter()
             .flat_map(|(mode, report)| {
                 let status = report.status.clone().expect("Can't be uninitialized");
@@ -700,9 +701,10 @@ impl ReportAggregator {
 
     fn compilation_report(&mut self, specifier: &CompilationSpecifier) -> &mut CompilationReport {
         self.report
-            .compilation_information
+            .execution_information
             .entry(specifier.metadata_file_path.clone().into())
             .or_default()
+            .compilation_reports
             .entry(specifier.solc_mode.clone())
             .or_default()
     }
@@ -777,7 +779,6 @@ impl ReportAggregator {
     }
 }
 
-#[serde_as]
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Report {
     /// The context that the tool was started up with.
@@ -787,13 +788,9 @@ pub struct Report {
     /// Metrics from the execution.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub metrics: Option<Metrics>,
-    /// Information relating to each test case.
+    /// Information relating to each metadata file after executing the tool.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub execution_information: BTreeMap<MetadataFilePath, MetadataFileReport>,
-    /// Information relating to each compilation if in standalone compilation mode.
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    #[serde_as(as = "BTreeMap<_, BTreeMap<DisplayFromStr, _>>")]
-    pub compilation_information: BTreeMap<MetadataFilePath, BTreeMap<Mode, CompilationReport>>,
 }
 
 impl Report {
@@ -803,18 +800,23 @@ impl Report {
             metrics: Default::default(),
             metadata_files: Default::default(),
             execution_information: Default::default(),
-            compilation_information: Default::default(),
         }
     }
 }
 
+#[serde_as]
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
 pub struct MetadataFileReport {
     /// Metrics from the execution.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub metrics: Option<Metrics>,
     /// The report of each case keyed by the case idx.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub case_reports: BTreeMap<CaseIdx, CaseReport>,
+    /// The [`CompilationReport`] for each of the [`Mode`]s.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    #[serde_as(as = "BTreeMap<DisplayFromStr, _>")]
+    pub compilation_reports: BTreeMap<Mode, CompilationReport>,
 }
 
 #[serde_as]
