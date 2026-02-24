@@ -557,10 +557,6 @@ pub struct ExportGenesisContext {
 
 #[derive(Clone, Debug, Parser, Serialize, Deserialize)]
 pub struct StandaloneCompilationContext {
-    /// The label for the resolc build used (e.g., linux, macos, windows, wasm).
-    #[arg(long)]
-    pub build_label: String,
-
     /// The working directory that the program will use for all of the temporary artifacts needed at
     /// runtime.
     ///
