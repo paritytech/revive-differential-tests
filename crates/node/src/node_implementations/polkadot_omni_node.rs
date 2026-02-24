@@ -545,7 +545,7 @@ impl EthereumNode for PolkadotOmnichainNode {
 
             let block_stream = api
                 .blocks()
-                .subscribe_all()
+                .subscribe_best()
                 .await
                 .context("Failed to subscribe to blocks")?;
 

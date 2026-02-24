@@ -17,7 +17,7 @@ use revive_dt_config::{Benchmark, Context};
 use revive_dt_report::Reporter;
 
 use crate::{
-    differential_benchmarks::{Driver, Watcher, WatcherEvent},
+    differential_benchmarks::{Driver, InclusionWatcher, Watcher, WatcherEvent},
     helpers::{CachedCompiler, NodePool, create_test_definitions_stream},
 };
 
@@ -120,6 +120,9 @@ pub async fn handle_differential_benchmarks(
     .map(Arc::new)
     .context("Failed to initialize cached compiler")?;
 
+    // The inclusion watcher to use for all of the benchmarks.
+    let inclusion_watcher = InclusionWatcher::new();
+
     // Note: we do not want to run all of the workloads concurrently on all platforms. Rather, we'd
     // like to run all of the workloads for one platform, and then the next sequentially as we'd
     // like for the effect of concurrency to be minimized when we're doing the benchmarking.
@@ -161,6 +164,7 @@ pub async fn handle_differential_benchmarks(
                 cached_compiler.as_ref(),
                 watcher_tx.clone(),
                 context.benchmark_run.await_transaction_inclusion,
+                &inclusion_watcher,
                 test_definition
                     .case
                     .steps_iterator_for_benchmarks(context.benchmark_run.default_repetition_count)
@@ -172,7 +176,7 @@ pub async fn handle_differential_benchmarks(
             .await
             .context("Failed to create the benchmarks driver")?;
 
-            futures::future::try_join(
+            futures::future::try_join3(
                 watcher.run(),
                 driver
                     .execute_all()
@@ -181,12 +185,24 @@ pub async fn handle_differential_benchmarks(
                         info!("All transactions submitted - driver completed execution");
                         watcher_tx
                             .send(WatcherEvent::AllTransactionsSubmitted)
-                            .unwrap()
+                            .unwrap();
+                        inclusion_watcher.stop();
                     }),
+                inclusion_watcher
+                    .run(
+                        platform_information
+                            .node
+                            .subscribe_to_full_blocks_information()
+                            .await
+                            .context(
+                                "Failed to subscribe to full blocks information from the node",
+                            )?,
+                    )
+                    .map(|_| anyhow::Result::Ok(())),
             )
             .await
             .context("Failed to run the driver and executor")
-            .inspect(|(_, steps_executed)| info!(steps_executed, "Workload Execution Succeeded"))
+            .inspect(|(_, steps_executed, _)| info!(steps_executed, "Workload Execution Succeeded"))
             .inspect_err(|err| error!(?err, "Workload Execution Failed"))?;
         }
     }

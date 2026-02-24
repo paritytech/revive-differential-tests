@@ -5779,6 +5779,7 @@ dependencies = [
  "bson",
  "cacache",
  "clap",
+ "dashmap",
  "futures",
  "indexmap 2.13.0",
  "revive-dt-common",
