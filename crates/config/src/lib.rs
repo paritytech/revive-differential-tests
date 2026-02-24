@@ -40,6 +40,7 @@ mod context {
         pub platforms: PlatformConfiguration,
         pub working_directory: WorkingDirectoryConfiguration,
         pub corpus: CorpusConfiguration,
+        pub fail_fast: FailFastConfiguration,
         pub solc: SolcConfiguration,
         pub resolc: ResolcConfiguration,
         pub polkadot_parachain: PolkadotParachainConfiguration,
@@ -156,6 +157,15 @@ mod context {
         /// The platform of choice to export the genesis for.
         #[arg(default_value = "geth-evm-solc")]
         pub platform: PlatformIdentifier,
+    }
+
+    /// Configuration for fail-fast behavior.
+    #[configuration]
+    pub struct FailFastConfiguration {
+        /// Abort test execution after the first failure. Remaining tests are marked as ignored in
+        /// the report.
+        #[arg(long = "fail-fast")]
+        pub fail_fast: bool,
     }
 
     /// A set of configuration parameters for the corpus files to use for the execution.
