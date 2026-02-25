@@ -29,19 +29,9 @@ pub struct CompilationDefinition<'a> {
 impl<'a> CompilationDefinition<'a> {
     /// Checks if this compilation can be run with the current configuration.
     pub fn check_compatibility(&self) -> CompilationCheckFunctionResult {
-        self.check_metadata_file_ignored()?;
         self.check_compiler_compatibility()?;
         self.check_pragma_solidity_compatibility()?;
         Ok(())
-    }
-
-    /// Checks if the metadata file is ignored or not.
-    fn check_metadata_file_ignored(&self) -> CompilationCheckFunctionResult {
-        if self.metadata.ignore.is_some_and(|ignore| ignore) {
-            Err(("Metadata file is ignored.", indexmap! {}))
-        } else {
-            Ok(())
-        }
     }
 
     /// Checks if the compiler supports the provided mode.
