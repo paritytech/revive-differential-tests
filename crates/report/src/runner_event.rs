@@ -17,17 +17,29 @@ use tokio::sync::{broadcast, oneshot};
 use crate::MinedBlockInformation;
 use crate::TransactionInformation;
 use crate::{
-    CompilationSpecifier, ExecutionSpecifier, ReporterEvent, TestSpecifier,
-    common::MetadataFilePath,
+    CompilationSpecifier, ExecutionSpecifier, ReporterEvent, StandaloneCompilationSpecifier,
+    TestSpecifier, common::MetadataFilePath,
 };
 
+/// Conditionally wraps a value, or returns it as is.
+macro_rules! __maybe_wrap {
+    ($value:expr, $wrapper:path) => {
+        $wrapper($value)
+    };
+    ($value:expr) => {
+        $value
+    };
+}
+
 /// Generates a report method that emits an event, auto-filling the specifier from self.
+/// Optionally wraps the specifier in if a wrapper path is provided.
 macro_rules! __report_gen_emit_with_specifier {
     (
         $ident:ident,
         $variant_ident:ident,
         $specifier_field_on_self:ident,
-        $specifier_field_on_event:ident;
+        $specifier_field_on_event:ident
+        $(, $specifier_wrapper:path)?;
         $( $bname:ident : $bty:ty, )*
         ;
         $( $aname:ident : $aty:ty, )*
@@ -39,7 +51,10 @@ macro_rules! __report_gen_emit_with_specifier {
                 $(, $aname: impl Into<$aty> )*
             ) -> anyhow::Result<()> {
                 self.report([< $variant_ident Event >] {
-                    $specifier_field_on_event: self.$specifier_field_on_self.clone()
+                    $specifier_field_on_event: __maybe_wrap!(
+                        self.$specifier_field_on_self.clone()
+                        $(, $specifier_wrapper)?
+                    )
                     $(, $bname: $bname.into() )*
                     $(, $aname: $aname.into() )*
                 })
@@ -96,6 +111,27 @@ macro_rules! __report_gen_scan_for_specifier {
         );
     };
 
+    // MATCH: execution_specifier (on self) -> specifier (on event).
+    (
+        $ident:ident,
+        $variant_ident:ident,
+        execution_specifier;
+        $( $before:ident : $bty:ty, )*
+        ;
+        specifier : $skip_ty:ty,
+        $( $after:ident : $aty:ty, )*
+        ;
+    ) => {
+        __report_gen_emit_with_specifier!(
+            $ident,
+            $variant_ident,
+            execution_specifier,
+            specifier,
+            $crate::CompilationSpecifier::Execution;
+            $( $before : $bty, )* ; $( $after : $aty, )*
+        );
+    };
+
     // MATCH: step_specifier (on self) -> step_specifier (on event).
     (
         $ident:ident,
@@ -132,6 +168,27 @@ macro_rules! __report_gen_scan_for_specifier {
             $variant_ident,
             compilation_specifier,
             compilation_specifier;
+            $( $before : $bty, )* ; $( $after : $aty, )*
+        );
+    };
+
+    // MATCH: compilation_specifier (on self) -> specifier (on event).
+    (
+        $ident:ident,
+        $variant_ident:ident,
+        compilation_specifier;
+        $( $before:ident : $bty:ty, )*
+        ;
+        specifier : $skip_ty:ty,
+        $( $after:ident : $aty:ty, )*
+        ;
+    ) => {
+        __report_gen_emit_with_specifier!(
+            $ident,
+            $variant_ident,
+            compilation_specifier,
+            specifier,
+            $crate::CompilationSpecifier::Standalone;
             $( $before : $bty, )* ; $( $after : $aty, )*
         );
     };
@@ -296,7 +353,7 @@ macro_rules! define_event {
 
                 pub fn compilation_specific_reporter(
                     &self,
-                    compilation_specifier: impl Into<std::sync::Arc<crate::common::CompilationSpecifier>>
+                    compilation_specifier: impl Into<std::sync::Arc<crate::common::StandaloneCompilationSpecifier>>
                 ) -> [< $ident StandaloneCompilationSpecificReporter >] {
                     [< $ident StandaloneCompilationSpecificReporter >] {
                         reporter: self.clone(),
@@ -403,7 +460,7 @@ macro_rules! define_event {
             #[derive(Clone, Debug)]
             pub struct [< $ident StandaloneCompilationSpecificReporter >] {
                 $vis reporter: [< $ident Reporter >],
-                $vis compilation_specifier: std::sync::Arc<crate::common::CompilationSpecifier>,
+                $vis compilation_specifier: std::sync::Arc<crate::common::StandaloneCompilationSpecifier>,
             }
 
             impl [< $ident StandaloneCompilationSpecificReporter >] {
@@ -448,7 +505,7 @@ define_event! {
         /// An event emitted by the runners when they discover a standalone compilation.
         StandaloneCompilationDiscovery {
             /// A specifier for the compilation that was discovered.
-            compilation_specifier: Arc<CompilationSpecifier>,
+            compilation_specifier: Arc<StandaloneCompilationSpecifier>,
         },
         /// An event emitted by the runners when a test case is ignored.
         TestIgnored {
@@ -487,74 +544,8 @@ define_event! {
         /// An event emitted by the runners when the compilation of the contracts has succeeded
         /// on the pre-link contracts.
         PreLinkContractsCompilationSucceeded {
-            /// A specifier for the execution that's taking place.
-            execution_specifier: Arc<ExecutionSpecifier>,
-            /// The version of the compiler used to compile the contracts.
-            compiler_version: Version,
-            /// The path of the compiler used to compile the contracts.
-            compiler_path: PathBuf,
-            /// A flag of whether the contract bytecode and ABI were cached or if they were compiled
-            /// anew.
-            is_cached: bool,
-            /// The input provided to the compiler - this is optional and not provided if the
-            /// contracts were obtained from the cache.
-            compiler_input: Option<CompilerInput>,
-            /// The output of the compiler.
-            compiler_output: CompilerOutput
-        },
-        /// An event emitted by the runners when the compilation of the contracts has succeeded
-        /// on the post-link contracts.
-        PostLinkContractsCompilationSucceeded {
-            /// A specifier for the execution that's taking place.
-            execution_specifier: Arc<ExecutionSpecifier>,
-            /// The version of the compiler used to compile the contracts.
-            compiler_version: Version,
-            /// The path of the compiler used to compile the contracts.
-            compiler_path: PathBuf,
-            /// A flag of whether the contract bytecode and ABI were cached or if they were compiled
-            /// anew.
-            is_cached: bool,
-            /// The input provided to the compiler - this is optional and not provided if the
-            /// contracts were obtained from the cache.
-            compiler_input: Option<CompilerInput>,
-            /// The output of the compiler.
-            compiler_output: CompilerOutput
-        },
-        /// An event emitted by the runners when the compilation of the pre-link contract has
-        /// failed.
-        PreLinkContractsCompilationFailed {
-            /// A specifier for the execution that's taking place.
-            execution_specifier: Arc<ExecutionSpecifier>,
-            /// The version of the compiler used to compile the contracts.
-            compiler_version: Option<Version>,
-            /// The path of the compiler used to compile the contracts.
-            compiler_path: Option<PathBuf>,
-            /// The input provided to the compiler - this is optional and not provided if the
-            /// contracts were obtained from the cache.
-            compiler_input: Option<CompilerInput>,
-            /// The failure reason.
-            reason: String,
-        },
-        /// An event emitted by the runners when the compilation of the post-link contract has
-        /// failed.
-        PostLinkContractsCompilationFailed {
-            /// A specifier for the execution that's taking place.
-            execution_specifier: Arc<ExecutionSpecifier>,
-            /// The version of the compiler used to compile the contracts.
-            compiler_version: Option<Version>,
-            /// The path of the compiler used to compile the contracts.
-            compiler_path: Option<PathBuf>,
-            /// The input provided to the compiler - this is optional and not provided if the
-            /// contracts were obtained from the cache.
-            compiler_input: Option<CompilerInput>,
-            /// The failure reason.
-            reason: String,
-        },
-        /// An event emitted by the runners when the compilation of the contracts has succeeded.
-        /// Unlike [`PreLinkContractsCompilationSucceeded`], this should be used in standalone compilation mode.
-        StandaloneContractsCompilationSucceeded {
-            /// A specifier for the compilation that's taking place.
-            compilation_specifier: Arc<CompilationSpecifier>,
+            /// A specifier for the compilation taking place.
+            specifier: CompilationSpecifier,
             /// The version of the compiler used to compile the contracts.
             compiler_version: Version,
             /// The path of the compiler used to compile the contracts.
@@ -567,11 +558,41 @@ define_event! {
             /// The output of the compiler.
             compiler_output: CompilerOutput
         },
-        /// An event emitted by the runners when the compilation of the contracts has failed.
-        /// Unlike [`PreLinkContractsCompilationFailed`], this should be used in standalone compilation mode.
-        StandaloneContractsCompilationFailed {
-            /// A specifier for the compilation that's taking place.
-            compilation_specifier: Arc<CompilationSpecifier>,
+        /// An event emitted by the runners when the compilation of the contracts has succeeded
+        /// on the post-link contracts.
+        PostLinkContractsCompilationSucceeded {
+            /// A specifier for the compilation taking place in an execution context.
+            execution_specifier: Arc<ExecutionSpecifier>,
+            /// The version of the compiler used to compile the contracts.
+            compiler_version: Version,
+            /// The path of the compiler used to compile the contracts.
+            compiler_path: PathBuf,
+            /// A flag of whether the contract bytecode and ABI were cached or if they were compiled anew.
+            is_cached: bool,
+            /// The input provided to the compiler - this is optional and not provided if the
+            /// contracts were obtained from the cache.
+            compiler_input: Option<CompilerInput>,
+            /// The output of the compiler.
+            compiler_output: CompilerOutput
+        },
+        /// An event emitted by the runners when the compilation of the pre-link contract has failed.
+        PreLinkContractsCompilationFailed {
+            /// A specifier for the compilation taking place.
+            specifier: CompilationSpecifier,
+            /// The version of the compiler used to compile the contracts.
+            compiler_version: Option<Version>,
+            /// The path of the compiler used to compile the contracts.
+            compiler_path: Option<PathBuf>,
+            /// The input provided to the compiler - this is optional and not provided if the
+            /// contracts were obtained from the cache.
+            compiler_input: Option<CompilerInput>,
+            /// The failure reason.
+            reason: String,
+        },
+        /// An event emitted by the runners when the compilation of the post-link contract has failed.
+        PostLinkContractsCompilationFailed {
+            /// A specifier for the compilation taking place in an execution context.
+            execution_specifier: Arc<ExecutionSpecifier>,
             /// The version of the compiler used to compile the contracts.
             compiler_version: Option<Version>,
             /// The path of the compiler used to compile the contracts.
@@ -585,7 +606,7 @@ define_event! {
         /// An event emitted by the runners when a compilation is ignored.
         StandaloneContractsCompilationIgnored {
             /// A specifier for the compilation that has been ignored.
-            compilation_specifier: Arc<CompilationSpecifier>,
+            compilation_specifier: Arc<StandaloneCompilationSpecifier>,
             /// A reason for the compilation to be ignored.
             reason: String,
             /// Additional fields that describe more information on why the compilation was ignored.

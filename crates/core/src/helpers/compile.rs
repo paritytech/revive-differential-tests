@@ -8,7 +8,9 @@ use revive_dt_common::{cached_fs::read_to_string, types::CompilerIdentifier};
 use revive_dt_compiler::{Mode, SolidityCompiler, revive_resolc::Resolc};
 use revive_dt_config::Context;
 use revive_dt_format::{corpus::Corpus, metadata::MetadataFile};
-use revive_dt_report::{CompilationSpecifier, Reporter, StandaloneCompilationSpecificReporter};
+use revive_dt_report::{
+    Reporter, StandaloneCompilationSpecificReporter, StandaloneCompilationSpecifier,
+};
 use semver::VersionReq;
 use serde_json::{self, json};
 use tracing::{debug, error, info};
@@ -167,10 +169,12 @@ pub async fn create_compilation_definitions_stream<'a>(
                 (
                     metadata_file,
                     Cow::<'_, Mode>::Owned(mode.clone()),
-                    reporter.compilation_specific_reporter(Arc::new(CompilationSpecifier {
-                        solc_mode: mode.clone(),
-                        metadata_file_path: metadata_file.metadata_file_path.clone(),
-                    })),
+                    reporter.compilation_specific_reporter(Arc::new(
+                        StandaloneCompilationSpecifier {
+                            solc_mode: mode.clone(),
+                            metadata_file_path: metadata_file.metadata_file_path.clone(),
+                        },
+                    )),
                 )
             })
             .inspect(|(_, _, reporter)| {

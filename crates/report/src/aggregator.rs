@@ -117,12 +117,6 @@ impl ReportAggregator {
                 RunnerEvent::PostLinkContractsCompilationFailed(event) => {
                     self.handle_post_link_contracts_compilation_failed_event(*event)
                 }
-                RunnerEvent::StandaloneContractsCompilationSucceeded(event) => {
-                    self.handle_standalone_contracts_compilation_succeeded_event(*event)
-                }
-                RunnerEvent::StandaloneContractsCompilationFailed(event) => {
-                    self.handle_standalone_contracts_compilation_failed_event(*event)
-                }
                 RunnerEvent::StandaloneContractsCompilationIgnored(event) => {
                     self.handle_standalone_contracts_compilation_ignored_event(*event);
                 }
@@ -310,119 +304,8 @@ impl ReportAggregator {
         &mut self,
         event: PreLinkContractsCompilationSucceededEvent,
     ) {
-        let include_input = self
-            .report
-            .context
-            .report_configuration()
-            .include_compiler_input;
-        let include_output = self
-            .report
-            .context
-            .report_configuration()
-            .include_compiler_output;
-
-        let execution_information = self.execution_information(&event.execution_specifier);
-
-        let compiler_input = if include_input {
-            event.compiler_input
-        } else {
-            None
-        };
-
-        execution_information.pre_link_compilation_status = Some(CompilationStatus::Success {
-            is_cached: event.is_cached,
-            compiler_version: event.compiler_version,
-            compiler_path: event.compiler_path,
-            compiler_input,
-            compiled_contracts_info: Self::generate_compiled_contracts_info(
-                event.compiler_output,
-                include_output,
-            ),
-        });
-    }
-
-    fn handle_post_link_contracts_compilation_succeeded_event(
-        &mut self,
-        event: PostLinkContractsCompilationSucceededEvent,
-    ) {
-        let include_input = self
-            .report
-            .context
-            .report_configuration()
-            .include_compiler_input;
-        let include_output = self
-            .report
-            .context
-            .report_configuration()
-            .include_compiler_output;
-
-        let execution_information = self.execution_information(&event.execution_specifier);
-
-        let compiler_input = if include_input {
-            event.compiler_input
-        } else {
-            None
-        };
-
-        execution_information.post_link_compilation_status = Some(CompilationStatus::Success {
-            is_cached: event.is_cached,
-            compiler_version: event.compiler_version,
-            compiler_path: event.compiler_path,
-            compiler_input,
-            compiled_contracts_info: Self::generate_compiled_contracts_info(
-                event.compiler_output,
-                include_output,
-            ),
-        });
-    }
-
-    fn handle_pre_link_contracts_compilation_failed_event(
-        &mut self,
-        event: PreLinkContractsCompilationFailedEvent,
-    ) {
-        let execution_information = self.execution_information(&event.execution_specifier);
-
-        execution_information.pre_link_compilation_status = Some(CompilationStatus::Failure {
-            reason: event.reason,
-            compiler_version: event.compiler_version,
-            compiler_path: event.compiler_path,
-            compiler_input: event.compiler_input,
-        });
-    }
-
-    fn handle_post_link_contracts_compilation_failed_event(
-        &mut self,
-        event: PostLinkContractsCompilationFailedEvent,
-    ) {
-        let execution_information = self.execution_information(&event.execution_specifier);
-
-        execution_information.post_link_compilation_status = Some(CompilationStatus::Failure {
-            reason: event.reason,
-            compiler_version: event.compiler_version,
-            compiler_path: event.compiler_path,
-            compiler_input: event.compiler_input,
-        });
-    }
-
-    fn handle_standalone_contracts_compilation_succeeded_event(
-        &mut self,
-        event: StandaloneContractsCompilationSucceededEvent,
-    ) {
-        // Remove this from the set we're tracking since it has completed.
-        self.remove_remaining_compilation_mode(&event.compilation_specifier);
-
-        let include_input = self
-            .report
-            .context
-            .report_configuration()
-            .include_compiler_input;
-        let include_output = self
-            .report
-            .context
-            .report_configuration()
-            .include_compiler_output;
-
-        let compiler_input = if include_input {
+        let report_configuration = self.report.context.report_configuration();
+        let compiler_input = if report_configuration.include_compiler_input {
             event.compiler_input
         } else {
             None
@@ -435,25 +318,53 @@ impl ReportAggregator {
             compiler_input,
             compiled_contracts_info: Self::generate_compiled_contracts_info(
                 event.compiler_output,
-                include_output,
+                report_configuration.include_compiler_output,
             ),
         };
 
-        let report = self.compilation_report(&event.compilation_specifier);
-        report.status = Some(status.clone());
-
-        self.handle_post_standalone_contracts_compilation_status_update(
-            &event.compilation_specifier,
-        );
+        match &event.specifier {
+            CompilationSpecifier::Execution(specifier) => {
+                let execution_information = self.execution_information(specifier);
+                execution_information.pre_link_compilation_status = Some(status);
+            }
+            CompilationSpecifier::Standalone(specifier) => {
+                let report = self.compilation_report(specifier);
+                report.status = Some(status);
+                self.handle_post_standalone_contracts_compilation_status_update(specifier);
+            }
+        }
     }
 
-    fn handle_standalone_contracts_compilation_failed_event(
+    fn handle_post_link_contracts_compilation_succeeded_event(
         &mut self,
-        event: StandaloneContractsCompilationFailedEvent,
+        event: PostLinkContractsCompilationSucceededEvent,
     ) {
-        // Remove this from the set we're tracking since it has completed.
-        self.remove_remaining_compilation_mode(&event.compilation_specifier);
+        let report_configuration = self.report.context.report_configuration();
+        let compiler_input = if report_configuration.include_compiler_input {
+            event.compiler_input
+        } else {
+            None
+        };
 
+        let status = CompilationStatus::Success {
+            is_cached: event.is_cached,
+            compiler_version: event.compiler_version,
+            compiler_path: event.compiler_path,
+            compiler_input,
+            compiled_contracts_info: Self::generate_compiled_contracts_info(
+                event.compiler_output,
+                report_configuration.include_compiler_output,
+            ),
+        };
+
+        let execution_information = self.execution_information(&event.execution_specifier);
+        execution_information.post_link_compilation_status = Some(status);
+    }
+
+    fn handle_pre_link_contracts_compilation_failed_event(
+        &mut self,
+        event: PreLinkContractsCompilationFailedEvent,
+    ) {
         let status = CompilationStatus::Failure {
             reason: event.reason,
             compiler_version: event.compiler_version,
@@ -461,21 +372,38 @@ impl ReportAggregator {
             compiler_input: event.compiler_input,
         };
 
-        let report = self.compilation_report(&event.compilation_specifier);
-        report.status = Some(status.clone());
+        match &event.specifier {
+            CompilationSpecifier::Execution(specifier) => {
+                let execution_information = self.execution_information(specifier);
+                execution_information.pre_link_compilation_status = Some(status);
+            }
+            CompilationSpecifier::Standalone(specifier) => {
+                let report = self.compilation_report(specifier);
+                report.status = Some(status);
+                self.handle_post_standalone_contracts_compilation_status_update(specifier);
+            }
+        }
+    }
 
-        self.handle_post_standalone_contracts_compilation_status_update(
-            &event.compilation_specifier,
-        );
+    fn handle_post_link_contracts_compilation_failed_event(
+        &mut self,
+        event: PostLinkContractsCompilationFailedEvent,
+    ) {
+        let status = CompilationStatus::Failure {
+            reason: event.reason,
+            compiler_version: event.compiler_version,
+            compiler_path: event.compiler_path,
+            compiler_input: event.compiler_input,
+        };
+
+        let execution_information = self.execution_information(&event.execution_specifier);
+        execution_information.post_link_compilation_status = Some(status);
     }
 
     fn handle_standalone_contracts_compilation_ignored_event(
         &mut self,
         event: StandaloneContractsCompilationIgnoredEvent,
     ) {
-        // Remove this from the set we're tracking since it has completed.
-        self.remove_remaining_compilation_mode(&event.compilation_specifier);
-
         let status = CompilationStatus::Ignored {
             reason: event.reason,
             additional_fields: event.additional_fields,
@@ -483,7 +411,6 @@ impl ReportAggregator {
 
         let report = self.compilation_report(&event.compilation_specifier);
         report.status = Some(status.clone());
-
         self.handle_post_standalone_contracts_compilation_status_update(
             &event.compilation_specifier,
         );
@@ -491,8 +418,11 @@ impl ReportAggregator {
 
     fn handle_post_standalone_contracts_compilation_status_update(
         &mut self,
-        specifier: &CompilationSpecifier,
+        specifier: &StandaloneCompilationSpecifier,
     ) {
+        // Remove this from the set we're tracking since it has completed.
+        self.remove_remaining_compilation_mode(specifier);
+
         let remaining_modes = self
             .remaining_compilation_modes
             .entry(specifier.metadata_file_path.clone().into())
@@ -699,7 +629,10 @@ impl ReportAggregator {
             .get_or_insert_default()
     }
 
-    fn compilation_report(&mut self, specifier: &CompilationSpecifier) -> &mut CompilationReport {
+    fn compilation_report(
+        &mut self,
+        specifier: &StandaloneCompilationSpecifier,
+    ) -> &mut CompilationReport {
         self.report
             .execution_information
             .entry(specifier.metadata_file_path.clone().into())
@@ -771,7 +704,7 @@ impl ReportAggregator {
     }
 
     /// Removes the compilation mode specified by the `specifier` from the tracked remaining compilation modes.
-    fn remove_remaining_compilation_mode(&mut self, specifier: &CompilationSpecifier) {
+    fn remove_remaining_compilation_mode(&mut self, specifier: &StandaloneCompilationSpecifier) {
         self.remaining_compilation_modes
             .entry(specifier.metadata_file_path.clone().into())
             .or_default()

@@ -38,7 +38,16 @@ pub struct StepExecutionSpecifier {
 
 /// An absolute specifier for a compilation.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub struct CompilationSpecifier {
+pub struct StandaloneCompilationSpecifier {
     pub solc_mode: Mode,
     pub metadata_file_path: PathBuf,
+}
+
+/// An absolute specifier for compilation events depending on the context.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub enum CompilationSpecifier {
+    /// Compilation happening as part of test execution.
+    Execution(Arc<ExecutionSpecifier>),
+    /// Standalone compilation happening without test execution.
+    Standalone(Arc<StandaloneCompilationSpecifier>),
 }
