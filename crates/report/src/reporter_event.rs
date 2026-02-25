@@ -21,7 +21,7 @@ pub enum ReporterEvent {
     },
 
     /// An event sent by the reporter once an entire metadata file and mode combination has
-    /// finished standalone compilation.
+    /// finished pre-link-only compilation.
     MetadataFileModeCombinationCompilationCompleted {
         metadata_file_path: MetadataFilePath,
         compilation_status: BTreeMap<Mode, CompilationStatus>,

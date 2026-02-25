@@ -146,7 +146,7 @@ impl<'a> CachedCompiler<'a> {
                 match self.artifacts_cache.get(&cache_key).await {
                     Some(cache_value) => {
                         match reporter {
-                            CompilationReporter::Standalone(reporter) => {
+                            CompilationReporter::PreLink(reporter) => {
                                 reporter
                                     .report_pre_link_contracts_compilation_succeeded_event(
                                         compiler.version().clone(),
@@ -257,7 +257,7 @@ async fn compile_contracts(
     let output = compilation.try_build(compiler).await;
 
     match reporter {
-        CompilationReporter::Standalone(reporter) => match output.as_ref() {
+        CompilationReporter::PreLink(reporter) => match output.as_ref() {
             Ok(output) => {
                 reporter
                     .report_pre_link_contracts_compilation_succeeded_event(

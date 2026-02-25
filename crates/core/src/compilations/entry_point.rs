@@ -1,4 +1,4 @@
-//! The main entry point into compiling in standalone mode without any test execution.
+//! The main entry point into compiling in pre-link-only mode without any test execution.
 
 use std::{
     collections::BTreeSet,
@@ -15,7 +15,7 @@ use revive_dt_format::corpus::Corpus;
 use tokio::sync::{RwLock, Semaphore, broadcast};
 use tracing::{Instrument, error, info, info_span, instrument};
 
-use revive_dt_config::{Context, OutputFormat, StandaloneCompilationContext};
+use revive_dt_config::{Context, OutputFormat, PreLinkCompilationContext};
 use revive_dt_report::{CompilationStatus, Reporter, ReporterEvent};
 
 use crate::{
@@ -26,7 +26,7 @@ use crate::{
 /// Handles the compilations according to the information defined in the context.
 #[instrument(level = "info", err(Debug), skip_all)]
 pub async fn handle_compilations(
-    context: StandaloneCompilationContext,
+    context: PreLinkCompilationContext,
     reporter: Reporter,
 ) -> anyhow::Result<()> {
     let reporter_clone = reporter.clone();

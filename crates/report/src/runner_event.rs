@@ -17,7 +17,7 @@ use tokio::sync::{broadcast, oneshot};
 use crate::MinedBlockInformation;
 use crate::TransactionInformation;
 use crate::{
-    CompilationSpecifier, ExecutionSpecifier, ReporterEvent, StandaloneCompilationSpecifier,
+    CompilationSpecifier, ExecutionSpecifier, PreLinkCompilationSpecifier, ReporterEvent,
     TestSpecifier, common::MetadataFilePath,
 };
 
@@ -188,7 +188,7 @@ macro_rules! __report_gen_scan_for_specifier {
             $variant_ident,
             compilation_specifier,
             specifier,
-            $crate::CompilationSpecifier::Standalone;
+            $crate::CompilationSpecifier::PreLink;
             $( $before : $bty, )* ; $( $after : $aty, )*
         );
     };
@@ -351,11 +351,11 @@ macro_rules! define_event {
                     }
                 }
 
-                pub fn compilation_specific_reporter(
+                pub fn pre_link_compilation_specific_reporter(
                     &self,
-                    compilation_specifier: impl Into<std::sync::Arc<crate::common::StandaloneCompilationSpecifier>>
-                ) -> [< $ident StandaloneCompilationSpecificReporter >] {
-                    [< $ident StandaloneCompilationSpecificReporter >] {
+                    compilation_specifier: impl Into<std::sync::Arc<crate::common::PreLinkCompilationSpecifier>>
+                ) -> [< $ident PreLinkCompilationSpecificReporter >] {
+                    [< $ident PreLinkCompilationSpecificReporter >] {
                         reporter: self.clone(),
                         compilation_specifier: compilation_specifier.into(),
                     }
@@ -458,12 +458,12 @@ macro_rules! define_event {
 
             /// A reporter that's tied to a specific compilation.
             #[derive(Clone, Debug)]
-            pub struct [< $ident StandaloneCompilationSpecificReporter >] {
+            pub struct [< $ident PreLinkCompilationSpecificReporter >] {
                 $vis reporter: [< $ident Reporter >],
-                $vis compilation_specifier: std::sync::Arc<crate::common::StandaloneCompilationSpecifier>,
+                $vis compilation_specifier: std::sync::Arc<crate::common::PreLinkCompilationSpecifier>,
             }
 
-            impl [< $ident StandaloneCompilationSpecificReporter >] {
+            impl [< $ident PreLinkCompilationSpecificReporter >] {
                 fn report(&self, event: impl Into<$ident>) -> anyhow::Result<()> {
                     self.reporter.report(event)
                 }
@@ -502,10 +502,10 @@ define_event! {
             /// A specifier for the test that was discovered.
             test_specifier: Arc<TestSpecifier>,
         },
-        /// An event emitted by the runners when they discover a standalone compilation.
-        StandaloneCompilationDiscovery {
+        /// An event emitted by the runners when they discover a pre-link-only compilation.
+        PreLinkCompilationDiscovery {
             /// A specifier for the compilation that was discovered.
-            compilation_specifier: Arc<StandaloneCompilationSpecifier>,
+            compilation_specifier: Arc<PreLinkCompilationSpecifier>,
         },
         /// An event emitted by the runners when a test case is ignored.
         TestIgnored {
@@ -603,10 +603,10 @@ define_event! {
             /// The failure reason.
             reason: String,
         },
-        /// An event emitted by the runners when a compilation is ignored.
-        StandaloneContractsCompilationIgnored {
+        /// An event emitted by the runners when a pre-link-only compilation is ignored.
+        PreLinkContractsCompilationIgnored {
             /// A specifier for the compilation that has been ignored.
-            compilation_specifier: Arc<StandaloneCompilationSpecifier>,
+            compilation_specifier: Arc<PreLinkCompilationSpecifier>,
             /// A reason for the compilation to be ignored.
             reason: String,
             /// Additional fields that describe more information on why the compilation was ignored.
@@ -674,10 +674,10 @@ impl RunnerEventReporter {
 pub type Reporter = RunnerEventReporter;
 pub type TestSpecificReporter = RunnerEventTestSpecificReporter;
 pub type ExecutionSpecificReporter = RunnerEventExecutionSpecificReporter;
-pub type StandaloneCompilationSpecificReporter = RunnerEventStandaloneCompilationSpecificReporter;
+pub type PreLinkCompilationSpecificReporter = RunnerEventPreLinkCompilationSpecificReporter;
 
 /// A wrapper that allows functions to accept either reporter type for compilation events.
 pub enum CompilationReporter<'a> {
     Execution(&'a ExecutionSpecificReporter),
-    Standalone(&'a StandaloneCompilationSpecificReporter),
+    PreLink(&'a PreLinkCompilationSpecificReporter),
 }

@@ -29,7 +29,7 @@ impl<'a> Driver<'a> {
                 self.compilation_definition.compiler.as_ref(),
                 self.compilation_definition.compiler_identifier,
                 None,
-                &CompilationReporter::Standalone(&self.compilation_definition.reporter),
+                &CompilationReporter::PreLink(&self.compilation_definition.reporter),
             )
             .await
             .inspect_err(|err| error!(?err, "Compilation failed"))

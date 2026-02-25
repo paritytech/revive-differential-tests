@@ -42,7 +42,7 @@ pub enum Context {
     ExportGenesis(Box<ExportGenesisContext>),
 
     /// Compiles contracts using the provided compiler build, without executing any tests.
-    Compile(Box<StandaloneCompilationContext>),
+    Compile(Box<PreLinkCompilationContext>),
 }
 
 impl Context {
@@ -556,7 +556,7 @@ pub struct ExportGenesisContext {
 }
 
 #[derive(Clone, Debug, Parser, Serialize, Deserialize)]
-pub struct StandaloneCompilationContext {
+pub struct PreLinkCompilationContext {
     /// The working directory that the program will use for all of the temporary artifacts needed at
     /// runtime.
     ///
@@ -838,49 +838,49 @@ impl AsRef<WalletConfiguration> for ExportGenesisContext {
     }
 }
 
-impl Default for StandaloneCompilationContext {
+impl Default for PreLinkCompilationContext {
     fn default() -> Self {
         Self::parse_from(["compilation-context", "--compile", "."])
     }
 }
 
-impl AsRef<WorkingDirectoryConfiguration> for StandaloneCompilationContext {
+impl AsRef<WorkingDirectoryConfiguration> for PreLinkCompilationContext {
     fn as_ref(&self) -> &WorkingDirectoryConfiguration {
         &self.working_directory
     }
 }
 
-impl AsRef<CorpusCompilationConfiguration> for StandaloneCompilationContext {
+impl AsRef<CorpusCompilationConfiguration> for PreLinkCompilationContext {
     fn as_ref(&self) -> &CorpusCompilationConfiguration {
         &self.corpus_configuration
     }
 }
 
-impl AsRef<SolcConfiguration> for StandaloneCompilationContext {
+impl AsRef<SolcConfiguration> for PreLinkCompilationContext {
     fn as_ref(&self) -> &SolcConfiguration {
         &self.solc_configuration
     }
 }
 
-impl AsRef<ResolcConfiguration> for StandaloneCompilationContext {
+impl AsRef<ResolcConfiguration> for PreLinkCompilationContext {
     fn as_ref(&self) -> &ResolcConfiguration {
         &self.resolc_configuration
     }
 }
 
-impl AsRef<ConcurrencyConfiguration> for StandaloneCompilationContext {
+impl AsRef<ConcurrencyConfiguration> for PreLinkCompilationContext {
     fn as_ref(&self) -> &ConcurrencyConfiguration {
         &self.concurrency_configuration
     }
 }
 
-impl AsRef<CompilationConfiguration> for StandaloneCompilationContext {
+impl AsRef<CompilationConfiguration> for PreLinkCompilationContext {
     fn as_ref(&self) -> &CompilationConfiguration {
         &self.compilation_configuration
     }
 }
 
-impl AsRef<ReportConfiguration> for StandaloneCompilationContext {
+impl AsRef<ReportConfiguration> for PreLinkCompilationContext {
     fn as_ref(&self) -> &ReportConfiguration {
         &self.report_configuration
     }

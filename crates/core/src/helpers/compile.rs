@@ -8,9 +8,7 @@ use revive_dt_common::{cached_fs::read_to_string, types::CompilerIdentifier};
 use revive_dt_compiler::{Mode, SolidityCompiler, revive_resolc::Resolc};
 use revive_dt_config::Context;
 use revive_dt_format::{corpus::Corpus, metadata::MetadataFile};
-use revive_dt_report::{
-    Reporter, StandaloneCompilationSpecificReporter, StandaloneCompilationSpecifier,
-};
+use revive_dt_report::{PreLinkCompilationSpecificReporter, PreLinkCompilationSpecifier, Reporter};
 use semver::VersionReq;
 use serde_json::{self, json};
 use tracing::{debug, error, info};
@@ -23,7 +21,7 @@ pub struct CompilationDefinition<'a> {
     pub mode: Cow<'a, Mode>,
     pub compiler_identifier: CompilerIdentifier,
     pub compiler: Box<dyn SolidityCompiler + 'static>,
-    pub reporter: StandaloneCompilationSpecificReporter,
+    pub reporter: PreLinkCompilationSpecificReporter,
 }
 
 impl<'a> CompilationDefinition<'a> {
@@ -159,8 +157,8 @@ pub async fn create_compilation_definitions_stream<'a>(
                 (
                     metadata_file,
                     Cow::<'_, Mode>::Owned(mode.clone()),
-                    reporter.compilation_specific_reporter(Arc::new(
-                        StandaloneCompilationSpecifier {
+                    reporter.pre_link_compilation_specific_reporter(Arc::new(
+                        PreLinkCompilationSpecifier {
                             solc_mode: mode.clone(),
                             metadata_file_path: metadata_file.metadata_file_path.clone(),
                         },
@@ -169,7 +167,7 @@ pub async fn create_compilation_definitions_stream<'a>(
             })
             .inspect(|(_, _, reporter)| {
                 reporter
-                    .report_standalone_compilation_discovery_event()
+                    .report_pre_link_compilation_discovery_event()
                     .expect("Can't fail");
             }),
     )
@@ -207,7 +205,7 @@ pub async fn create_compilation_definitions_stream<'a>(
                 );
                 compilation
                     .reporter
-                    .report_standalone_contracts_compilation_ignored_event(
+                    .report_pre_link_contracts_compilation_ignored_event(
                         reason.to_string(),
                         additional_information
                             .into_iter()
