@@ -158,27 +158,15 @@ impl<'a> CachedCompiler<'a> {
                                     .expect("Can't happen");
                             }
                             CompilationReporter::Execution(reporter) => {
-                                if deployed_libraries.is_some() {
-                                    reporter
-                                        .report_post_link_contracts_compilation_succeeded_event(
-                                            compiler.version().clone(),
-                                            compiler.path(),
-                                            true,
-                                            None,
-                                            cache_value.compiler_output.clone(),
-                                        )
-                                        .expect("Can't happen");
-                                } else {
-                                    reporter
-                                        .report_pre_link_contracts_compilation_succeeded_event(
-                                            compiler.version().clone(),
-                                            compiler.path(),
-                                            true,
-                                            None,
-                                            cache_value.compiler_output.clone(),
-                                        )
-                                        .expect("Can't happen");
-                                }
+                                reporter
+                                    .report_pre_link_contracts_compilation_succeeded_event(
+                                        compiler.version().clone(),
+                                        compiler.path(),
+                                        true,
+                                        None,
+                                        cache_value.compiler_output.clone(),
+                                    )
+                                    .expect("Can't happen");
                             }
                         }
                         cache_value.compiler_output
@@ -256,9 +244,25 @@ async fn compile_contracts(
     let input = compilation.input().clone();
     let output = compilation.try_build(compiler).await;
 
-    match reporter {
-        CompilationReporter::PreLink(reporter) => match output.as_ref() {
-            Ok(output) => {
+    match (output.as_ref(), deployed_libraries.is_some()) {
+        (Ok(output), true) => match reporter {
+            CompilationReporter::Execution(reporter) => {
+                reporter
+                    .report_post_link_contracts_compilation_succeeded_event(
+                        compiler.version().clone(),
+                        compiler.path(),
+                        false,
+                        input,
+                        output.clone(),
+                    )
+                    .expect("Can't happen");
+            }
+            CompilationReporter::PreLink(_) => {
+                unreachable!();
+            }
+        },
+        (Ok(output), false) => match reporter {
+            CompilationReporter::Execution(reporter) => {
                 reporter
                     .report_pre_link_contracts_compilation_succeeded_event(
                         compiler.version().clone(),
@@ -269,7 +273,45 @@ async fn compile_contracts(
                     )
                     .expect("Can't happen");
             }
-            Err(err) => {
+            CompilationReporter::PreLink(reporter) => {
+                reporter
+                    .report_pre_link_contracts_compilation_succeeded_event(
+                        compiler.version().clone(),
+                        compiler.path(),
+                        false,
+                        input,
+                        output.clone(),
+                    )
+                    .expect("Can't happen");
+            }
+        },
+        (Err(err), true) => match reporter {
+            CompilationReporter::Execution(reporter) => {
+                reporter
+                    .report_post_link_contracts_compilation_failed_event(
+                        compiler.version().clone(),
+                        compiler.path().to_path_buf(),
+                        input,
+                        format!("{err:#}"),
+                    )
+                    .expect("Can't happen");
+            }
+            CompilationReporter::PreLink(_) => {
+                unreachable!();
+            }
+        },
+        (Err(err), false) => match reporter {
+            CompilationReporter::Execution(reporter) => {
+                reporter
+                    .report_pre_link_contracts_compilation_failed_event(
+                        compiler.version().clone(),
+                        compiler.path().to_path_buf(),
+                        input,
+                        format!("{err:#}"),
+                    )
+                    .expect("Can't happen");
+            }
+            CompilationReporter::PreLink(reporter) => {
                 reporter
                     .report_pre_link_contracts_compilation_failed_event(
                         compiler.version().clone(),
@@ -280,52 +322,6 @@ async fn compile_contracts(
                     .expect("Can't happen");
             }
         },
-        CompilationReporter::Execution(reporter) => {
-            match (output.as_ref(), deployed_libraries.is_some()) {
-                (Ok(output), true) => {
-                    reporter
-                        .report_post_link_contracts_compilation_succeeded_event(
-                            compiler.version().clone(),
-                            compiler.path(),
-                            false,
-                            input,
-                            output.clone(),
-                        )
-                        .expect("Can't happen");
-                }
-                (Ok(output), false) => {
-                    reporter
-                        .report_pre_link_contracts_compilation_succeeded_event(
-                            compiler.version().clone(),
-                            compiler.path(),
-                            false,
-                            input,
-                            output.clone(),
-                        )
-                        .expect("Can't happen");
-                }
-                (Err(err), true) => {
-                    reporter
-                        .report_post_link_contracts_compilation_failed_event(
-                            compiler.version().clone(),
-                            compiler.path().to_path_buf(),
-                            input,
-                            format!("{err:#}"),
-                        )
-                        .expect("Can't happen");
-                }
-                (Err(err), false) => {
-                    reporter
-                        .report_pre_link_contracts_compilation_failed_event(
-                            compiler.version().clone(),
-                            compiler.path().to_path_buf(),
-                            input,
-                            format!("{err:#}"),
-                        )
-                        .expect("Can't happen");
-                }
-            }
-        }
     }
 
     output
