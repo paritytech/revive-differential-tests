@@ -116,6 +116,11 @@ pub struct ZombienetNode {
     use_fallback_gas_filler: bool,
 
     eth_rpc_logging_level: String,
+
+    /// The tokio runtime that the zombienet SDK tasks run on. Must be kept alive
+    /// so that the log-reading tasks continue draining the process output pipes.
+    /// Without this, the child processes block on stderr writes when the pipe buffer fills.
+    zombienet_runtime: Option<tokio::runtime::Runtime>,
 }
 
 impl ZombienetNode {
@@ -166,6 +171,7 @@ impl ZombienetNode {
             provider: Default::default(),
             use_fallback_gas_filler,
             eth_rpc_logging_level: context.as_eth_rpc_configuration().logging_level.clone(),
+            zombienet_runtime: None,
         }
     }
 
@@ -328,6 +334,7 @@ impl ZombienetNode {
             self.eth_proxy_binary.as_path(),
             |command, stdout_file, stderr_file| {
                 command
+                    .arg("--dev")
                     .arg("--node-rpc-url")
                     .arg(node_rpc_url)
                     .arg("--rpc-cors")
@@ -336,6 +343,10 @@ impl ZombienetNode {
                     .arg(u32::MAX.to_string())
                     .arg("--rpc-port")
                     .arg(eth_rpc_port.to_string())
+                    .arg("--index-last-n-blocks")
+                    .arg(100_000u32.to_string())
+                    .arg("--cache-size")
+                    .arg(100_000u32.to_string())
                     .env("RUST_LOG", self.eth_rpc_logging_level.as_str())
                     .stdout(stdout_file)
                     .stderr(stderr_file);
@@ -364,6 +375,7 @@ impl ZombienetNode {
         self.connection_string = format!("http://localhost:{}", eth_rpc_port);
         self.collator_ws_uri = Some(collator_ws_uri);
         self.network = Some(network);
+        self.zombienet_runtime = Some(rt);
 
         // Wait for the parachain to start producing blocks. After zombienet spawns, the parachain
         // needs to be onboarded through the relay chain which takes several epochs. Without this
