@@ -48,6 +48,7 @@ mod context {
         pub kurtosis: KurtosisConfiguration,
         pub revive_dev_node: ReviveDevNodeConfiguration,
         pub polkadot_omnichain_node: PolkadotOmnichainNodeConfiguration,
+        pub zombienet: ZombienetConfiguration,
         pub eth_rpc: EthRpcConfiguration,
         pub genesis: GenesisConfiguration,
         pub wallet: WalletConfiguration,
@@ -72,6 +73,7 @@ mod context {
         pub kurtosis: KurtosisConfiguration,
         pub revive_dev_node: ReviveDevNodeConfiguration,
         pub polkadot_omnichain_node: PolkadotOmnichainNodeConfiguration,
+        pub zombienet: ZombienetConfiguration,
         pub eth_rpc: EthRpcConfiguration,
         pub wallet: WalletConfiguration,
         pub concurrency: ConcurrencyConfiguration,
@@ -218,6 +220,18 @@ mod context {
         ///
         /// If unspecified, the revive compiler default is used
         pub stack_size: Option<u32>,
+    }
+
+    /// A set of configuration parameters for Zombienet.
+    #[configuration(key = "zombienet")]
+    pub struct ZombienetConfiguration {
+        /// Path to a zombienet TOML configuration file.
+        ///
+        /// The framework will use this configuration to spawn the zombienet network. The
+        /// configuration file should define the full network topology including relay chain
+        /// and parachain collators.
+        #[clap(value_hint = ValueHint::FilePath)]
+        pub config_path: Option<PathBuf>,
     }
 
     /// A set of configuration parameters for Polkadot Parachain.
