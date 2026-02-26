@@ -242,9 +242,10 @@ impl ModeOptimizerLevel {
         [
             // No optimizations:
             ModeOptimizerLevel::M0,
-            // Aggressive optimizations:
+            // Aggressive performance optimizations:
             ModeOptimizerLevel::M3,
-            // TODO: Add size (and update the doc comment for ParsedMode).
+            // Aggressive size optimizations:
+            ModeOptimizerLevel::Mz,
         ]
         .into_iter()
     }
@@ -268,7 +269,7 @@ impl ModeOptimizerLevel {
 /// - Explicit `M`/`S` settings override the `+`/`-` shorthand.
 /// - If omitted, expands to all combinations we'd like to test. E.g.:
 ///   - `Y M3` → `Y M3 S+` and `Y M3 S-`
-///   - `Y S+` → `Y M0 S+` and `Y M3 S+`
+///   - `Y S+` → `Y M0 S+`, `Y M3 S+`, and `Y Mz S+`
 ///
 /// Examples: `Y+`, `Y M3`, `Y Mz S- >=0.8.0`
 ///
@@ -514,6 +515,18 @@ mod tests {
             ("Y Ms S-", "Y Ms S-"),
             ("Y Mz S+", "Y Mz S+"),
             ("Y Mz S-", "Y Mz S-"),
+            ("E M0 S+", "E M0 S+"),
+            ("E M0 S-", "E M0 S-"),
+            ("E M1 S+", "E M1 S+"),
+            ("E M1 S-", "E M1 S-"),
+            ("E M2 S+", "E M2 S+"),
+            ("E M2 S-", "E M2 S-"),
+            ("E M3 S+", "E M3 S+"),
+            ("E M3 S-", "E M3 S-"),
+            ("E Ms S+", "E Ms S+"),
+            ("E Ms S-", "E Ms S-"),
+            ("E Mz S+", "E Mz S+"),
+            ("E Mz S-", "E Mz S-"),
             // When stringifying semver again, 0.8.0 becomes ^0.8.0 (same meaning)
             ("Y 0.8.0", "Y ^0.8.0"),
             ("E+ 0.8.0", "E+ ^0.8.0"),
@@ -541,9 +554,9 @@ mod tests {
     fn test_parsed_mode_to_test_modes() {
         let strings = vec![
             ("Mz", vec!["Y Mz S+", "Y Mz S-", "E Mz S+", "E Mz S-"]),
-            ("S+", vec!["Y M0 S+", "Y M3 S+", "E M0 S+", "E M3 S+"]),
-            ("Y", vec!["Y M0 S+", "Y M0 S-", "Y M3 S+", "Y M3 S-"]),
-            ("E", vec!["E M0 S+", "E M0 S-", "E M3 S+", "E M3 S-"]),
+            ("S+", vec!["Y M0 S+", "Y M3 S+", "Y Mz S+", "E M0 S+", "E M3 S+", "E Mz S+"]),
+            ("Y", vec!["Y M0 S+", "Y M0 S-", "Y M3 S+", "Y M3 S-", "Y Mz S+", "Y Mz S-"]),
+            ("E", vec!["E M0 S+", "E M0 S-", "E M3 S+", "E M3 S-", "E Mz S+", "E Mz S-"]),
             ("Y+", vec!["Y M3 S+"]),
             ("Y-", vec!["Y M0 S-"]),
             (
@@ -553,6 +566,8 @@ mod tests {
                     "Y M0 S- <=0.8",
                     "Y M3 S+ <=0.8",
                     "Y M3 S- <=0.8",
+                    "Y Mz S+ <=0.8",
+                    "Y Mz S- <=0.8",
                 ],
             ),
             (
@@ -562,10 +577,14 @@ mod tests {
                     "Y M0 S- <=0.8",
                     "Y M3 S+ <=0.8",
                     "Y M3 S- <=0.8",
+                    "Y Mz S+ <=0.8",
+                    "Y Mz S- <=0.8",
                     "E M0 S+ <=0.8",
                     "E M0 S- <=0.8",
                     "E M3 S+ <=0.8",
                     "E M3 S- <=0.8",
+                    "E Mz S+ <=0.8",
+                    "E Mz S- <=0.8",
                 ],
             ),
             ("Y M3", vec!["Y M3 S+", "Y M3 S-"]),
