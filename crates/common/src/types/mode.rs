@@ -39,7 +39,7 @@ impl Display for Mode {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         self.pipeline.fmt(f)?;
         f.write_str(" ")?;
-        self.optimize_setting.level.fmt(f)?;
+        self.optimize_setting.fmt(f)?;
 
         if let Some(version) = &self.version {
             f.write_str(" ")?;
@@ -144,6 +144,18 @@ pub struct ModeOptimizerSetting {
     pub solc_optimizer_enabled: bool,
     /// The resolc optimization level (used for LLVM optimizations).
     pub level: ModeOptimizerLevel,
+}
+
+impl Display for ModeOptimizerSetting {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.level.fmt(f)?;
+        f.write_str(" ")?;
+        f.write_str(if self.solc_optimizer_enabled {
+            "S+"
+        } else {
+            "S-"
+        })
+    }
 }
 
 impl ModeOptimizerSetting {
@@ -274,15 +286,16 @@ pub struct ParsedMode {
 impl FromStr for ParsedMode {
     type Err = anyhow::Error;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        // TODO: Update to pass solc optimizer enabled (perhaps as e.g. S+ and S-).
         static REGEX: LazyLock<Regex> = LazyLock::new(|| {
             Regex::new(r"(?x)
                 ^
-                (?:(?P<pipeline>[YEILV])(?P<optimize_flag>[+-])?)? # Pipeline to use eg Y, E+, E-
+                (?:(?P<pipeline>[YEILV])(?P<optimize_flag>[+-])?)? # Pipeline to use e.g. Y, E+, E-
                 \s*
-                (?P<optimize_level>M[a-zA-Z0-9])?                # Optimize level eg M0, Ms, Mz
+                (?P<optimize_level>M[a-zA-Z0-9])?                  # Optimize level e.g. M0, Ms, Mz
                 \s*
-                (?P<version>[>=<^]*\d+(?:\.\d+)*)?                  # Optional semver version eg >=0.8.0, 0.7, <0.8
+                (?:S(?P<solc_optimizer_enabled>[+-]))?             # Solc optimizer e.g. S+, S-
+                \s*
+                (?P<version>[>=<^]*\d+(?:\.\d+)*)?                 # Optional semver version e.g. >=0.8.0, 0.7, <0.8
                 $
             ").unwrap()
         });
@@ -309,8 +322,9 @@ impl FromStr for ParsedMode {
             None => None,
         };
 
-        // TODO: Update after adding parsing.
-        let solc_optimizer_enabled: Option<bool> = None;
+        let solc_optimizer_enabled = caps
+            .name("solc_optimizer_enabled")
+            .map(|m| m.as_str() == "+");
 
         let version = match caps.name("version") {
             Some(m) => Some(
@@ -356,7 +370,13 @@ impl Display for ParsedMode {
             has_written = true;
         }
 
-        // TODO: Handle solc_optimizer_enabled after adding parsing.
+        if let Some(solc_optimizer_enabled) = self.solc_optimizer_enabled {
+            if has_written {
+                f.write_str(" ")?;
+            }
+            f.write_str(if solc_optimizer_enabled { "S+" } else { "S-" })?;
+            has_written = true;
+        }
 
         if let Some(version) = &self.version {
             if has_written {
@@ -460,9 +480,10 @@ mod tests {
 
     #[test]
     fn test_parsed_mode_from_str() {
-        // TODO: Add tests for solc_optimizer_enabled after adding parsing.
         let strings = vec![
             ("Mz", "Mz"),
+            ("S+", "S+"),
+            ("S-", "S-"),
             ("Y", "Y"),
             ("Y+", "Y+"),
             ("Y-", "Y-"),
@@ -481,14 +502,26 @@ mod tests {
             ("E M3", "E M3"),
             ("E Ms", "E Ms"),
             ("E Mz", "E Mz"),
+            ("Y M0 S+", "Y M0 S+"),
+            ("Y M0 S-", "Y M0 S-"),
+            ("Y M1 S+", "Y M1 S+"),
+            ("Y M1 S-", "Y M1 S-"),
+            ("Y M2 S+", "Y M2 S+"),
+            ("Y M2 S-", "Y M2 S-"),
+            ("Y M3 S+", "Y M3 S+"),
+            ("Y M3 S-", "Y M3 S-"),
+            ("Y Ms S+", "Y Ms S+"),
+            ("Y Ms S-", "Y Ms S-"),
+            ("Y Mz S+", "Y Mz S+"),
+            ("Y Mz S-", "Y Mz S-"),
             // When stringifying semver again, 0.8.0 becomes ^0.8.0 (same meaning)
             ("Y 0.8.0", "Y ^0.8.0"),
             ("E+ 0.8.0", "E+ ^0.8.0"),
-            ("Y M3 >=0.8.0", "Y M3 >=0.8.0"),
-            ("E Mz <0.7.0", "E Mz <0.7.0"),
-            // We can parse +- _and_ M1/M2 but the latter takes priority.
-            ("Y+ M1 0.8.0", "Y+ M1 ^0.8.0"),
-            ("E- M2 0.7.0", "E- M2 ^0.7.0"),
+            ("Y M3 S+ >=0.8.0", "Y M3 S+ >=0.8.0"),
+            ("E Mz S- <0.7.0", "E Mz S- <0.7.0"),
+            // We can parse +- _and_ M1/M2 and S+/S- but the latter ones take priority.
+            ("Y+ M1 S+ 0.8.0", "Y+ M1 S+ ^0.8.0"),
+            ("E- M2 S- 0.7.0", "E- M2 S- ^0.7.0"),
             // We don't see this in the wild but it is parsed.
             ("<=0.8", "<=0.8"),
         ];
@@ -507,16 +540,40 @@ mod tests {
     #[test]
     fn test_parsed_mode_to_test_modes() {
         let strings = vec![
-            ("Mz", vec!["Y Mz", "E Mz"]),
-            ("Y", vec!["Y M0", "Y M3"]),
-            ("E", vec!["E M0", "E M3"]),
-            ("Y+", vec!["Y M3"]),
-            ("Y-", vec!["Y M0"]),
-            ("Y <=0.8", vec!["Y M0 <=0.8", "Y M3 <=0.8"]),
+            ("Mz", vec!["Y Mz S+", "Y Mz S-", "E Mz S+", "E Mz S-"]),
+            ("S+", vec!["Y M0 S+", "Y M3 S+", "E M0 S+", "E M3 S+"]),
+            ("Y", vec!["Y M0 S+", "Y M0 S-", "Y M3 S+", "Y M3 S-"]),
+            ("E", vec!["E M0 S+", "E M0 S-", "E M3 S+", "E M3 S-"]),
+            ("Y+", vec!["Y M3 S+"]),
+            ("Y-", vec!["Y M0 S-"]),
+            (
+                "Y <=0.8",
+                vec![
+                    "Y M0 S+ <=0.8",
+                    "Y M0 S- <=0.8",
+                    "Y M3 S+ <=0.8",
+                    "Y M3 S- <=0.8",
+                ],
+            ),
             (
                 "<=0.8",
-                vec!["Y M0 <=0.8", "Y M3 <=0.8", "E M0 <=0.8", "E M3 <=0.8"],
+                vec![
+                    "Y M0 S+ <=0.8",
+                    "Y M0 S- <=0.8",
+                    "Y M3 S+ <=0.8",
+                    "Y M3 S- <=0.8",
+                    "E M0 S+ <=0.8",
+                    "E M0 S- <=0.8",
+                    "E M3 S+ <=0.8",
+                    "E M3 S- <=0.8",
+                ],
             ),
+            ("Y M3", vec!["Y M3 S+", "Y M3 S-"]),
+            ("E M0", vec!["E M0 S+", "E M0 S-"]),
+            ("Y M3 S+", vec!["Y M3 S+"]),
+            ("E M0 S-", vec!["E M0 S-"]),
+            ("Y+ M3 S+", vec!["Y M3 S+"]),
+            ("E- M0 S-", vec!["E M0 S-"]),
         ];
 
         for (actual, expected) in strings {
