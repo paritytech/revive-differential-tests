@@ -146,6 +146,21 @@ pub struct ModeOptimizerSetting {
     pub level: ModeOptimizerLevel,
 }
 
+impl Default for ModeOptimizerSetting {
+    // TODO: Previously, the default used for:
+    //       - resolc was: "solc_optimizer_enabled: false, level: M0".
+    //       - solc was: "solc_optimizer_enabled: None".
+    //       Which one does this framework want? In resolc, we default to having it enabled
+    //       (--disable-solc-optimizer must be explicitly provided to disable). However, looks
+    //       like `CompilerInput.optimization` at this stage will always be Some, except for in tests.
+    fn default() -> Self {
+        Self {
+            solc_optimizer_enabled: true,
+            level: ModeOptimizerLevel::Mz,
+        }
+    }
+}
+
 impl Display for ModeOptimizerSetting {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         self.level.fmt(f)?;
@@ -554,9 +569,24 @@ mod tests {
     fn test_parsed_mode_to_test_modes() {
         let strings = vec![
             ("Mz", vec!["Y Mz S+", "Y Mz S-", "E Mz S+", "E Mz S-"]),
-            ("S+", vec!["Y M0 S+", "Y M3 S+", "Y Mz S+", "E M0 S+", "E M3 S+", "E Mz S+"]),
-            ("Y", vec!["Y M0 S+", "Y M0 S-", "Y M3 S+", "Y M3 S-", "Y Mz S+", "Y Mz S-"]),
-            ("E", vec!["E M0 S+", "E M0 S-", "E M3 S+", "E M3 S-", "E Mz S+", "E Mz S-"]),
+            (
+                "S+",
+                vec![
+                    "Y M0 S+", "Y M3 S+", "Y Mz S+", "E M0 S+", "E M3 S+", "E Mz S+",
+                ],
+            ),
+            (
+                "Y",
+                vec![
+                    "Y M0 S+", "Y M0 S-", "Y M3 S+", "Y M3 S-", "Y Mz S+", "Y Mz S-",
+                ],
+            ),
+            (
+                "E",
+                vec![
+                    "E M0 S+", "E M0 S-", "E M3 S+", "E M3 S-", "E Mz S+", "E Mz S-",
+                ],
+            ),
             ("Y+", vec!["Y M3 S+"]),
             ("Y-", vec!["Y M0 S-"]),
             (

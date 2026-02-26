@@ -131,7 +131,7 @@ impl SolidityCompiler for Solc {
                 ),
                 settings: Settings {
                     optimizer: Optimizer {
-                        enabled: Some(optimization.map_or(true, |o| o.solc_optimizer_enabled)),
+                        enabled: Some(optimization.unwrap_or_default().solc_optimizer_enabled),
                         details: Some(Default::default()),
                         ..Default::default()
                     },

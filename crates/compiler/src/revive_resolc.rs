@@ -21,10 +21,7 @@ use revive_solc_json_interface::{
 };
 use tracing::{Span, field::display};
 
-use crate::{
-    CompilerInput, CompilerOutput, ModeOptimizerLevel, ModeOptimizerSetting, ModePipeline,
-    SolidityCompiler, solc::Solc,
-};
+use crate::{CompilerInput, CompilerOutput, ModePipeline, SolidityCompiler, solc::Solc};
 
 use alloy::json_abi::JsonAbi;
 use anyhow::{Context as _, Result};
@@ -147,15 +144,7 @@ impl SolidityCompiler for Resolc {
                 );
             }
 
-            // TODO: Previously, the default used here was "solc_optimizer_enabled: false, level: M0".
-            //       Which one does this framework want? In resolc, we default to having it enabled
-            //       (--disable-solc-optimizer must be explicitly provided). However, looks like
-            //       `optimization` will always be Some, except for in tests.
-            // TODO: Add a default() onto ModeOptimizerSetting in order to share it with solc.
-            let opt = optimization.unwrap_or(ModeOptimizerSetting {
-                solc_optimizer_enabled: true,
-                level: ModeOptimizerLevel::Mz,
-            });
+            let optimize_setting = optimization.unwrap_or_default();
 
             let input = SolcStandardJsonInput {
                 language: SolcStandardJsonInputLanguage::Solidity,
@@ -186,8 +175,8 @@ impl SolidityCompiler for Resolc {
                         SolcStandardJsonInputSettingsSelection::new_required_for_tests(),
                     via_ir: Some(true),
                     optimizer: SolcStandardJsonInputSettingsOptimizer::new(
-                        opt.solc_optimizer_enabled,
-                        opt.to_mode_char(),
+                        optimize_setting.solc_optimizer_enabled,
+                        optimize_setting.to_mode_char(),
                         Details::disabled(&Version::new(0, 0, 0)),
                     ),
                     polkavm: self.polkavm_settings(),
