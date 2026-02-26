@@ -250,6 +250,11 @@ pub struct TestExecutionContext {
     #[arg(short, long, default_value_t = OutputFormat::CargoTestLike)]
     pub output_format: OutputFormat,
 
+    /// Abort test execution after the first failure. Remaining tests are marked as ignored in the
+    /// report.
+    #[arg(long = "fail-fast")]
+    pub fail_fast: bool,
+
     /// The working directory that the program will use for all of the temporary artifacts needed at
     /// runtime.
     ///
