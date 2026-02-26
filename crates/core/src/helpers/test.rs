@@ -212,8 +212,8 @@ impl TryFrom<IgnoreCasesConfiguration> for TestCaseIgnoreResolvedConfiguration {
     type Error = anyhow::Error;
 
     fn try_from(value: IgnoreCasesConfiguration) -> Result<Self, Self::Error> {
-        let mut this = Self::default()
-            .with_ignore_cases_with_failing_steps(value.ignore_cases_with_failing_steps);
+        let mut this =
+            Self::default().with_ignore_cases_with_failing_steps(value.cases_with_failing_steps);
 
         this = if let Some(succeeding_cases_from_report) = value.succeeding_cases_from_report {
             let content = read_to_string(succeeding_cases_from_report)

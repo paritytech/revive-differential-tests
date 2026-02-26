@@ -99,20 +99,18 @@ impl SubstrateNode {
         node_path: PathBuf,
         export_chainspec_command: &str,
         consensus: Option<String>,
-        context: impl AsRef<WorkingDirectoryConfiguration>
-        + AsRef<EthRpcConfiguration>
-        + AsRef<WalletConfiguration>,
+        context: impl HasWorkingDirectoryConfiguration + HasEthRpcConfiguration + HasWalletConfiguration,
         existing_connection_strings: &[String],
         use_fallback_gas_filler: bool,
         node_logging_level: String,
         eth_rpc_logging_level: String,
     ) -> Self {
-        let working_directory_path =
-            AsRef::<WorkingDirectoryConfiguration>::as_ref(&context).as_path();
-        let eth_rpc_path = AsRef::<EthRpcConfiguration>::as_ref(&context)
-            .path
+        let working_directory_path = context
+            .as_working_directory_configuration()
+            .working_directory
             .as_path();
-        let wallet = AsRef::<WalletConfiguration>::as_ref(&context).wallet();
+        let eth_rpc_path = context.as_eth_rpc_configuration().path.as_path();
+        let wallet = context.as_wallet_configuration().wallet();
 
         let substrate_directory = working_directory_path.join(Self::BASE_DIRECTORY);
         let id = NODE_COUNT.fetch_add(1, Ordering::SeqCst);
@@ -804,11 +802,11 @@ mod tests {
     use super::*;
     use crate::Node;
 
-    fn test_config() -> TestExecutionContext {
-        TestExecutionContext::default()
+    fn test_config() -> Test {
+        Test::default()
     }
 
-    fn new_node() -> (TestExecutionContext, SubstrateNode) {
+    fn new_node() -> (Test, SubstrateNode) {
         // Note: When we run the tests in the CI we found that if they're all
         // run in parallel then the CI is unable to start all of the nodes in
         // time and their start up times-out. Therefore, we want all of the
@@ -828,25 +826,27 @@ mod tests {
         let _guard = NODE_START_MUTEX.lock().unwrap();
 
         let context = test_config();
+        let revive_dev_node_path = context.revive_dev_node.path.clone();
+        let genesis = context.genesis.genesis().unwrap().clone();
         let mut node = SubstrateNode::new(
-            context.revive_dev_node_configuration.path.clone(),
+            revive_dev_node_path,
             SubstrateNode::REVIVE_DEV_NODE_EXPORT_CHAINSPEC_COMMAND,
             None,
-            &context,
+            context.clone(),
             &[],
             true,
             "".to_string(),
             "".to_string(),
         );
-        node.init(context.genesis_configuration.genesis().unwrap().clone())
+        node.init(genesis)
             .expect("Failed to initialize the node")
             .spawn_process()
             .expect("Failed to spawn the node process");
         (context, node)
     }
 
-    fn shared_state() -> &'static (TestExecutionContext, SubstrateNode) {
-        static STATE: LazyLock<(TestExecutionContext, SubstrateNode)> = LazyLock::new(new_node);
+    fn shared_state() -> &'static (Test, SubstrateNode) {
+        static STATE: LazyLock<(Test, SubstrateNode)> = LazyLock::new(new_node);
         &STATE
     }
 
@@ -862,11 +862,7 @@ mod tests {
 
         let provider = node.provider().await.expect("Failed to create provider");
 
-        let account_address = context
-            .wallet_configuration
-            .wallet()
-            .default_signer()
-            .address();
+        let account_address = context.wallet.wallet().default_signer().address();
         let transaction = TransactionRequest::default()
             .to(account_address)
             .value(U256::from(100_000_000_000_000u128));
@@ -902,11 +898,12 @@ mod tests {
         "#;
 
         let context = test_config();
+        let revive_dev_node_path = context.revive_dev_node.path.clone();
         let mut dummy_node = SubstrateNode::new(
-            context.revive_dev_node_configuration.path.clone(),
+            revive_dev_node_path,
             SubstrateNode::REVIVE_DEV_NODE_EXPORT_CHAINSPEC_COMMAND,
             None,
-            &context,
+            context,
             &[],
             true,
             "".to_string(),

@@ -33,11 +33,14 @@ use revive_dt_format::{
     },
     traits::{ResolutionContext, ResolverApi},
 };
-use tokio::sync::{Mutex, OnceCell, mpsc::UnboundedSender};
-use tracing::{Span, debug, error, field::display, info, instrument};
+use tokio::{
+    sync::{Mutex, OnceCell, RwLock, mpsc::UnboundedSender},
+    time::{interval, timeout},
+};
+use tracing::{Span, debug, error, field::display, info, instrument, warn};
 
 use crate::{
-    differential_benchmarks::{ExecutionState, WatcherEvent},
+    differential_benchmarks::{ExecutionState, InclusionWatcher, WatcherEvent},
     helpers::{CachedCompiler, TestDefinition, TestPlatformInformation},
 };
 
@@ -70,6 +73,13 @@ pub struct Driver<'a, I> {
     /// The number of steps that were executed on the driver.
     steps_executed: usize,
 
+    /// A watcher used to watch for the inclusion of transactions in a block, which is better than
+    /// polling for their receipts and clogging up the network.
+    inclusion_watcher: &'a InclusionWatcher,
+
+    /// A map of the gas limit for all of the transactions we have.
+    gas_limits: Arc<RwLock<HashMap<StepPath, u64>>>,
+
     /// This function controls if the driver should wait for transactions to be included in a block
     /// or not before proceeding forward.
     await_transaction_inclusion: bool,
@@ -84,6 +94,7 @@ where
     I: Iterator<Item = (StepPath, Step)>,
 {
     // region:Constructors & Initialization
+    #[allow(clippy::too_many_arguments)]
     pub async fn new(
         platform_information: &'a TestPlatformInformation<'a>,
         test_definition: &'a TestDefinition<'a>,
@@ -91,6 +102,7 @@ where
         cached_compiler: &CachedCompiler<'a>,
         watcher_tx: UnboundedSender<WatcherEvent>,
         await_transaction_inclusion: bool,
+        inclusion_watcher: &'a InclusionWatcher,
         steps: I,
     ) -> Result<Self> {
         let mut this = Driver {
@@ -106,8 +118,10 @@ where
             execution_state: ExecutionState::empty(),
             steps_executed: 0,
             steps_iterator: steps,
+            inclusion_watcher,
             await_transaction_inclusion,
             watcher_tx,
+            gas_limits: Arc::new(Default::default()),
         };
         this.init_execution_state(cached_compiler)
             .await
@@ -170,7 +184,7 @@ where
             );
             let receipt = self
                 .execute_transaction(tx, None, Duration::from_secs(5 * 60))
-                .and_then(|(_, receipt_fut)| receipt_fut)
+                .and_then(|(_, receipt_fut, _)| receipt_fut)
                 .await
                 .inspect_err(|err| {
                     error!(
@@ -260,11 +274,23 @@ where
         err(Debug),
     )]
     async fn execute_step(&mut self, step_path: &StepPath, step: &Step) -> Result<()> {
+        self.platform_information.node.provider().await.unwrap();
         let steps_executed = match step {
-            Step::FunctionCall(step) => self
-                .execute_function_call(step_path, step.as_ref())
-                .await
-                .context("Function call step Failed"),
+            Step::FunctionCall(step) => {
+                // If a function call step fails then we stop this driver and allow the other
+                // drivers to continue.
+                match self
+                    .execute_function_call(step_path, step.as_ref())
+                    .await
+                    .context("Function call step Failed")
+                {
+                    Ok(steps_executed) => Ok(steps_executed),
+                    Err(err) => {
+                        warn!(?err, "Step execution failed");
+                        return Ok(());
+                    }
+                }
+            }
             Step::Repeat(step) => self
                 .execute_repeat_step(step_path, step.as_ref())
                 .await
@@ -369,26 +395,11 @@ where
                     .as_transaction(self.resolver.as_ref(), self.default_resolution_context())
                     .await?;
 
-                let (tx_hash, receipt_future) = self
+                let (tx_hash, _, inclusion_future) = self
                     .execute_transaction(tx.clone(), Some(step_path), Duration::from_secs(30 * 60))
                     .await?;
                 if self.await_transaction_inclusion {
-                    let receipt = receipt_future
-                        .await
-                        .context("Failed while waiting for transaction inclusion in block")?;
-
-                    if !receipt.status() {
-                        error!(
-                            ?tx,
-                            tx.hash = %receipt.transaction_hash,
-                            ?receipt,
-                            "Encountered a failing benchmark transaction"
-                        );
-                        bail!(
-                            "Encountered a failing transaction in benchmarks: {}",
-                            receipt.transaction_hash
-                        )
-                    }
+                    inclusion_future.await;
                 }
 
                 Ok(tx_hash)
@@ -493,7 +504,9 @@ where
                     steps.into_iter()
                 },
                 await_transaction_inclusion: self.await_transaction_inclusion,
+                inclusion_watcher: self.inclusion_watcher,
                 watcher_tx: self.watcher_tx.clone(),
+                gas_limits: self.gas_limits.clone(),
             })
             .map(|driver| driver.execute_all());
 
@@ -660,7 +673,7 @@ where
 
         let receipt = match self
             .execute_transaction(tx, step_path, Duration::from_secs(5 * 60))
-            .and_then(|(_, receipt_fut)| receipt_fut)
+            .and_then(|(_, receipt_fut, _)| receipt_fut)
             .await
         {
             Ok(receipt) => receipt,
@@ -706,19 +719,70 @@ where
         skip_all,
         fields(
             driver_id = self.driver_id,
-            transaction = ?transaction,
             transaction_hash = tracing::field::Empty
         ),
         err(Debug)
     )]
     async fn execute_transaction(
         &self,
-        transaction: TransactionRequest,
+        mut transaction: TransactionRequest,
         step_path: Option<&StepPath>,
         receipt_wait_duration: Duration,
-    ) -> anyhow::Result<(TxHash, impl Future<Output = Result<TransactionReceipt>>)> {
+    ) -> anyhow::Result<(
+        TxHash,
+        impl Future<Output = Result<TransactionReceipt>>,
+        impl Future<Output = ()>,
+    )> {
         let node = self.platform_information.node;
         let provider = node.provider().await.context("Creating provider failed")?;
+
+        if let Some(step_path) = step_path {
+            let read_guard = self.gas_limits.read().await;
+            let gas_limit = match read_guard.get(step_path) {
+                Some(gas_estimate) => {
+                    info!(
+                        estimated_gas = gas_estimate,
+                        step_path = %step_path,
+                        "Obtained gas estimate from cache"
+                    );
+                    *gas_estimate
+                }
+                None => {
+                    drop(read_guard);
+                    let mut write_guard = self.gas_limits.write().await;
+                    match write_guard.get(step_path) {
+                        Some(gas_estimate) => {
+                            warn!("False positive in gas estimation cache");
+                            *gas_estimate
+                        }
+                        None => {
+                            let gas_estimate = timeout(Duration::from_secs(5 * 60), async {
+                                let mut interval = interval(Duration::from_millis(200));
+                                loop {
+                                    interval.tick().await;
+                                    let Ok(gas_estimate) =
+                                        provider.estimate_gas(transaction.clone()).await
+                                    else {
+                                        continue;
+                                    };
+                                    return gas_estimate;
+                                }
+                            })
+                            .await
+                            .context("Failed to get the gas estimate")?;
+                            write_guard.insert(step_path.clone(), gas_estimate);
+                            info!(
+                                estimated_gas = gas_estimate,
+                                step_path = %step_path,
+                                "Initialized gas estimate into cache"
+                            );
+                            gas_estimate
+                        }
+                    }
+                }
+            };
+            transaction.set_gas_limit(gas_limit * 120 / 100);
+        }
 
         let pending_transaction_builder = provider
             .send_transaction(transaction)
@@ -726,11 +790,6 @@ where
             .context("Failed to submit transaction")?;
 
         let transaction_hash = *pending_transaction_builder.tx_hash();
-        let receipt_future = pending_transaction_builder
-            .with_timeout(Some(receipt_wait_duration))
-            .with_required_confirmations(2)
-            .get_receipt()
-            .map(|res| res.context("Failed to get the receipt of the transaction"));
         Span::current().record("transaction_hash", display(transaction_hash));
 
         info!("Submitted transaction");
@@ -743,7 +802,15 @@ where
                 .context("Failed to send the transaction hash to the watcher")?;
         };
 
-        Ok((transaction_hash, receipt_future))
+        Ok((
+            transaction_hash,
+            pending_transaction_builder
+                .with_timeout(Some(receipt_wait_duration))
+                .with_required_confirmations(2)
+                .get_receipt()
+                .map(|res| res.context("Failed to get the receipt of the transaction")),
+            self.inclusion_watcher.await_transaction(transaction_hash),
+        ))
     }
     // endregion:Transaction Execution
 }

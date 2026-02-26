@@ -115,20 +115,20 @@ impl PolkadotOmnichainNode {
     const BASE_ETH_RPC_PORT: u16 = 8545;
 
     pub fn new(
-        context: impl AsRef<WorkingDirectoryConfiguration>
-        + AsRef<EthRpcConfiguration>
-        + AsRef<WalletConfiguration>
-        + AsRef<PolkadotOmnichainNodeConfiguration>,
+        context: impl HasWorkingDirectoryConfiguration
+        + HasEthRpcConfiguration
+        + HasWalletConfiguration
+        + HasPolkadotOmnichainNodeConfiguration,
         use_fallback_gas_filler: bool,
     ) -> Self {
         let polkadot_omnichain_node_configuration =
-            AsRef::<PolkadotOmnichainNodeConfiguration>::as_ref(&context);
-        let working_directory_path =
-            AsRef::<WorkingDirectoryConfiguration>::as_ref(&context).as_path();
-        let eth_rpc_path = AsRef::<EthRpcConfiguration>::as_ref(&context)
-            .path
+            context.as_polkadot_omnichain_node_configuration();
+        let working_directory_path = context
+            .as_working_directory_configuration()
+            .working_directory
             .as_path();
-        let wallet = AsRef::<WalletConfiguration>::as_ref(&context).wallet();
+        let eth_rpc_path = context.as_eth_rpc_configuration().path.as_path();
+        let wallet = context.as_wallet_configuration().wallet();
 
         let id = NODE_COUNT.fetch_add(1, Ordering::SeqCst);
         let base_directory = working_directory_path
@@ -148,7 +148,7 @@ impl PolkadotOmnichainNode {
             base_directory_path: base_directory,
             logs_directory_path: logs_directory,
             parachain_id: polkadot_omnichain_node_configuration.parachain_id,
-            block_time: polkadot_omnichain_node_configuration.block_time,
+            block_time: polkadot_omnichain_node_configuration.block_time_ms,
             polkadot_omnichain_node_process: Default::default(),
             eth_rpc_process: Default::default(),
             rpc_url: Default::default(),
@@ -158,9 +158,7 @@ impl PolkadotOmnichainNode {
             use_fallback_gas_filler,
             node_start_timeout: polkadot_omnichain_node_configuration.start_timeout_ms,
             node_logging_level: polkadot_omnichain_node_configuration.logging_level.clone(),
-            eth_rpc_logging_level: AsRef::<EthRpcConfiguration>::as_ref(&context)
-                .logging_level
-                .clone(),
+            eth_rpc_logging_level: context.as_eth_rpc_configuration().logging_level.clone(),
         }
     }
 
@@ -547,7 +545,7 @@ impl EthereumNode for PolkadotOmnichainNode {
 
             let block_stream = api
                 .blocks()
-                .subscribe_all()
+                .subscribe_best()
                 .await
                 .context("Failed to subscribe to blocks")?;
 
