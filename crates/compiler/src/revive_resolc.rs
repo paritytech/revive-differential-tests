@@ -9,7 +9,7 @@ use std::{
 };
 
 use dashmap::DashMap;
-use revive_dt_common::types::VersionOrRequirement;
+use revive_dt_common::types::{Mode, VersionOrRequirement};
 use revive_dt_config::{ResolcConfiguration, SolcConfiguration, WorkingDirectoryConfiguration};
 use revive_solc_json_interface::{
     PolkaVMDefaultHeapMemorySize, PolkaVMDefaultStackMemorySize, SolcStandardJsonInput,
@@ -17,13 +17,13 @@ use revive_solc_json_interface::{
     SolcStandardJsonInputSettingsLibraries, SolcStandardJsonInputSettingsMetadata,
     SolcStandardJsonInputSettingsOptimizer, SolcStandardJsonInputSettingsPolkaVM,
     SolcStandardJsonInputSettingsPolkaVMMemory, SolcStandardJsonInputSettingsSelection,
-    SolcStandardJsonOutput, standard_json::input::settings::optimizer::Optimizer,
-    standard_json::input::settings::optimizer::details::Details,
+    SolcStandardJsonOutput, standard_json::input::settings::optimizer::details::Details,
 };
 use tracing::{Span, field::display};
 
 use crate::{
-    CompilerInput, CompilerOutput, ModeOptimizerSetting, ModePipeline, SolidityCompiler, solc::Solc,
+    CompilerInput, CompilerOutput, ModeOptimizerLevel, ModeOptimizerSetting, ModePipeline,
+    SolidityCompiler, solc::Solc,
 };
 
 use alloy::json_abi::JsonAbi;
@@ -147,6 +147,16 @@ impl SolidityCompiler for Resolc {
                 );
             }
 
+            // TODO: Previously, the default used here was "solc_optimizer_enabled: false, level: M0".
+            //       Which one does this framework want? In resolc, we default to having it enabled
+            //       (--disable-solc-optimizer must be explicitly provided). However, looks like
+            //       `optimization` will always be Some, except for in tests.
+            // TODO: Add a default() onto ModeOptimizerSetting in order to share it with solc.
+            let opt = optimization.unwrap_or(ModeOptimizerSetting {
+                solc_optimizer_enabled: true,
+                level: ModeOptimizerLevel::Mz,
+            });
+
             let input = SolcStandardJsonInput {
                 language: SolcStandardJsonInputLanguage::Solidity,
                 sources: sources
@@ -176,10 +186,8 @@ impl SolidityCompiler for Resolc {
                         SolcStandardJsonInputSettingsSelection::new_required_for_tests(),
                     via_ir: Some(true),
                     optimizer: SolcStandardJsonInputSettingsOptimizer::new(
-                        optimization
-                            .unwrap_or(ModeOptimizerSetting::M0)
-                            .optimizations_enabled(),
-                        Optimizer::default_mode(),
+                        opt.solc_optimizer_enabled,
+                        opt.to_mode_char(),
                         Details::disabled(&Version::new(0, 0, 0)),
                     ),
                     polkavm: self.polkavm_settings(),
@@ -353,12 +361,8 @@ impl SolidityCompiler for Resolc {
         })
     }
 
-    fn supports_mode(
-        &self,
-        optimize_setting: ModeOptimizerSetting,
-        pipeline: ModePipeline,
-    ) -> bool {
-        pipeline == ModePipeline::ViaYulIR
-            && SolidityCompiler::supports_mode(&self.0.solc, optimize_setting, pipeline)
+    fn supports_mode(&self, mode: &Mode) -> bool {
+        mode.pipeline == ModePipeline::ViaYulIR
+            && SolidityCompiler::supports_mode(&self.0.solc, mode)
     }
 }

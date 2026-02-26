@@ -360,9 +360,7 @@ impl<'a> TestDefinition<'a> {
         };
         let mut is_allowed = true;
         for (_, platform_information) in self.platforms.iter() {
-            let is_allowed_for_platform = platform_information
-                .compiler
-                .supports_mode(self.mode.optimize_setting, self.mode.pipeline);
+            let is_allowed_for_platform = platform_information.compiler.supports_mode(&self.mode);
             is_allowed &= is_allowed_for_platform;
             error_map.insert(
                 platform_information.platform.platform_identifier().into(),

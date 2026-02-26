@@ -39,7 +39,7 @@ impl Display for Mode {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         self.pipeline.fmt(f)?;
         f.write_str(" ")?;
-        self.optimize_setting.fmt(f)?;
+        self.optimize_setting.level.fmt(f)?;
 
         if let Some(version) = &self.version {
             f.write_str(" ")?;
@@ -64,7 +64,7 @@ impl FromStr for Mode {
 }
 
 impl Mode {
-    /// Return all of the available mode combinations.
+    /// Return all of the available mode combinations that we'd like to test.
     pub fn all() -> impl Iterator<Item = &'static Mode> {
         static ALL_MODES: LazyLock<Vec<Mode>> = LazyLock::new(|| {
             ModePipeline::test_cases()
@@ -137,8 +137,48 @@ impl ModePipeline {
     }
 }
 
+/// Optimizer configuration for compilation.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
+pub struct ModeOptimizerSetting {
+    /// Whether the solc optimizer is enabled.
+    pub solc_optimizer_enabled: bool,
+    /// The resolc optimization level (used for LLVM optimizations).
+    pub level: ModeOptimizerLevel,
+}
+
+impl ModeOptimizerSetting {
+    /// Returns the resolc optimization mode as the corresponding character.
+    pub fn to_mode_char(&self) -> char {
+        match self.level {
+            ModeOptimizerLevel::M0 => '0',
+            ModeOptimizerLevel::M1 => '1',
+            ModeOptimizerLevel::M2 => '2',
+            ModeOptimizerLevel::M3 => '3',
+            ModeOptimizerLevel::Ms => 's',
+            ModeOptimizerLevel::Mz => 'z',
+        }
+    }
+
+    /// An iterator over the available optimizer settings that we'd like to test,
+    /// when an explicit optimizer setting was not specified.
+    pub fn test_cases() -> impl Iterator<Item = ModeOptimizerSetting> + Clone {
+        Self::solc_optimizer_test_cases().flat_map(|solc_optimizer_enabled| {
+            ModeOptimizerLevel::test_cases().map(move |level| ModeOptimizerSetting {
+                solc_optimizer_enabled,
+                level,
+            })
+        })
+    }
+
+    /// An iterator over the available solc optimizer settings that we'd like to test,
+    /// when an explicit solc optimizer setting was not specified.
+    pub fn solc_optimizer_test_cases() -> impl Iterator<Item = bool> + Clone {
+        [true, false].into_iter()
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
-pub enum ModeOptimizerSetting {
+pub enum ModeOptimizerLevel {
     /// 0 / -: Don't apply any optimizations
     M0,
     /// 1: Apply less than default optimizations
@@ -153,52 +193,48 @@ pub enum ModeOptimizerSetting {
     Mz,
 }
 
-impl FromStr for ModeOptimizerSetting {
+impl FromStr for ModeOptimizerLevel {
     type Err = anyhow::Error;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "M0" => Ok(ModeOptimizerSetting::M0),
-            "M1" => Ok(ModeOptimizerSetting::M1),
-            "M2" => Ok(ModeOptimizerSetting::M2),
-            "M3" => Ok(ModeOptimizerSetting::M3),
-            "Ms" => Ok(ModeOptimizerSetting::Ms),
-            "Mz" => Ok(ModeOptimizerSetting::Mz),
+            "M0" => Ok(ModeOptimizerLevel::M0),
+            "M1" => Ok(ModeOptimizerLevel::M1),
+            "M2" => Ok(ModeOptimizerLevel::M2),
+            "M3" => Ok(ModeOptimizerLevel::M3),
+            "Ms" => Ok(ModeOptimizerLevel::Ms),
+            "Mz" => Ok(ModeOptimizerLevel::Mz),
             _ => Err(anyhow::anyhow!(
-                "Unsupported optimizer setting '{s}': expected 'M0', 'M1', 'M2', 'M3', 'Ms' or 'Mz'"
+                "Unsupported optimizer level '{s}': expected 'M0', 'M1', 'M2', 'M3', 'Ms' or 'Mz'"
             )),
         }
     }
 }
 
-impl Display for ModeOptimizerSetting {
+impl Display for ModeOptimizerLevel {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ModeOptimizerSetting::M0 => f.write_str("M0"),
-            ModeOptimizerSetting::M1 => f.write_str("M1"),
-            ModeOptimizerSetting::M2 => f.write_str("M2"),
-            ModeOptimizerSetting::M3 => f.write_str("M3"),
-            ModeOptimizerSetting::Ms => f.write_str("Ms"),
-            ModeOptimizerSetting::Mz => f.write_str("Mz"),
+            ModeOptimizerLevel::M0 => f.write_str("M0"),
+            ModeOptimizerLevel::M1 => f.write_str("M1"),
+            ModeOptimizerLevel::M2 => f.write_str("M2"),
+            ModeOptimizerLevel::M3 => f.write_str("M3"),
+            ModeOptimizerLevel::Ms => f.write_str("Ms"),
+            ModeOptimizerLevel::Mz => f.write_str("Mz"),
         }
     }
 }
 
-impl ModeOptimizerSetting {
-    /// An iterator over the available optimizer settings that we'd like to test,
-    /// when an explicit optimizer setting was not specified.
-    pub fn test_cases() -> impl Iterator<Item = ModeOptimizerSetting> + Clone {
+impl ModeOptimizerLevel {
+    /// An iterator over the available optimizer levels that we'd like to test,
+    /// when an explicit optimizer level was not specified.
+    pub fn test_cases() -> impl Iterator<Item = ModeOptimizerLevel> + Clone {
         [
             // No optimizations:
-            ModeOptimizerSetting::M0,
+            ModeOptimizerLevel::M0,
             // Aggressive optimizations:
-            ModeOptimizerSetting::M3,
+            ModeOptimizerLevel::M3,
+            // TODO: Add size (and update the doc comment for ParsedMode).
         ]
         .into_iter()
-    }
-
-    /// Are any optimizations enabled?
-    pub fn optimizations_enabled(&self) -> bool {
-        !matches!(self, ModeOptimizerSetting::M0)
     }
 }
 
@@ -207,8 +243,22 @@ impl ModeOptimizerSetting {
 /// Mode strings can take the following form (in pseudo-regex):
 ///
 /// ```text
-/// [YEILV][+-]? (M[0123sz])? <semver>?
+/// [YEILV][+-]? (M[0123sz])? (S[+-])? <semver>?
 /// ```
+///
+/// - `[YEILV]`: Pipeline — `Y` (via Yul IR) or `E` (via EVM Assembly), ILV (legacy aliases)
+/// - `[+-]`: Optimization shorthand — `+` (optimized: M3, solc optimizer enabled) or `-` (unoptimized: M0, solc optimizer disabled)
+/// - `M[0123sz]`: Resolc/LLVM optimization level — `M0`..`M3`, `Ms`, `Mz`
+/// - `S[+-]`: Solc optimizer — `S+` (enabled) or `S-` (disabled)
+/// - `<semver>`: Version requirement
+///
+/// Priority:
+/// - Explicit `M`/`S` settings override the `+`/`-` shorthand.
+/// - If omitted, expands to all combinations we'd like to test. E.g.:
+///   - `Y M3` → `Y M3 S+` and `Y M3 S-`
+///   - `Y S+` → `Y M0 S+` and `Y M3 S+`
+///
+/// Examples: `Y+`, `Y M3`, `Y Mz S- >=0.8.0`
 ///
 /// We can parse valid mode strings into [`ParsedMode`] using [`ParsedMode::from_str`].
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Deserialize, Serialize, JsonSchema)]
@@ -216,19 +266,21 @@ impl ModeOptimizerSetting {
 pub struct ParsedMode {
     pub pipeline: Option<ModePipeline>,
     pub optimize_flag: Option<bool>,
-    pub optimize_setting: Option<ModeOptimizerSetting>,
+    pub optimize_level: Option<ModeOptimizerLevel>,
+    pub solc_optimizer_enabled: Option<bool>,
     pub version: Option<semver::VersionReq>,
 }
 
 impl FromStr for ParsedMode {
     type Err = anyhow::Error;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
+        // TODO: Update to pass solc optimizer enabled (perhaps as e.g. S+ and S-).
         static REGEX: LazyLock<Regex> = LazyLock::new(|| {
             Regex::new(r"(?x)
                 ^
                 (?:(?P<pipeline>[YEILV])(?P<optimize_flag>[+-])?)? # Pipeline to use eg Y, E+, E-
                 \s*
-                (?P<optimize_setting>M[a-zA-Z0-9])?                # Optimize setting eg M0, Ms, Mz
+                (?P<optimize_level>M[a-zA-Z0-9])?                # Optimize level eg M0, Ms, Mz
                 \s*
                 (?P<version>[>=<^]*\d+(?:\.\d+)*)?                  # Optional semver version eg >=0.8.0, 0.7, <0.8
                 $
@@ -249,13 +301,16 @@ impl FromStr for ParsedMode {
 
         let optimize_flag = caps.name("optimize_flag").map(|m| m.as_str() == "+");
 
-        let optimize_setting = match caps.name("optimize_setting") {
+        let optimize_level = match caps.name("optimize_level") {
             Some(m) => Some(
-                ModeOptimizerSetting::from_str(m.as_str())
-                    .context("Failed to parse optimizer setting from string")?,
+                ModeOptimizerLevel::from_str(m.as_str())
+                    .context("Failed to parse optimizer level from string")?,
             ),
             None => None,
         };
+
+        // TODO: Update after adding parsing.
+        let solc_optimizer_enabled: Option<bool> = None;
 
         let version = match caps.name("version") {
             Some(m) => Some(
@@ -274,7 +329,8 @@ impl FromStr for ParsedMode {
         Ok(ParsedMode {
             pipeline,
             optimize_flag,
-            optimize_setting,
+            optimize_level,
+            solc_optimizer_enabled,
             version,
         })
     }
@@ -292,13 +348,15 @@ impl Display for ParsedMode {
             has_written = true;
         }
 
-        if let Some(optimize_setting) = self.optimize_setting {
+        if let Some(optimize_level) = self.optimize_level {
             if has_written {
                 f.write_str(" ")?;
             }
-            optimize_setting.fmt(f)?;
+            optimize_level.fmt(f)?;
             has_written = true;
         }
+
+        // TODO: Handle solc_optimizer_enabled after adding parsing.
 
         if let Some(version) = &self.version {
             if has_written {
@@ -334,9 +392,15 @@ impl ParsedMode {
 
         let optimize_flag_setting = self.optimize_flag.map(|flag| {
             if flag {
-                ModeOptimizerSetting::M3
+                ModeOptimizerSetting {
+                    solc_optimizer_enabled: true,
+                    level: ModeOptimizerLevel::M3,
+                }
             } else {
-                ModeOptimizerSetting::M0
+                ModeOptimizerSetting {
+                    solc_optimizer_enabled: false,
+                    level: ModeOptimizerLevel::M0,
+                }
             }
         });
 
@@ -345,14 +409,33 @@ impl ParsedMode {
             None => EitherIter::B(ModeOptimizerSetting::test_cases()),
         };
 
-        let optimize_settings_iter = self.optimize_setting.as_ref().map_or_else(
-            || EitherIter::A(optimize_flag_iter),
-            |s| EitherIter::B(std::iter::once(*s)),
-        );
+        let optimize_settings: Vec<ModeOptimizerSetting> =
+            match (self.solc_optimizer_enabled, self.optimize_level) {
+                (Some(solc_optimizer_enabled), Some(level)) => {
+                    vec![ModeOptimizerSetting {
+                        solc_optimizer_enabled,
+                        level,
+                    }]
+                }
+                (None, Some(level)) => ModeOptimizerSetting::solc_optimizer_test_cases()
+                    .map(|solc_optimizer_enabled| ModeOptimizerSetting {
+                        solc_optimizer_enabled,
+                        level,
+                    })
+                    .collect(),
+                (Some(solc_optimizer_enabled), None) => ModeOptimizerLevel::test_cases()
+                    .map(|level| ModeOptimizerSetting {
+                        solc_optimizer_enabled,
+                        level,
+                    })
+                    .collect(),
+                (None, None) => optimize_flag_iter.collect(),
+            };
 
         pipeline_iter.flat_map(move |pipeline| {
-            optimize_settings_iter
+            optimize_settings
                 .clone()
+                .into_iter()
                 .map(move |optimize_setting| Mode {
                     pipeline,
                     optimize_setting,
@@ -377,6 +460,7 @@ mod tests {
 
     #[test]
     fn test_parsed_mode_from_str() {
+        // TODO: Add tests for solc_optimizer_enabled after adding parsing.
         let strings = vec![
             ("Mz", "Mz"),
             ("Y", "Y"),

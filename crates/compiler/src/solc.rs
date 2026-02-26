@@ -9,12 +9,12 @@ use std::{
 };
 
 use dashmap::DashMap;
-use revive_dt_common::types::VersionOrRequirement;
+use revive_dt_common::types::{Mode, VersionOrRequirement};
 use revive_dt_config::{SolcConfiguration, WorkingDirectoryConfiguration};
 use revive_dt_solc_binaries::download_solc;
 use tracing::{Span, field::display, info};
 
-use crate::{CompilerInput, CompilerOutput, ModeOptimizerSetting, ModePipeline, SolidityCompiler};
+use crate::{CompilerInput, CompilerOutput, ModePipeline, SolidityCompiler};
 
 use anyhow::{Context as _, Result};
 use foundry_compilers_artifacts::{
@@ -131,7 +131,7 @@ impl SolidityCompiler for Solc {
                 ),
                 settings: Settings {
                     optimizer: Optimizer {
-                        enabled: optimization.map(|o| o.optimizations_enabled()),
+                        enabled: Some(optimization.map_or(true, |o| o.solc_optimizer_enabled)),
                         details: Some(Default::default()),
                         ..Default::default()
                     },
@@ -279,15 +279,11 @@ impl SolidityCompiler for Solc {
         })
     }
 
-    fn supports_mode(
-        &self,
-        _optimize_setting: ModeOptimizerSetting,
-        pipeline: ModePipeline,
-    ) -> bool {
+    fn supports_mode(&self, mode: &Mode) -> bool {
         // solc 0.8.13 and above supports --via-ir, and less than that does not. Thus, we support mode E
         // (ie no Yul IR) in either case, but only support Y (via Yul IR) if the compiler is new enough.
-        pipeline == ModePipeline::ViaEVMAssembly
-            || (pipeline == ModePipeline::ViaYulIR && self.compiler_supports_yul())
+        mode.pipeline == ModePipeline::ViaEVMAssembly
+            || (mode.pipeline == ModePipeline::ViaYulIR && self.compiler_supports_yul())
     }
 }
 
