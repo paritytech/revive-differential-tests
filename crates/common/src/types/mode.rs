@@ -174,18 +174,6 @@ impl Display for ModeOptimizerSetting {
 }
 
 impl ModeOptimizerSetting {
-    /// Returns the resolc optimization mode as the corresponding character.
-    pub fn to_mode_char(&self) -> char {
-        match self.level {
-            ModeOptimizerLevel::M0 => '0',
-            ModeOptimizerLevel::M1 => '1',
-            ModeOptimizerLevel::M2 => '2',
-            ModeOptimizerLevel::M3 => '3',
-            ModeOptimizerLevel::Ms => 's',
-            ModeOptimizerLevel::Mz => 'z',
-        }
-    }
-
     /// An iterator over the available optimizer settings that we'd like to test,
     /// when an explicit optimizer setting was not specified.
     pub fn test_cases() -> impl Iterator<Item = ModeOptimizerSetting> + Clone {
@@ -251,6 +239,18 @@ impl Display for ModeOptimizerLevel {
 }
 
 impl ModeOptimizerLevel {
+    /// Returns the optimization level as the corresponding mode character for resolc.
+    pub fn to_mode_char(&self) -> char {
+        match self {
+            ModeOptimizerLevel::M0 => '0',
+            ModeOptimizerLevel::M1 => '1',
+            ModeOptimizerLevel::M2 => '2',
+            ModeOptimizerLevel::M3 => '3',
+            ModeOptimizerLevel::Ms => 's',
+            ModeOptimizerLevel::Mz => 'z',
+        }
+    }
+
     /// An iterator over the available optimizer levels that we'd like to test,
     /// when an explicit optimizer level was not specified.
     pub fn test_cases() -> impl Iterator<Item = ModeOptimizerLevel> + Clone {

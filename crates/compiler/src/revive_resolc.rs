@@ -176,7 +176,7 @@ impl SolidityCompiler for Resolc {
                     via_ir: Some(true),
                     optimizer: SolcStandardJsonInputSettingsOptimizer::new(
                         optimize_setting.solc_optimizer_enabled,
-                        optimize_setting.to_mode_char(),
+                        optimize_setting.level.to_mode_char(),
                         Details::disabled(&Version::new(0, 0, 0)),
                     ),
                     polkavm: self.polkavm_settings(),
