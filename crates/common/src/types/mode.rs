@@ -20,7 +20,7 @@ use std::sync::LazyLock;
 pub struct Mode {
     pub pipeline: ModePipeline,
     pub optimize_setting: ModeOptimizerSetting,
-    pub version: Option<semver::VersionReq>,
+    pub solc_version: Option<semver::VersionReq>,
 }
 
 impl Ord for Mode {
@@ -41,9 +41,9 @@ impl Display for Mode {
         f.write_str(" ")?;
         self.optimize_setting.fmt(f)?;
 
-        if let Some(version) = &self.version {
+        if let Some(solc_version) = &self.solc_version {
             f.write_str(" ")?;
-            version.fmt(f)?;
+            solc_version.fmt(f)?;
         }
 
         Ok(())
@@ -72,7 +72,7 @@ impl Mode {
                     ModeOptimizerSetting::test_cases().map(move |optimize_setting| Mode {
                         pipeline,
                         optimize_setting,
-                        version: None,
+                        solc_version: None,
                     })
                 })
                 .collect::<Vec<_>>()
@@ -82,8 +82,8 @@ impl Mode {
 
     /// Resolves the [`Mode`]'s solidity version requirement into a [`VersionOrRequirement`] if
     /// the requirement is present on the object. Otherwise, the passed default version is used.
-    pub fn compiler_version_to_use(&self, default: Version) -> VersionOrRequirement {
-        match self.version {
+    pub fn solc_version_to_use(&self, default: Version) -> VersionOrRequirement {
+        match self.solc_version {
             Some(ref requirement) => requirement.clone().into(),
             None => default.into(),
         }
@@ -469,7 +469,7 @@ impl ParsedMode {
                 .map(move |optimize_setting| Mode {
                     pipeline,
                     optimize_setting,
-                    version: self.version.clone(),
+                    solc_version: self.version.clone(),
                 })
         })
     }

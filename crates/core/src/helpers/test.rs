@@ -55,7 +55,7 @@ pub async fn create_test_definitions_stream<'a>(
                     case,
                     mode.clone(),
                     reporter.test_specific_reporter(Arc::new(TestSpecifier {
-                        solc_mode: mode.as_ref().clone(),
+                        compiler_mode: mode.as_ref().clone(),
                         metadata_file_path: metadata_file.metadata_file_path.clone(),
                         case_idx: CaseIdx::new(case_idx),
                     })),
@@ -77,7 +77,7 @@ pub async fn create_test_definitions_stream<'a>(
             for (platform, node_pool) in platforms_and_nodes.values() {
                 let node = node_pool.round_robbin();
                 let compiler = platform
-                    .new_compiler(context.clone(), mode.version.clone().map(Into::into))
+                    .new_compiler(context.clone(), mode.solc_version.clone().map(Into::into))
                     .await
                     .inspect_err(|err| {
                         error!(
