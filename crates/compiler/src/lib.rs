@@ -20,7 +20,7 @@ use revive_common::EVMVersion;
 use revive_dt_common::cached_fs::read_to_string;
 
 // Re-export this as it's a part of the compiler interface.
-pub use revive_dt_common::types::{Mode, ModeOptimizerSetting, ModePipeline};
+pub use revive_dt_common::types::{Mode, ModeOptimizerLevel, ModeOptimizerSetting, ModePipeline};
 
 pub mod revive_js;
 pub mod revive_resolc;
@@ -41,11 +41,7 @@ pub trait SolidityCompiler {
     ) -> Pin<Box<dyn Future<Output = Result<CompilerOutput>> + '_>>;
 
     /// Does the compiler support the provided mode and version settings.
-    fn supports_mode(
-        &self,
-        optimizer_setting: ModeOptimizerSetting,
-        pipeline: ModePipeline,
-    ) -> bool;
+    fn supports_mode(&self, mode: &Mode) -> bool;
 }
 
 /// The generic compilation input configuration.

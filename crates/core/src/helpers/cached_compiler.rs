@@ -73,7 +73,7 @@ impl<'a> CachedCompiler<'a> {
             compiler_identifier: platform.compiler_identifier(),
             compiler_version: compiler.version().clone(),
             metadata_file_path,
-            solc_mode: mode.clone(),
+            compiler_mode: mode.clone(),
         };
 
         let compilation_callback = || {
@@ -98,7 +98,7 @@ impl<'a> CachedCompiler<'a> {
                 cache_key.compiler_identifier = %cache_key.compiler_identifier,
                 cache_key.compiler_version = %cache_key.compiler_version,
                 cache_key.metadata_file_path = %cache_key.metadata_file_path.display(),
-                cache_key.solc_mode = %cache_key.solc_mode,
+                cache_key.compiler_mode = %cache_key.compiler_mode,
             ))
         };
 
@@ -339,7 +339,7 @@ struct CacheKey<'a> {
     metadata_file_path: &'a Path,
 
     /// The mode that the compilation artifacts where compiled with.
-    solc_mode: Cow<'a, Mode>,
+    compiler_mode: Cow<'a, Mode>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
