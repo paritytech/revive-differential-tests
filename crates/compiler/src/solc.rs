@@ -10,7 +10,7 @@ use std::{
 
 use dashmap::DashMap;
 use revive_dt_common::types::{Mode, VersionOrRequirement};
-use revive_dt_config::{SolcConfiguration, WorkingDirectoryConfiguration};
+use revive_dt_config::{HasSolcConfiguration, HasWorkingDirectoryConfiguration};
 use revive_dt_solc_binaries::download_solc;
 use tracing::{Span, field::display, info};
 
@@ -40,7 +40,7 @@ struct SolcInner {
 
 impl Solc {
     pub async fn new(
-        context: impl AsRef<SolcConfiguration> + AsRef<WorkingDirectoryConfiguration>,
+        context: impl HasSolcConfiguration + HasWorkingDirectoryConfiguration,
         version: impl Into<Option<VersionOrRequirement>>,
     ) -> Result<Self> {
         // This is a cache for the compiler objects so that whenever the same compiler version is
@@ -49,9 +49,8 @@ impl Solc {
         static COMPILERS_CACHE: LazyLock<DashMap<(PathBuf, Version), Solc>> =
             LazyLock::new(Default::default);
 
-        let working_directory_configuration =
-            AsRef::<WorkingDirectoryConfiguration>::as_ref(&context);
-        let solc_configuration = AsRef::<SolcConfiguration>::as_ref(&context);
+        let working_directory_configuration = context.as_working_directory_configuration();
+        let solc_configuration = context.as_solc_configuration();
 
         // We attempt to download the solc binary. Note the following: this call does the version
         // resolution for us. Therefore, even if the download didn't proceed, this function will
@@ -60,10 +59,13 @@ impl Solc {
         let version = version
             .into()
             .unwrap_or_else(|| solc_configuration.version.clone().into());
-        let (version, path) =
-            download_solc(working_directory_configuration.as_path(), version, false)
-                .await
-                .context("Failed to download/get path to solc binary")?;
+        let (version, path) = download_solc(
+            working_directory_configuration.working_directory.as_path(),
+            version,
+            false,
+        )
+        .await
+        .context("Failed to download/get path to solc binary")?;
 
         Ok(COMPILERS_CACHE
             .entry((path.clone(), version.clone()))

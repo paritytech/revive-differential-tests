@@ -88,18 +88,18 @@ impl GethNode {
     const ERROR_MARKER: &str = "Fatal:";
 
     pub fn new(
-        context: impl AsRef<WorkingDirectoryConfiguration>
-        + AsRef<WalletConfiguration>
-        + AsRef<GethConfiguration>
+        context: impl HasWorkingDirectoryConfiguration
+        + HasWalletConfiguration
+        + HasGethConfiguration
         + Clone,
         use_fallback_gas_filler: bool,
     ) -> Self {
-        let working_directory_configuration =
-            AsRef::<WorkingDirectoryConfiguration>::as_ref(&context);
-        let wallet_configuration = AsRef::<WalletConfiguration>::as_ref(&context);
-        let geth_configuration = AsRef::<GethConfiguration>::as_ref(&context);
+        let working_directory_configuration = context.as_working_directory_configuration();
+        let wallet_configuration = context.as_wallet_configuration();
+        let geth_configuration = context.as_geth_configuration();
 
         let geth_directory = working_directory_configuration
+            .working_directory
             .as_path()
             .join(Self::BASE_DIRECTORY);
         let id = NODE_COUNT.fetch_add(1, Ordering::SeqCst);
@@ -665,22 +665,22 @@ mod tests {
 
     use super::*;
 
-    fn test_config() -> TestExecutionContext {
-        TestExecutionContext::default()
+    fn test_config() -> Test {
+        Test::default()
     }
 
-    fn new_node() -> (TestExecutionContext, GethNode) {
+    fn new_node() -> (Test, GethNode) {
         let context = test_config();
-        let mut node = GethNode::new(&context, true);
-        node.init(context.genesis_configuration.genesis().unwrap().clone())
+        let mut node = GethNode::new(context.clone(), true);
+        node.init(context.genesis.genesis().unwrap().clone())
             .expect("Failed to initialize the node")
             .spawn_process()
             .expect("Failed to spawn the node process");
         (context, node)
     }
 
-    fn shared_state() -> &'static (TestExecutionContext, GethNode) {
-        static STATE: LazyLock<(TestExecutionContext, GethNode)> = LazyLock::new(new_node);
+    fn shared_state() -> &'static (Test, GethNode) {
+        static STATE: LazyLock<(Test, GethNode)> = LazyLock::new(new_node);
         &STATE
     }
 
@@ -693,11 +693,7 @@ mod tests {
         // Arrange
         let (context, node) = shared_state();
 
-        let account_address = context
-            .wallet_configuration
-            .wallet()
-            .default_signer()
-            .address();
+        let account_address = context.wallet.wallet().default_signer().address();
         let transaction = TransactionRequest::default()
             .to(account_address)
             .value(U256::from(100_000_000_000_000u128));

@@ -91,7 +91,7 @@ impl Platform for GethEvmSolcPlatform {
         &self,
         context: Context,
     ) -> anyhow::Result<JoinHandle<anyhow::Result<Box<dyn EthereumNode + Send + Sync>>>> {
-        let genesis_configuration = AsRef::<GenesisConfiguration>::as_ref(&context);
+        let genesis_configuration = context.as_genesis_configuration();
         let genesis = genesis_configuration.genesis()?.clone();
         Ok(thread::spawn(move || {
             let use_fallback_gas_filler = matches!(context, Context::Test(..));
@@ -113,8 +113,8 @@ impl Platform for GethEvmSolcPlatform {
     }
 
     fn export_genesis(&self, context: Context) -> anyhow::Result<serde_json::Value> {
-        let genesis = AsRef::<GenesisConfiguration>::as_ref(&context).genesis()?;
-        let wallet = AsRef::<WalletConfiguration>::as_ref(&context).wallet();
+        let genesis = context.as_genesis_configuration().genesis()?;
+        let wallet = context.as_wallet_configuration().wallet();
 
         let node_genesis = GethNode::node_genesis(genesis.clone(), &wallet);
         serde_json::to_value(node_genesis)
@@ -146,7 +146,7 @@ impl Platform for LighthouseGethEvmSolcPlatform {
         &self,
         context: Context,
     ) -> anyhow::Result<JoinHandle<anyhow::Result<Box<dyn EthereumNode + Send + Sync>>>> {
-        let genesis_configuration = AsRef::<GenesisConfiguration>::as_ref(&context);
+        let genesis_configuration = context.as_genesis_configuration();
         let genesis = genesis_configuration.genesis()?.clone();
         Ok(thread::spawn(move || {
             let use_fallback_gas_filler = matches!(context, Context::Test(..));
@@ -168,8 +168,8 @@ impl Platform for LighthouseGethEvmSolcPlatform {
     }
 
     fn export_genesis(&self, context: Context) -> anyhow::Result<serde_json::Value> {
-        let genesis = AsRef::<GenesisConfiguration>::as_ref(&context).genesis()?;
-        let wallet = AsRef::<WalletConfiguration>::as_ref(&context).wallet();
+        let genesis = context.as_genesis_configuration().genesis()?;
+        let wallet = context.as_wallet_configuration().wallet();
 
         let node_genesis = LighthouseGethNode::node_genesis(genesis.clone(), &wallet);
         serde_json::to_value(node_genesis)
@@ -201,9 +201,9 @@ impl Platform for ReviveDevNodePolkavmResolcPlatform {
         &self,
         context: Context,
     ) -> anyhow::Result<JoinHandle<anyhow::Result<Box<dyn EthereumNode + Send + Sync>>>> {
-        let genesis_configuration = AsRef::<GenesisConfiguration>::as_ref(&context);
-        let revive_dev_node_configuration = AsRef::<ReviveDevNodeConfiguration>::as_ref(&context);
-        let eth_rpc_configuration = AsRef::<EthRpcConfiguration>::as_ref(&context);
+        let genesis_configuration = context.as_genesis_configuration();
+        let revive_dev_node_configuration = context.as_revive_dev_node_configuration();
+        let eth_rpc_configuration = context.as_eth_rpc_configuration();
 
         let revive_dev_node_path = revive_dev_node_configuration.path.clone();
         let revive_dev_node_consensus = revive_dev_node_configuration.consensus.clone();
@@ -243,10 +243,8 @@ impl Platform for ReviveDevNodePolkavmResolcPlatform {
     }
 
     fn export_genesis(&self, context: Context) -> anyhow::Result<serde_json::Value> {
-        let revive_dev_node_path = AsRef::<ReviveDevNodeConfiguration>::as_ref(&context)
-            .path
-            .as_path();
-        let wallet = AsRef::<WalletConfiguration>::as_ref(&context).wallet();
+        let revive_dev_node_path = context.as_revive_dev_node_configuration().path.as_path();
+        let wallet = context.as_wallet_configuration().wallet();
         let export_chainspec_command = SubstrateNode::REVIVE_DEV_NODE_EXPORT_CHAINSPEC_COMMAND;
 
         SubstrateNode::node_genesis(revive_dev_node_path, export_chainspec_command, &wallet)
@@ -277,9 +275,9 @@ impl Platform for ReviveDevNodeRevmSolcPlatform {
         &self,
         context: Context,
     ) -> anyhow::Result<JoinHandle<anyhow::Result<Box<dyn EthereumNode + Send + Sync>>>> {
-        let genesis_configuration = AsRef::<GenesisConfiguration>::as_ref(&context);
-        let revive_dev_node_configuration = AsRef::<ReviveDevNodeConfiguration>::as_ref(&context);
-        let eth_rpc_configuration = AsRef::<EthRpcConfiguration>::as_ref(&context);
+        let genesis_configuration = context.as_genesis_configuration();
+        let revive_dev_node_configuration = context.as_revive_dev_node_configuration();
+        let eth_rpc_configuration = context.as_eth_rpc_configuration();
 
         let revive_dev_node_path = revive_dev_node_configuration.path.clone();
         let revive_dev_node_consensus = revive_dev_node_configuration.consensus.clone();
@@ -319,10 +317,8 @@ impl Platform for ReviveDevNodeRevmSolcPlatform {
     }
 
     fn export_genesis(&self, context: Context) -> anyhow::Result<serde_json::Value> {
-        let revive_dev_node_path = AsRef::<ReviveDevNodeConfiguration>::as_ref(&context)
-            .path
-            .as_path();
-        let wallet = AsRef::<WalletConfiguration>::as_ref(&context).wallet();
+        let revive_dev_node_path = context.as_revive_dev_node_configuration().path.as_path();
+        let wallet = context.as_wallet_configuration().wallet();
         let export_chainspec_command = SubstrateNode::REVIVE_DEV_NODE_EXPORT_CHAINSPEC_COMMAND;
 
         SubstrateNode::node_genesis(revive_dev_node_path, export_chainspec_command, &wallet)
@@ -353,10 +349,8 @@ impl Platform for ZombienetPolkavmResolcPlatform {
         &self,
         context: Context,
     ) -> anyhow::Result<JoinHandle<anyhow::Result<Box<dyn EthereumNode + Send + Sync>>>> {
-        let genesis_configuration = AsRef::<GenesisConfiguration>::as_ref(&context);
-        let polkadot_parachain_path = AsRef::<PolkadotParachainConfiguration>::as_ref(&context)
-            .path
-            .clone();
+        let genesis_configuration = context.as_genesis_configuration();
+        let polkadot_parachain_path = context.as_polkadot_parachain_configuration().path.clone();
         let genesis = genesis_configuration.genesis()?.clone();
         Ok(thread::spawn(move || {
             let use_fallback_gas_filler = matches!(context, Context::Test(..));
@@ -379,10 +373,8 @@ impl Platform for ZombienetPolkavmResolcPlatform {
     }
 
     fn export_genesis(&self, context: Context) -> anyhow::Result<serde_json::Value> {
-        let polkadot_parachain_path = AsRef::<PolkadotParachainConfiguration>::as_ref(&context)
-            .path
-            .as_path();
-        let wallet = AsRef::<WalletConfiguration>::as_ref(&context).wallet();
+        let polkadot_parachain_path = context.as_polkadot_parachain_configuration().path.as_path();
+        let wallet = context.as_wallet_configuration().wallet();
 
         ZombienetNode::node_genesis(polkadot_parachain_path, &wallet)
     }
@@ -412,10 +404,8 @@ impl Platform for ZombienetRevmSolcPlatform {
         &self,
         context: Context,
     ) -> anyhow::Result<JoinHandle<anyhow::Result<Box<dyn EthereumNode + Send + Sync>>>> {
-        let genesis_configuration = AsRef::<GenesisConfiguration>::as_ref(&context);
-        let polkadot_parachain_path = AsRef::<PolkadotParachainConfiguration>::as_ref(&context)
-            .path
-            .clone();
+        let genesis_configuration = context.as_genesis_configuration();
+        let polkadot_parachain_path = context.as_polkadot_parachain_configuration().path.clone();
         let genesis = genesis_configuration.genesis()?.clone();
         Ok(thread::spawn(move || {
             let use_fallback_gas_filler = matches!(context, Context::Test(..));
@@ -438,10 +428,8 @@ impl Platform for ZombienetRevmSolcPlatform {
     }
 
     fn export_genesis(&self, context: Context) -> anyhow::Result<serde_json::Value> {
-        let polkadot_parachain_path = AsRef::<PolkadotParachainConfiguration>::as_ref(&context)
-            .path
-            .as_path();
-        let wallet = AsRef::<WalletConfiguration>::as_ref(&context).wallet();
+        let polkadot_parachain_path = context.as_polkadot_parachain_configuration().path.as_path();
+        let wallet = context.as_wallet_configuration().wallet();
 
         ZombienetNode::node_genesis(polkadot_parachain_path, &wallet)
     }
@@ -471,7 +459,7 @@ impl Platform for PolkadotOmniNodePolkavmResolcPlatform {
         &self,
         context: Context,
     ) -> anyhow::Result<JoinHandle<anyhow::Result<Box<dyn EthereumNode + Send + Sync>>>> {
-        let genesis_configuration = AsRef::<GenesisConfiguration>::as_ref(&context);
+        let genesis_configuration = context.as_genesis_configuration();
         let genesis = genesis_configuration.genesis()?.clone();
         Ok(thread::spawn(move || {
             let use_fallback_gas_filler = matches!(context, Context::Test(..));
@@ -494,8 +482,8 @@ impl Platform for PolkadotOmniNodePolkavmResolcPlatform {
 
     fn export_genesis(&self, context: Context) -> anyhow::Result<serde_json::Value> {
         let polkadot_omnichain_node_configuration =
-            AsRef::<PolkadotOmnichainNodeConfiguration>::as_ref(&context);
-        let wallet = AsRef::<WalletConfiguration>::as_ref(&context).wallet();
+            context.as_polkadot_omnichain_node_configuration();
+        let wallet = context.as_wallet_configuration().wallet();
 
         PolkadotOmnichainNode::node_genesis(
             &wallet,
@@ -531,7 +519,7 @@ impl Platform for PolkadotOmniNodeRevmSolcPlatform {
         &self,
         context: Context,
     ) -> anyhow::Result<JoinHandle<anyhow::Result<Box<dyn EthereumNode + Send + Sync>>>> {
-        let genesis_configuration = AsRef::<GenesisConfiguration>::as_ref(&context);
+        let genesis_configuration = context.as_genesis_configuration();
         let genesis = genesis_configuration.genesis()?.clone();
         Ok(thread::spawn(move || {
             let use_fallback_gas_filler = matches!(context, Context::Test(..));
@@ -554,8 +542,8 @@ impl Platform for PolkadotOmniNodeRevmSolcPlatform {
 
     fn export_genesis(&self, context: Context) -> anyhow::Result<serde_json::Value> {
         let polkadot_omnichain_node_configuration =
-            AsRef::<PolkadotOmnichainNodeConfiguration>::as_ref(&context);
-        let wallet = AsRef::<WalletConfiguration>::as_ref(&context).wallet();
+            context.as_polkadot_omnichain_node_configuration();
+        let wallet = context.as_wallet_configuration().wallet();
 
         PolkadotOmnichainNode::node_genesis(
             &wallet,

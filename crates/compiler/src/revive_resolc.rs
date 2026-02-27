@@ -10,7 +10,9 @@ use std::{
 
 use dashmap::DashMap;
 use revive_dt_common::types::{Mode, VersionOrRequirement};
-use revive_dt_config::{ResolcConfiguration, SolcConfiguration, WorkingDirectoryConfiguration};
+use revive_dt_config::{
+    HasResolcConfiguration, HasSolcConfiguration, HasWorkingDirectoryConfiguration,
+};
 use revive_solc_json_interface::{
     PolkaVMDefaultHeapMemorySize, PolkaVMDefaultStackMemorySize, SolcStandardJsonInput,
     SolcStandardJsonInputLanguage, SolcStandardJsonInputSettings,
@@ -47,9 +49,7 @@ struct ResolcInner {
 
 impl Resolc {
     pub async fn new(
-        context: impl AsRef<SolcConfiguration>
-        + AsRef<ResolcConfiguration>
-        + AsRef<WorkingDirectoryConfiguration>,
+        context: impl HasSolcConfiguration + HasResolcConfiguration + HasWorkingDirectoryConfiguration,
         version: impl Into<Option<VersionOrRequirement>>,
     ) -> Result<Self> {
         /// This is a cache of all of the resolc compiler objects. Since we do not currently support
@@ -57,9 +57,16 @@ impl Resolc {
         /// its version to the resolc compiler.
         static COMPILERS_CACHE: LazyLock<DashMap<Solc, Resolc>> = LazyLock::new(Default::default);
 
-        let resolc_configuration = AsRef::<ResolcConfiguration>::as_ref(&context);
+        let resolc_configuration = context.as_resolc_configuration();
+        let resolc_path = resolc_configuration.path.clone();
+        let pvm_heap_size = resolc_configuration
+            .heap_size
+            .unwrap_or(PolkaVMDefaultHeapMemorySize);
+        let pvm_stack_size = resolc_configuration
+            .stack_size
+            .unwrap_or(PolkaVMDefaultStackMemorySize);
 
-        let solc = Solc::new(&context, version)
+        let solc = Solc::new(context, version)
             .await
             .context("Failed to create the solc compiler frontend for resolc")?;
 
@@ -68,13 +75,9 @@ impl Resolc {
             .or_insert_with(|| {
                 Self(Arc::new(ResolcInner {
                     solc,
-                    resolc_path: resolc_configuration.path.clone(),
-                    pvm_heap_size: resolc_configuration
-                        .heap_size
-                        .unwrap_or(PolkaVMDefaultHeapMemorySize),
-                    pvm_stack_size: resolc_configuration
-                        .stack_size
-                        .unwrap_or(PolkaVMDefaultStackMemorySize),
+                    resolc_path,
+                    pvm_heap_size,
+                    pvm_stack_size,
                 }))
             })
             .clone())
