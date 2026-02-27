@@ -7,7 +7,7 @@ use std::{
 use itertools::Itertools;
 use revive_dt_common::{
     iterators::{EitherIter, FilesWithExtensionIterator},
-    types::{Mode, ParsedMode, ParsedTestSpecifier},
+    types::{Mode, ParsedCompilationSpecifier, ParsedMode, ParsedTestSpecifier},
 };
 use tracing::{debug, warn};
 
@@ -19,6 +19,7 @@ use crate::{
 #[derive(Default)]
 pub struct Corpus {
     test_specifiers: HashMap<ParsedTestSpecifier, Vec<PathBuf>>,
+    compilation_specifiers: HashMap<ParsedCompilationSpecifier, Vec<PathBuf>>,
     metadata_files: HashMap<PathBuf, MetadataFile>,
 }
 
@@ -44,6 +45,32 @@ impl Corpus {
                 let metadata_files = enumerate_metadata_files(metadata_file_path);
                 self.test_specifiers.insert(
                     test_specifier,
+                    metadata_files
+                        .iter()
+                        .map(|metadata_file| metadata_file.metadata_file_path.clone())
+                        .collect(),
+                );
+                for metadata_file in metadata_files.into_iter() {
+                    self.metadata_files
+                        .insert(metadata_file.metadata_file_path.clone(), metadata_file);
+                }
+            }
+        };
+
+        Ok(self)
+    }
+
+    pub fn with_compilation_specifier(
+        mut self,
+        compilation_specifier: ParsedCompilationSpecifier,
+    ) -> anyhow::Result<Self> {
+        match &compilation_specifier {
+            ParsedCompilationSpecifier::FileOrDirectory {
+                metadata_or_directory_file_path: metadata_file_path,
+            } => {
+                let metadata_files = enumerate_metadata_files(metadata_file_path);
+                self.compilation_specifiers.insert(
+                    compilation_specifier,
                     metadata_files
                         .iter()
                         .map(|metadata_file| metadata_file.metadata_file_path.clone())
@@ -151,6 +178,17 @@ impl Corpus {
         }
 
         iterator.unique_by(|item| (&item.0.metadata_file_path, item.1, item.3.clone()))
+    }
+
+    /// Iterator over the metadata files for the compilation specifiers.
+    pub fn compilation_metadata_files_iterator(
+        &self,
+    ) -> impl Iterator<Item = &'_ MetadataFile> + '_ {
+        self.compilation_specifiers
+            .values()
+            .flatten()
+            .map(|path| self.metadata_files.get(path).expect("Must succeed"))
+            .unique_by(|metadata_file| &metadata_file.metadata_file_path)
     }
 
     pub fn metadata_file_count(&self) -> usize {

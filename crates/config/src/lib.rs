@@ -17,7 +17,9 @@ use alloy::{
 };
 use anyhow::Context as _;
 use clap::{Parser, ValueEnum, ValueHint};
-use revive_dt_common::types::{ParsedTestSpecifier, PlatformIdentifier};
+use revive_dt_common::types::{
+    ParsedCompilationSpecifier, ParsedTestSpecifier, PlatformIdentifier,
+};
 use semver::Version;
 use serde::{Deserialize, Serialize, Serializer};
 use strum::{AsRefStr, Display, EnumString, IntoStaticStr};
@@ -39,7 +41,7 @@ mod context {
         pub output_format: OutputFormatConfiguration,
         pub platforms: PlatformConfiguration,
         pub working_directory: WorkingDirectoryConfiguration,
-        pub corpus: CorpusConfiguration,
+        pub corpus: CorpusExecutionConfiguration,
         pub fail_fast: FailFastConfiguration,
         pub solc: SolcConfiguration,
         pub resolc: ResolcConfiguration,
@@ -65,7 +67,7 @@ mod context {
         pub platforms: PlatformConfiguration,
         pub working_directory: WorkingDirectoryConfiguration,
         pub benchmark_run: BenchmarkRunConfiguration,
-        pub corpus: CorpusConfiguration,
+        pub corpus: CorpusExecutionConfiguration,
         pub solc: SolcConfiguration,
         pub resolc: ResolcConfiguration,
         pub polkadot_parachain: PolkadotParachainConfiguration,
@@ -97,6 +99,19 @@ mod context {
     #[subcommand]
     pub struct ExportJsonSchema;
 
+    /// Compiles contracts for pre-link compilations only without executing any tests.
+    #[subcommand]
+    pub struct Compile {
+        pub output_format: OutputFormatConfiguration,
+        pub working_directory: WorkingDirectoryConfiguration,
+        pub corpus: CorpusCompilationConfiguration,
+        pub solc: SolcConfiguration,
+        pub resolc: ResolcConfiguration,
+        pub concurrency: ConcurrencyConfiguration,
+        pub compilation: CompilationConfiguration,
+        pub report: ReportConfiguration,
+    }
+
     /// Configuration for the commandline profile.
     #[configuration]
     pub struct ProfileConfiguration {
@@ -112,6 +127,9 @@ mod context {
         /// The output format to use for the tool's output.
         #[arg(short, long, default_value_t = OutputFormat::CargoTestLike)]
         pub output_format: OutputFormat,
+        /// If applicable, show verbose details when executing the tool.
+        #[arg(long)]
+        pub verbose: bool,
     }
 
     /// Configuration for the set of platforms.
@@ -131,7 +149,7 @@ mod context {
     #[configuration]
     pub struct WorkingDirectoryConfiguration {
         /// The working directory that the program will use for all of the temporary artifacts
-        /// needed at runtime.
+        /// needed at runtime, as well as the generated report.
         ///
         /// If not specified, then a temporary directory will be created and used by the program
         /// for all temporary artifacts.
@@ -170,10 +188,10 @@ mod context {
         pub fail_fast: bool,
     }
 
-    /// A set of configuration parameters for the corpus files to use for the execution.
+    /// A set of configuration parameters for the corpus files to use for the test execution.
     #[serde_with::serde_as]
     #[configuration(key = "corpus")]
-    pub struct CorpusConfiguration {
+    pub struct CorpusExecutionConfiguration {
         /// A list of test specifiers for the tests that the tool should run.
         ///
         /// Test specifiers follow the following format:
@@ -190,6 +208,22 @@ mod context {
         #[serde_as(as = "Vec<serde_with::DisplayFromStr>")]
         #[arg(short = 't', long = "test", required = true)]
         pub test_specifiers: Vec<ParsedTestSpecifier>,
+    }
+
+    /// A set of configuration parameters for the corpus files to use for the pre-link-only compilation.
+    #[serde_with::serde_as]
+    #[configuration(key = "corpus")]
+    pub struct CorpusCompilationConfiguration {
+        /// A list of compilation specifiers for the compilations that the tool should run.
+        ///
+        /// Compile specifiers follow the following format:
+        ///
+        /// - `{directory_path|metadata_file_path}`: A path to a metadata file where all of the contracts,
+        ///   or references to the contracts, live and should be compiled. Alternatively, it points to a
+        ///   directory instructing the framework to discover the metadata files that live there and compile them.
+        #[serde_as(as = "Vec<serde_with::DisplayFromStr>")]
+        #[arg(short = 'c', long = "compile", required = true)]
+        pub compilation_specifiers: Vec<ParsedCompilationSpecifier>,
     }
 
     /// A set of configuration parameters for Solc.
@@ -517,10 +551,9 @@ mod context {
     impl Context {
         pub fn update_for_profile(&mut self) {
             match self {
-                Context::Test(ctx) => ctx.update_for_profile(),
-                Context::Benchmark(ctx) => ctx.update_for_profile(),
-                Context::ExportJsonSchema(_) => {}
-                Context::ExportGenesis(_) => {}
+                Self::Test(ctx) => ctx.update_for_profile(),
+                Self::Benchmark(ctx) => ctx.update_for_profile(),
+                Self::ExportJsonSchema(_) | Self::ExportGenesis(..) | Self::Compile(..) => {}
             }
         }
     }
@@ -608,6 +641,12 @@ mod context {
     impl Default for Benchmark {
         fn default() -> Self {
             Self::parse_from(["benchmark", "--test", "."])
+        }
+    }
+
+    impl Default for Compile {
+        fn default() -> Self {
+            Self::parse_from(["compile", "--compile", "."])
         }
     }
 }

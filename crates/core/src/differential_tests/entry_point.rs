@@ -20,7 +20,7 @@ use revive_dt_format::corpus::Corpus;
 use tokio::sync::{Mutex, Notify, RwLock, Semaphore};
 use tracing::{Instrument, error, info, info_span, instrument};
 
-use revive_dt_config::{Context, OutputFormat, Test};
+use revive_dt_config::{Context, OutputFormat, OutputFormatConfiguration, Test};
 use revive_dt_report::{Reporter, ReporterEvent, TestCaseStatus, TestSpecificReporter};
 
 use crate::{
@@ -274,10 +274,8 @@ pub async fn handle_differential_tests(context: Test, reporter: Reporter) -> any
             .instrument(span)
         },
     ));
-    let cli_reporting_task = tokio::spawn(start_cli_reporting_task(
-        context.output_format.output_format,
-        reporter,
-    ));
+    let cli_reporting_task =
+        tokio::spawn(start_cli_reporting_task(context.output_format, reporter));
 
     tokio::task::spawn(async move {
         loop {
@@ -319,7 +317,7 @@ pub async fn handle_differential_tests(context: Test, reporter: Reporter) -> any
 }
 
 #[allow(irrefutable_let_patterns, clippy::uninlined_format_args)]
-async fn start_cli_reporting_task(output_format: OutputFormat, reporter: Reporter) {
+async fn start_cli_reporting_task(output_format: OutputFormatConfiguration, reporter: Reporter) {
     let mut aggregator_events_rx = reporter.subscribe().await.expect("Can't fail");
     drop(reporter);
 
@@ -340,7 +338,7 @@ async fn start_cli_reporting_task(output_format: OutputFormat, reporter: Reporte
             continue;
         };
 
-        match output_format {
+        match output_format.output_format {
             OutputFormat::Legacy => {
                 let _ = writeln!(buf, "{} - {}", mode, metadata_file_path.display());
                 for (case_idx, case_status) in case_status.into_iter() {
@@ -447,7 +445,7 @@ async fn start_cli_reporting_task(output_format: OutputFormat, reporter: Reporte
     info!("Aggregator Broadcast Channel Closed");
 
     // Summary at the end.
-    match output_format {
+    match output_format.output_format {
         OutputFormat::Legacy => {
             writeln!(
                 buf,

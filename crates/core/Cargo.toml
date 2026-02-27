@@ -30,6 +30,7 @@ clap = { workspace = true }
 dashmap = { workspace = true }
 futures = { workspace = true }
 indexmap = { workspace = true }
+regex = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
 tracing-appender = { workspace = true }
