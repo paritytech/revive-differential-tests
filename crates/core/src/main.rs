@@ -50,7 +50,7 @@ fn main() -> anyhow::Result<()> {
 
     match context {
         Context::Test(context) => tokio::runtime::Builder::new_multi_thread()
-            .worker_threads(context.concurrency_configuration.number_of_threads)
+            .worker_threads(context.concurrency.number_of_threads)
             .enable_all()
             .build()
             .expect("Failed building the Runtime")
@@ -78,7 +78,7 @@ fn main() -> anyhow::Result<()> {
                 Ok(())
             }),
         Context::Benchmark(context) => tokio::runtime::Builder::new_multi_thread()
-            .worker_threads(context.concurrency_configuration.number_of_threads)
+            .worker_threads(context.concurrency.number_of_threads)
             .enable_all()
             .build()
             .expect("Failed building the Runtime")
@@ -106,7 +106,7 @@ fn main() -> anyhow::Result<()> {
                 Ok(())
             }),
         Context::ExportGenesis(ref export_genesis_context) => {
-            let platform = Into::<&dyn Platform>::into(export_genesis_context.platform);
+            let platform = Into::<&dyn Platform>::into(export_genesis_context.target.platform);
             let genesis = platform.export_genesis(context)?;
             let genesis_json = serde_json::to_string_pretty(&genesis)
                 .context("Failed to serialize the genesis to JSON")?;
@@ -114,7 +114,7 @@ fn main() -> anyhow::Result<()> {
 
             Ok(())
         }
-        Context::ExportJsonSchema => {
+        Context::ExportJsonSchema(_) => {
             let schema = schema_for!(Metadata);
             println!(
                 "{}",
@@ -125,7 +125,7 @@ fn main() -> anyhow::Result<()> {
             Ok(())
         }
         Context::Compile(context) => tokio::runtime::Builder::new_multi_thread()
-            .worker_threads(context.concurrency_configuration.number_of_threads)
+            .worker_threads(context.concurrency.number_of_threads)
             .enable_all()
             .build()
             .expect("Failed building the Runtime")

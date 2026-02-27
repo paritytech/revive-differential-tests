@@ -19,7 +19,7 @@ use indexmap::IndexMap;
 use itertools::Itertools;
 use revive_dt_common::types::PlatformIdentifier;
 use revive_dt_compiler::{CompilerInput, CompilerOutput, Mode};
-use revive_dt_config::Context;
+use revive_dt_config::{Context, HasReportConfiguration, HasWorkingDirectoryConfiguration};
 use revive_dt_format::{case::CaseIdx, metadata::ContractInstance, steps::StepPath};
 use semver::Version;
 use serde::{Deserialize, Serialize};
@@ -52,10 +52,10 @@ impl ReportAggregator {
         let (listener_tx, _) = channel::<ReporterEvent>(0xFFFF);
         Self {
             file_name: match context {
-                Context::Test(ref context) => context.report_configuration.file_name.clone(),
-                Context::Benchmark(ref context) => context.report_configuration.file_name.clone(),
-                Context::ExportJsonSchema | Context::ExportGenesis(..) => None,
-                Context::Compile(ref context) => context.report_configuration.file_name.clone(),
+                Context::Test(ref context) => context.report.file_name.clone(),
+                Context::Benchmark(ref context) => context.report.file_name.clone(),
+                Context::ExportJsonSchema(_) | Context::ExportGenesis(..) => None,
+                Context::Compile(ref context) => context.report.file_name.clone(),
             },
             report: Report::new(context),
             remaining_cases: Default::default(),
@@ -155,7 +155,8 @@ impl ReportAggregator {
         let file_path = self
             .report
             .context
-            .working_directory_configuration()
+            .as_working_directory_configuration()
+            .working_directory
             .as_path()
             .join(file_name);
         let file = OpenOptions::new()
@@ -301,7 +302,7 @@ impl ReportAggregator {
         &mut self,
         event: PreLinkContractsCompilationSucceededEvent,
     ) {
-        let report_configuration = self.report.context.report_configuration();
+        let report_configuration = self.report.context.as_report_configuration();
         let compiler_input = if report_configuration.include_compiler_input {
             event.compiler_input
         } else {
@@ -336,7 +337,7 @@ impl ReportAggregator {
         &mut self,
         event: PostLinkContractsCompilationSucceededEvent,
     ) {
-        let report_configuration = self.report.context.report_configuration();
+        let report_configuration = self.report.context.as_report_configuration();
         let compiler_input = if report_configuration.include_compiler_input {
             event.compiler_input
         } else {

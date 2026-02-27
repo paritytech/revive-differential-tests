@@ -15,7 +15,7 @@ use revive_dt_format::corpus::Corpus;
 use tokio::sync::{RwLock, Semaphore, broadcast};
 use tracing::{Instrument, error, info, info_span, instrument};
 
-use revive_dt_config::{Context, OutputFormat, PreLinkCompilationContext};
+use revive_dt_config::{Compile, Context, OutputFormat, OutputFormatConfiguration};
 use revive_dt_report::{CompilationStatus, Reporter, ReporterEvent};
 
 use crate::{
@@ -25,10 +25,7 @@ use crate::{
 
 /// Handles the compilations according to the information defined in the context.
 #[instrument(level = "info", err(Debug), skip_all)]
-pub async fn handle_compilations(
-    context: PreLinkCompilationContext,
-    reporter: Reporter,
-) -> anyhow::Result<()> {
+pub async fn handle_compilations(context: Compile, reporter: Reporter) -> anyhow::Result<()> {
     let reporter_clone = reporter.clone();
 
     // Subscribe early, before stream collection, to capture all events including
@@ -37,7 +34,7 @@ pub async fn handle_compilations(
 
     // Discover all of the metadata files that are defined in the context.
     let corpus = context
-        .corpus_configuration
+        .corpus
         .compilation_specifiers
         .clone()
         .into_iter()
@@ -72,11 +69,10 @@ pub async fn handle_compilations(
     let cached_compiler = CachedCompiler::new(
         context
             .working_directory
+            .working_directory
             .as_path()
             .join("compilation_cache"),
-        context
-            .compilation_configuration
-            .invalidate_compilation_cache,
+        context.compilation.invalidate_cache,
     )
     .await
     .map(Arc::new)
@@ -84,7 +80,7 @@ pub async fn handle_compilations(
 
     // Creating the driver and compiling all of the contracts.
     let semaphore = context
-        .concurrency_configuration
+        .concurrency
         .concurrency_limit()
         .map(Semaphore::new)
         .map(Arc::new);
@@ -132,8 +128,7 @@ pub async fn handle_compilations(
             .expect("Can't fail")
     });
 
-    let cli_reporting_task =
-        start_cli_reporting_task(context.output_format, context.verbose, aggregator_events_rx);
+    let cli_reporting_task = start_cli_reporting_task(&context.output_format, aggregator_events_rx);
 
     tokio::task::spawn(async move {
         loop {
@@ -155,8 +150,7 @@ pub async fn handle_compilations(
 
 #[allow(irrefutable_let_patterns, clippy::uninlined_format_args)]
 async fn start_cli_reporting_task(
-    output_format: OutputFormat,
-    verbose: bool,
+    output_format: &OutputFormatConfiguration,
     mut aggregator_events_rx: broadcast::Receiver<ReporterEvent>,
 ) {
     let start = Instant::now();
@@ -175,7 +169,7 @@ async fn start_cli_reporting_task(
             continue;
         };
 
-        match output_format {
+        match output_format.output_format {
             OutputFormat::Legacy => {
                 let _ = write!(buf, "{}", metadata_file_path.display());
                 for (mode, status) in compilation_status {
@@ -248,7 +242,7 @@ async fn start_cli_reporting_task(
                                 .map(|contracts| contracts.len())
                                 .sum();
 
-                            if verbose {
+                            if output_format.verbose {
                                 // Verbose: show header + per-contract lines + summary.
                                 writeln!(
                                     buf,
@@ -350,7 +344,7 @@ async fn start_cli_reporting_task(
 
     // Summary at the end.
     let total = global_success_count + global_failure_count + global_ignore_count;
-    match output_format {
+    match output_format.output_format {
         OutputFormat::Legacy => {
             writeln!(
                 buf,

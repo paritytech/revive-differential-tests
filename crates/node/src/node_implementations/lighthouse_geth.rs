@@ -115,18 +115,18 @@ impl LighthouseGethNode {
     const VALIDATOR_MNEMONIC: &str = "giant issue aisle success illegal bike spike question tent bar rely arctic volcano long crawl hungry vocal artwork sniff fantasy very lucky have athlete";
 
     pub fn new(
-        context: impl AsRef<WorkingDirectoryConfiguration>
-        + AsRef<WalletConfiguration>
-        + AsRef<KurtosisConfiguration>
+        context: impl HasWorkingDirectoryConfiguration
+        + HasWalletConfiguration
+        + HasKurtosisConfiguration
         + Clone,
         use_fallback_gas_filler: bool,
     ) -> Self {
-        let working_directory_configuration =
-            AsRef::<WorkingDirectoryConfiguration>::as_ref(&context);
-        let wallet_configuration = AsRef::<WalletConfiguration>::as_ref(&context);
-        let kurtosis_configuration = AsRef::<KurtosisConfiguration>::as_ref(&context);
+        let working_directory_configuration = context.as_working_directory_configuration();
+        let wallet_configuration = context.as_wallet_configuration();
+        let kurtosis_configuration = context.as_kurtosis_configuration();
 
         let geth_directory = working_directory_configuration
+            .working_directory
             .as_path()
             .join(Self::BASE_DIRECTORY);
         let id = NODE_COUNT.fetch_add(1, Ordering::SeqCst);
@@ -1035,13 +1035,13 @@ mod tests {
 
     use super::*;
 
-    fn test_config() -> TestExecutionContext {
-        let mut config = TestExecutionContext::default();
-        config.wallet_configuration.additional_keys = 100;
+    fn test_config() -> Test {
+        let mut config = Test::default();
+        config.wallet.additional_keys = 100;
         config
     }
 
-    fn new_node() -> (TestExecutionContext, LighthouseGethNode) {
+    fn new_node() -> (Test, LighthouseGethNode) {
         // Note: When we run the tests in the CI we found that if they're all
         // run in parallel then the CI is unable to start all of the nodes in
         // time and their start up times-out. Therefore, we want all of the
@@ -1061,8 +1061,8 @@ mod tests {
         let _guard = NODE_START_MUTEX.lock().unwrap();
 
         let context = test_config();
-        let mut node = LighthouseGethNode::new(&context, true);
-        node.init(context.genesis_configuration.genesis().unwrap().clone())
+        let mut node = LighthouseGethNode::new(context.clone(), true);
+        node.init(context.genesis.genesis().unwrap().clone())
             .expect("Failed to initialize the node")
             .spawn_process()
             .expect("Failed to spawn the node process");
@@ -1076,11 +1076,7 @@ mod tests {
         let (context, node) = new_node();
         node.fund_all_accounts().await.expect("Failed");
 
-        let account_address = context
-            .wallet_configuration
-            .wallet()
-            .default_signer()
-            .address();
+        let account_address = context.wallet.wallet().default_signer().address();
         let transaction = TransactionRequest::default()
             .to(account_address)
             .value(U256::from(100_000_000_000_000u128));
