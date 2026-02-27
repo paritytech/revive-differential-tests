@@ -147,12 +147,6 @@ pub struct ModeOptimizerSetting {
 }
 
 impl Default for ModeOptimizerSetting {
-    // TODO: Previously, the default used for:
-    //       - resolc was: "solc_optimizer_enabled: false, level: M0".
-    //       - solc was: "solc_optimizer_enabled: None".
-    //       Which one does this framework want? In resolc, we default to having it enabled
-    //       (--disable-solc-optimizer must be explicitly provided to disable). However, looks
-    //       like `CompilerInput.optimization` at this stage will always be Some, except for in tests.
     fn default() -> Self {
         Self {
             solc_optimizer_enabled: true,
