@@ -5854,8 +5854,10 @@ dependencies = [
  "anyhow",
  "futures",
  "revive-common",
+ "revive-dt-common",
  "revive-dt-format",
  "revive-dt-report",
+ "subxt 0.44.2",
 ]
 
 [[package]]

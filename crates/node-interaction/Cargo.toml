@@ -11,12 +11,14 @@ rust-version.workspace = true
 [dependencies]
 revive-common = { workspace = true }
 
+revive-dt-common = { workspace = true }
 revive-dt-format = { workspace = true }
 revive-dt-report = { workspace = true }
 
 alloy = { workspace = true }
 anyhow = { workspace = true }
 futures = { workspace = true }
+subxt = { workspace = true }
 
 [lints]
 workspace = true

@@ -1,7 +1,7 @@
 //! This crate implements the testing nodes.
 
 use alloy::genesis::Genesis;
-use revive_dt_node_interaction::EthereumNode;
+use revive_dt_node_interaction::NodeApi;
 
 pub mod constants;
 pub mod helpers;
@@ -9,7 +9,7 @@ pub mod node_implementations;
 pub mod provider_utils;
 
 /// An abstract interface for testing nodes.
-pub trait Node: EthereumNode {
+pub trait Node: NodeApi {
     /// Spawns a node configured according to the genesis json.
     ///
     /// Blocking until it's ready to accept transactions.

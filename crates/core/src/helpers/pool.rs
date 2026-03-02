@@ -5,13 +5,13 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use anyhow::Context as _;
 use revive_dt_config::*;
 use revive_dt_core::Platform;
-use revive_dt_node_interaction::EthereumNode;
+use revive_dt_node_interaction::NodeApi;
 
 /// The node pool starts one or more [Node] which then can be accessed
 /// in a round robbin fashion.
 pub struct NodePool {
     next: AtomicUsize,
-    nodes: Vec<Box<dyn EthereumNode + Send + Sync>>,
+    nodes: Vec<Box<dyn NodeApi + Send + Sync>>,
 }
 
 impl NodePool {
@@ -52,7 +52,7 @@ impl NodePool {
     }
 
     /// Get a handle to the next node.
-    pub fn round_robbin(&self) -> &dyn EthereumNode {
+    pub fn round_robbin(&self) -> &dyn NodeApi {
         let current = self.next.fetch_add(1, Ordering::SeqCst) % self.nodes.len();
         self.nodes.get(current).unwrap().as_ref()
     }

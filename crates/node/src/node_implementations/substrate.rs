@@ -14,21 +14,13 @@ use alloy::{
     eips::BlockNumberOrTag,
     genesis::Genesis,
     network::{Ethereum, EthereumWallet, NetworkWallet},
-    primitives::{Address, BlockHash, BlockNumber, BlockTimestamp, StorageKey, TxHash, U256},
+    primitives::{Address, BlockHash, BlockNumber, BlockTimestamp, TxHash, U256},
     providers::{
-        Provider,
-        ext::DebugApi,
+        DynProvider, Provider,
         fillers::{CachedNonceManager, ChainIdFiller, NonceFiller},
-    },
-    rpc::types::{
-        EIP1186AccountProofResponse, TransactionReceipt, TransactionRequest,
-        trace::geth::{
-            DiffMode, GethDebugTracingOptions, GethTrace, PreStateConfig, PreStateFrame,
-        },
     },
 };
 use anyhow::Context as _;
-use futures::{FutureExt, Stream, StreamExt};
 use revive_common::EVMVersion;
 use revive_dt_common::fs::clear_directory;
 use revive_dt_format::traits::ResolverApi;
@@ -37,10 +29,7 @@ use sp_core::crypto::Ss58Codec;
 use sp_runtime::AccountId32;
 
 use revive_dt_config::*;
-use revive_dt_node_interaction::EthereumNode;
-use revive_dt_report::{
-    EthereumMinedBlockInformation, MinedBlockInformation, SubstrateMinedBlockInformation,
-};
+use revive_dt_node_interaction::NodeApi;
 use subxt::{OnlineClient, SubstrateConfig};
 use tokio::sync::OnceCell;
 use tracing::{instrument, trace};
@@ -74,7 +63,8 @@ pub struct SubstrateNode {
     eth_proxy_process: Option<Process>,
     wallet: Arc<EthereumWallet>,
     nonce_manager: CachedNonceManager,
-    provider: OnceCell<ConcreteProvider<Ethereum, Arc<EthereumWallet>>>,
+    provider: Arc<OnceCell<ConcreteProvider<Ethereum, Arc<EthereumWallet>>>>,
+    substrate_provider: Arc<OnceCell<OnlineClient<SubstrateConfig>>>,
     consensus: Option<String>,
     use_fallback_gas_filler: bool,
     node_logging_level: String,
@@ -135,6 +125,7 @@ impl SubstrateNode {
             wallet: wallet.clone(),
             nonce_manager: Default::default(),
             provider: Default::default(),
+            substrate_provider: Default::default(),
             consensus,
             use_fallback_gas_filler,
             node_logging_level,
@@ -383,132 +374,13 @@ impl SubstrateNode {
     }
 }
 
-impl EthereumNode for SubstrateNode {
-    fn pre_transactions(&mut self) -> Pin<Box<dyn Future<Output = anyhow::Result<()>> + '_>> {
-        Box::pin(async move { Ok(()) })
-    }
-
+impl NodeApi for SubstrateNode {
     fn id(&self) -> usize {
         self.id as _
     }
 
     fn connection_string(&self) -> &str {
         &self.rpc_url
-    }
-
-    fn submit_transaction(
-        &self,
-        transaction: TransactionRequest,
-    ) -> Pin<Box<dyn Future<Output = anyhow::Result<TxHash>> + '_>> {
-        Box::pin(async move {
-            let provider = self
-                .provider()
-                .await
-                .context("Failed to create the provider for transaction submission")?;
-            let pending_transaction = provider
-                .send_transaction(transaction)
-                .await
-                .context("Failed to submit the transaction through the provider")?;
-            Ok(*pending_transaction.tx_hash())
-        })
-    }
-
-    fn get_receipt(
-        &self,
-        tx_hash: TxHash,
-    ) -> Pin<Box<dyn Future<Output = anyhow::Result<TransactionReceipt>> + '_>> {
-        Box::pin(async move {
-            self.provider()
-                .await
-                .context("Failed to create provider for getting the receipt")?
-                .get_transaction_receipt(tx_hash)
-                .await
-                .context("Failed to get the receipt of the transaction")?
-                .context("Failed to get the receipt of the transaction")
-        })
-    }
-
-    fn execute_transaction(
-        &self,
-        transaction: TransactionRequest,
-    ) -> Pin<Box<dyn Future<Output = anyhow::Result<TransactionReceipt>> + '_>> {
-        Box::pin(async move {
-            self.provider()
-                .await
-                .context("Failed to create provider for transaction submission")?
-                .send_transaction(transaction)
-                .await
-                .context("Encountered an error when submitting a transaction")?
-                .get_receipt()
-                .await
-                .context("Failed to get the receipt for the transaction")
-        })
-    }
-
-    fn trace_transaction(
-        &self,
-        tx_hash: TxHash,
-        trace_options: GethDebugTracingOptions,
-    ) -> Pin<Box<dyn Future<Output = anyhow::Result<GethTrace>> + '_>> {
-        Box::pin(async move {
-            self.provider()
-                .await
-                .context("Failed to create provider for debug tracing")?
-                .debug_trace_transaction(tx_hash, trace_options)
-                .await
-                .context("Failed to obtain debug trace from substrate proxy")
-        })
-    }
-
-    fn state_diff(
-        &self,
-        tx_hash: TxHash,
-    ) -> Pin<Box<dyn Future<Output = anyhow::Result<DiffMode>> + '_>> {
-        Box::pin(async move {
-            let trace_options = GethDebugTracingOptions::prestate_tracer(PreStateConfig {
-                diff_mode: Some(true),
-                disable_code: None,
-                disable_storage: None,
-            });
-            match self
-                .trace_transaction(tx_hash, trace_options)
-                .await?
-                .try_into_pre_state_frame()?
-            {
-                PreStateFrame::Diff(diff) => Ok(diff),
-                _ => anyhow::bail!("expected a diff mode trace"),
-            }
-        })
-    }
-
-    fn balance_of(
-        &self,
-        address: Address,
-    ) -> Pin<Box<dyn Future<Output = anyhow::Result<U256>> + '_>> {
-        Box::pin(async move {
-            self.provider()
-                .await
-                .context("Failed to get the substrate provider")?
-                .get_balance(address)
-                .await
-                .map_err(Into::into)
-        })
-    }
-
-    fn latest_state_proof(
-        &self,
-        address: Address,
-        keys: Vec<StorageKey>,
-    ) -> Pin<Box<dyn Future<Output = anyhow::Result<EIP1186AccountProofResponse>> + '_>> {
-        Box::pin(async move {
-            self.provider()
-                .await
-                .context("Failed to get the substrate provider")?
-                .get_proof(address, keys)
-                .latest()
-                .await
-                .map_err(Into::into)
-        })
     }
 
     fn resolver(
@@ -525,104 +397,50 @@ impl EthereumNode for SubstrateNode {
         EVMVersion::Cancun
     }
 
-    fn subscribe_to_full_blocks_information(
-        &self,
-    ) -> Pin<
-        Box<
-            dyn Future<Output = anyhow::Result<Pin<Box<dyn Stream<Item = MinedBlockInformation>>>>>
-                + '_,
-        >,
-    > {
-        #[subxt::subxt(runtime_metadata_path = "../../assets/revive_metadata.scale")]
-        pub mod revive {}
+    fn provider(&self) -> revive_dt_common::framework_future!(anyhow::Result<DynProvider>) {
+        let provider = self.provider.clone();
+        let connection_string = self.rpc_url.clone();
+        let gas_filler =
+            FallbackGasFiller::default().with_fallback_mechanism(self.use_fallback_gas_filler);
+        let nonce_filler = NonceFiller::new(self.nonce_manager.clone());
+        let wallet = self.wallet.clone();
 
         Box::pin(async move {
-            let substrate_rpc_port = Self::BASE_SUBSTRATE_RPC_PORT + self.id as u16;
-            let substrate_rpc_url = format!("ws://127.0.0.1:{substrate_rpc_port}");
-            let api = OnlineClient::<SubstrateConfig>::from_url(substrate_rpc_url)
+            provider
+                .get_or_try_init(|| async move {
+                    construct_concurrency_limited_provider::<Ethereum, _>(
+                        &connection_string,
+                        gas_filler,
+                        ChainIdFiller::default(),
+                        nonce_filler,
+                        wallet,
+                    )
+                    .await
+                    .context("Failed to construct the provider")
+                })
                 .await
-                .context("Failed to create subxt rpc client")?;
-            let provider = self.provider().await.context("Failed to create provider")?;
-
-            let block_stream = api
-                .blocks()
-                .subscribe_all()
-                .await
-                .context("Failed to subscribe to blocks")?;
-
-            let mined_block_information_stream = block_stream.filter_map(move |block| {
-                let api = api.clone();
-                let provider = provider.clone();
-
-                async move {
-                    let substrate_block = block.ok()?;
-                    let revive_block = provider
-                        .get_block_by_number(
-                            BlockNumberOrTag::Number(substrate_block.number() as _),
-                        )
-                        .await
-                        .expect("TODO: Remove")
-                        .expect("TODO: Remove");
-
-                    let used = api
-                        .storage()
-                        .at(substrate_block.reference())
-                        .fetch_or_default(&revive::storage().system().block_weight())
-                        .await
-                        .expect("TODO: Remove");
-
-                    let block_ref_time = (used.normal.ref_time as u128)
-                        + (used.operational.ref_time as u128)
-                        + (used.mandatory.ref_time as u128);
-                    let block_proof_size = (used.normal.proof_size as u128)
-                        + (used.operational.proof_size as u128)
-                        + (used.mandatory.proof_size as u128);
-
-                    let limits = api
-                        .constants()
-                        .at(&revive::constants().system().block_weights())
-                        .expect("TODO: Remove");
-
-                    let max_ref_time = limits.max_block.ref_time;
-                    let max_proof_size = limits.max_block.proof_size;
-
-                    Some(MinedBlockInformation {
-                        ethereum_block_information: EthereumMinedBlockInformation {
-                            block_number: revive_block.number(),
-                            block_timestamp: revive_block.header.timestamp,
-                            mined_gas: revive_block.header.gas_used as _,
-                            block_gas_limit: revive_block.header.gas_limit as _,
-                            transaction_hashes: revive_block
-                                .transactions
-                                .into_hashes()
-                                .as_hashes()
-                                .expect("Must be hashes")
-                                .to_vec(),
-                        },
-                        substrate_block_information: Some(SubstrateMinedBlockInformation {
-                            ref_time: block_ref_time,
-                            max_ref_time,
-                            proof_size: block_proof_size,
-                            max_proof_size,
-                        }),
-                        tx_counts: Default::default(),
-                    })
-                }
-            });
-
-            Ok(Box::pin(mined_block_information_stream)
-                as Pin<Box<dyn Stream<Item = MinedBlockInformation>>>)
+                .map(|provider| provider.clone().erased())
         })
     }
 
-    fn provider(
+    fn substrate_provider(
         &self,
-    ) -> Pin<Box<dyn Future<Output = anyhow::Result<alloy::providers::DynProvider<Ethereum>>> + '_>>
+    ) -> Option<revive_dt_common::framework_future!(anyhow::Result<OnlineClient<SubstrateConfig>>)>
     {
-        Box::pin(
-            self.provider()
-                .map(|provider| provider.map(|provider| provider.erased())),
-        )
+        let provider = self.substrate_provider.clone();
+        let substrate_rpc_port = Self::BASE_SUBSTRATE_RPC_PORT + self.id as u16;
+        let connection_string = format!("ws://127.0.0.1:{substrate_rpc_port}");
+
+        Some(Box::pin(async move {
+            provider
+                .get_or_try_init(|| async move {
+                    OnlineClient::from_url(connection_string)
+                        .await
+                        .context("Failed to create a new online client")
+                })
+                .await
+                .cloned()
+        }))
     }
 }
 

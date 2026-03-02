@@ -17,21 +17,13 @@ use alloy::{
     eips::BlockNumberOrTag,
     genesis::{Genesis, GenesisAccount},
     network::{Ethereum, EthereumWallet, NetworkWallet},
-    primitives::{Address, BlockHash, BlockNumber, BlockTimestamp, StorageKey, TxHash, U256},
+    primitives::{Address, BlockHash, BlockNumber, BlockTimestamp, TxHash, U256},
     providers::{
-        Provider,
-        ext::DebugApi,
+        DynProvider, Provider,
         fillers::{CachedNonceManager, ChainIdFiller, NonceFiller},
-    },
-    rpc::types::{
-        EIP1186AccountProofResponse, TransactionReceipt, TransactionRequest,
-        trace::geth::{
-            DiffMode, GethDebugTracingOptions, GethTrace, PreStateConfig, PreStateFrame,
-        },
     },
 };
 use anyhow::Context as _;
-use futures::{FutureExt, Stream, StreamExt};
 use revive_common::EVMVersion;
 use tokio::sync::OnceCell;
 use tracing::{error, instrument};
@@ -39,12 +31,11 @@ use tracing::{error, instrument};
 use revive_dt_common::fs::clear_directory;
 use revive_dt_config::*;
 use revive_dt_format::traits::ResolverApi;
-use revive_dt_node_interaction::EthereumNode;
-use revive_dt_report::{EthereumMinedBlockInformation, MinedBlockInformation};
+use revive_dt_node_interaction::NodeApi;
 
 use crate::{
     Node,
-    constants::{CHAIN_ID, INITIAL_BALANCE},
+    constants::INITIAL_BALANCE,
     helpers::{Process, ProcessReadinessWaitBehavior},
     provider_utils::{ConcreteProvider, FallbackGasFiller, construct_concurrency_limited_provider},
 };
@@ -71,7 +62,7 @@ pub struct GethNode {
     start_timeout: Duration,
     wallet: Arc<EthereumWallet>,
     nonce_manager: CachedNonceManager,
-    provider: OnceCell<ConcreteProvider<Ethereum, Arc<EthereumWallet>>>,
+    provider: Arc<OnceCell<ConcreteProvider<Ethereum, Arc<EthereumWallet>>>>,
     use_fallback_gas_filler: bool,
     node_logging_level: String,
 }
@@ -238,24 +229,6 @@ impl GethNode {
         Ok(self)
     }
 
-    async fn provider(&self) -> anyhow::Result<ConcreteProvider<Ethereum, Arc<EthereumWallet>>> {
-        self.provider
-            .get_or_try_init(|| async move {
-                construct_concurrency_limited_provider::<Ethereum, _>(
-                    self.connection_string.as_str(),
-                    FallbackGasFiller::default()
-                        .with_fallback_mechanism(self.use_fallback_gas_filler),
-                    ChainIdFiller::new(Some(CHAIN_ID)),
-                    NonceFiller::new(self.nonce_manager.clone()),
-                    self.wallet.clone(),
-                )
-                .await
-                .context("Failed to construct the provider")
-            })
-            .await
-            .cloned()
-    }
-
     pub fn node_genesis(mut genesis: Genesis, wallet: &EthereumWallet) -> Genesis {
         for signer_address in NetworkWallet::<Ethereum>::signer_addresses(&wallet) {
             genesis
@@ -267,11 +240,7 @@ impl GethNode {
     }
 }
 
-impl EthereumNode for GethNode {
-    fn pre_transactions(&mut self) -> Pin<Box<dyn Future<Output = anyhow::Result<()>> + '_>> {
-        Box::pin(async move { Ok(()) })
-    }
-
+impl NodeApi for GethNode {
     fn id(&self) -> usize {
         self.id as _
     }
@@ -280,146 +249,6 @@ impl EthereumNode for GethNode {
         &self.connection_string
     }
 
-    #[instrument(
-        level = "info",
-        skip_all,
-        fields(geth_node_id = self.id, connection_string = self.connection_string),
-        err,
-    )]
-    fn submit_transaction(
-        &self,
-        transaction: TransactionRequest,
-    ) -> Pin<Box<dyn Future<Output = anyhow::Result<TxHash>> + '_>> {
-        Box::pin(async move {
-            let provider = self
-                .provider()
-                .await
-                .context("Failed to create the provider for transaction submission")?;
-            let pending_transaction = provider
-                .send_transaction(transaction)
-                .await
-                .context("Failed to submit the transaction through the provider")?;
-            Ok(*pending_transaction.tx_hash())
-        })
-    }
-
-    #[instrument(
-        level = "info",
-        skip_all,
-        fields(geth_node_id = self.id, connection_string = self.connection_string),
-        err,
-    )]
-    fn get_receipt(
-        &self,
-        tx_hash: TxHash,
-    ) -> Pin<Box<dyn Future<Output = anyhow::Result<TransactionReceipt>> + '_>> {
-        Box::pin(async move {
-            self.provider()
-                .await
-                .context("Failed to create provider for getting the receipt")?
-                .get_transaction_receipt(tx_hash)
-                .await
-                .context("Failed to get the receipt of the transaction")?
-                .context("Failed to get the receipt of the transaction")
-        })
-    }
-
-    #[instrument(
-        level = "info",
-        skip_all,
-        fields(geth_node_id = self.id, connection_string = self.connection_string),
-        err,
-    )]
-    fn execute_transaction(
-        &self,
-        transaction: TransactionRequest,
-    ) -> Pin<Box<dyn Future<Output = anyhow::Result<TransactionReceipt>> + '_>> {
-        Box::pin(async move {
-            self.provider()
-                .await
-                .context("Failed to create provider for transaction submission")?
-                .send_transaction(transaction)
-                .await
-                .context("Encountered an error when submitting a transaction")?
-                .get_receipt()
-                .await
-                .context("Failed to get the receipt for the transaction")
-        })
-    }
-
-    #[instrument(level = "info", skip_all, fields(geth_node_id = self.id))]
-    fn trace_transaction(
-        &self,
-        tx_hash: TxHash,
-        trace_options: GethDebugTracingOptions,
-    ) -> Pin<Box<dyn Future<Output = anyhow::Result<GethTrace>> + '_>> {
-        Box::pin(async move {
-            self.provider()
-                .await
-                .context("Failed to create provider for tracing")?
-                .debug_trace_transaction(tx_hash, trace_options)
-                .await
-                .context("Failed to get the transaction trace")
-        })
-    }
-
-    #[instrument(level = "info", skip_all, fields(geth_node_id = self.id))]
-    fn state_diff(
-        &self,
-        tx_hash: TxHash,
-    ) -> Pin<Box<dyn Future<Output = anyhow::Result<DiffMode>> + '_>> {
-        Box::pin(async move {
-            let trace_options = GethDebugTracingOptions::prestate_tracer(PreStateConfig {
-                diff_mode: Some(true),
-                disable_code: None,
-                disable_storage: None,
-            });
-            match self
-                .trace_transaction(tx_hash, trace_options)
-                .await
-                .context("Failed to trace transaction for prestate diff")?
-                .try_into_pre_state_frame()
-                .context("Failed to convert trace into pre-state frame")?
-            {
-                PreStateFrame::Diff(diff) => Ok(diff),
-                _ => anyhow::bail!("expected a diff mode trace"),
-            }
-        })
-    }
-
-    #[instrument(level = "info", skip_all, fields(geth_node_id = self.id))]
-    fn balance_of(
-        &self,
-        address: Address,
-    ) -> Pin<Box<dyn Future<Output = anyhow::Result<U256>> + '_>> {
-        Box::pin(async move {
-            self.provider()
-                .await
-                .context("Failed to get the Geth provider")?
-                .get_balance(address)
-                .await
-                .map_err(Into::into)
-        })
-    }
-
-    #[instrument(level = "info", skip_all, fields(geth_node_id = self.id))]
-    fn latest_state_proof(
-        &self,
-        address: Address,
-        keys: Vec<StorageKey>,
-    ) -> Pin<Box<dyn Future<Output = anyhow::Result<EIP1186AccountProofResponse>> + '_>> {
-        Box::pin(async move {
-            self.provider()
-                .await
-                .context("Failed to get the Geth provider")?
-                .get_proof(address, keys)
-                .latest()
-                .await
-                .map_err(Into::into)
-        })
-    }
-
-    // #[instrument(level = "info", skip_all, fields(geth_node_id = self.id))]
     fn resolver(
         &self,
     ) -> Pin<Box<dyn Future<Output = anyhow::Result<Arc<dyn ResolverApi + '_>>> + '_>> {
@@ -434,64 +263,36 @@ impl EthereumNode for GethNode {
         EVMVersion::Cancun
     }
 
-    fn subscribe_to_full_blocks_information(
-        &self,
-    ) -> Pin<
-        Box<
-            dyn Future<Output = anyhow::Result<Pin<Box<dyn Stream<Item = MinedBlockInformation>>>>>
-                + '_,
-        >,
-    > {
+    fn provider(&self) -> revive_dt_common::framework_future!(anyhow::Result<DynProvider>) {
+        let provider = self.provider.clone();
+        let connection_string = self.connection_string.clone();
+        let gas_filler =
+            FallbackGasFiller::default().with_fallback_mechanism(self.use_fallback_gas_filler);
+        let nonce_filler = NonceFiller::new(self.nonce_manager.clone());
+        let wallet = self.wallet.clone();
+
         Box::pin(async move {
-            let provider = self
-                .provider()
-                .await
-                .context("Failed to create the provider for block subscription")?;
-            let block_subscription = provider.subscribe_full_blocks();
-            let block_stream = block_subscription
-                .into_stream()
-                .await
-                .context("Failed to create the block stream")?;
-
-            let mined_block_information_stream = block_stream.filter_map(|block| async {
-                let block = block.ok()?;
-                Some(MinedBlockInformation {
-                    ethereum_block_information: EthereumMinedBlockInformation {
-                        block_number: block.number(),
-                        block_timestamp: block.header.timestamp,
-                        mined_gas: block.header.gas_used as _,
-                        block_gas_limit: block.header.gas_limit as _,
-                        transaction_hashes: block
-                            .transactions
-                            .into_hashes()
-                            .as_hashes()
-                            .expect("Must be hashes")
-                            .to_vec(),
-                    },
-                    substrate_block_information: None,
-                    tx_counts: Default::default(),
+            provider
+                .get_or_try_init(|| async move {
+                    construct_concurrency_limited_provider::<Ethereum, _>(
+                        &connection_string,
+                        gas_filler,
+                        ChainIdFiller::default(),
+                        nonce_filler,
+                        wallet,
+                    )
+                    .await
+                    .context("Failed to construct the provider")
                 })
-            });
-
-            Ok(Box::pin(mined_block_information_stream)
-                as Pin<Box<dyn Stream<Item = MinedBlockInformation>>>)
+                .await
+                .map(|provider| provider.clone().erased())
         })
-    }
-
-    fn provider(
-        &self,
-    ) -> Pin<Box<dyn Future<Output = anyhow::Result<alloy::providers::DynProvider<Ethereum>>> + '_>>
-    {
-        Box::pin(
-            self.provider()
-                .map(|provider| provider.map(|provider| provider.erased())),
-        )
     }
 }
 
 pub struct GethNodeResolver {
     id: u32,
-    provider: ConcreteProvider<Ethereum, Arc<EthereumWallet>>,
+    provider: DynProvider,
 }
 
 impl ResolverApi for GethNodeResolver {
@@ -662,6 +463,8 @@ impl Drop for GethNode {
 #[cfg(test)]
 mod tests {
     use std::sync::LazyLock;
+
+    use alloy::rpc::types::TransactionRequest;
 
     use super::*;
 

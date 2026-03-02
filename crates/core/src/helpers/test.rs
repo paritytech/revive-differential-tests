@@ -17,7 +17,7 @@ use revive_dt_format::{
     case::{Case, CaseIdx},
     metadata::MetadataFile,
 };
-use revive_dt_node_interaction::EthereumNode;
+use revive_dt_node_interaction::NodeApi;
 use revive_dt_report::{ExecutionSpecificReporter, Report, Reporter, TestCaseStatus};
 use revive_dt_report::{TestSpecificReporter, TestSpecifier};
 use tracing::{debug, error, info};
@@ -430,7 +430,7 @@ impl<'a> TestDefinition<'a> {
 
 pub struct TestPlatformInformation<'a> {
     pub platform: &'a dyn Platform,
-    pub node: &'a dyn EthereumNode,
+    pub node: &'a dyn NodeApi,
     pub compiler: Box<dyn SolidityCompiler>,
     pub reporter: ExecutionSpecificReporter,
 }
