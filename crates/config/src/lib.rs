@@ -105,6 +105,7 @@ mod context {
         pub output_format: OutputFormatConfiguration,
         pub working_directory: WorkingDirectoryConfiguration,
         pub corpus: CorpusCompilationConfiguration,
+        pub fail_fast: FailFastConfiguration,
         pub solc: SolcConfiguration,
         pub resolc: ResolcConfiguration,
         pub concurrency: ConcurrencyConfiguration,
@@ -214,7 +215,7 @@ mod context {
     #[serde_with::serde_as]
     #[configuration(key = "corpus")]
     pub struct CorpusCompilationConfiguration {
-        /// A list of compilation specifiers for the compilations that the tool should run.
+        /// A list of compilation specifiers for the pre-link-only compilations that the tool should run.
         ///
         /// Compile specifiers follow the following format:
         ///

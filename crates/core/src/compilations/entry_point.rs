@@ -1,27 +1,81 @@
 //! The main entry point into compiling in pre-link-only mode without any test execution.
 
 use std::{
-    collections::BTreeSet,
     io::{BufWriter, Write, stderr},
-    sync::Arc,
-    time::{Duration, Instant},
+    time::Instant,
 };
 
 use ansi_term::{ANSIStrings, Color};
 use anyhow::Context as _;
-use futures::{FutureExt, StreamExt};
+use futures::StreamExt;
+use indexmap::IndexMap;
 use revive_dt_compiler::{Mode, ModeOptimizerSetting, ModePipeline};
+use revive_dt_config::{
+    Compile, Context, FailFastConfiguration, OutputFormat, OutputFormatConfiguration,
+};
 use revive_dt_format::corpus::Corpus;
-use tokio::sync::{RwLock, Semaphore, broadcast};
-use tracing::{Instrument, error, info, info_span, instrument};
-
-use revive_dt_config::{Compile, Context, OutputFormat, OutputFormatConfiguration};
 use revive_dt_report::{CompilationStatus, Reporter, ReporterEvent};
+use tokio::sync::broadcast;
+use tracing::{info, info_span, instrument};
 
 use crate::{
     compilations::Driver,
-    helpers::{CachedCompiler, create_compilation_definitions_stream},
+    helpers::{
+        CachedCompiler, CompilationDefinition, CorpusDefinitionProcessor,
+        create_compilation_definitions_stream, process_corpus,
+    },
 };
+
+/// The definition processor for compilations.
+struct CompilationDefinitionProcessor;
+
+impl CorpusDefinitionProcessor for CompilationDefinitionProcessor {
+    type Definition<'a> = CompilationDefinition<'a>;
+    type ProcessResult = ();
+    type State = ();
+
+    async fn process_definition<'a>(
+        definition: &'a Self::Definition<'a>,
+        cached_compiler: &'a CachedCompiler<'a>,
+        _state: Self::State,
+    ) -> anyhow::Result<Self::ProcessResult> {
+        Driver::new(definition).compile_all(cached_compiler).await?;
+        Ok(())
+    }
+
+    /* `on_success` and `on_failure` use the default no-op implementations as reporting already happens by the cached compiler. */
+
+    fn on_ignored(definition: &Self::Definition<'_>, reason: String) -> anyhow::Result<()> {
+        definition
+            .reporter
+            .report_pre_link_contracts_compilation_ignored_event(reason, IndexMap::new())?;
+        Ok(())
+    }
+
+    fn create_fail_fast_action(
+        definition: &Self::Definition<'_>,
+        fail_fast: &FailFastConfiguration,
+    ) -> Option<Box<dyn FnOnce() + Send>> {
+        fail_fast.fail_fast.then(|| {
+            let reporter = definition.reporter.clone();
+            Box::new(move || {
+                let _ = reporter.report_pre_link_contracts_compilation_ignored_event(
+                    "Aborted due to fail-fast".to_string(),
+                    IndexMap::new(),
+                );
+            }) as Box<dyn FnOnce() + Send>
+        })
+    }
+
+    fn create_span(task_id: usize, definition: &Self::Definition<'_>) -> tracing::Span {
+        info_span!(
+            "Compiling Related Files",
+            compilation_id = task_id,
+            metadata_file_path = %definition.metadata_file_path.display(),
+            mode = %definition.mode,
+        )
+    }
+}
 
 /// Handles the compilations according to the information defined in the context.
 #[instrument(level = "info", err(Debug), skip_all)]
@@ -75,82 +129,33 @@ pub async fn handle_compilations(context: Compile, reporter: Reporter) -> anyhow
         context.compilation.invalidate_cache,
     )
     .await
-    .map(Arc::new)
     .context("Failed to initialize cached compiler")?;
 
-    // Creating the driver and compiling all of the contracts.
-    let semaphore = context
-        .concurrency
-        .concurrency_limit()
-        .map(Semaphore::new)
-        .map(Arc::new);
-    let running_task_list = Arc::new(RwLock::new(BTreeSet::<usize>::new()));
-    let driver_task = futures::future::join_all(compilation_definitions.iter().enumerate().map(
-        |(compilation_id, compilation_definition)| {
-            let running_task_list = running_task_list.clone();
-            let semaphore = semaphore.clone();
+    let cli_reporting_task = tokio::spawn(start_cli_reporting_task(
+        context.output_format.clone(),
+        aggregator_events_rx,
+    ));
 
-            let cached_compiler = cached_compiler.clone();
-            let mode = compilation_definition.mode.clone();
-            let span = info_span!(
-                "Compiling Related Files",
-                compilation_id,
-                metadata_file_path = %compilation_definition.metadata_file_path.display(),
-                mode = %mode,
-            );
-            async move {
-                let permit = match semaphore.as_ref() {
-                    Some(semaphore) => Some(semaphore.acquire().await.expect("Can't fail")),
-                    None => None,
-                };
+    process_corpus::<CompilationDefinitionProcessor>(
+        &compilation_definitions,
+        &cached_compiler,
+        (),
+        &context.concurrency,
+        &context.fail_fast,
+        reporter_clone,
+    )
+    .await;
 
-                running_task_list.write().await.insert(compilation_id);
-
-                let driver = Driver::new(compilation_definition);
-                match driver.compile_all(&cached_compiler).await {
-                    Ok(()) => { /* Reporting already happens by the cached compiler. */ }
-                    Err(_) => {
-                        /* Reporting already happens by the cached compiler. */
-                        error!("Compilation Failed");
-                    }
-                };
-                info!("Finished the compilation of the contracts");
-                drop(permit);
-                running_task_list.write().await.remove(&compilation_id);
-            }
-            .instrument(span)
-        },
-    ))
-    .inspect(|_| {
-        info!("Finished compiling all contracts");
-        reporter_clone
-            .report_completion_event()
-            .expect("Can't fail")
-    });
-
-    let cli_reporting_task = start_cli_reporting_task(&context.output_format, aggregator_events_rx);
-
-    tokio::task::spawn(async move {
-        loop {
-            let remaining_tasks = running_task_list.read().await;
-            info!(
-                count = remaining_tasks.len(),
-                ?remaining_tasks,
-                "Remaining Tasks"
-            );
-            drop(remaining_tasks);
-            tokio::time::sleep(Duration::from_secs(10)).await
-        }
-    });
-
-    futures::future::join(driver_task, cli_reporting_task).await;
+    cli_reporting_task
+        .await
+        .expect("CLI reporting task panicked");
 
     Ok(())
 }
 
 #[allow(irrefutable_let_patterns, clippy::uninlined_format_args)]
 async fn start_cli_reporting_task(
-    output_format: &OutputFormatConfiguration,
+    output_format: OutputFormatConfiguration,
     mut aggregator_events_rx: broadcast::Receiver<ReporterEvent>,
 ) {
     let start = Instant::now();
