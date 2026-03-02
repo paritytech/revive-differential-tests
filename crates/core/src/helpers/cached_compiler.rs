@@ -340,11 +340,15 @@ impl ArtifactsCache {
 
     #[instrument(level = "debug", skip_all, err)]
     pub async fn with_invalidated_cache(self) -> Result<Self> {
-        cacache::clear(self.path.as_path())
-            .await
-            .map_err(Into::<Error>::into)
-            .with_context(|| format!("Failed to clear cache at {}", self.path.display()))?;
-        Ok(self)
+        match cacache::clear(self.path.as_path()).await {
+            Ok(()) => Ok(self),
+            Err(cacache::Error::IoError(err, _)) if err.kind() == std::io::ErrorKind::NotFound => {
+                Ok(self)
+            }
+            Err(err) => Err(err)
+                .map_err(Into::<Error>::into)
+                .with_context(|| format!("Failed to clear cache at {}", self.path.display())),
+        }
     }
 
     #[instrument(level = "debug", skip_all, err)]
