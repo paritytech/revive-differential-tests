@@ -51,10 +51,10 @@ impl CorpusDefinitionProcessor for TestDefinitionProcessor {
         cached_compiler: &'a CachedCompiler<'a>,
         state: Self::State,
     ) -> anyhow::Result<Self::ProcessResult> {
-        let driver =
-            Driver::new_root(definition, state.private_key_allocator, cached_compiler).await?;
-
-        driver.execute_all().await
+        Driver::new_root(definition, state.private_key_allocator, cached_compiler)
+            .await?
+            .execute_all()
+            .await
     }
 
     fn on_success(

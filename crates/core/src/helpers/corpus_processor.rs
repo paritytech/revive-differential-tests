@@ -87,10 +87,10 @@ pub trait CorpusDefinitionProcessor: Sized + 'static {
 }
 
 /// Processes a corpus of definitions using the provided processor.
-pub async fn process_corpus<'a, P: CorpusDefinitionProcessor>(
-    definitions: &'a [P::Definition<'a>],
+pub async fn process_corpus<'a, Processor: CorpusDefinitionProcessor>(
+    definitions: &'a [Processor::Definition<'a>],
     cached_compiler: &'a CachedCompiler<'a>,
-    state: P::State,
+    state: Processor::State,
     concurrency: &ConcurrencyConfiguration,
     fail_fast: &FailFastConfiguration,
     reporter: Reporter,
@@ -112,15 +112,15 @@ pub async fn process_corpus<'a, P: CorpusDefinitionProcessor>(
             let fail_fast_triggered = fail_fast_triggered.clone();
             let fail_fast_notify = fail_fast_notify.clone();
             let state = state.clone();
-            let span = P::create_span(task_id, definition);
+            let span = Processor::create_span(task_id, definition);
 
             async move {
                 let mut fail_fast_guard = FailFastGuard {
-                    action: P::create_fail_fast_action(definition, fail_fast),
+                    action: Processor::create_fail_fast_action(definition, fail_fast),
                 };
 
                 if fail_fast.fail_fast && fail_fast_triggered.load(Ordering::Relaxed) {
-                    P::on_ignored(
+                    Processor::on_ignored(
                         definition,
                         "Skipped due to fail-fast: a prior task failed".to_string(),
                     )
@@ -133,7 +133,7 @@ pub async fn process_corpus<'a, P: CorpusDefinitionProcessor>(
                     Some(semaphore) => match semaphore.acquire().await {
                         Ok(permit) => Some(permit),
                         Err(_) => {
-                            P::on_ignored(
+                            Processor::on_ignored(
                                 definition,
                                 "Skipped due to fail-fast: a prior task failed".to_string(),
                             )
@@ -147,7 +147,7 @@ pub async fn process_corpus<'a, P: CorpusDefinitionProcessor>(
 
                 // Double-check fail-fast after acquiring permit.
                 if fail_fast.fail_fast && fail_fast_triggered.load(Ordering::Relaxed) {
-                    P::on_ignored(
+                    Processor::on_ignored(
                         definition,
                         "Skipped due to fail-fast: a prior task failed".to_string(),
                     )
@@ -159,15 +159,15 @@ pub async fn process_corpus<'a, P: CorpusDefinitionProcessor>(
 
                 running_task_list.write().await.insert(task_id);
 
-                let result = P::process_definition(definition, cached_compiler, state).await;
-
+                let result =
+                    Processor::process_definition(definition, cached_compiler, state).await;
                 match result {
                     Ok(process_result) => {
-                        P::on_success(definition, process_result)
+                        Processor::on_success(definition, process_result)
                             .expect("aggregator task is joined later so the receiver is alive");
                     }
                     Err(error) => {
-                        P::on_failure(definition, format!("{error:#}"))
+                        Processor::on_failure(definition, format!("{error:#}"))
                             .expect("aggregator task is joined later so the receiver is alive");
 
                         if fail_fast.fail_fast {
