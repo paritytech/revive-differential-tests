@@ -41,17 +41,3 @@ args = [
   "--no-hardware-benchmarks",
 ]
 
-[[parachains.collators]]
-name = "asset-hub-collator-2"
-command = "polkadot-parachain"
-args = [
-  "-lerror,evm=debug,sc_rpc_server=info,runtime::revive=debug",
-  "--authoring=slot-based",
-  "--rpc-methods=unsafe",
-  "--rpc-cors=all",
-  "--rpc-max-connections=4294967295",
-  "--pool-limit=4294967295",
-  "--pool-kbytes=4294967295",
-  "--state-pruning=100000",
-  "--no-hardware-benchmarks",
-]
