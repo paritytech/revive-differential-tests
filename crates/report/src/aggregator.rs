@@ -17,10 +17,10 @@ use alloy::{
 use anyhow::{Context as _, Result};
 use indexmap::IndexMap;
 use itertools::Itertools;
+use revive_dt_common::subscriptions::{MinedBlockInformation, StepPath};
 use revive_dt_common::types::PlatformIdentifier;
 use revive_dt_compiler::{CompilerInput, CompilerOutput, Mode};
 use revive_dt_config::{Context, HasReportConfiguration, HasWorkingDirectoryConfiguration};
-use revive_dt_common::subscriptions::{MinedBlockInformation, StepPath};
 use revive_dt_format::{case::CaseIdx, metadata::ContractInstance};
 use semver::Version;
 use serde::{Deserialize, Serialize};

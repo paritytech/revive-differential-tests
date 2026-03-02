@@ -4,13 +4,10 @@ use std::{collections::BTreeMap, sync::Arc};
 
 use anyhow::Context as _;
 use futures::{FutureExt, StreamExt};
+use revive_dt_common::subscriptions::{StepIdx, StepPath};
 use revive_dt_common::types::PrivateKeyAllocator;
 use revive_dt_core::Platform;
-use revive_dt_common::subscriptions::{StepIdx, StepPath};
-use revive_dt_format::{
-    corpus::Corpus,
-    steps::Step,
-};
+use revive_dt_format::{corpus::Corpus, steps::Step};
 use tokio::sync::Mutex;
 use tracing::{Instrument, error, info, info_span, instrument, warn};
 
@@ -177,34 +174,38 @@ pub async fn handle_differential_benchmarks(
             .await
             .context("Failed to create the benchmarks driver")?;
 
-            futures::future::try_join3(
-                watcher.run(),
-                driver
-                    .execute_all()
-                    .instrument(info_span!("Executing Benchmarks", %platform_identifier))
-                    .inspect(|_| {
-                        info!("All transactions submitted - driver completed execution");
-                        watcher_tx
-                            .send(WatcherEvent::AllTransactionsSubmitted)
-                            .unwrap();
-                        inclusion_watcher.stop();
-                    }),
-                inclusion_watcher
-                    .run(
-                        platform_information
-                            .node
-                            .subscribe_to_full_blocks_information()
-                            .await
-                            .context(
-                                "Failed to subscribe to full blocks information from the node",
-                            )?,
-                    )
-                    .map(|_| anyhow::Result::Ok(())),
-            )
-            .await
-            .context("Failed to run the driver and executor")
-            .inspect(|(_, steps_executed, _)| info!(steps_executed, "Workload Execution Succeeded"))
-            .inspect_err(|err| error!(?err, "Workload Execution Failed"))?;
+            // Running the auxiliary tasks
+            let watcher_task = tokio::spawn(watcher.run());
+            let inclusion_watcher_task = tokio::spawn(
+                inclusion_watcher.run(
+                    platform_information
+                        .node
+                        .subscribe_to_full_blocks_information()
+                        .await
+                        .context("Failed to subscribe to full blocks information from the node")?,
+                ),
+            );
+
+            // Running the driver.
+            driver
+                .execute_all()
+                .instrument(info_span!("Executing Benchmarks", %platform_identifier))
+                .inspect(|_| {
+                    info!("All transactions submitted - driver completed execution");
+                })
+                .await
+                .context("Failed to run the driver and executor")
+                .inspect(|steps_executed| info!(steps_executed, "Workload Execution Succeeded"))
+                .inspect_err(|err| error!(?err, "Workload Execution Failed"))?;
+
+            // Stopping auxiliary tasks.
+            watcher_tx
+                .send(WatcherEvent::AllTransactionsSubmitted)
+                .unwrap();
+            inclusion_watcher.stop();
+
+            let _ = watcher_task.await;
+            let _ = inclusion_watcher_task.await;
         }
     }
 

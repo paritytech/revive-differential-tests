@@ -1,6 +1,7 @@
 //! This crate implements all node interactions.
 
 use std::pin::Pin;
+use std::time::Duration;
 
 use alloy::primitives::{Address, StorageKey, TxHash, U256};
 use alloy::providers::ext::DebugApi;
@@ -169,7 +170,7 @@ pub trait NodeApi {
                 let stream = Box::pin(
                     substrate_provider
                         .blocks()
-                        .subscribe_finalized()
+                        .subscribe_best()
                         .await
                         .context("Failed to create the block stream")?
                         .filter_map(move |block| {
@@ -178,13 +179,19 @@ pub trait NodeApi {
 
                             async move {
                                 let substrate_block = block.ok()?;
-                                let revive_block = provider
-                                    .get_block_by_number(alloy::eips::BlockNumberOrTag::Number(
-                                        substrate_block.number() as _,
-                                    ))
-                                    .await
-                                    .expect("TODO: Remove")
-                                    .expect("TODO: Remove");
+                                let mut interval =
+                                    tokio::time::interval(Duration::from_millis(250));
+                                let revive_block = loop {
+                                    interval.tick().await;
+                                    let result = provider
+                                        .get_block_by_number(alloy::eips::BlockNumberOrTag::Number(
+                                            substrate_block.number() as _,
+                                        ))
+                                        .await;
+                                    if let Ok(Some(block)) = result {
+                                        break block;
+                                    }
+                                };
 
                                 let used = api
                                     .storage()

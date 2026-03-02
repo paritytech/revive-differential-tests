@@ -24,8 +24,8 @@ use alloy::{
 use anyhow::{Context as _, Result, bail};
 use futures::{FutureExt as _, TryFutureExt};
 use indexmap::IndexMap;
-use revive_dt_common::types::PrivateKeyAllocator;
 use revive_dt_common::subscriptions::{StepIdx, StepPath};
+use revive_dt_common::types::PrivateKeyAllocator;
 use revive_dt_format::{
     metadata::{ContractInstance, ContractPathAndIdent},
     steps::{
@@ -384,7 +384,10 @@ where
                 .map(|receipt| receipt.transaction_hash),
             Method::Fallback | Method::FunctionName(_) => {
                 let tx = step
-                    .as_transaction(self.platform_information.node, self.default_resolution_context())
+                    .as_transaction(
+                        self.platform_information.node,
+                        self.default_resolution_context(),
+                    )
                     .await?;
 
                 let (tx_hash, _, inclusion_future) = self
@@ -648,7 +651,10 @@ where
 
         if let Some(calldata) = calldata {
             let calldata = calldata
-                .calldata(self.platform_information.node, self.default_resolution_context())
+                .calldata(
+                    self.platform_information.node,
+                    self.default_resolution_context(),
+                )
                 .await?;
             code.extend(calldata);
         }

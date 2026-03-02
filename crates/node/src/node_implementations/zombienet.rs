@@ -380,7 +380,10 @@ impl ZombienetNode {
         tracing::info!("Waiting for parachain to produce first block...");
 
         let connection_string = self.connection_string.clone();
-        let rt = tokio::runtime::Runtime::new().context("Failed to create runtime")?;
+        let rt = self
+            .zombienet_runtime
+            .as_ref()
+            .context("Zombienet runtime not available")?;
         rt.block_on(async {
             let provider = alloy::providers::ProviderBuilder::new().connect_http(
                 connection_string
@@ -560,18 +563,22 @@ impl Node for ZombienetNode {
         // Kill the eth_rpc process
         drop(self.eth_rpc_process.take());
 
-        // Destroy the network
-        if let Some(network) = self.network.take() {
-            // Handle network cleanup here
-            tokio::task::spawn_blocking(move || {
-                let rt = tokio::runtime::Runtime::new().unwrap();
-                rt.block_on(async {
-                    if let Err(e) = network.destroy().await {
-                        tracing::warn!("Failed to destroy zombienet network: {e:?}");
-                    }
-                })
+        // Destroy the network on a dedicated thread to avoid "Cannot start a runtime from
+        // within a runtime" panics when drop is called from a tokio async context.
+        let _ = self
+            .zombienet_runtime
+            .take()
+            .zip(self.network.take())
+            .map(|(runtime, network)| {
+                let jh = std::thread::spawn(move || {
+                    runtime.block_on(async {
+                        if let Err(e) = network.destroy().await {
+                            tracing::warn!("Failed to destroy zombienet network: {e:?}");
+                        }
+                    })
+                });
+                let _ = jh.join();
             });
-        }
 
         // Remove the database directory
         if let Err(e) = remove_dir_all(self.base_directory.join(Self::DATA_DIRECTORY)) {

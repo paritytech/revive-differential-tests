@@ -6,17 +6,17 @@ use std::{collections::BTreeMap, path::PathBuf, sync::Arc};
 use alloy::primitives::Address;
 use anyhow::Context as _;
 use indexmap::IndexMap;
+use revive_dt_common::subscriptions::StepPath;
 use revive_dt_common::types::PlatformIdentifier;
 use revive_dt_compiler::{CompilerInput, CompilerOutput};
 use revive_dt_format::metadata::ContractInstance;
 use revive_dt_format::metadata::Metadata;
-use revive_dt_common::subscriptions::StepPath;
 use semver::Version;
 use tokio::sync::{broadcast, oneshot};
 
-use revive_dt_common::subscriptions::MinedBlockInformation;
 use crate::TransactionInformation;
 use crate::{ExecutionSpecifier, ReporterEvent, TestSpecifier, common::MetadataFilePath};
+use revive_dt_common::subscriptions::MinedBlockInformation;
 
 macro_rules! __report_gen_emit_test_specific {
     (

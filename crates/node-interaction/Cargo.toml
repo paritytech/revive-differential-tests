@@ -17,6 +17,7 @@ alloy = { workspace = true }
 anyhow = { workspace = true }
 futures = { workspace = true }
 subxt = { workspace = true }
+tokio = { workspace = true }
 
 [lints]
 workspace = true

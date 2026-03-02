@@ -1,0 +1,57 @@
+[settings]
+timeout = 1000
+node_spawn_timeout = 240
+
+[relaychain]
+default_command = "polkadot"
+default_args = ["-linfo"]
+chain = "polkadot-local"
+chain_spec_command = "chain-spec-generator {{chainName}}"
+
+[relaychain.genesis.runtimeGenesis.patch.configuration.config.scheduler_params]
+num_cores = 1
+lookahead = 2
+
+[[relaychain.nodes]]
+name = "alice"
+validator = true
+
+[[relaychain.nodes]]
+name = "bob"
+validator = true
+
+[[parachains]]
+id = 1000
+chain = "asset-hub-polkadot-local"
+chain_spec_command = "chain-spec-generator {{chainName}}"
+cumulus_based = true
+
+[[parachains.collators]]
+name = "asset-hub-collator-1"
+command = "polkadot-parachain"
+args = [
+  "-lerror,evm=debug,sc_rpc_server=info,runtime::revive=debug",
+  "--authoring=slot-based",
+  "--rpc-methods=unsafe",
+  "--rpc-cors=all",
+  "--rpc-max-connections=4294967295",
+  "--pool-limit=4294967295",
+  "--pool-kbytes=4294967295",
+  "--state-pruning=100000",
+  "--no-hardware-benchmarks",
+]
+
+[[parachains.collators]]
+name = "asset-hub-collator-2"
+command = "polkadot-parachain"
+args = [
+  "-lerror,evm=debug,sc_rpc_server=info,runtime::revive=debug",
+  "--authoring=slot-based",
+  "--rpc-methods=unsafe",
+  "--rpc-cors=all",
+  "--rpc-max-connections=4294967295",
+  "--pool-limit=4294967295",
+  "--pool-kbytes=4294967295",
+  "--state-pruning=100000",
+  "--no-hardware-benchmarks",
+]

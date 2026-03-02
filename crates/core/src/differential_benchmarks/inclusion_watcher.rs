@@ -1,9 +1,9 @@
-use std::pin::Pin;
+use std::sync::Arc;
 
 use alloy::primitives::TxHash;
 use dashmap::DashMap;
-use futures::{Stream, StreamExt};
-use revive_dt_common::subscriptions::MinedBlockInformation;
+use futures::StreamExt;
+use revive_dt_common::{framework_future, framework_stream, subscriptions::MinedBlockInformation};
 use tokio::{
     select,
     sync::{
@@ -13,15 +13,15 @@ use tokio::{
 };
 
 pub struct InclusionWatcher {
-    channels: DashMap<TxHash, Sender<()>>,
-    stop_notifier: Notify,
+    channels: Arc<DashMap<TxHash, Sender<()>>>,
+    stop_notifier: Arc<Notify>,
 }
 
 impl InclusionWatcher {
     pub fn new() -> Self {
         Self {
             channels: Default::default(),
-            stop_notifier: Notify::new(),
+            stop_notifier: Arc::new(Notify::new()),
         }
     }
 
@@ -34,23 +34,31 @@ impl InclusionWatcher {
         }
     }
 
-    pub async fn run(&self, mut blocks_stream: Pin<Box<dyn Stream<Item = MinedBlockInformation>>>) {
-        let task = async move {
-            while let Some(mined_block) = blocks_stream.next().await {
-                mined_block
-                    .ethereum_block_information
-                    .transaction_hashes
-                    .iter()
-                    .filter_map(|tx_hash| self.channels.remove(tx_hash))
-                    .for_each(|(_, channel)| {
-                        let _ = channel.send(());
-                    });
-            }
-        };
-        select! {
-            _ = self.stop_notifier.notified() => {},
-            _ = task => {}
-        };
+    pub fn run(
+        &self,
+        mut blocks_stream: framework_stream!(MinedBlockInformation),
+    ) -> framework_future!(()) {
+        let channels = self.channels.clone();
+        let notify = self.stop_notifier.clone();
+
+        Box::pin(async move {
+            let task = async move {
+                while let Some(mined_block) = blocks_stream.next().await {
+                    mined_block
+                        .ethereum_block_information
+                        .transaction_hashes
+                        .iter()
+                        .filter_map(|tx_hash| channels.remove(tx_hash))
+                        .for_each(|(_, channel)| {
+                            let _ = channel.send(());
+                        });
+                }
+            };
+            select! {
+                _ = notify.notified() => {},
+                _ = task => {}
+            };
+        })
     }
 
     pub fn stop(&self) {

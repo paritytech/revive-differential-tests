@@ -1097,7 +1097,6 @@ mod tests {
         fn push_block(&self) {
             self.asserter.push_success(&mock_block_json());
         }
-
     }
 
     impl NodeApi for MockResolver {
@@ -1316,10 +1315,7 @@ mod tests {
 
         // Assert
         let resolved = resolved.expect("Failed to resolve argument");
-        assert_eq!(
-            resolved,
-            U256::from_be_slice(Address::ZERO.as_ref())
-        )
+        assert_eq!(resolved, U256::from_be_slice(Address::ZERO.as_ref()))
     }
 
     #[tokio::test]
@@ -1367,10 +1363,7 @@ mod tests {
 
         // Assert
         let resolved = resolved.expect("Failed to resolve argument");
-        assert_eq!(
-            resolved,
-            U256::from_be_bytes([0xEE; 32])
-        )
+        assert_eq!(resolved, U256::from_be_bytes([0xEE; 32]))
     }
 
     #[tokio::test]
@@ -1409,7 +1402,8 @@ mod tests {
         let input = "2 4 +";
 
         // Act
-        let resolved = resolve_calldata_item(input, &Default::default(), &MockResolver::new()).await;
+        let resolved =
+            resolve_calldata_item(input, &Default::default(), &MockResolver::new()).await;
 
         // Assert
         let resolved = resolved.expect("Failed to resolve argument");
@@ -1422,7 +1416,8 @@ mod tests {
         let input = "4 2 -";
 
         // Act
-        let resolved = resolve_calldata_item(input, &Default::default(), &MockResolver::new()).await;
+        let resolved =
+            resolve_calldata_item(input, &Default::default(), &MockResolver::new()).await;
 
         // Assert
         let resolved = resolved.expect("Failed to resolve argument");
@@ -1435,7 +1430,8 @@ mod tests {
         let input = "4 2 *";
 
         // Act
-        let resolved = resolve_calldata_item(input, &Default::default(), &MockResolver::new()).await;
+        let resolved =
+            resolve_calldata_item(input, &Default::default(), &MockResolver::new()).await;
 
         // Assert
         let resolved = resolved.expect("Failed to resolve argument");
@@ -1448,7 +1444,8 @@ mod tests {
         let input = "4 2 /";
 
         // Act
-        let resolved = resolve_calldata_item(input, &Default::default(), &MockResolver::new()).await;
+        let resolved =
+            resolve_calldata_item(input, &Default::default(), &MockResolver::new()).await;
 
         // Assert
         let resolved = resolved.expect("Failed to resolve argument");
@@ -1461,7 +1458,8 @@ mod tests {
         let input = "4 0 /";
 
         // Act
-        let resolved = resolve_calldata_item(input, &Default::default(), &MockResolver::new()).await;
+        let resolved =
+            resolve_calldata_item(input, &Default::default(), &MockResolver::new()).await;
 
         // Assert
         assert!(resolved.is_err())

@@ -1,15 +1,14 @@
 use std::{
     collections::HashMap,
-    pin::Pin,
     sync::Arc,
     time::{SystemTime, UNIX_EPOCH},
 };
 
 use alloy::primitives::{BlockNumber, TxHash};
 use anyhow::Result;
-use futures::{Stream, StreamExt};
-use revive_dt_common::subscriptions::StepPath;
+use futures::StreamExt;
 use revive_dt_common::subscriptions::MinedBlockInformation;
+use revive_dt_common::{framework_stream, subscriptions::StepPath};
 use revive_dt_report::{ExecutionSpecificReporter, TransactionInformation};
 use tokio::sync::{
     RwLock,
@@ -27,7 +26,7 @@ pub struct Watcher {
 
     /// This is a stream of the blocks that were mined by the node. This is for a single platform
     /// and a single node from that platform.
-    blocks_stream: Pin<Box<dyn Stream<Item = MinedBlockInformation>>>,
+    blocks_stream: framework_stream!(MinedBlockInformation),
 
     /// The reporter used to send events to the report aggregator.
     reporter: ExecutionSpecificReporter,
@@ -35,7 +34,7 @@ pub struct Watcher {
 
 impl Watcher {
     pub fn new(
-        blocks_stream: Pin<Box<dyn Stream<Item = MinedBlockInformation>>>,
+        blocks_stream: framework_stream!(MinedBlockInformation),
         reporter: ExecutionSpecificReporter,
     ) -> (Self, UnboundedSender<WatcherEvent>) {
         let (tx, rx) = unbounded_channel::<WatcherEvent>();
@@ -169,11 +168,23 @@ impl Watcher {
                             .expect("Can't fail")
                     }
 
+                    let remaining_transaction_hashes = if watch_for_transaction_hashes.len() > 100 {
+                        Box::new(tracing::field::Empty) as Box<dyn tracing::field::Value>
+                    } else {
+                        Box::new(tracing::field::debug(
+                            watch_for_transaction_hashes
+                                .keys()
+                                .cloned()
+                                .collect::<Vec<_>>(),
+                        )) as Box<dyn tracing::field::Value>
+                    };
+
                     info!(
                         block_number = block.ethereum_block_information.block_number,
                         block_tx_count = block.ethereum_block_information.transaction_hashes.len(),
                         relevant_transactions_observed,
                         remaining_transactions = watch_for_transaction_hashes.len(),
+                        remaining_transaction_hashes,
                         "Observed a block"
                     );
                 }

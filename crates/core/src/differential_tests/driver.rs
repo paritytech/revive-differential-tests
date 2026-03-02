@@ -20,8 +20,8 @@ use alloy::{
 use anyhow::{Context as _, Result, bail};
 use futures::{TryStreamExt, future::try_join_all};
 use indexmap::IndexMap;
-use revive_dt_common::types::{PlatformIdentifier, PrivateKeyAllocator, VmIdentifier};
 use revive_dt_common::subscriptions::{StepIdx, StepPath};
+use revive_dt_common::types::{PlatformIdentifier, PrivateKeyAllocator, VmIdentifier};
 use revive_dt_format::{
     metadata::{ContractInstance, ContractPathAndIdent},
     steps::{
@@ -481,7 +481,10 @@ where
                 .context("Failed to find deployment receipt for constructor call"),
             Method::Fallback | Method::FunctionName(_) => {
                 let mut tx = step
-                    .as_transaction(self.platform_information.node, self.default_resolution_context())
+                    .as_transaction(
+                        self.platform_information.node,
+                        self.default_resolution_context(),
+                    )
                     .await?;
 
                 let gas_overrides = step
@@ -762,7 +765,10 @@ where
 
         let address = step
             .address
-            .resolve_address(self.platform_information.node, self.default_resolution_context())
+            .resolve_address(
+                self.platform_information.node,
+                self.default_resolution_context(),
+            )
             .await?;
 
         let balance = self.platform_information.node.balance_of(address).await?;
@@ -795,7 +801,10 @@ where
 
         let address = step
             .address
-            .resolve_address(self.platform_information.node, self.default_resolution_context())
+            .resolve_address(
+                self.platform_information.node,
+                self.default_resolution_context(),
+            )
             .await?;
 
         let storage = self
@@ -980,7 +989,10 @@ where
 
         if let Some(calldata) = calldata {
             let calldata = calldata
-                .calldata(self.platform_information.node, self.default_resolution_context())
+                .calldata(
+                    self.platform_information.node,
+                    self.default_resolution_context(),
+                )
                 .await?;
             code.extend(calldata);
         }
