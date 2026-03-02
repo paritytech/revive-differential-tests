@@ -41,7 +41,7 @@ use serde_with::serde_as;
 use tokio::sync::OnceCell;
 use tracing::{info, instrument};
 
-use revive_dt_common::{framework_future, fs::clear_directory};
+use revive_dt_common::{fs::clear_directory, futures::FrameworkFuture};
 use revive_dt_config::*;
 use revive_dt_node_interaction::NodeApi;
 
@@ -398,7 +398,7 @@ impl LighthouseGethNode {
     }
 
     /// Funds all of the accounts in the Ethereum wallet from the initially funded account.
-    fn fund_all_accounts(&self) -> framework_future!(anyhow::Result<()>) {
+    fn fund_all_accounts(&self) -> FrameworkFuture<anyhow::Result<()>> {
         let provider = self.provider();
         let wallet = self.wallet.clone();
         let prefunded_account_address = self.prefunded_account_address;
@@ -477,7 +477,7 @@ impl LighthouseGethNode {
 }
 
 impl NodeApi for LighthouseGethNode {
-    fn pre_transactions(&mut self) -> framework_future!(anyhow::Result<()>) {
+    fn pre_transactions(&mut self) -> FrameworkFuture<anyhow::Result<()>> {
         self.fund_all_accounts()
     }
 
@@ -493,7 +493,7 @@ impl NodeApi for LighthouseGethNode {
         EVMVersion::Cancun
     }
 
-    fn provider(&self) -> revive_dt_common::framework_future!(anyhow::Result<DynProvider>) {
+    fn provider(&self) -> FrameworkFuture<anyhow::Result<DynProvider>> {
         let provider = self.persistent_ws_provider.clone();
         let connection_string = self.ws_connection_string.clone();
         let gas_filler =

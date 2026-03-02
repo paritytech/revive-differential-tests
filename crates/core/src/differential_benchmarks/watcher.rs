@@ -8,7 +8,7 @@ use alloy::primitives::{BlockNumber, TxHash};
 use anyhow::Result;
 use futures::StreamExt;
 use revive_dt_common::subscriptions::MinedBlockInformation;
-use revive_dt_common::{framework_stream, subscriptions::StepPath};
+use revive_dt_common::{futures::FrameworkStream, subscriptions::StepPath};
 use revive_dt_report::{ExecutionSpecificReporter, TransactionInformation};
 use tokio::sync::{
     RwLock,
@@ -26,7 +26,7 @@ pub struct Watcher {
 
     /// This is a stream of the blocks that were mined by the node. This is for a single platform
     /// and a single node from that platform.
-    blocks_stream: framework_stream!(MinedBlockInformation),
+    blocks_stream: FrameworkStream<MinedBlockInformation>,
 
     /// The reporter used to send events to the report aggregator.
     reporter: ExecutionSpecificReporter,
@@ -34,7 +34,7 @@ pub struct Watcher {
 
 impl Watcher {
     pub fn new(
-        blocks_stream: framework_stream!(MinedBlockInformation),
+        blocks_stream: FrameworkStream<MinedBlockInformation>,
         reporter: ExecutionSpecificReporter,
     ) -> (Self, UnboundedSender<WatcherEvent>) {
         let (tx, rx) = unbounded_channel::<WatcherEvent>();

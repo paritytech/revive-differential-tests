@@ -1,6 +1,5 @@
 //! This crate implements all node interactions.
 
-use std::pin::Pin;
 use std::time::Duration;
 
 use alloy::primitives::{Address, StorageKey, TxHash, U256};
@@ -14,8 +13,7 @@ use anyhow::{Context as _, Result};
 
 use futures::StreamExt;
 use revive_common::EVMVersion;
-use revive_dt_common::framework_stream;
-use revive_dt_common::futures::framework_future;
+use revive_dt_common::futures::{FrameworkFuture, FrameworkStream};
 
 use revive_dt_common::subscriptions::{
     EthereumMinedBlockInformation, MinedBlockInformation, SubstrateMinedBlockInformation,
@@ -36,7 +34,7 @@ pub trait NodeApi {
     fn submit_transaction(
         &self,
         transaction: TransactionRequest,
-    ) -> framework_future!(Result<TxHash>) {
+    ) -> FrameworkFuture<Result<TxHash>> {
         let provider = self.provider();
         Box::pin(async move {
             provider
@@ -49,7 +47,7 @@ pub trait NodeApi {
         })
     }
 
-    fn get_receipt(&self, tx_hash: TxHash) -> framework_future!(Result<TransactionReceipt>) {
+    fn get_receipt(&self, tx_hash: TxHash) -> FrameworkFuture<Result<TransactionReceipt>> {
         let provider = self.provider();
         Box::pin(async move {
             provider
@@ -66,7 +64,7 @@ pub trait NodeApi {
     fn execute_transaction(
         &self,
         transaction: TransactionRequest,
-    ) -> framework_future!(Result<TransactionReceipt>) {
+    ) -> FrameworkFuture<Result<TransactionReceipt>> {
         let provider = self.provider();
         Box::pin(async move {
             provider
@@ -86,7 +84,7 @@ pub trait NodeApi {
         &self,
         tx_hash: TxHash,
         trace_options: GethDebugTracingOptions,
-    ) -> framework_future!(Result<GethTrace>) {
+    ) -> FrameworkFuture<Result<GethTrace>> {
         let provider = self.provider();
         Box::pin(async move {
             provider
@@ -99,7 +97,7 @@ pub trait NodeApi {
     }
 
     /// Returns the state diff of the transaction hash in the [TransactionReceipt].
-    fn state_diff(&self, tx_hash: TxHash) -> framework_future!(Result<DiffMode>) {
+    fn state_diff(&self, tx_hash: TxHash) -> FrameworkFuture<Result<DiffMode>> {
         let provider = self.provider();
         Box::pin(async move {
             let trace_options = GethDebugTracingOptions::prestate_tracer(PreStateConfig {
@@ -123,7 +121,7 @@ pub trait NodeApi {
     }
 
     /// Returns the balance of the provided [`Address`] back.
-    fn balance_of(&self, address: Address) -> framework_future!(Result<U256>) {
+    fn balance_of(&self, address: Address) -> FrameworkFuture<Result<U256>> {
         let provider = self.provider();
         Box::pin(async move {
             provider
@@ -140,7 +138,7 @@ pub trait NodeApi {
         &self,
         address: Address,
         keys: Vec<StorageKey>,
-    ) -> framework_future!(Result<EIP1186AccountProofResponse>) {
+    ) -> FrameworkFuture<Result<EIP1186AccountProofResponse>> {
         let provider = self.provider();
         Box::pin(async move {
             provider
@@ -159,7 +157,7 @@ pub trait NodeApi {
     /// Returns a stream of the blocks that were mined by the node.
     fn subscribe_to_full_blocks_information(
         &self,
-    ) -> framework_future!(Result<framework_stream!(MinedBlockInformation)>) {
+    ) -> FrameworkFuture<Result<FrameworkStream<MinedBlockInformation>>> {
         let provider = self.provider();
         let substrate_provider = self.substrate_provider();
 
@@ -167,7 +165,7 @@ pub trait NodeApi {
             Box::pin(async move {
                 let substrate_provider = substrate_provider.await?;
                 let provider = provider.await.context("Failed to get the provider")?;
-                let stream = Box::pin(
+                let stream: FrameworkStream<MinedBlockInformation> = Box::pin(
                     substrate_provider
                         .blocks()
                         .subscribe_best()
@@ -242,29 +240,12 @@ pub trait NodeApi {
                                 })
                             }
                         }),
-                )
-                    as Pin<Box<dyn futures::Stream<Item = MinedBlockInformation> + Send + 'static>>;
+                );
                 Ok(stream)
             })
-                as Pin<
-                    Box<
-                        dyn Future<
-                                Output = Result<
-                                    Pin<
-                                        Box<
-                                            dyn futures::Stream<Item = MinedBlockInformation>
-                                                + Send
-                                                + 'static,
-                                        >,
-                                    >,
-                                >,
-                            > + Send
-                            + 'static,
-                    >,
-                >
         } else {
             Box::pin(async move {
-                let stream = Box::pin(
+                let stream: FrameworkStream<MinedBlockInformation> = Box::pin(
                     provider
                         .await
                         .context("Failed to get the provider")?
@@ -291,41 +272,24 @@ pub trait NodeApi {
                                 tx_counts: Default::default(),
                             })
                         }),
-                )
-                    as Pin<Box<dyn futures::Stream<Item = MinedBlockInformation> + Send + 'static>>;
+                );
                 Ok(stream)
             })
-                as Pin<
-                    Box<
-                        dyn Future<
-                                Output = Result<
-                                    Pin<
-                                        Box<
-                                            dyn futures::Stream<Item = MinedBlockInformation>
-                                                + Send
-                                                + 'static,
-                                        >,
-                                    >,
-                                >,
-                            > + Send
-                            + 'static,
-                    >,
-                >
         }
     }
 
     /// A function to run post spawning the nodes and before any transactions are run on the node.
-    fn pre_transactions(&mut self) -> framework_future!(Result<()>) {
+    fn pre_transactions(&mut self) -> FrameworkFuture<Result<()>> {
         Box::pin(async move { Ok(()) })
     }
 
     /// The alloy driver connected to the node's Rpc.
-    fn provider(&self) -> framework_future!(Result<DynProvider>);
+    fn provider(&self) -> FrameworkFuture<Result<DynProvider>>;
 
     /// The substrate provider used by the node. None if it's not a substrate node.
     fn substrate_provider(
         &self,
-    ) -> Option<framework_future!(Result<OnlineClient<SubstrateConfig>>)> {
+    ) -> Option<FrameworkFuture<Result<OnlineClient<SubstrateConfig>>>> {
         None
     }
 }

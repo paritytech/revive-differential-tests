@@ -250,7 +250,7 @@ impl NodeApi for GethNode {
         EVMVersion::Cancun
     }
 
-    fn provider(&self) -> revive_dt_common::framework_future!(anyhow::Result<DynProvider>) {
+    fn provider(&self) -> revive_dt_common::futures::FrameworkFuture<anyhow::Result<DynProvider>> {
         let provider = self.provider.clone();
         let connection_string = self.connection_string.clone();
         let gas_filler =

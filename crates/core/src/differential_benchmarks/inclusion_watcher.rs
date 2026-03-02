@@ -3,7 +3,10 @@ use std::sync::Arc;
 use alloy::primitives::TxHash;
 use dashmap::DashMap;
 use futures::StreamExt;
-use revive_dt_common::{framework_future, framework_stream, subscriptions::MinedBlockInformation};
+use revive_dt_common::{
+    futures::{FrameworkFuture, FrameworkStream},
+    subscriptions::MinedBlockInformation,
+};
 use tokio::{
     select,
     sync::{
@@ -36,8 +39,8 @@ impl InclusionWatcher {
 
     pub fn run(
         &self,
-        mut blocks_stream: framework_stream!(MinedBlockInformation),
-    ) -> framework_future!(()) {
+        mut blocks_stream: FrameworkStream<MinedBlockInformation>,
+    ) -> FrameworkFuture<()> {
         let channels = self.channels.clone();
         let notify = self.stop_notifier.clone();
 

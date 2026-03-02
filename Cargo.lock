@@ -5723,6 +5723,7 @@ dependencies = [
  "alloy",
  "anyhow",
  "clap",
+ "futures",
  "moka",
  "once_cell",
  "regex",

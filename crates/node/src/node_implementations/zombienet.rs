@@ -513,7 +513,7 @@ impl NodeApi for ZombienetNode {
         EVMVersion::Cancun
     }
 
-    fn provider(&self) -> revive_dt_common::framework_future!(anyhow::Result<DynProvider>) {
+    fn provider(&self) -> revive_dt_common::futures::FrameworkFuture<anyhow::Result<DynProvider>> {
         let provider = self.provider.clone();
         let connection_string = self.connection_string.clone();
         let gas_filler =
@@ -541,7 +541,7 @@ impl NodeApi for ZombienetNode {
 
     fn substrate_provider(
         &self,
-    ) -> Option<revive_dt_common::framework_future!(anyhow::Result<OnlineClient<SubstrateConfig>>)>
+    ) -> Option<revive_dt_common::futures::FrameworkFuture<anyhow::Result<OnlineClient<SubstrateConfig>>>>
     {
         let provider = self.substrate_provider.clone();
         let connection_string = self.collator_ws_uri.clone().unwrap_or_default();

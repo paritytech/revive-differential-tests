@@ -386,7 +386,7 @@ impl NodeApi for SubstrateNode {
         EVMVersion::Cancun
     }
 
-    fn provider(&self) -> revive_dt_common::framework_future!(anyhow::Result<DynProvider>) {
+    fn provider(&self) -> revive_dt_common::futures::FrameworkFuture<anyhow::Result<DynProvider>> {
         let provider = self.provider.clone();
         let connection_string = self.rpc_url.clone();
         let gas_filler =
@@ -414,7 +414,7 @@ impl NodeApi for SubstrateNode {
 
     fn substrate_provider(
         &self,
-    ) -> Option<revive_dt_common::framework_future!(anyhow::Result<OnlineClient<SubstrateConfig>>)>
+    ) -> Option<revive_dt_common::futures::FrameworkFuture<anyhow::Result<OnlineClient<SubstrateConfig>>>>
     {
         let provider = self.substrate_provider.clone();
         let substrate_rpc_port = Self::BASE_SUBSTRATE_RPC_PORT + self.id as u16;
