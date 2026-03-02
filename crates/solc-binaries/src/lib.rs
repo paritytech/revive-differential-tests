@@ -3,18 +3,35 @@
 //!
 //! [0]: https://binaries.soliditylang.org
 
-use std::path::{Path, PathBuf};
-
-use anyhow::Context as _;
-use cache::get_or_download;
-use download::SolcDownloader;
-
-use revive_dt_common::types::VersionOrRequirement;
-use semver::Version;
-
 pub mod cache;
 pub mod download;
 pub mod list;
+pub mod prelude {
+    pub use crate::download_solc;
+}
+
+pub(crate) mod internal_prelude {
+    pub use revive_dt_common::prelude::*;
+
+    pub use std::collections::{HashMap, HashSet};
+    pub use std::fs::{File, create_dir_all};
+    pub use std::io::{BufWriter, Write};
+    pub use std::path::{Path, PathBuf};
+    pub use std::str::FromStr;
+    pub use std::sync::{LazyLock, Mutex};
+
+    pub use anyhow::Context as _;
+    pub use semver::{Version, VersionReq};
+    pub use serde::Deserialize;
+    pub use sha2::{Digest, Sha256};
+    pub use tokio::sync::Mutex as TokioMutex;
+
+    pub(crate) use crate::cache::get_or_download;
+    pub use crate::download::SolcDownloader;
+    pub use crate::list::List;
+}
+
+use crate::internal_prelude::*;
 
 /// Downloads the solc binary for Wasm is `wasm` is set, otherwise for
 /// the target platform.

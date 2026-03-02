@@ -3,24 +3,64 @@
 //! - Polkadot revive resolc compiler
 //! - Polkadot revive Wasm compiler
 
-use std::{
-    collections::HashMap,
-    hash::Hash,
-    path::{Path, PathBuf},
-    pin::Pin,
-};
-
-use alloy::json_abi::JsonAbi;
-use alloy::primitives::Address;
-use anyhow::{Context as _, Result};
-use semver::Version;
-use serde::{Deserialize, Serialize};
-
-use revive_common::EVMVersion;
-use revive_dt_common::cached_fs::read_to_string;
+use crate::internal_prelude::*;
 
 // Re-export this as it's a part of the compiler interface.
 pub use revive_dt_common::types::{Mode, ModeOptimizerSetting, ModePipeline};
+
+pub mod prelude {
+    pub use crate::{Compiler, CompilerInput, CompilerOutput, RevertString, SolidityCompiler};
+    pub use crate::{Mode, ModeOptimizerSetting, ModePipeline};
+    pub use crate::revive_resolc::Resolc;
+    pub use crate::solc::Solc;
+}
+
+pub(crate) mod internal_prelude {
+    pub use crate::prelude::*;
+    pub use revive_dt_config::prelude::*;
+
+    pub use std::collections::{BTreeSet, HashMap};
+    pub use std::hash::Hash;
+    pub use std::path::{Path, PathBuf};
+    pub use std::pin::Pin;
+    pub use std::process::Stdio;
+    pub use std::sync::{Arc, LazyLock};
+
+    pub use alloy::json_abi::JsonAbi;
+    pub use alloy::primitives::Address;
+    pub use anyhow::Context as _;
+    pub use anyhow::Result;
+    pub use dashmap::DashMap;
+    pub use foundry_compilers_artifacts::{
+        output_selection::{
+            BytecodeOutputSelection, ContractOutputSelection, EvmOutputSelection, OutputSelection,
+        },
+        solc::CompilerOutput as SolcOutput,
+        solc::{
+            BytecodeObject, DebuggingSettings, Libraries, Optimizer, RevertStrings, Settings,
+            Severity, SolcInput, SolcLanguage, Source, Sources,
+        },
+    };
+    pub use revive_solc_json_interface::{
+        PolkaVMDefaultHeapMemorySize, PolkaVMDefaultStackMemorySize, SolcStandardJsonInput,
+        SolcStandardJsonInputLanguage, SolcStandardJsonInputSettings,
+        SolcStandardJsonInputSettingsLibraries, SolcStandardJsonInputSettingsMetadata,
+        SolcStandardJsonInputSettingsOptimizer, SolcStandardJsonInputSettingsPolkaVM,
+        SolcStandardJsonInputSettingsPolkaVMMemory, SolcStandardJsonInputSettingsSelection,
+        SolcStandardJsonOutput,
+        standard_json::input::settings::optimizer::Optimizer as ResolcOptimizer,
+        standard_json::input::settings::optimizer::details::Details as ResolcOptimizerDetails,
+    };
+    pub use semver::Version;
+    pub use serde::{Deserialize, Serialize};
+    pub use tokio::{io::AsyncWriteExt, process::Command as AsyncCommand};
+    pub use tracing::{Span, field::display, info};
+
+    pub use revive_common::EVMVersion;
+    pub use revive_dt_common::cached_fs::read_to_string;
+    pub use revive_dt_common::types::VersionOrRequirement;
+    pub use revive_dt_solc_binaries::download_solc;
+}
 
 pub mod revive_js;
 pub mod revive_resolc;

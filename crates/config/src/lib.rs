@@ -1,5 +1,9 @@
 //! The global configuration used across all revive differential testing crates.
 
+pub mod prelude {
+    pub use crate::*;
+}
+
 use std::{
     fmt::Display,
     ops::Deref,

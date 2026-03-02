@@ -1,8 +1,4 @@
-use std::{
-    borrow::Cow,
-    collections::HashSet,
-    path::{Path, PathBuf},
-};
+use crate::internal_prelude::*;
 
 /// An iterator that finds files of a certain extension in the provided directory. You can think of
 /// this a glob pattern similar to: `${path}/**/*.md`

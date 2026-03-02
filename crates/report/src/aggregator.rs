@@ -1,38 +1,7 @@
 //! Implementation of the report aggregator task which consumes the events sent by the various
 //! reporters and combines them into a single unified report.
 
-use std::{
-    collections::{BTreeMap, BTreeSet, HashMap, HashSet},
-    fs::OpenOptions,
-    ops::{Add, Div},
-    path::PathBuf,
-    time::{SystemTime, UNIX_EPOCH},
-};
-
-use alloy::{
-    hex,
-    json_abi::JsonAbi,
-    primitives::{Address, B256, BlockNumber, TxHash},
-};
-use anyhow::{Context as _, Result};
-use indexmap::IndexMap;
-use itertools::Itertools;
-use revive_dt_common::subscriptions::{MinedBlockInformation, StepPath};
-use revive_dt_common::types::PlatformIdentifier;
-use revive_dt_compiler::{CompilerInput, CompilerOutput, Mode};
-use revive_dt_config::{Context, HasReportConfiguration, HasWorkingDirectoryConfiguration};
-use revive_dt_format::{case::CaseIdx, metadata::ContractInstance};
-use semver::Version;
-use serde::{Deserialize, Serialize};
-use serde_with::{DisplayFromStr, serde_as};
-use sha2::{Digest, Sha256};
-use tokio::sync::{
-    broadcast::{Sender, channel},
-    mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel},
-};
-use tracing::debug;
-
-use crate::*;
+use crate::internal_prelude::*;
 
 pub struct ReportAggregator {
     /* Internal Report State */

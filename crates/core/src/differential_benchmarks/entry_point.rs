@@ -1,23 +1,8 @@
 //! The main entry point for differential benchmarking.
 
-use std::{collections::BTreeMap, sync::Arc};
+use crate::internal_prelude::*;
 
-use anyhow::Context as _;
-use futures::{FutureExt, StreamExt};
-use revive_dt_common::subscriptions::{StepIdx, StepPath};
-use revive_dt_common::types::PrivateKeyAllocator;
-use revive_dt_core::Platform;
-use revive_dt_format::{corpus::Corpus, steps::Step};
-use tokio::sync::Mutex;
-use tracing::{Instrument, error, info, info_span, instrument, warn};
-
-use revive_dt_config::{Benchmark, Context};
-use revive_dt_report::Reporter;
-
-use crate::{
-    differential_benchmarks::{Driver, InclusionWatcher, Watcher, WatcherEvent},
-    helpers::{CachedCompiler, NodePool, create_test_definitions_stream},
-};
+use crate::differential_benchmarks::Driver;
 
 /// Handles the differential testing executing it according to the information defined in the
 /// context

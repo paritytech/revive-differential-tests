@@ -1,9 +1,4 @@
-use std::{collections::BTreeMap, fmt::Display, str::FromStr};
-
-use alloy::primitives::{BlockNumber, BlockTimestamp, TxHash};
-use serde::{Deserialize, Serialize};
-
-use crate::define_wrapper_type;
+use crate::internal_prelude::*;
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct MinedBlockInformation {

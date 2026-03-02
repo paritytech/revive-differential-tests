@@ -1,20 +1,4 @@
-use std::{
-    borrow::Cow,
-    collections::HashMap,
-    path::{Path, PathBuf},
-};
-
-use itertools::Itertools;
-use revive_dt_common::{
-    iterators::{EitherIter, FilesWithExtensionIterator},
-    types::{Mode, ParsedMode, ParsedTestSpecifier},
-};
-use tracing::{debug, warn};
-
-use crate::{
-    case::{Case, CaseIdx},
-    metadata::{Metadata, MetadataFile},
-};
+use crate::internal_prelude::*;
 
 #[derive(Default)]
 pub struct Corpus {

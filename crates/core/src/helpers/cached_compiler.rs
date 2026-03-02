@@ -1,26 +1,7 @@
 //! A wrapper around the compiler which allows for caching of compilation artifacts so that they can
 //! be reused between runs.
 
-use std::{
-    borrow::Cow,
-    collections::HashMap,
-    path::{Path, PathBuf},
-    sync::{Arc, LazyLock},
-};
-
-use futures::FutureExt;
-use revive_dt_common::{iterators::FilesWithExtensionIterator, types::CompilerIdentifier};
-use revive_dt_compiler::{Compiler, CompilerOutput, Mode, SolidityCompiler};
-use revive_dt_core::Platform;
-use revive_dt_format::metadata::{ContractIdent, ContractInstance, Metadata};
-
-use alloy::{hex::ToHexExt, json_abi::JsonAbi, primitives::Address};
-use anyhow::{Context as _, Error, Result};
-use revive_dt_report::ExecutionSpecificReporter;
-use semver::Version;
-use serde::{Deserialize, Serialize};
-use tokio::sync::{Mutex, RwLock, Semaphore};
-use tracing::{Instrument, debug, debug_span, instrument};
+use crate::internal_prelude::*;
 
 pub struct CachedCompiler<'a> {
     /// The cache that stores the compiled contracts.

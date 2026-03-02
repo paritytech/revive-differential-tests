@@ -1,13 +1,4 @@
-use alloy::primitives::{Address, map::HashSet};
-use schemars::JsonSchema;
-use serde::{Deserialize, Serialize};
-
-use revive_dt_common::{
-    macros::define_wrapper_type,
-    types::{Mode, ParsedMode, VmIdentifier},
-};
-
-use crate::steps::*;
+use crate::internal_prelude::*;
 
 #[derive(Debug, Default, Serialize, Deserialize, Clone, Eq, PartialEq, JsonSchema)]
 pub struct Case {

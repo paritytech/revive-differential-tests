@@ -1,43 +1,6 @@
-use std::{
-    collections::{BTreeMap, HashMap},
-    sync::Arc,
-};
+use crate::internal_prelude::*;
 
-use alloy::{
-    consensus::EMPTY_ROOT_HASH,
-    hex,
-    json_abi::JsonAbi,
-    network::{Ethereum, TransactionBuilder},
-    primitives::{Address, TxHash, U256, address},
-    rpc::types::{
-        TransactionReceipt, TransactionRequest,
-        trace::geth::{
-            CallFrame, GethDebugBuiltInTracerType, GethDebugTracerConfig, GethDebugTracerType,
-            GethDebugTracingOptions,
-        },
-    },
-};
-use anyhow::{Context as _, Result, bail};
-use futures::{TryStreamExt, future::try_join_all};
-use indexmap::IndexMap;
-use revive_dt_common::subscriptions::{StepIdx, StepPath};
-use revive_dt_common::types::{PlatformIdentifier, PrivateKeyAllocator, VmIdentifier};
-use revive_dt_format::{
-    metadata::{ContractInstance, ContractPathAndIdent},
-    steps::{
-        AllocateAccountStep, BalanceAssertionStep, Calldata, EtherValue, Expected, ExpectedOutput,
-        FunctionCallStep, Method, RepeatStep, Step, StepAddress, StorageEmptyAssertionStep,
-    },
-    traits::ResolutionContext,
-};
-use subxt::{ext::codec::Decode, metadata::Metadata, tx::Payload};
-use tokio::sync::Mutex;
-use tracing::{error, info, instrument};
-
-use crate::{
-    differential_tests::ExecutionState,
-    helpers::{CachedCompiler, TestDefinition, TestPlatformInformation},
-};
+use super::ExecutionState;
 
 type StepsIterator = std::vec::IntoIter<(StepPath, Step)>;
 
@@ -291,7 +254,7 @@ where
             pub mod revive {}
 
             let metadata_bytes = include_bytes!("../../../../assets/revive_metadata.scale");
-            let metadata = Metadata::decode(&mut &metadata_bytes[..])
+            let metadata = SubxtMetadata::decode(&mut &metadata_bytes[..])
                 .context("Failed to decode the revive metadata")?;
 
             const RUNTIME_PALLET_ADDRESS: Address =

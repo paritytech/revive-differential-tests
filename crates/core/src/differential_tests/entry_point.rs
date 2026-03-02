@@ -1,35 +1,8 @@
 //! The main entry point into differential testing.
 
-use std::{
-    collections::{BTreeMap, BTreeSet},
-    io::{BufWriter, Write, stderr},
-    sync::{
-        Arc,
-        atomic::{AtomicBool, Ordering},
-    },
-    time::{Duration, Instant},
-};
+use crate::internal_prelude::*;
 
-use ansi_term::{ANSIStrings, Color};
-use anyhow::Context as _;
-use futures::StreamExt;
-use indexmap::IndexMap;
-use revive_dt_common::types::PrivateKeyAllocator;
-use revive_dt_core::Platform;
-use revive_dt_format::corpus::Corpus;
-use tokio::sync::{Mutex, Notify, RwLock, Semaphore};
-use tracing::{Instrument, error, info, info_span, instrument};
-
-use revive_dt_config::{Context, OutputFormat, Test};
-use revive_dt_report::{Reporter, ReporterEvent, TestCaseStatus, TestSpecificReporter};
-
-use crate::{
-    differential_tests::Driver,
-    helpers::{
-        CachedCompiler, NodePool, TestCaseIgnoreResolvedConfiguration,
-        create_test_definitions_stream,
-    },
-};
+use crate::differential_tests::Driver;
 
 /// A guard that reports a test as ignored when dropped without a terminal status.
 ///

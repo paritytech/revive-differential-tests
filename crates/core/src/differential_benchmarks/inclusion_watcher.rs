@@ -1,22 +1,7 @@
-use std::sync::Arc;
-
-use alloy::primitives::TxHash;
-use dashmap::DashMap;
-use futures::StreamExt;
-use revive_dt_common::{
-    futures::{FrameworkFuture, FrameworkStream},
-    subscriptions::MinedBlockInformation,
-};
-use tokio::{
-    select,
-    sync::{
-        Notify,
-        oneshot::{Sender, channel},
-    },
-};
+use crate::internal_prelude::*;
 
 pub struct InclusionWatcher {
-    channels: Arc<DashMap<TxHash, Sender<()>>>,
+    channels: Arc<DashMap<TxHash, oneshot::Sender<()>>>,
     stop_notifier: Arc<Notify>,
 }
 
@@ -29,7 +14,7 @@ impl InclusionWatcher {
     }
 
     pub fn await_transaction(&self, tx_hash: TxHash) -> impl Future<Output = ()> {
-        let (tx, rx) = channel::<()>();
+        let (tx, rx) = oneshot::channel::<()>();
         self.channels.insert(tx_hash, tx);
         async move {
             rx.await

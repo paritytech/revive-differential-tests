@@ -3,26 +3,33 @@
 //! This crate defines the testing configuration and
 //! provides a helper utility to execute tests.
 
-use std::{
-    pin::Pin,
-    thread::{self, JoinHandle},
-};
+pub mod prelude {
+    pub use crate::Platform;
+    pub use crate::{
+        GethEvmSolcPlatform, LighthouseGethEvmSolcPlatform,
+        PolkadotOmniNodePolkavmResolcPlatform, PolkadotOmniNodeRevmSolcPlatform,
+        ReviveDevNodePolkavmResolcPlatform, ReviveDevNodeRevmSolcPlatform,
+        ZombienetPolkavmResolcPlatform, ZombienetRevmSolcPlatform,
+    };
+}
 
-use alloy::genesis::Genesis;
-use anyhow::Context as _;
-use revive_dt_common::types::*;
-use revive_dt_compiler::{SolidityCompiler, revive_resolc::Resolc, solc::Solc};
-use revive_dt_config::*;
-use revive_dt_node::{
-    Node,
-    node_implementations::{
-        geth::GethNode, lighthouse_geth::LighthouseGethNode,
-        polkadot_omni_node::PolkadotOmnichainNode, substrate::SubstrateNode,
-        zombienet::ZombienetNode,
-    },
-};
-use revive_dt_node_interaction::NodeApi;
-use tracing::info;
+pub(crate) mod internal_prelude {
+    pub use revive_dt_common::prelude::*;
+    pub use revive_dt_compiler::prelude::*;
+    pub use revive_dt_config::prelude::*;
+    pub use revive_dt_node::prelude::*;
+    pub use revive_dt_node_interaction::prelude::*;
+
+    pub use std::pin::Pin;
+    pub use std::thread::{self, JoinHandle};
+
+    pub use alloy::genesis::Genesis;
+    pub use anyhow::Context as _;
+    pub use serde_json;
+    pub use tracing::info;
+}
+
+use crate::internal_prelude::*;
 
 /// A trait that describes the interface for the platforms that are supported by the tool.
 #[allow(clippy::type_complexity)]

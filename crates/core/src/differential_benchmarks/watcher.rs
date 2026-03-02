@@ -1,20 +1,4 @@
-use std::{
-    collections::HashMap,
-    sync::Arc,
-    time::{SystemTime, UNIX_EPOCH},
-};
-
-use alloy::primitives::{BlockNumber, TxHash};
-use anyhow::Result;
-use futures::StreamExt;
-use revive_dt_common::subscriptions::MinedBlockInformation;
-use revive_dt_common::{futures::FrameworkStream, subscriptions::StepPath};
-use revive_dt_report::{ExecutionSpecificReporter, TransactionInformation};
-use tokio::sync::{
-    RwLock,
-    mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel},
-};
-use tracing::{info, instrument};
+use crate::internal_prelude::*;
 
 /// This struct defines the watcher used in the benchmarks. A watcher is only valid for 1 workload
 /// and MUST NOT be re-used between workloads since it holds important internal state for a given

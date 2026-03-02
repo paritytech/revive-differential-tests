@@ -1,38 +1,7 @@
 //! Implements the [SolidityCompiler] trait with `resolc` for
 //! compiling contracts to PolkaVM (PVM) bytecode.
 
-use std::{
-    path::PathBuf,
-    pin::Pin,
-    process::Stdio,
-    sync::{Arc, LazyLock},
-};
-
-use dashmap::DashMap;
-use revive_dt_common::types::VersionOrRequirement;
-use revive_dt_config::{
-    HasResolcConfiguration, HasSolcConfiguration, HasWorkingDirectoryConfiguration,
-};
-use revive_solc_json_interface::{
-    PolkaVMDefaultHeapMemorySize, PolkaVMDefaultStackMemorySize, SolcStandardJsonInput,
-    SolcStandardJsonInputLanguage, SolcStandardJsonInputSettings,
-    SolcStandardJsonInputSettingsLibraries, SolcStandardJsonInputSettingsMetadata,
-    SolcStandardJsonInputSettingsOptimizer, SolcStandardJsonInputSettingsPolkaVM,
-    SolcStandardJsonInputSettingsPolkaVMMemory, SolcStandardJsonInputSettingsSelection,
-    SolcStandardJsonOutput, standard_json::input::settings::optimizer::Optimizer,
-    standard_json::input::settings::optimizer::details::Details,
-};
-use tracing::{Span, field::display};
-
-use crate::{
-    CompilerInput, CompilerOutput, ModeOptimizerSetting, ModePipeline, SolidityCompiler, solc::Solc,
-};
-
-use alloy::json_abi::JsonAbi;
-use anyhow::{Context as _, Result};
-use semver::Version;
-use std::collections::BTreeSet;
-use tokio::{io::AsyncWriteExt, process::Command as AsyncCommand};
+use crate::internal_prelude::*;
 
 /// A wrapper around the `resolc` binary, emitting PVM-compatible bytecode.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -182,8 +151,8 @@ impl SolidityCompiler for Resolc {
                         optimization
                             .unwrap_or(ModeOptimizerSetting::M0)
                             .optimizations_enabled(),
-                        Optimizer::default_mode(),
-                        Details::disabled(&Version::new(0, 0, 0)),
+                        ResolcOptimizer::default_mode(),
+                        ResolcOptimizerDetails::disabled(&Version::new(0, 0, 0)),
                     ),
                     polkavm: self.polkavm_settings(),
                     metadata: SolcStandardJsonInputSettingsMetadata::default(),

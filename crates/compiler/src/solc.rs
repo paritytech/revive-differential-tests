@@ -1,31 +1,7 @@
 //! Implements the [SolidityCompiler] trait with solc for
 //! compiling contracts to EVM bytecode.
 
-use std::{
-    path::PathBuf,
-    pin::Pin,
-    process::Stdio,
-    sync::{Arc, LazyLock},
-};
-
-use dashmap::DashMap;
-use revive_dt_common::types::VersionOrRequirement;
-use revive_dt_config::{HasSolcConfiguration, HasWorkingDirectoryConfiguration};
-use revive_dt_solc_binaries::download_solc;
-use tracing::{Span, field::display, info};
-
-use crate::{CompilerInput, CompilerOutput, ModeOptimizerSetting, ModePipeline, SolidityCompiler};
-
-use anyhow::{Context as _, Result};
-use foundry_compilers_artifacts::{
-    output_selection::{
-        BytecodeOutputSelection, ContractOutputSelection, EvmOutputSelection, OutputSelection,
-    },
-    solc::CompilerOutput as SolcOutput,
-    solc::*,
-};
-use semver::Version;
-use tokio::{io::AsyncWriteExt, process::Command as AsyncCommand};
+use crate::internal_prelude::*;
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Solc(Arc<SolcInner>);

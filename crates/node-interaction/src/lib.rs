@@ -1,5 +1,10 @@
 //! This crate implements all node interactions.
 
+pub mod prelude {
+    pub use crate::NodeApi;
+    pub use crate::revive_metadata;
+}
+
 use std::time::Duration;
 
 use alloy::primitives::{Address, StorageKey, TxHash, U256};

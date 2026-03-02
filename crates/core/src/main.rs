@@ -2,21 +2,73 @@ mod differential_benchmarks;
 mod differential_tests;
 mod helpers;
 
-use anyhow::{Context as _, bail};
-use clap::Parser;
-use revive_dt_report::{ReportAggregator, TestCaseStatus};
+mod internal_prelude {
+    pub use revive_dt_common::prelude::*;
+    pub use revive_dt_compiler::prelude::*;
+    pub use revive_dt_config::prelude::*;
+    pub use revive_dt_core::prelude::*;
+    pub use revive_dt_format::prelude::*;
+    pub use revive_dt_node::prelude::*;
+    pub use revive_dt_node_interaction::prelude::*;
+    pub use revive_dt_report::prelude::*;
+
+    pub use std::borrow::Cow;
+    pub use std::collections::{BTreeMap, BTreeSet, HashMap};
+    pub use std::io::{BufWriter, Write, stderr};
+    pub use std::path::{Path, PathBuf};
+    pub use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+    pub use std::sync::{Arc, LazyLock};
+    pub use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+
+    pub use alloy::consensus::EMPTY_ROOT_HASH;
+    pub use alloy::hex::{self, ToHexExt};
+    pub use alloy::json_abi::JsonAbi;
+    pub use alloy::network::{Ethereum, TransactionBuilder};
+    pub use alloy::primitives::{Address, BlockNumber, TxHash, U256, address};
+    pub use alloy::providers::Provider;
+    pub use alloy::rpc::types::trace::geth::{
+        CallFrame, GethDebugBuiltInTracerType, GethDebugTracerConfig, GethDebugTracerType,
+        GethDebugTracingOptions,
+    };
+    pub use alloy::rpc::types::{TransactionReceipt, TransactionRequest};
+    pub use ansi_term::{ANSIStrings, Color};
+    pub use anyhow::Context as _;
+    pub use anyhow::{Error, Result, bail};
+    pub use clap::Parser;
+    pub use dashmap::DashMap;
+    pub use futures::future::try_join_all;
+    pub use futures::{FutureExt, Stream, StreamExt, TryFutureExt, TryStreamExt, stream};
+    pub use indexmap::{IndexMap, indexmap};
+    pub use semver::Version;
+    pub use serde::{Deserialize, Serialize};
+    pub use serde_json::{self, Value, json};
+    pub use subxt::ext::codec::Decode;
+    pub use subxt::metadata::Metadata as SubxtMetadata;
+    pub use subxt::tx::Payload;
+    pub use tokio::select;
+    pub use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
+    pub use tokio::sync::oneshot;
+    pub use tokio::sync::{Mutex, Notify, OnceCell, RwLock, Semaphore};
+    pub use tokio::time::{interval, timeout};
+    pub use tracing::{
+        Instrument, Span, debug, debug_span, error, field::display, info, info_span,
+        instrument, warn,
+    };
+    pub use tracing::level_filters::LevelFilter;
+    pub use tracing_subscriber::{EnvFilter, FmtSubscriber};
+
+    pub use crate::differential_benchmarks::{
+        handle_differential_benchmarks, InclusionWatcher, Watcher, WatcherEvent,
+    };
+    pub use crate::differential_tests::handle_differential_tests;
+    pub use crate::helpers::{
+        CachedCompiler, NodePool, TestCaseIgnoreResolvedConfiguration, TestDefinition,
+        TestPlatformInformation, create_test_definitions_stream,
+    };
+}
+
+use crate::internal_prelude::*;
 use schemars::schema_for;
-use tracing::{info, level_filters::LevelFilter};
-use tracing_subscriber::{EnvFilter, FmtSubscriber};
-
-use revive_dt_config::Context;
-use revive_dt_core::Platform;
-use revive_dt_format::metadata::Metadata;
-
-use crate::{
-    differential_benchmarks::handle_differential_benchmarks,
-    differential_tests::handle_differential_tests,
-};
 
 fn main() -> anyhow::Result<()> {
     let (writer, _guard) = tracing_appender::non_blocking::NonBlockingBuilder::default()
