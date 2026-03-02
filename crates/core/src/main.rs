@@ -35,8 +35,7 @@ mod internal_prelude {
     pub use anyhow::Context as _;
     pub use anyhow::{Error, Result, bail};
     pub use clap::Parser;
-    pub use dashmap::DashMap;
-    pub use futures::future::try_join_all;
+    pub use futures::future::{join_all, try_join_all};
     pub use futures::{FutureExt, Stream, StreamExt, TryFutureExt, TryStreamExt, stream};
     pub use indexmap::{IndexMap, indexmap};
     pub use semver::Version;
@@ -47,7 +46,6 @@ mod internal_prelude {
     pub use subxt::tx::Payload;
     pub use tokio::select;
     pub use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
-    pub use tokio::sync::oneshot;
     pub use tokio::sync::{Mutex, Notify, OnceCell, RwLock, Semaphore};
     pub use tokio::time::{interval, timeout};
     pub use tracing::level_filters::LevelFilter;

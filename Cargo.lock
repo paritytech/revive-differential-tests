@@ -5731,6 +5731,7 @@ dependencies = [
  "semver 1.0.27",
  "serde",
  "strum",
+ "tokio",
 ]
 
 [[package]]
@@ -5780,7 +5781,6 @@ dependencies = [
  "bson",
  "cacache",
  "clap",
- "dashmap",
  "futures",
  "indexmap 2.13.0",
  "revive-dt-common",
@@ -5830,9 +5830,7 @@ dependencies = [
  "revive-common",
  "revive-dt-common",
  "revive-dt-config",
- "revive-dt-format",
  "revive-dt-node-interaction",
- "revive-dt-report",
  "serde",
  "serde_json",
  "serde_with",
