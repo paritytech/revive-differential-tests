@@ -9,7 +9,7 @@ use ansi_term::{ANSIStrings, Color};
 use anyhow::Context as _;
 use futures::StreamExt;
 use indexmap::IndexMap;
-use revive_dt_compiler::{Mode, ModeOptimizerSetting, ModePipeline};
+use revive_dt_compiler::{Mode, ModeOptimizerLevel, ModeOptimizerSetting, ModePipeline};
 use revive_dt_config::{
     Compile, Context, FailFastConfiguration, OutputFormat, OutputFormatConfiguration,
 };
@@ -106,8 +106,11 @@ pub async fn handle_compilations(context: Compile, reporter: Reporter) -> anyhow
         // TODO (temporarily always using `z`): Accept mode(s) via CLI.
         Mode {
             pipeline: ModePipeline::ViaYulIR,
-            optimize_setting: ModeOptimizerSetting::Mz,
-            version: None,
+            optimize_setting: ModeOptimizerSetting {
+                solc_optimizer_enabled: true,
+                level: ModeOptimizerLevel::Mz,
+            },
+            solc_version: None,
         },
         reporter.clone(),
     )

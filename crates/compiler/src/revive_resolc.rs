@@ -9,7 +9,7 @@ use std::{
 };
 
 use dashmap::DashMap;
-use revive_dt_common::types::VersionOrRequirement;
+use revive_dt_common::types::{Mode, VersionOrRequirement};
 use revive_dt_config::{
     HasResolcConfiguration, HasSolcConfiguration, HasWorkingDirectoryConfiguration,
 };
@@ -19,14 +19,11 @@ use revive_solc_json_interface::{
     SolcStandardJsonInputSettingsLibraries, SolcStandardJsonInputSettingsMetadata,
     SolcStandardJsonInputSettingsOptimizer, SolcStandardJsonInputSettingsPolkaVM,
     SolcStandardJsonInputSettingsPolkaVMMemory, SolcStandardJsonInputSettingsSelection,
-    SolcStandardJsonOutput, standard_json::input::settings::optimizer::Optimizer,
-    standard_json::input::settings::optimizer::details::Details,
+    SolcStandardJsonOutput, standard_json::input::settings::optimizer::details::Details,
 };
 use tracing::{Span, field::display};
 
-use crate::{
-    CompilerInput, CompilerOutput, ModeOptimizerSetting, ModePipeline, SolidityCompiler, solc::Solc,
-};
+use crate::{CompilerInput, CompilerOutput, ModePipeline, SolidityCompiler, solc::Solc};
 
 use alloy::json_abi::JsonAbi;
 use anyhow::{Context as _, Result};
@@ -150,6 +147,8 @@ impl SolidityCompiler for Resolc {
                 );
             }
 
+            let optimize_setting = optimization.unwrap_or_default();
+
             let input = SolcStandardJsonInput {
                 language: SolcStandardJsonInputLanguage::Solidity,
                 sources: sources
@@ -179,10 +178,8 @@ impl SolidityCompiler for Resolc {
                         SolcStandardJsonInputSettingsSelection::new_required_for_tests(),
                     via_ir: Some(true),
                     optimizer: SolcStandardJsonInputSettingsOptimizer::new(
-                        optimization
-                            .unwrap_or(ModeOptimizerSetting::M0)
-                            .optimizations_enabled(),
-                        Optimizer::default_mode(),
+                        optimize_setting.solc_optimizer_enabled,
+                        optimize_setting.level.to_mode_char(),
                         Details::disabled(&Version::new(0, 0, 0)),
                     ),
                     polkavm: self.polkavm_settings(),
@@ -356,12 +353,8 @@ impl SolidityCompiler for Resolc {
         })
     }
 
-    fn supports_mode(
-        &self,
-        optimize_setting: ModeOptimizerSetting,
-        pipeline: ModePipeline,
-    ) -> bool {
-        pipeline == ModePipeline::ViaYulIR
-            && SolidityCompiler::supports_mode(&self.0.solc, optimize_setting, pipeline)
+    fn supports_mode(&self, mode: &Mode) -> bool {
+        mode.pipeline == ModePipeline::ViaYulIR
+            && SolidityCompiler::supports_mode(&self.0.solc, mode)
     }
 }

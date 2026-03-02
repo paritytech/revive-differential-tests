@@ -190,7 +190,7 @@ impl ReportAggregator {
         self.remaining_cases
             .entry(event.test_specifier.metadata_file_path.clone().into())
             .or_default()
-            .entry(event.test_specifier.solc_mode.clone())
+            .entry(event.test_specifier.compiler_mode.clone())
             .or_default()
             .insert(event.test_specifier.case_idx);
     }
@@ -205,7 +205,7 @@ impl ReportAggregator {
                     .into(),
             )
             .or_default()
-            .insert(event.compilation_specifier.solc_mode.clone());
+            .insert(event.compilation_specifier.compiler_mode.clone());
     }
 
     fn handle_test_succeeded_event(&mut self, event: TestSucceededEvent) {
@@ -250,7 +250,7 @@ impl ReportAggregator {
             .remaining_cases
             .entry(specifier.metadata_file_path.clone().into())
             .or_default()
-            .entry(specifier.solc_mode.clone())
+            .entry(specifier.compiler_mode.clone())
             .or_default();
         if !remaining_cases.is_empty() {
             return;
@@ -266,7 +266,7 @@ impl ReportAggregator {
             .flat_map(|(case_idx, mode_to_execution_map)| {
                 let case_status = mode_to_execution_map
                     .mode_execution_reports
-                    .get(&specifier.solc_mode)?
+                    .get(&specifier.compiler_mode)?
                     .status
                     .clone()
                     .expect("Can't be uninitialized");
@@ -275,7 +275,7 @@ impl ReportAggregator {
             .collect::<BTreeMap<_, _>>();
         let event = ReporterEvent::MetadataFileSolcModeCombinationExecutionCompleted {
             metadata_file_path: specifier.metadata_file_path.clone().into(),
-            mode: specifier.solc_mode.clone(),
+            mode: specifier.compiler_mode.clone(),
             case_status,
         };
 
@@ -609,7 +609,7 @@ impl ReportAggregator {
             .entry(specifier.case_idx)
             .or_default()
             .mode_execution_reports
-            .entry(specifier.solc_mode.clone())
+            .entry(specifier.compiler_mode.clone())
             .or_default()
     }
 
@@ -634,7 +634,7 @@ impl ReportAggregator {
             .entry(specifier.metadata_file_path.clone().into())
             .or_default()
             .compilation_reports
-            .entry(specifier.solc_mode.clone())
+            .entry(specifier.compiler_mode.clone())
             .or_default()
     }
 
@@ -694,7 +694,7 @@ impl ReportAggregator {
         self.remaining_cases
             .entry(specifier.metadata_file_path.clone().into())
             .or_default()
-            .entry(specifier.solc_mode.clone())
+            .entry(specifier.compiler_mode.clone())
             .or_default()
             .remove(&specifier.case_idx);
     }
@@ -704,7 +704,7 @@ impl ReportAggregator {
         self.remaining_compilation_modes
             .entry(specifier.metadata_file_path.clone().into())
             .or_default()
-            .remove(&specifier.solc_mode);
+            .remove(&specifier.compiler_mode);
     }
 }
 

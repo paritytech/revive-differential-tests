@@ -35,9 +35,7 @@ impl<'a> CompilationDefinition<'a> {
     /// Checks if the compiler supports the provided mode.
     fn check_compiler_compatibility(&self) -> CompilationCheckFunctionResult {
         let mut error_map = indexmap! {};
-        let is_compatible = self
-            .compiler
-            .supports_mode(self.mode.optimize_setting, self.mode.pipeline);
+        let is_compatible = self.compiler.supports_mode(&self.mode);
         error_map.insert(self.compiler_identifier.into(), json!(is_compatible));
 
         if is_compatible {
@@ -159,7 +157,7 @@ pub async fn create_compilation_definitions_stream<'a>(
                     Cow::<'_, Mode>::Owned(mode.clone()),
                     reporter.pre_link_compilation_specific_reporter(Arc::new(
                         PreLinkCompilationSpecifier {
-                            solc_mode: mode.clone(),
+                            compiler_mode: mode.clone(),
                             metadata_file_path: metadata_file.metadata_file_path.clone(),
                         },
                     )),
@@ -174,7 +172,7 @@ pub async fn create_compilation_definitions_stream<'a>(
     // Creating the `CompilationDefinition` objects from all of the various objects we have.
     .filter_map(move |(metadata_file, mode, reporter)| async move {
         // NOTE: Currently always specifying the resolc compiler.
-        let compiler = Resolc::new(context.clone(), mode.version.clone().map(Into::into))
+        let compiler = Resolc::new(context.clone(), mode.solc_version.clone().map(Into::into))
             .await
             .map(|compiler| Box::new(compiler) as Box<dyn SolidityCompiler>)
             .inspect_err(|err| error!(?err, "Failed to instantiate the compiler"))
