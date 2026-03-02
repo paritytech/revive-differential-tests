@@ -374,8 +374,9 @@ impl NodeApi for PolkadotOmnichainNode {
 
     fn substrate_provider(
         &self,
-    ) -> Option<revive_dt_common::futures::FrameworkFuture<anyhow::Result<OnlineClient<SubstrateConfig>>>>
-    {
+    ) -> Option<
+        revive_dt_common::futures::FrameworkFuture<anyhow::Result<OnlineClient<SubstrateConfig>>>,
+    > {
         let provider = self.substrate_provider.clone();
         let substrate_rpc_port = Self::BASE_POLKADOT_OMNICHAIN_NODE_RPC_PORT + self.id as u16;
         let connection_string = format!("ws://127.0.0.1:{substrate_rpc_port}");

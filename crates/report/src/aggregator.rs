@@ -81,9 +81,6 @@ impl ReportAggregator {
                 RunnerEvent::PostLinkContractsCompilationFailed(event) => {
                     self.handle_post_link_contracts_compilation_failed_event(*event)
                 }
-                RunnerEvent::LibrariesDeployed(event) => {
-                    self.handle_libraries_deployed_event(*event);
-                }
                 RunnerEvent::ContractDeployed(event) => {
                     self.handle_contract_deployed_event(*event);
                 }
@@ -357,11 +354,6 @@ impl ReportAggregator {
             compiler_path: event.compiler_path,
             compiler_input: event.compiler_input,
         });
-    }
-
-    fn handle_libraries_deployed_event(&mut self, event: LibrariesDeployedEvent) {
-        self.execution_information(&event.execution_specifier)
-            .deployed_libraries = Some(event.libraries);
     }
 
     fn handle_contract_deployed_event(&mut self, event: ContractDeployedEvent) {
@@ -703,9 +695,6 @@ pub struct ExecutionInformation {
     /// Information on the post-link compiled contracts.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub post_link_compilation_status: Option<CompilationStatus>,
-    /// Information on the deployed libraries.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub deployed_libraries: Option<BTreeMap<ContractInstance, Address>>,
     /// Information on the deployed contracts.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub deployed_contracts: Option<BTreeMap<ContractInstance, Address>>,

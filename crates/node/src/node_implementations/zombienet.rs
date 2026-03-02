@@ -503,8 +503,9 @@ impl NodeApi for ZombienetNode {
 
     fn substrate_provider(
         &self,
-    ) -> Option<revive_dt_common::futures::FrameworkFuture<anyhow::Result<OnlineClient<SubstrateConfig>>>>
-    {
+    ) -> Option<
+        revive_dt_common::futures::FrameworkFuture<anyhow::Result<OnlineClient<SubstrateConfig>>>,
+    > {
         let provider = self.substrate_provider.clone();
         let connection_string = self.collator_ws_uri.clone().unwrap_or_default();
         Some(Box::pin(async move {

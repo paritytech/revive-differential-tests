@@ -466,7 +466,7 @@ where
         // receipt and how this would impact the architecture and the possibility of us not waiting
         // for receipts in the future.
         self.watcher_tx
-            .send(WatcherEvent::RepetitionStartEvent {
+            .send(WatcherEvent::StartEvent {
                 ignore_block_before: 0,
             })
             .context("Failed to send message on the watcher's tx")?;
@@ -753,6 +753,7 @@ where
                 .send(WatcherEvent::SubmittedTransaction {
                     transaction_hash,
                     step_path: step_path.clone(),
+                    submission_time: SystemTime::now(),
                 })
                 .context("Failed to send the transaction hash to the watcher")?;
         };

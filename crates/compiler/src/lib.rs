@@ -9,10 +9,10 @@ use crate::internal_prelude::*;
 pub use revive_dt_common::types::{Mode, ModeOptimizerSetting, ModePipeline};
 
 pub mod prelude {
-    pub use crate::{Compiler, CompilerInput, CompilerOutput, RevertString, SolidityCompiler};
-    pub use crate::{Mode, ModeOptimizerSetting, ModePipeline};
     pub use crate::revive_resolc::Resolc;
     pub use crate::solc::Solc;
+    pub use crate::{Compiler, CompilerInput, CompilerOutput, RevertString, SolidityCompiler};
+    pub use crate::{Mode, ModeOptimizerSetting, ModePipeline};
 }
 
 pub(crate) mod internal_prelude {

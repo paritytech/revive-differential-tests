@@ -24,9 +24,3 @@ pub struct ExecutionSpecifier {
     pub node_id: usize,
     pub platform_identifier: PlatformIdentifier,
 }
-
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub struct StepExecutionSpecifier {
-    pub execution_specifier: Arc<ExecutionSpecifier>,
-    pub step_idx: StepPath,
-}

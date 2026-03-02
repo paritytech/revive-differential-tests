@@ -47,8 +47,8 @@ pub(crate) mod internal_prelude {
             DynProvider, Identity, Provider, ProviderBuilder, RootProvider, SendableTx,
             ext::DebugApi,
             fillers::{
-                CachedNonceManager, ChainIdFiller, FillProvider, GasFillable, GasFiller,
-                JoinFill, NonceFiller, TxFiller, WalletFiller,
+                CachedNonceManager, ChainIdFiller, FillProvider, GasFillable, GasFiller, JoinFill,
+                NonceFiller, TxFiller, WalletFiller,
             },
         },
         rpc::{
@@ -57,12 +57,14 @@ pub(crate) mod internal_prelude {
             types::{
                 TransactionRequest,
                 trace::geth::{
-                    GethDebugBuiltInTracerType, GethDebugTracerType,
-                    GethDebugTracingCallOptions, GethDebugTracingOptions,
+                    GethDebugBuiltInTracerType, GethDebugTracerType, GethDebugTracingCallOptions,
+                    GethDebugTracingOptions,
                 },
             },
         },
-        transports::{BoxFuture, RpcError, TransportError, TransportErrorKind, TransportFut, TransportResult},
+        transports::{
+            BoxFuture, RpcError, TransportError, TransportErrorKind, TransportFut, TransportResult,
+        },
     };
     pub use anyhow::Context as _;
     pub use anyhow::{Result, bail};

@@ -6,10 +6,9 @@
 pub mod prelude {
     pub use crate::Platform;
     pub use crate::{
-        GethEvmSolcPlatform, LighthouseGethEvmSolcPlatform,
-        PolkadotOmniNodePolkavmResolcPlatform, PolkadotOmniNodeRevmSolcPlatform,
-        ReviveDevNodePolkavmResolcPlatform, ReviveDevNodeRevmSolcPlatform,
-        ZombienetPolkavmResolcPlatform, ZombienetRevmSolcPlatform,
+        GethEvmSolcPlatform, LighthouseGethEvmSolcPlatform, PolkadotOmniNodePolkavmResolcPlatform,
+        PolkadotOmniNodeRevmSolcPlatform, ReviveDevNodePolkavmResolcPlatform,
+        ReviveDevNodeRevmSolcPlatform, ZombienetPolkavmResolcPlatform, ZombienetRevmSolcPlatform,
     };
 }
 

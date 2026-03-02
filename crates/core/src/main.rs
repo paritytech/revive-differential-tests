@@ -13,7 +13,7 @@ mod internal_prelude {
     pub use revive_dt_report::prelude::*;
 
     pub use std::borrow::Cow;
-    pub use std::collections::{BTreeMap, BTreeSet, HashMap};
+    pub use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
     pub use std::io::{BufWriter, Write, stderr};
     pub use std::path::{Path, PathBuf};
     pub use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -50,15 +50,15 @@ mod internal_prelude {
     pub use tokio::sync::oneshot;
     pub use tokio::sync::{Mutex, Notify, OnceCell, RwLock, Semaphore};
     pub use tokio::time::{interval, timeout};
-    pub use tracing::{
-        Instrument, Span, debug, debug_span, error, field::display, info, info_span,
-        instrument, warn,
-    };
     pub use tracing::level_filters::LevelFilter;
+    pub use tracing::{
+        Instrument, Span, debug, debug_span, error, field::display, info, info_span, instrument,
+        warn,
+    };
     pub use tracing_subscriber::{EnvFilter, FmtSubscriber};
 
     pub use crate::differential_benchmarks::{
-        handle_differential_benchmarks, InclusionWatcher, Watcher, WatcherEvent,
+        InclusionWatcher, Watcher, WatcherEvent, handle_differential_benchmarks,
     };
     pub use crate::differential_tests::handle_differential_tests;
     pub use crate::helpers::{
