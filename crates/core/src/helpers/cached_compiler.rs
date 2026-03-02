@@ -345,8 +345,7 @@ impl ArtifactsCache {
             Err(cacache::Error::IoError(err, _)) if err.kind() == std::io::ErrorKind::NotFound => {
                 Ok(self)
             }
-            Err(err) => Err(err)
-                .map_err(Into::<Error>::into)
+            Err(err) => Err(Into::<Error>::into(err))
                 .with_context(|| format!("Failed to clear cache at {}", self.path.display())),
         }
     }
