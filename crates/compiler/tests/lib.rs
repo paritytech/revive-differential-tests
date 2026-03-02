@@ -9,9 +9,14 @@ use semver::Version;
 async fn contracts_can_be_compiled_with_solc() {
     // Arrange
     let args = Test::default();
-    let solc = Solc::new(args, VersionOrRequirement::Version(Version::new(0, 8, 30)))
-        .await
-        .unwrap();
+    let solc = Solc::new(
+        // Clone args because this function takes ownership and drops it, which
+        // would delete the temporary directory before the compiled binary is used.
+        args.clone(),
+        VersionOrRequirement::Version(Version::new(0, 8, 30)),
+    )
+    .await
+    .unwrap();
 
     // Act
     let output = Compiler::new()
@@ -50,9 +55,14 @@ async fn contracts_can_be_compiled_with_solc() {
 async fn contracts_can_be_compiled_with_resolc() {
     // Arrange
     let args = Test::default();
-    let resolc = Resolc::new(args, VersionOrRequirement::Version(Version::new(0, 8, 30)))
-        .await
-        .unwrap();
+    let resolc = Resolc::new(
+        // Clone args because this function takes ownership and drops it, which
+        // would delete the temporary directory before the compiled binary is used.
+        args.clone(),
+        VersionOrRequirement::Version(Version::new(0, 8, 30)),
+    )
+    .await
+    .unwrap();
 
     // Act
     let output = Compiler::new()
