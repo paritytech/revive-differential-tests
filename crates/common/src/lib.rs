@@ -6,4 +6,5 @@ pub mod fs;
 pub mod futures;
 pub mod iterators;
 pub mod macros;
+pub mod subscriptions;
 pub mod types;

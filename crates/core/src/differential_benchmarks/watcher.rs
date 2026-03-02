@@ -8,8 +8,9 @@ use std::{
 use alloy::primitives::{BlockNumber, TxHash};
 use anyhow::Result;
 use futures::{Stream, StreamExt};
-use revive_dt_format::steps::StepPath;
-use revive_dt_report::{ExecutionSpecificReporter, MinedBlockInformation, TransactionInformation};
+use revive_dt_common::subscriptions::StepPath;
+use revive_dt_common::subscriptions::MinedBlockInformation;
+use revive_dt_report::{ExecutionSpecificReporter, TransactionInformation};
 use tokio::sync::{
     RwLock,
     mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel},

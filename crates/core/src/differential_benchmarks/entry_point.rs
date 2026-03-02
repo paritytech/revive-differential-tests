@@ -6,9 +6,10 @@ use anyhow::Context as _;
 use futures::{FutureExt, StreamExt};
 use revive_dt_common::types::PrivateKeyAllocator;
 use revive_dt_core::Platform;
+use revive_dt_common::subscriptions::{StepIdx, StepPath};
 use revive_dt_format::{
     corpus::Corpus,
-    steps::{Step, StepIdx, StepPath},
+    steps::Step,
 };
 use tokio::sync::Mutex;
 use tracing::{Instrument, error, info, info_span, instrument, warn};

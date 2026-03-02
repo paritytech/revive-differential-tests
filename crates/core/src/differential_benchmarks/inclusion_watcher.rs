@@ -3,7 +3,7 @@ use std::pin::Pin;
 use alloy::primitives::TxHash;
 use dashmap::DashMap;
 use futures::{Stream, StreamExt};
-use revive_dt_report::MinedBlockInformation;
+use revive_dt_common::subscriptions::MinedBlockInformation;
 use tokio::{
     select,
     sync::{

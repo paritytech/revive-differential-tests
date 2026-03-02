@@ -1,7 +1,8 @@
+#![allow(dead_code)]
+
 use std::{
     fs::{File, create_dir_all, remove_dir_all},
     path::{Path, PathBuf},
-    pin::Pin,
     process::{Command, Stdio},
     sync::{
         Arc,
@@ -11,10 +12,9 @@ use std::{
 };
 
 use alloy::{
-    eips::BlockNumberOrTag,
     genesis::Genesis,
     network::{Ethereum, EthereumWallet, NetworkWallet},
-    primitives::{Address, BlockHash, BlockNumber, BlockTimestamp, TxHash, U256},
+    primitives::Address,
     providers::{
         DynProvider, Provider,
         fillers::{CachedNonceManager, ChainIdFiller, NonceFiller},
@@ -23,7 +23,6 @@ use alloy::{
 use anyhow::Context as _;
 use revive_common::EVMVersion;
 use revive_dt_common::fs::clear_directory;
-use revive_dt_format::traits::ResolverApi;
 use serde_json::json;
 use sp_core::crypto::Ss58Codec;
 use sp_runtime::AccountId32;
@@ -32,7 +31,7 @@ use revive_dt_config::*;
 use revive_dt_node_interaction::NodeApi;
 use subxt::{OnlineClient, SubstrateConfig};
 use tokio::sync::OnceCell;
-use tracing::{instrument, trace};
+use tracing::trace;
 
 use crate::{
     Node,
@@ -381,16 +380,6 @@ impl NodeApi for PolkadotOmnichainNode {
         &self.rpc_url
     }
 
-    fn resolver(
-        &self,
-    ) -> Pin<Box<dyn Future<Output = anyhow::Result<Arc<dyn ResolverApi + '_>>> + '_>> {
-        Box::pin(async move {
-            let id = self.id;
-            let provider = self.provider().await?;
-            Ok(Arc::new(PolkadotOmnichainNodeResolver { id, provider }) as Arc<dyn ResolverApi>)
-        })
-    }
-
     fn evm_version(&self) -> EVMVersion {
         EVMVersion::Cancun
     }
@@ -439,134 +428,6 @@ impl NodeApi for PolkadotOmnichainNode {
                 .await
                 .cloned()
         }))
-    }
-}
-
-pub struct PolkadotOmnichainNodeResolver {
-    id: u32,
-    provider: ConcreteProvider<Ethereum, Arc<EthereumWallet>>,
-}
-
-impl ResolverApi for PolkadotOmnichainNodeResolver {
-    #[instrument(level = "info", skip_all, fields(polkadot_omnichain_node_id = self.id))]
-    fn chain_id(
-        &self,
-    ) -> Pin<Box<dyn Future<Output = anyhow::Result<alloy::primitives::ChainId>> + '_>> {
-        Box::pin(async move { self.provider.get_chain_id().await.map_err(Into::into) })
-    }
-
-    #[instrument(level = "info", skip_all, fields(polkadot_omnichain_node_id = self.id))]
-    fn transaction_gas_price(
-        &self,
-        tx_hash: TxHash,
-    ) -> Pin<Box<dyn Future<Output = anyhow::Result<u128>> + '_>> {
-        Box::pin(async move {
-            self.provider
-                .get_transaction_receipt(tx_hash)
-                .await?
-                .context("Failed to get the transaction receipt")
-                .map(|receipt| receipt.effective_gas_price)
-        })
-    }
-
-    #[instrument(level = "info", skip_all, fields(polkadot_omnichain_node_id = self.id))]
-    fn block_gas_limit(
-        &self,
-        number: BlockNumberOrTag,
-    ) -> Pin<Box<dyn Future<Output = anyhow::Result<u128>> + '_>> {
-        Box::pin(async move {
-            self.provider
-                .get_block_by_number(number)
-                .await
-                .context("Failed to get the eth-rpc block")?
-                .context("Failed to get the eth-rpc block, perhaps the chain has no blocks?")
-                .map(|block| block.header.gas_limit as _)
-        })
-    }
-
-    #[instrument(level = "info", skip_all, fields(polkadot_omnichain_node_id = self.id))]
-    fn block_coinbase(
-        &self,
-        number: BlockNumberOrTag,
-    ) -> Pin<Box<dyn Future<Output = anyhow::Result<Address>> + '_>> {
-        Box::pin(async move {
-            self.provider
-                .get_block_by_number(number)
-                .await
-                .context("Failed to get the eth-rpc block")?
-                .context("Failed to get the eth-rpc block, perhaps the chain has no blocks?")
-                .map(|block| block.header.beneficiary)
-        })
-    }
-
-    #[instrument(level = "info", skip_all, fields(polkadot_omnichain_node_id = self.id))]
-    fn block_difficulty(
-        &self,
-        number: BlockNumberOrTag,
-    ) -> Pin<Box<dyn Future<Output = anyhow::Result<U256>> + '_>> {
-        Box::pin(async move {
-            self.provider
-                .get_block_by_number(number)
-                .await
-                .context("Failed to get the eth-rpc block")?
-                .context("Failed to get the eth-rpc block, perhaps the chain has no blocks?")
-                .map(|block| U256::from_be_bytes(block.header.mix_hash.0))
-        })
-    }
-
-    #[instrument(level = "info", skip_all, fields(polkadot_omnichain_node_id = self.id))]
-    fn block_base_fee(
-        &self,
-        number: BlockNumberOrTag,
-    ) -> Pin<Box<dyn Future<Output = anyhow::Result<u64>> + '_>> {
-        Box::pin(async move {
-            self.provider
-                .get_block_by_number(number)
-                .await
-                .context("Failed to get the eth-rpc block")?
-                .context("Failed to get the eth-rpc block, perhaps the chain has no blocks?")
-                .and_then(|block| {
-                    block
-                        .header
-                        .base_fee_per_gas
-                        .context("Failed to get the base fee per gas")
-                })
-        })
-    }
-
-    #[instrument(level = "info", skip_all, fields(polkadot_omnichain_node_id = self.id))]
-    fn block_hash(
-        &self,
-        number: BlockNumberOrTag,
-    ) -> Pin<Box<dyn Future<Output = anyhow::Result<BlockHash>> + '_>> {
-        Box::pin(async move {
-            self.provider
-                .get_block_by_number(number)
-                .await
-                .context("Failed to get the eth-rpc block")?
-                .context("Failed to get the eth-rpc block, perhaps the chain has no blocks?")
-                .map(|block| block.header.hash)
-        })
-    }
-
-    #[instrument(level = "info", skip_all, fields(polkadot_omnichain_node_id = self.id))]
-    fn block_timestamp(
-        &self,
-        number: BlockNumberOrTag,
-    ) -> Pin<Box<dyn Future<Output = anyhow::Result<BlockTimestamp>> + '_>> {
-        Box::pin(async move {
-            self.provider
-                .get_block_by_number(number)
-                .await
-                .context("Failed to get the eth-rpc block")?
-                .context("Failed to get the eth-rpc block, perhaps the chain has no blocks?")
-                .map(|block| block.header.timestamp)
-        })
-    }
-
-    #[instrument(level = "info", skip_all, fields(polkadot_omnichain_node_id = self.id))]
-    fn last_block_number(&self) -> Pin<Box<dyn Future<Output = anyhow::Result<BlockNumber>> + '_>> {
-        Box::pin(async move { self.provider.get_block_number().await.map_err(Into::into) })
     }
 }
 

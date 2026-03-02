@@ -5810,6 +5810,7 @@ dependencies = [
  "itertools 0.14.0",
  "revive-common",
  "revive-dt-common",
+ "revive-dt-node-interaction",
  "schemars 1.2.0",
  "semver 1.0.27",
  "serde",
@@ -5855,8 +5856,6 @@ dependencies = [
  "futures",
  "revive-common",
  "revive-dt-common",
- "revive-dt-format",
- "revive-dt-report",
  "subxt 0.44.2",
 ]
 

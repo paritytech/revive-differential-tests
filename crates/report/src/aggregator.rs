@@ -12,7 +12,7 @@ use std::{
 use alloy::{
     hex,
     json_abi::JsonAbi,
-    primitives::{Address, B256, BlockNumber, BlockTimestamp, TxHash},
+    primitives::{Address, B256, BlockNumber, TxHash},
 };
 use anyhow::{Context as _, Result};
 use indexmap::IndexMap;
@@ -20,7 +20,8 @@ use itertools::Itertools;
 use revive_dt_common::types::PlatformIdentifier;
 use revive_dt_compiler::{CompilerInput, CompilerOutput, Mode};
 use revive_dt_config::{Context, HasReportConfiguration, HasWorkingDirectoryConfiguration};
-use revive_dt_format::{case::CaseIdx, metadata::ContractInstance, steps::StepPath};
+use revive_dt_common::subscriptions::{MinedBlockInformation, StepPath};
+use revive_dt_format::{case::CaseIdx, metadata::ContractInstance};
 use semver::Version;
 use serde::{Deserialize, Serialize};
 use serde_with::{DisplayFromStr, serde_as};
@@ -952,81 +953,6 @@ where
 pub struct ContractInformation {
     /// The size of the contract on the various platforms.
     pub contract_size: PlatformKeyedInformation<usize>,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-pub struct MinedBlockInformation {
-    pub ethereum_block_information: EthereumMinedBlockInformation,
-    pub substrate_block_information: Option<SubstrateMinedBlockInformation>,
-    pub tx_counts: BTreeMap<StepPath, usize>,
-}
-
-impl MinedBlockInformation {
-    pub fn gas_block_fullness_percentage(&self) -> u8 {
-        self.ethereum_block_information
-            .gas_block_fullness_percentage()
-    }
-
-    pub fn ref_time_block_fullness_percentage(&self) -> Option<u8> {
-        self.substrate_block_information
-            .as_ref()
-            .map(|block| block.ref_time_block_fullness_percentage())
-    }
-
-    pub fn proof_size_block_fullness_percentage(&self) -> Option<u8> {
-        self.substrate_block_information
-            .as_ref()
-            .map(|block| block.proof_size_block_fullness_percentage())
-    }
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-pub struct EthereumMinedBlockInformation {
-    /// The block number.
-    pub block_number: BlockNumber,
-
-    /// The block timestamp.
-    pub block_timestamp: BlockTimestamp,
-
-    /// The amount of gas mined in the block.
-    pub mined_gas: u128,
-
-    /// The gas limit of the block.
-    pub block_gas_limit: u128,
-
-    /// The hashes of the transactions that were mined as part of the block.
-    pub transaction_hashes: Vec<TxHash>,
-}
-
-impl EthereumMinedBlockInformation {
-    pub fn gas_block_fullness_percentage(&self) -> u8 {
-        (self.mined_gas * 100 / self.block_gas_limit) as u8
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-pub struct SubstrateMinedBlockInformation {
-    /// The ref time for substrate based chains.
-    pub ref_time: u128,
-
-    /// The max ref time for substrate based chains.
-    pub max_ref_time: u64,
-
-    /// The proof size for substrate based chains.
-    pub proof_size: u128,
-
-    /// The max proof size for substrate based chains.
-    pub max_proof_size: u64,
-}
-
-impl SubstrateMinedBlockInformation {
-    pub fn ref_time_block_fullness_percentage(&self) -> u8 {
-        (self.ref_time * 100 / self.max_ref_time as u128) as u8
-    }
-
-    pub fn proof_size_block_fullness_percentage(&self) -> u8 {
-        (self.proof_size * 100 / self.max_proof_size as u128) as u8
-    }
 }
 
 /// Information keyed by the platform identifier.

@@ -25,13 +25,13 @@ use anyhow::{Context as _, Result, bail};
 use futures::{FutureExt as _, TryFutureExt};
 use indexmap::IndexMap;
 use revive_dt_common::types::PrivateKeyAllocator;
+use revive_dt_common::subscriptions::{StepIdx, StepPath};
 use revive_dt_format::{
     metadata::{ContractInstance, ContractPathAndIdent},
     steps::{
         AllocateAccountStep, Calldata, EtherValue, FunctionCallStep, Method, RepeatStep, Step,
-        StepIdx, StepPath,
     },
-    traits::{ResolutionContext, ResolverApi},
+    traits::ResolutionContext,
 };
 use tokio::{
     sync::{Mutex, OnceCell, RwLock, mpsc::UnboundedSender},
@@ -53,9 +53,6 @@ pub struct Driver<'a, I> {
 
     /// The information of the platform that this driver is for.
     platform_information: &'a TestPlatformInformation<'a>,
-
-    /// The resolver of the platform.
-    resolver: Arc<dyn ResolverApi + 'a>,
 
     /// The definition of the test that the driver is instructed to execute.
     test_definition: &'a TestDefinition<'a>,
@@ -108,11 +105,6 @@ where
         let mut this = Driver {
             driver_id: DRIVER_COUNT.fetch_add(1, Ordering::SeqCst),
             platform_information,
-            resolver: platform_information
-                .node
-                .resolver()
-                .await
-                .context("Failed to create resolver")?,
             test_definition,
             private_key_allocator,
             execution_state: ExecutionState::empty(),
@@ -356,7 +348,7 @@ where
             let caller = {
                 let context = self.default_resolution_context();
                 step.caller
-                    .resolve_address(self.resolver.as_ref(), context)
+                    .resolve_address(self.platform_information.node, context)
                     .await?
             };
             if let (_, _, Some(receipt)) = self
@@ -392,7 +384,7 @@ where
                 .map(|receipt| receipt.transaction_hash),
             Method::Fallback | Method::FunctionName(_) => {
                 let tx = step
-                    .as_transaction(self.resolver.as_ref(), self.default_resolution_context())
+                    .as_transaction(self.platform_information.node, self.default_resolution_context())
                     .await?;
 
                 let (tx_hash, _, inclusion_future) = self
@@ -484,7 +476,6 @@ where
             .map(|_| Driver {
                 driver_id: DRIVER_COUNT.fetch_add(1, Ordering::SeqCst),
                 platform_information: self.platform_information,
-                resolver: self.resolver.clone(),
                 test_definition: self.test_definition,
                 private_key_allocator: self.private_key_allocator.clone(),
                 execution_state: self.execution_state.clone(),
@@ -657,7 +648,7 @@ where
 
         if let Some(calldata) = calldata {
             let calldata = calldata
-                .calldata(self.resolver.as_ref(), self.default_resolution_context())
+                .calldata(self.platform_information.node, self.default_resolution_context())
                 .await?;
             code.extend(calldata);
         }

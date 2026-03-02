@@ -4,7 +4,8 @@ use std::{path::PathBuf, sync::Arc};
 
 use revive_dt_common::{define_wrapper_type, types::PlatformIdentifier};
 use revive_dt_compiler::Mode;
-use revive_dt_format::{case::CaseIdx, steps::StepPath};
+use revive_dt_common::subscriptions::StepPath;
+use revive_dt_format::case::CaseIdx;
 use serde::{Deserialize, Serialize};
 
 define_wrapper_type!(

@@ -10,11 +10,11 @@ use revive_dt_common::types::PlatformIdentifier;
 use revive_dt_compiler::{CompilerInput, CompilerOutput};
 use revive_dt_format::metadata::ContractInstance;
 use revive_dt_format::metadata::Metadata;
-use revive_dt_format::steps::StepPath;
+use revive_dt_common::subscriptions::StepPath;
 use semver::Version;
 use tokio::sync::{broadcast, oneshot};
 
-use crate::MinedBlockInformation;
+use revive_dt_common::subscriptions::MinedBlockInformation;
 use crate::TransactionInformation;
 use crate::{ExecutionSpecifier, ReporterEvent, TestSpecifier, common::MetadataFilePath};
 

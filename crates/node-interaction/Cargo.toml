@@ -12,8 +12,6 @@ rust-version.workspace = true
 revive-common = { workspace = true }
 
 revive-dt-common = { workspace = true }
-revive-dt-format = { workspace = true }
-revive-dt-report = { workspace = true }
 
 alloy = { workspace = true }
 anyhow = { workspace = true }

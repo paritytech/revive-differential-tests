@@ -21,12 +21,12 @@ use anyhow::{Context as _, Result, bail};
 use futures::{TryStreamExt, future::try_join_all};
 use indexmap::IndexMap;
 use revive_dt_common::types::{PlatformIdentifier, PrivateKeyAllocator, VmIdentifier};
+use revive_dt_common::subscriptions::{StepIdx, StepPath};
 use revive_dt_format::{
     metadata::{ContractInstance, ContractPathAndIdent},
     steps::{
         AllocateAccountStep, BalanceAssertionStep, Calldata, EtherValue, Expected, ExpectedOutput,
-        FunctionCallStep, Method, RepeatStep, Step, StepAddress, StepIdx, StepPath,
-        StorageEmptyAssertionStep,
+        FunctionCallStep, Method, RepeatStep, Step, StepAddress, StorageEmptyAssertionStep,
     },
     traits::ResolutionContext,
 };
@@ -451,9 +451,8 @@ where
 
             let caller = {
                 let context = self.default_resolution_context();
-                let resolver = self.platform_information.node.resolver().await?;
                 step.caller
-                    .resolve_address(resolver.as_ref(), context)
+                    .resolve_address(self.platform_information.node, context)
                     .await?
             };
             if let (_, _, Some(receipt)) = self
@@ -481,9 +480,8 @@ where
                 .remove(&step.instance)
                 .context("Failed to find deployment receipt for constructor call"),
             Method::Fallback | Method::FunctionName(_) => {
-                let resolver = self.platform_information.node.resolver().await?;
                 let mut tx = step
-                    .as_transaction(resolver.as_ref(), self.default_resolution_context())
+                    .as_transaction(self.platform_information.node, self.default_resolution_context())
                     .await?;
 
                 let gas_overrides = step
@@ -613,12 +611,7 @@ where
         tracing_result: &CallFrame,
         assertion: ExpectedOutput,
     ) -> Result<()> {
-        let resolver = self
-            .platform_information
-            .node
-            .resolver()
-            .await
-            .context("Failed to create the resolver for the node")?;
+        let node = self.platform_information.node;
 
         if let Some(ref version_requirement) = assertion.compiler_version {
             if !version_requirement.matches(self.platform_information.compiler.version()) {
@@ -657,7 +650,7 @@ where
             let expected = expected_output;
             let actual = &tracing_result.output.as_ref().unwrap_or_default();
             if !expected
-                .is_equivalent(actual, resolver.as_ref(), resolution_context)
+                .is_equivalent(actual, node, resolution_context)
                 .await
                 .context("Failed to resolve calldata equivalence for return data assertion")?
             {
@@ -690,7 +683,7 @@ where
                 // Handling the emitter assertion.
                 if let Some(ref expected_address) = expected_event.address {
                     let expected = expected_address
-                        .resolve_address(resolver.as_ref(), resolution_context)
+                        .resolve_address(node, resolution_context)
                         .await?;
                     let actual = actual_event.address();
                     if actual != expected {
@@ -715,7 +708,7 @@ where
                 {
                     let expected = Calldata::new_compound([expected]);
                     if !expected
-                        .is_equivalent(&actual.0, resolver.as_ref(), resolution_context)
+                        .is_equivalent(&actual.0, node, resolution_context)
                         .await
                         .context("Failed to resolve event topic equivalence")?
                     {
@@ -736,7 +729,7 @@ where
                 let expected = &expected_event.values;
                 let actual = &actual_event.data().data;
                 if !expected
-                    .is_equivalent(&actual.0, resolver.as_ref(), resolution_context)
+                    .is_equivalent(&actual.0, node, resolution_context)
                     .await
                     .context("Failed to resolve event value equivalence")?
                 {
@@ -767,10 +760,9 @@ where
             .await
             .context("Failed to perform auto-deployment for the step address")?;
 
-        let resolver = self.platform_information.node.resolver().await?;
         let address = step
             .address
-            .resolve_address(resolver.as_ref(), self.default_resolution_context())
+            .resolve_address(self.platform_information.node, self.default_resolution_context())
             .await?;
 
         let balance = self.platform_information.node.balance_of(address).await?;
@@ -801,10 +793,9 @@ where
             .await
             .context("Failed to perform auto-deployment for the step address")?;
 
-        let resolver = self.platform_information.node.resolver().await?;
         let address = step
             .address
-            .resolve_address(resolver.as_ref(), self.default_resolution_context())
+            .resolve_address(self.platform_information.node, self.default_resolution_context())
             .await?;
 
         let storage = self
@@ -988,9 +979,8 @@ where
         };
 
         if let Some(calldata) = calldata {
-            let resolver = self.platform_information.node.resolver().await?;
             let calldata = calldata
-                .calldata(resolver.as_ref(), self.default_resolution_context())
+                .calldata(self.platform_information.node, self.default_resolution_context())
                 .await?;
             code.extend(calldata);
         }

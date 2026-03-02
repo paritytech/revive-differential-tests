@@ -8,12 +8,13 @@
 //! used. Additionally, the Kurtosis tool uses Docker and therefore docker is a another dependency
 //! that the tool has.
 
+#![allow(dead_code)]
+
 use std::{
     collections::{BTreeMap, HashSet},
     fs::{File, create_dir_all},
     io::Read,
     path::PathBuf,
-    pin::Pin,
     process::{Command, Stdio},
     sync::{
         Arc,
@@ -23,10 +24,9 @@ use std::{
 };
 
 use alloy::{
-    eips::BlockNumberOrTag,
     genesis::{Genesis, GenesisAccount},
     network::{Ethereum, EthereumWallet, NetworkWallet},
-    primitives::{Address, BlockHash, BlockNumber, BlockTimestamp, TxHash, U256, address},
+    primitives::{Address, U256, address},
     providers::{
         DynProvider, Provider,
         fillers::{CachedNonceManager, ChainIdFiller, NonceFiller},
@@ -43,7 +43,6 @@ use tracing::{info, instrument};
 
 use revive_dt_common::{framework_future, fs::clear_directory};
 use revive_dt_config::*;
-use revive_dt_format::traits::ResolverApi;
 use revive_dt_node_interaction::NodeApi;
 
 use crate::{
@@ -490,17 +489,6 @@ impl NodeApi for LighthouseGethNode {
         &self.ws_connection_string
     }
 
-    #[instrument(level = "info", skip_all, fields(lighthouse_node_id = self.id))]
-    fn resolver(
-        &self,
-    ) -> Pin<Box<dyn Future<Output = anyhow::Result<Arc<dyn ResolverApi + '_>>> + '_>> {
-        Box::pin(async move {
-            let id = self.id;
-            let provider = self.provider().await?;
-            Ok(Arc::new(LighthouseGethNodeResolver { id, provider }) as Arc<dyn ResolverApi>)
-        })
-    }
-
     fn evm_version(&self) -> EVMVersion {
         EVMVersion::Cancun
     }
@@ -529,134 +517,6 @@ impl NodeApi for LighthouseGethNode {
                 .await
                 .map(|provider| provider.clone().erased())
         })
-    }
-}
-
-pub struct LighthouseGethNodeResolver {
-    id: u32,
-    provider: DynProvider,
-}
-
-impl ResolverApi for LighthouseGethNodeResolver {
-    #[instrument(level = "info", skip_all, fields(lighthouse_node_id = self.id))]
-    fn chain_id(
-        &self,
-    ) -> Pin<Box<dyn Future<Output = anyhow::Result<alloy::primitives::ChainId>> + '_>> {
-        Box::pin(async move { self.provider.get_chain_id().await.map_err(Into::into) })
-    }
-
-    #[instrument(level = "info", skip_all, fields(lighthouse_node_id = self.id))]
-    fn transaction_gas_price(
-        &self,
-        tx_hash: TxHash,
-    ) -> Pin<Box<dyn Future<Output = anyhow::Result<u128>> + '_>> {
-        Box::pin(async move {
-            self.provider
-                .get_transaction_receipt(tx_hash)
-                .await?
-                .context("Failed to get the transaction receipt")
-                .map(|receipt| receipt.effective_gas_price)
-        })
-    }
-
-    #[instrument(level = "info", skip_all, fields(lighthouse_node_id = self.id))]
-    fn block_gas_limit(
-        &self,
-        number: BlockNumberOrTag,
-    ) -> Pin<Box<dyn Future<Output = anyhow::Result<u128>> + '_>> {
-        Box::pin(async move {
-            self.provider
-                .get_block_by_number(number)
-                .await
-                .context("Failed to get the geth block")?
-                .context("Failed to get the Geth block, perhaps there are no blocks?")
-                .map(|block| block.header.gas_limit as _)
-        })
-    }
-
-    #[instrument(level = "info", skip_all, fields(lighthouse_node_id = self.id))]
-    fn block_coinbase(
-        &self,
-        number: BlockNumberOrTag,
-    ) -> Pin<Box<dyn Future<Output = anyhow::Result<Address>> + '_>> {
-        Box::pin(async move {
-            self.provider
-                .get_block_by_number(number)
-                .await
-                .context("Failed to get the geth block")?
-                .context("Failed to get the Geth block, perhaps there are no blocks?")
-                .map(|block| block.header.beneficiary)
-        })
-    }
-
-    #[instrument(level = "info", skip_all, fields(lighthouse_node_id = self.id))]
-    fn block_difficulty(
-        &self,
-        number: BlockNumberOrTag,
-    ) -> Pin<Box<dyn Future<Output = anyhow::Result<U256>> + '_>> {
-        Box::pin(async move {
-            self.provider
-                .get_block_by_number(number)
-                .await
-                .context("Failed to get the geth block")?
-                .context("Failed to get the Geth block, perhaps there are no blocks?")
-                .map(|block| U256::from_be_bytes(block.header.mix_hash.0))
-        })
-    }
-
-    #[instrument(level = "info", skip_all, fields(lighthouse_node_id = self.id))]
-    fn block_base_fee(
-        &self,
-        number: BlockNumberOrTag,
-    ) -> Pin<Box<dyn Future<Output = anyhow::Result<u64>> + '_>> {
-        Box::pin(async move {
-            self.provider
-                .get_block_by_number(number)
-                .await
-                .context("Failed to get the geth block")?
-                .context("Failed to get the Geth block, perhaps there are no blocks?")
-                .and_then(|block| {
-                    block
-                        .header
-                        .base_fee_per_gas
-                        .context("Failed to get the base fee per gas")
-                })
-        })
-    }
-
-    #[instrument(level = "info", skip_all, fields(lighthouse_node_id = self.id))]
-    fn block_hash(
-        &self,
-        number: BlockNumberOrTag,
-    ) -> Pin<Box<dyn Future<Output = anyhow::Result<BlockHash>> + '_>> {
-        Box::pin(async move {
-            self.provider
-                .get_block_by_number(number)
-                .await
-                .context("Failed to get the geth block")?
-                .context("Failed to get the Geth block, perhaps there are no blocks?")
-                .map(|block| block.header.hash)
-        })
-    }
-
-    #[instrument(level = "info", skip_all, fields(lighthouse_node_id = self.id))]
-    fn block_timestamp(
-        &self,
-        number: BlockNumberOrTag,
-    ) -> Pin<Box<dyn Future<Output = anyhow::Result<BlockTimestamp>> + '_>> {
-        Box::pin(async move {
-            self.provider
-                .get_block_by_number(number)
-                .await
-                .context("Failed to get the geth block")?
-                .context("Failed to get the Geth block, perhaps there are no blocks?")
-                .map(|block| block.header.timestamp)
-        })
-    }
-
-    #[instrument(level = "info", skip_all, fields(lighthouse_node_id = self.id))]
-    fn last_block_number(&self) -> Pin<Box<dyn Future<Output = anyhow::Result<BlockNumber>> + '_>> {
-        Box::pin(async move { self.provider.get_block_number().await.map_err(Into::into) })
     }
 }
 
@@ -933,122 +793,5 @@ mod tests {
             version.starts_with("CLI Version"),
             "expected version string, got: '{version}'"
         );
-    }
-
-    #[tokio::test]
-    #[ignore = "Ignored since they take a long time to run"]
-    async fn can_get_chain_id_from_node() {
-        // Arrange
-        let (_context, node) = new_node();
-
-        // Act
-        let chain_id = node.resolver().await.unwrap().chain_id().await;
-
-        // Assert
-        let chain_id = chain_id.expect("Failed to get the chain id");
-        assert_eq!(chain_id, 420_420_420);
-    }
-
-    #[tokio::test]
-    #[ignore = "Ignored since they take a long time to run"]
-    async fn can_get_gas_limit_from_node() {
-        // Arrange
-        let (_context, node) = new_node();
-
-        // Act
-        let gas_limit = node
-            .resolver()
-            .await
-            .unwrap()
-            .block_gas_limit(BlockNumberOrTag::Latest)
-            .await;
-
-        // Assert
-        let _ = gas_limit.expect("Failed to get the gas limit");
-    }
-
-    #[tokio::test]
-    #[ignore = "Ignored since they take a long time to run"]
-    async fn can_get_coinbase_from_node() {
-        // Arrange
-        let (_context, node) = new_node();
-
-        // Act
-        let coinbase = node
-            .resolver()
-            .await
-            .unwrap()
-            .block_coinbase(BlockNumberOrTag::Latest)
-            .await;
-
-        // Assert
-        let _ = coinbase.expect("Failed to get the coinbase");
-    }
-
-    #[tokio::test]
-    #[ignore = "Ignored since they take a long time to run"]
-    async fn can_get_block_difficulty_from_node() {
-        // Arrange
-        let (_context, node) = new_node();
-
-        // Act
-        let block_difficulty = node
-            .resolver()
-            .await
-            .unwrap()
-            .block_difficulty(BlockNumberOrTag::Latest)
-            .await;
-
-        // Assert
-        let _ = block_difficulty.expect("Failed to get the block difficulty");
-    }
-
-    #[tokio::test]
-    #[ignore = "Ignored since they take a long time to run"]
-    async fn can_get_block_hash_from_node() {
-        // Arrange
-        let (_context, node) = new_node();
-
-        // Act
-        let block_hash = node
-            .resolver()
-            .await
-            .unwrap()
-            .block_hash(BlockNumberOrTag::Latest)
-            .await;
-
-        // Assert
-        let _ = block_hash.expect("Failed to get the block hash");
-    }
-
-    #[tokio::test]
-    #[ignore = "Ignored since they take a long time to run"]
-    async fn can_get_block_timestamp_from_node() {
-        // Arrange
-        let (_context, node) = new_node();
-
-        // Act
-        let block_timestamp = node
-            .resolver()
-            .await
-            .unwrap()
-            .block_timestamp(BlockNumberOrTag::Latest)
-            .await;
-
-        // Assert
-        let _ = block_timestamp.expect("Failed to get the block timestamp");
-    }
-
-    #[tokio::test]
-    #[ignore = "Ignored since they take a long time to run"]
-    async fn can_get_block_number_from_node() {
-        // Arrange
-        let (_context, node) = new_node();
-
-        // Act
-        let block_number = node.resolver().await.unwrap().last_block_number().await;
-
-        // Assert
-        let _ = block_number.expect("Failed to get the block number");
     }
 }

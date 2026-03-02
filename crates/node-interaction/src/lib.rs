@@ -1,7 +1,6 @@
 //! This crate implements all node interactions.
 
 use std::pin::Pin;
-use std::sync::Arc;
 
 use alloy::primitives::{Address, StorageKey, TxHash, U256};
 use alloy::providers::ext::DebugApi;
@@ -16,8 +15,8 @@ use futures::StreamExt;
 use revive_common::EVMVersion;
 use revive_dt_common::framework_stream;
 use revive_dt_common::futures::framework_future;
-use revive_dt_format::traits::ResolverApi;
-use revive_dt_report::{
+
+use revive_dt_common::subscriptions::{
     EthereumMinedBlockInformation, MinedBlockInformation, SubstrateMinedBlockInformation,
 };
 use subxt::{OnlineClient, SubstrateConfig};
@@ -152,9 +151,6 @@ pub trait NodeApi {
                 .context("Failed to get state proof")
         })
     }
-
-    /// Returns the resolver that is to use with this ethereum node.
-    fn resolver(&self) -> Pin<Box<dyn Future<Output = Result<Arc<dyn ResolverApi + '_>>> + '_>>;
 
     /// Returns the EVM version of the node.
     fn evm_version(&self) -> EVMVersion;
