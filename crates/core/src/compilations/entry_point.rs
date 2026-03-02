@@ -16,7 +16,7 @@ use revive_dt_config::{
 use revive_dt_format::corpus::Corpus;
 use revive_dt_report::{CompilationStatus, Reporter, ReporterEvent};
 use tokio::sync::broadcast;
-use tracing::{info, info_span, instrument};
+use tracing::{info, info_span, instrument, warn};
 
 use crate::{
     compilations::Driver,
@@ -79,7 +79,14 @@ impl CorpusDefinitionProcessor for CompilationDefinitionProcessor {
 
 /// Handles the compilations according to the information defined in the context.
 #[instrument(level = "info", err(Debug), skip_all)]
-pub async fn handle_compilations(context: Compile, reporter: Reporter) -> anyhow::Result<()> {
+pub async fn handle_compilations(mut context: Compile, reporter: Reporter) -> anyhow::Result<()> {
+    if !context.compilation.invalidate_cache {
+        warn!(
+            "Cache invalidation enabled: The compile subcommand always invalidates cache to avoid incorrect results from different compiler binaries."
+        );
+        context.compilation.invalidate_cache = true;
+    }
+
     let reporter_clone = reporter.clone();
 
     // Subscribe early, before stream collection, to capture all events including
