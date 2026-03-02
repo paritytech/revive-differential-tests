@@ -182,6 +182,10 @@ pub trait NodeApi {
 
                             async move {
                                 let substrate_block = block.ok()?;
+                                tracing::debug!(
+                                    block.number = substrate_block.number(),
+                                    "Observed a block (substrate)"
+                                );
                                 let mut interval =
                                     tokio::time::interval(Duration::from_millis(250));
                                 let revive_block = loop {
@@ -292,9 +296,7 @@ pub trait NodeApi {
     fn provider(&self) -> FrameworkFuture<Result<DynProvider>>;
 
     /// The substrate provider used by the node. None if it's not a substrate node.
-    fn substrate_provider(
-        &self,
-    ) -> Option<FrameworkFuture<Result<OnlineClient<SubstrateConfig>>>> {
+    fn substrate_provider(&self) -> Option<FrameworkFuture<Result<OnlineClient<SubstrateConfig>>>> {
         None
     }
 }

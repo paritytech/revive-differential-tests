@@ -164,8 +164,9 @@ impl Watcher {
                     };
 
                     info!(
-                        block_number = block.ethereum_block_information.block_number,
-                        block_tx_count = block.ethereum_block_information.transaction_hashes.len(),
+                        block.number = block.ethereum_block_information.block_number,
+                        block.timestamp = block.ethereum_block_information.block_timestamp,
+                        block.tx_count = block.ethereum_block_information.transaction_hashes.len(),
                         relevant_transactions_observed,
                         remaining_transactions = watch_for_transaction_hashes.len(),
                         remaining_transaction_hashes,

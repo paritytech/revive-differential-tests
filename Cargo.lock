@@ -5859,6 +5859,7 @@ dependencies = [
  "revive-dt-common",
  "subxt 0.44.2",
  "tokio",
+ "tracing",
 ]
 
 [[package]]

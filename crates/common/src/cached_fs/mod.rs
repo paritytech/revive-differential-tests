@@ -1,5 +1,5 @@
 //! This module implements a cached file system allowing for results to be stored in-memory rather
-//! rather being queried from the file system again.
+//! than being queried from the file system again.
 
 use crate::internal_prelude::*;
 
