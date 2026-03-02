@@ -16,7 +16,7 @@ define_wrapper_type!(
 /// An absolute specifier for a test.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct TestSpecifier {
-    pub solc_mode: Mode,
+    pub compiler_mode: Mode,
     pub metadata_file_path: PathBuf,
     pub case_idx: CaseIdx,
 }
