@@ -147,6 +147,7 @@ impl ZombienetNode {
             toml::from_str(&toml_content).context("Failed to parse zombienet TOML")?;
 
         self.inject_prefunded_chainspec(&mut toml_value)?;
+        self.make_node_names_unique(&mut toml_value);
 
         let modified_toml_path = self.base_directory.join("zombienet.toml");
         std::fs::write(
@@ -165,6 +166,47 @@ impl ZombienetNode {
         self.network_config = Some(network_config);
 
         Ok(self)
+    }
+
+    /// Appends the node's numeric ID to every node name in the TOML config so that each
+    /// Zombienet instance gets unique libp2p peer identities. Without this, two instances
+    /// spawned from the same TOML would have identical node keys (derived from
+    /// `SHA256(node_name)`) and discover/interfere with each other.
+    fn make_node_names_unique(&self, toml_value: &mut toml::Value) {
+        let suffix = format!("-{}", self.id);
+
+        let append_suffix = |nodes: &mut Vec<toml::Value>| {
+            for node in nodes.iter_mut() {
+                if let Some(name) = node.get_mut("name").and_then(|v| v.as_str().map(String::from))
+                {
+                    node.as_table_mut()
+                        .unwrap()
+                        .insert("name".into(), toml::Value::String(format!("{name}{suffix}")));
+                }
+            }
+        };
+
+        if let Some(nodes) = toml_value
+            .get_mut("relaychain")
+            .and_then(|r| r.get_mut("nodes"))
+            .and_then(|n| n.as_array_mut())
+        {
+            append_suffix(nodes);
+        }
+
+        if let Some(parachains) = toml_value
+            .get_mut("parachains")
+            .and_then(|p| p.as_array_mut())
+        {
+            for parachain in parachains.iter_mut() {
+                if let Some(collators) = parachain
+                    .get_mut("collators")
+                    .and_then(|c| c.as_array_mut())
+                {
+                    append_suffix(collators);
+                }
+            }
+        }
     }
 
     /// Runs the parachain's `chain_spec_command`, appends wallet balances to the generated

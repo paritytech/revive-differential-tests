@@ -4,7 +4,7 @@ node_spawn_timeout = 240
 
 [relaychain]
 default_command = "polkadot"
-default_args = ["-linfo"]
+default_args = ["-linfo", "--no-mdns"]
 chain = "polkadot-local"
 chain_spec_command = "chain-spec-generator {{chainName}}"
 
@@ -39,5 +39,5 @@ args = [
   "--pool-kbytes=4294967295",
   "--state-pruning=100000",
   "--no-hardware-benchmarks",
+  "--no-mdns",
 ]
-

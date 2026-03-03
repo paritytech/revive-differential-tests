@@ -467,7 +467,15 @@ where
         // for receipts in the future.
         self.watcher_tx
             .send(WatcherEvent::StartEvent {
-                ignore_block_before: 0,
+                ignore_block_before: self
+                    .platform_information
+                    .node
+                    .provider()
+                    .await
+                    .context("Failed to get the provider")?
+                    .get_block_number()
+                    .await
+                    .context("Failed to get the block number of the latest block")?,
             })
             .context("Failed to send message on the watcher's tx")?;
 
