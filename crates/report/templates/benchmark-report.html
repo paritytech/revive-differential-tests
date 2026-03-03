@@ -1,0 +1,1549 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Benchmark Report</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
+<style>
+:root {
+  --bg: #F9FAFB;
+  --card: #FFFFFF;
+  --card-alt: #F3F4F6;
+  --text: #111827;
+  --text-secondary: #6B7280;
+  --text-muted: #9CA3AF;
+  --border: #E5E7EB;
+  --shadow: 0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
+  --radius: 12px;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  font-size: 14px;
+  color: var(--text);
+  background: var(--bg);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Header */
+.header {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  background: var(--card);
+  border-bottom: 1px solid var(--border);
+  box-shadow: var(--shadow);
+  padding: 12px 24px;
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  flex-wrap: wrap;
+}
+.header-title {
+  font-family: 'Inter Tight', sans-serif;
+  font-weight: 700;
+  font-size: 20px;
+  white-space: nowrap;
+}
+.header-controls {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  flex: 1;
+}
+.platform-chips {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 12px;
+  border-radius: 999px;
+  border: 2px solid;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  user-select: none;
+  white-space: nowrap;
+}
+.chip.active {
+  color: #fff;
+}
+.chip:not(.active) {
+  background: transparent;
+}
+.chip .dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.workload-selectors {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-left: auto;
+}
+.workload-selectors select {
+  font-family: 'Inter', sans-serif;
+  font-size: 12px;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--card);
+  color: var(--text);
+  max-width: 220px;
+}
+.workload-selectors label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+}
+
+/* Container */
+.container {
+  max-width: 1440px;
+  margin: 0 auto;
+  padding: 24px;
+}
+
+/* Section headings */
+.section-heading {
+  font-family: 'Inter Tight', sans-serif;
+  font-weight: 600;
+  font-size: 16px;
+  color: var(--text);
+  margin: 32px 0 16px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+/* KPI Cards */
+.kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+  margin-bottom: 24px;
+}
+.kpi-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 16px;
+}
+.kpi-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-secondary);
+  margin-bottom: 4px;
+}
+.kpi-value {
+  font-family: 'JetBrains Mono', monospace;
+  font-weight: 500;
+  font-size: 28px;
+  color: var(--text);
+  line-height: 1.2;
+}
+.kpi-breakdown {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.kpi-platform-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+.kpi-platform-row .dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.kpi-platform-row .val {
+  font-family: 'JetBrains Mono', monospace;
+  font-weight: 500;
+  font-size: 12px;
+  color: var(--text);
+}
+
+/* Chart cards */
+.chart-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+.chart-full {
+  margin-bottom: 16px;
+}
+.chart-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 16px;
+}
+.chart-title {
+  font-family: 'Inter Tight', sans-serif;
+  font-weight: 600;
+  font-size: 14px;
+  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.chart-title select {
+  font-family: 'Inter', sans-serif;
+  font-size: 11px;
+  padding: 2px 6px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--card);
+  color: var(--text-secondary);
+}
+.chart-area {
+  width: 100%;
+}
+.chart-area-hero { height: 400px; }
+.chart-area-half { height: 320px; }
+.chart-area-full { height: 300px; }
+
+/* Stats table */
+.stats-table-wrap {
+  overflow-x: auto;
+  margin-bottom: 16px;
+}
+.stats-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.stats-table th {
+  position: sticky;
+  top: 0;
+  background: var(--card-alt);
+  font-weight: 600;
+  text-align: left;
+  padding: 8px 12px;
+  border-bottom: 2px solid var(--border);
+  white-space: nowrap;
+}
+.stats-table th.num {
+  text-align: right;
+}
+.stats-table td {
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--border);
+}
+.stats-table td.num {
+  text-align: right;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+}
+.stats-table tr:hover td {
+  background: #F9FAFB;
+}
+.stats-table .metric-group td {
+  font-weight: 600;
+  background: var(--card-alt);
+}
+.stats-table .platform-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-right: 6px;
+  vertical-align: middle;
+}
+
+/* Collapsible sections */
+details {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  margin-bottom: 12px;
+}
+details summary {
+  padding: 12px 16px;
+  font-family: 'Inter Tight', sans-serif;
+  font-weight: 600;
+  font-size: 14px;
+  cursor: pointer;
+  user-select: none;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+details summary::before {
+  content: '\25B8';
+  font-size: 12px;
+  transition: transform 0.2s;
+}
+details[open] summary::before {
+  transform: rotate(90deg);
+}
+details summary::-webkit-details-marker { display: none; }
+details .details-content {
+  padding: 0 16px 16px;
+}
+details .details-controls {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+/* Raw data table */
+.raw-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.raw-table th {
+  position: sticky;
+  top: 0;
+  background: var(--card-alt);
+  font-weight: 600;
+  text-align: right;
+  padding: 6px 8px;
+  border-bottom: 2px solid var(--border);
+  white-space: nowrap;
+}
+.raw-table th:first-child { text-align: left; }
+.raw-table td {
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--border);
+  text-align: right;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+}
+.raw-table td:first-child { text-align: left; }
+.raw-table tr:hover td { background: #F9FAFB; }
+
+/* Context section */
+.context-grid {
+  display: grid;
+  grid-template-columns: 140px 1fr;
+  gap: 4px 12px;
+  font-size: 13px;
+}
+.context-key {
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+.context-val {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  word-break: break-all;
+}
+
+/* Contract table */
+.contract-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.contract-table th {
+  background: var(--card-alt);
+  font-weight: 600;
+  text-align: left;
+  padding: 6px 8px;
+  border-bottom: 2px solid var(--border);
+}
+.contract-table td {
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--border);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+}
+
+/* Buttons */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--card);
+  font-family: 'Inter', sans-serif;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background 0.1s;
+}
+.btn:hover { background: var(--card-alt); }
+
+.hidden { display: none !important; }
+
+/* Status tag */
+.status-tag {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+}
+.status-succeeded { background: #D1FAE5; color: #065F46; }
+.status-failed { background: #FEE2E2; color: #991B1B; }
+.status-ignored { background: #FEF3C7; color: #92400E; }
+
+@media (max-width: 1200px) {
+  .chart-grid { grid-template-columns: 1fr; }
+}
+@media (max-width: 768px) {
+  .kpi-grid { grid-template-columns: repeat(2, 1fr); }
+  .kpi-value { font-size: 22px; }
+  .header { padding: 8px 16px; }
+  .container { padding: 16px; }
+}
+@media print {
+  .header { position: static; }
+  .chip { pointer-events: none; }
+  details { break-inside: avoid; }
+}
+</style>
+</head>
+<body>
+
+<header class="header">
+  <div class="header-title">Benchmark Report</div>
+  <div class="header-controls">
+    <div id="platform-chips" class="platform-chips"></div>
+    <div id="workload-selectors" class="workload-selectors hidden"></div>
+  </div>
+</header>
+
+<main class="container">
+  <div id="kpi-cards" class="kpi-grid"></div>
+
+  <!-- Hero chart: TPS Over Time -->
+  <div id="tps-section" class="chart-full">
+    <div class="chart-card">
+      <div class="chart-title">TPS Over Time</div>
+      <div id="chart-tps" class="chart-area chart-area-hero"></div>
+    </div>
+  </div>
+
+  <!-- Paired charts row 1 -->
+  <div id="throughput-grid" class="chart-grid">
+    <div class="chart-card">
+      <div class="chart-title">Transaction Count Per Block</div>
+      <div id="chart-tx-count" class="chart-area chart-area-half"></div>
+    </div>
+    <div class="chart-card">
+      <div class="chart-title">Gas Per Second</div>
+      <div id="chart-gas-per-s" class="chart-area chart-area-half"></div>
+    </div>
+  </div>
+
+  <!-- Resource Utilization -->
+  <div id="utilization-heading" class="section-heading hidden">Resource Utilization</div>
+  <div id="utilization-grid" class="chart-grid hidden"></div>
+
+  <!-- Step Composition -->
+  <div id="step-heading" class="section-heading hidden">Step Composition</div>
+  <div id="step-section" class="chart-full hidden">
+    <div class="chart-card">
+      <div class="chart-title">
+        <span>Step Transaction Distribution</span>
+        <select id="step-platform-select"></select>
+      </div>
+      <div id="chart-step-dist" class="chart-area chart-area-full"></div>
+    </div>
+  </div>
+
+  <!-- Summary Statistics -->
+  <div class="section-heading">Summary Statistics</div>
+  <div class="chart-card">
+    <div id="stats-table-container" class="stats-table-wrap"></div>
+  </div>
+
+  <!-- Collapsible: Raw Block Data -->
+  <div class="section-heading">Detailed Data</div>
+  <details id="raw-data-section">
+    <summary>Raw Block Data</summary>
+    <div class="details-content">
+      <div class="details-controls">
+        <select id="raw-platform-select"></select>
+        <button id="raw-csv-btn" class="btn">Copy as CSV</button>
+      </div>
+      <div id="raw-table-container" class="stats-table-wrap"></div>
+    </div>
+  </details>
+
+  <!-- Collapsible: Contract Information -->
+  <details id="contract-section" class="hidden">
+    <summary>Contract Information</summary>
+    <div class="details-content" id="contract-content"></div>
+  </details>
+
+  <!-- Collapsible: Run Context -->
+  <details id="context-section">
+    <summary>Run Context</summary>
+    <div class="details-content" id="context-content"></div>
+  </details>
+</main>
+
+<script id="report-data" type="application/json">/*__REPORT_DATA__*/</script>
+
+<script>
+(function() {
+'use strict';
+
+// ── Platform colors ──
+const PLATFORM_COLORS = {
+  'geth-evm-solc': '#0F766E',
+  'lighthouse-geth-evm-solc': '#2563EB',
+  'revive-dev-node-polkavm-resolc': '#7C3AED',
+  'revive-dev-node-revm-solc': '#DB2777',
+  'zombienet-polkavm-resolc': '#EA580C',
+  'zombienet-revm-solc': '#CA8A04',
+  'polkadot-omni-node-polkavm-resolc': '#0891B2',
+  'polkadot-omni-node-revm-solc': '#4F46E5',
+};
+const FALLBACK_COLORS = ['#3B82F6','#EF4444','#10B981','#F59E0B','#8B5CF6','#EC4899','#14B8A6','#F97316'];
+
+function platformColor(name) {
+  return PLATFORM_COLORS[name] || FALLBACK_COLORS[Object.keys(PLATFORM_COLORS).length % FALLBACK_COLORS.length];
+}
+
+// ── State ──
+let chartInstances = [];
+let activePlatforms = new Set();
+let currentWorkload = null;
+let allWorkloads = [];
+let report = null;
+
+// ── Formatters ──
+function fmtSI(n) {
+  if (n == null) return '\u2014';
+  const abs = Math.abs(n);
+  if (abs >= 1e12) return (n / 1e12).toFixed(2) + 'T';
+  if (abs >= 1e9) return (n / 1e9).toFixed(2) + 'G';
+  if (abs >= 1e6) return (n / 1e6).toFixed(2) + 'M';
+  if (abs >= 1e3) return (n / 1e3).toFixed(2) + 'K';
+  if (Number.isInteger(n)) return String(n);
+  return n.toFixed(1);
+}
+function fmtCount(n) {
+  if (n == null) return '\u2014';
+  return Number(n).toLocaleString('en-US');
+}
+function fmtPct(n) {
+  if (n == null) return '\u2014';
+  return Math.round(n) + '%';
+}
+function fmtDuration(s) {
+  if (s == null) return '\u2014';
+  s = Math.round(s);
+  if (s < 60) return s + 's';
+  const m = Math.floor(s / 60);
+  const rem = s % 60;
+  return m + 'm ' + rem + 's';
+}
+function fmtTps(n) {
+  if (n == null) return '\u2014';
+  return n.toFixed(1);
+}
+function fmtGas(n) {
+  if (n == null) return '\u2014';
+  return fmtSI(Number(n));
+}
+
+// ── Stats ──
+function computeStats(arr) {
+  if (!arr || arr.length === 0) return null;
+  const sorted = [...arr].sort((a, b) => a - b);
+  const n = sorted.length;
+  const sum = sorted.reduce((s, v) => s + v, 0);
+  const mean = sum / n;
+  const median = n % 2 === 0 ? (sorted[n/2-1] + sorted[n/2]) / 2 : sorted[Math.floor(n/2)];
+  const p5 = sorted[Math.max(0, Math.floor(n * 0.05))];
+  const p95 = sorted[Math.min(n-1, Math.floor(n * 0.95))];
+  return { mean, median, min: sorted[0], max: sorted[n-1], p5, p95, sum, count: n };
+}
+
+function isGasLimitUnlimited(limit) {
+  return Number(limit) >= 1.8e19;
+}
+
+// ── Data preprocessing ──
+function preprocessReport(rpt) {
+  const workloads = [];
+  const ei = rpt.execution_information || {};
+  for (const [filePath, fileReport] of Object.entries(ei)) {
+    const caseReports = fileReport.case_reports || {};
+    for (const [caseIdx, caseReport] of Object.entries(caseReports)) {
+      const modeReports = caseReport.mode_execution_reports || {};
+      for (const [mode, execReport] of Object.entries(modeReports)) {
+        if (execReport.metrics_information && Object.keys(execReport.metrics_information).length > 0) {
+          workloads.push({ filePath, caseIdx, mode, execReport });
+        }
+      }
+    }
+  }
+  return workloads;
+}
+
+function extractMetrics(execReport) {
+  const metricsMap = execReport.metrics_information || {};
+  const platforms = Object.keys(metricsMap);
+  const hasSubstrate = platforms.some(p =>
+    (metricsMap[p] || []).some(m => m.block_ref_time != null)
+  );
+
+  const allStepsSet = new Set();
+  for (const blocks of Object.values(metricsMap)) {
+    for (const b of blocks) {
+      if (b.step_count) {
+        for (const k of Object.keys(b.step_count)) allStepsSet.add(k);
+      }
+    }
+  }
+  const allSteps = [...allStepsSet].sort();
+
+  const aggregates = {};
+  for (const [platform, blocks] of Object.entries(metricsMap)) {
+    const tpsArr = blocks.map(b => b.transactions_per_second).filter(v => v != null);
+    const gasPerSArr = blocks.map(b => b.gas_per_second).filter(v => v != null);
+    const txCounts = blocks.map(b => b.transaction_count);
+    const gasFullness = blocks.map(b => b.block_gas_fullness);
+    const refTimeFullness = blocks.map(b => b.block_ref_time_fullness).filter(v => v != null);
+    const proofSizeFullness = blocks.map(b => b.block_proof_size_fullness).filter(v => v != null);
+    const refTimePerS = blocks.map(b => b.ref_time_per_second).filter(v => v != null);
+    const proofSizePerS = blocks.map(b => b.proof_size_per_second).filter(v => v != null);
+    const duration = blocks.length > 0 ? blocks[blocks.length - 1].relative_observation_time_seconds : 0;
+    const unlimitedGas = blocks.length > 0 && isGasLimitUnlimited(blocks[0].block_gas_limit);
+    const totalTx = txCounts.reduce((s, v) => s + v, 0);
+    const effectiveTps = duration > 0 ? totalTx / duration : 0;
+
+    aggregates[platform] = {
+      tps: computeStats(tpsArr),
+      gasPerSecond: computeStats(gasPerSArr),
+      txCount: computeStats(txCounts),
+      gasFullness: computeStats(gasFullness),
+      refTimeFullness: computeStats(refTimeFullness),
+      proofSizeFullness: computeStats(proofSizeFullness),
+      refTimePerSecond: computeStats(refTimePerS),
+      proofSizePerSecond: computeStats(proofSizePerS),
+      totalTx,
+      blockCount: blocks.length,
+      duration,
+      effectiveTps,
+      unlimitedGas,
+      isSubstrate: blocks.some(b => b.block_ref_time != null),
+    };
+  }
+
+  return { metricsMap, platforms, hasSubstrate, aggregates, allSteps };
+}
+
+// ── ECharts helpers ──
+function baseOption() {
+  return {
+    animation: true,
+    animationDuration: 400,
+    grid: { left: 60, right: 24, top: 40, bottom: 60 },
+    tooltip: {
+      trigger: 'axis',
+      backgroundColor: 'rgba(255,255,255,0.96)',
+      borderColor: '#E5E7EB',
+      borderWidth: 1,
+      textStyle: { fontFamily: 'Inter, sans-serif', fontSize: 12, color: '#111827' },
+      axisPointer: { type: 'cross', lineStyle: { color: '#D1D5DB' } },
+    },
+    toolbox: {
+      right: 8, top: 4,
+      feature: { saveAsImage: { pixelRatio: 2, title: 'Save' } },
+      iconStyle: { borderColor: '#9CA3AF' },
+    },
+    legend: {
+      top: 8,
+      textStyle: { fontFamily: 'Inter, sans-serif', fontSize: 12 },
+    },
+  };
+}
+
+function timeXAxis(label) {
+  return {
+    type: 'value',
+    name: label || 'Elapsed Time (s)',
+    nameLocation: 'center',
+    nameGap: 30,
+    nameTextStyle: { fontFamily: 'Inter, sans-serif', fontSize: 12, color: '#6B7280' },
+    axisLabel: { fontFamily: 'JetBrains Mono, monospace', fontSize: 11, formatter: v => v + 's' },
+    splitLine: { lineStyle: { color: '#F3F4F6' } },
+  };
+}
+
+function valueYAxis(name, formatter) {
+  return {
+    type: 'value',
+    name: name,
+    nameTextStyle: { fontFamily: 'Inter, sans-serif', fontSize: 11, color: '#6B7280' },
+    axisLabel: { fontFamily: 'JetBrains Mono, monospace', fontSize: 11, formatter: formatter || (v => fmtSI(v)) },
+    splitLine: { lineStyle: { color: '#F3F4F6' } },
+  };
+}
+
+function percentYAxis(name) {
+  return {
+    type: 'value',
+    name: name,
+    min: 0, max: 100,
+    nameTextStyle: { fontFamily: 'Inter, sans-serif', fontSize: 11, color: '#6B7280' },
+    axisLabel: { fontFamily: 'JetBrains Mono, monospace', fontSize: 11, formatter: v => v + '%' },
+    splitLine: { lineStyle: { color: '#F3F4F6' } },
+  };
+}
+
+function lineSeries(name, data, color) {
+  return {
+    name, type: 'line', data, smooth: true, symbol: 'circle', symbolSize: 4,
+    lineStyle: { width: 2, color },
+    itemStyle: { color },
+    areaStyle: {
+      color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+        { offset: 0, color: color + '20' }, { offset: 1, color: color + '04' }
+      ])
+    },
+  };
+}
+
+function areaSeries(name, data, color) {
+  return {
+    name, type: 'line', data, smooth: true, symbol: 'none',
+    lineStyle: { width: 1.5, color },
+    itemStyle: { color },
+    areaStyle: { color: color + '30' },
+  };
+}
+
+function barSeries(name, data, color) {
+  return {
+    name, type: 'bar', data,
+    itemStyle: { color, borderRadius: [3, 3, 0, 0] },
+    barMaxWidth: 40,
+  };
+}
+
+function makeDataZoom(withSlider) {
+  const dz = [{ type: 'inside', xAxisIndex: 0 }];
+  if (withSlider) {
+    dz.push({
+      type: 'slider', xAxisIndex: 0, height: 20, bottom: 8,
+      borderColor: '#E5E7EB', fillerColor: 'rgba(59,130,246,0.08)',
+    });
+  }
+  return dz;
+}
+
+function createChart(containerId, option) {
+  const el = document.getElementById(containerId);
+  if (!el) return null;
+  const chart = echarts.init(el);
+  chart.setOption(option);
+  chartInstances.push(chart);
+  return chart;
+}
+
+function disposeAllCharts() {
+  for (const c of chartInstances) {
+    try { c.dispose(); } catch(e) {}
+  }
+  chartInstances = [];
+}
+
+function connectCharts() {
+  const group = 'benchmark';
+  for (const c of chartInstances) {
+    if (c) c.group = group;
+  }
+  echarts.connect(group);
+}
+
+function visiblePlatforms(platforms) {
+  return platforms.filter(p => activePlatforms.has(p));
+}
+
+// ── Rendering ──
+
+function renderPlatformChips(platforms) {
+  const container = document.getElementById('platform-chips');
+  container.innerHTML = '';
+  for (const p of platforms) {
+    const color = platformColor(p);
+    const chip = document.createElement('div');
+    chip.className = 'chip' + (activePlatforms.has(p) ? ' active' : '');
+    chip.style.borderColor = color;
+    if (activePlatforms.has(p)) {
+      chip.style.background = color;
+      chip.style.color = '#fff';
+    } else {
+      chip.style.background = 'transparent';
+      chip.style.color = color;
+    }
+    chip.innerHTML = '<span class="dot" style="background:' + (activePlatforms.has(p) ? '#fff' : color) + '"></span>' + p;
+    chip.addEventListener('click', () => {
+      if (activePlatforms.has(p) && activePlatforms.size <= 1) return;
+      if (activePlatforms.has(p)) {
+        activePlatforms.delete(p);
+      } else {
+        activePlatforms.add(p);
+      }
+      renderAll();
+    });
+    container.appendChild(chip);
+  }
+}
+
+function renderWorkloadSelector(workloads) {
+  if (workloads.length <= 1) return;
+  const container = document.getElementById('workload-selectors');
+  container.classList.remove('hidden');
+  container.innerHTML = '';
+
+  const files = [...new Set(workloads.map(w => w.filePath))];
+  const hasMultipleFiles = files.length > 1;
+  const cases = [...new Set(workloads.map(w => w.caseIdx))];
+  const hasMultipleCases = cases.length > 1;
+  const modes = [...new Set(workloads.map(w => w.mode))];
+  const hasMultipleModes = modes.length > 1;
+
+  function addSelect(label, options, currentVal, onChange) {
+    const lbl = document.createElement('label');
+    lbl.textContent = label;
+    container.appendChild(lbl);
+    const sel = document.createElement('select');
+    for (const opt of options) {
+      const o = document.createElement('option');
+      o.value = opt;
+      o.textContent = opt;
+      if (opt === currentVal) o.selected = true;
+      sel.appendChild(o);
+    }
+    sel.addEventListener('change', () => onChange(sel.value));
+    container.appendChild(sel);
+  }
+
+  if (hasMultipleFiles) {
+    addSelect('File', files, currentWorkload.filePath, v => {
+      currentWorkload = workloads.find(w => w.filePath === v) || workloads[0];
+      renderAll();
+    });
+  }
+  if (hasMultipleCases) {
+    addSelect('Case', cases, currentWorkload.caseIdx, v => {
+      currentWorkload = workloads.find(w => w.filePath === currentWorkload.filePath && w.caseIdx === v) || workloads[0];
+      renderAll();
+    });
+  }
+  if (hasMultipleModes) {
+    addSelect('Mode', modes, currentWorkload.mode, v => {
+      currentWorkload = workloads.find(w => w.filePath === currentWorkload.filePath && w.caseIdx === currentWorkload.caseIdx && w.mode === v) || workloads[0];
+      renderAll();
+    });
+  }
+}
+
+function renderKPIs(aggregates, platforms) {
+  const container = document.getElementById('kpi-cards');
+  container.innerHTML = '';
+  const vp = visiblePlatforms(platforms);
+  const multi = vp.length > 1;
+
+  function bestVal(accessor, mode) {
+    let best = null;
+    for (const p of vp) {
+      const v = accessor(aggregates[p]);
+      if (v != null && (best == null || (mode === 'max' ? v > best : v < best))) best = v;
+    }
+    return best;
+  }
+
+  const kpis = [
+    {
+      label: 'Peak TPS',
+      value: bestVal(a => a.tps ? a.tps.max : null, 'max'),
+      fmt: v => fmtTps(v),
+      perPlatform: p => aggregates[p].tps ? fmtTps(aggregates[p].tps.max) : '\u2014',
+    },
+    {
+      label: 'Effective TPS',
+      value: bestVal(a => a.effectiveTps, 'max'),
+      fmt: v => fmtTps(v),
+      perPlatform: p => fmtTps(aggregates[p].effectiveTps),
+    },
+    {
+      label: 'Total Transactions',
+      value: vp.reduce((s, p) => Math.max(s, aggregates[p].totalTx), 0),
+      fmt: v => fmtCount(v),
+      perPlatform: p => fmtCount(aggregates[p].totalTx),
+    },
+    {
+      label: 'Duration',
+      value: bestVal(a => a.duration, 'max'),
+      fmt: v => fmtDuration(v),
+      perPlatform: p => fmtDuration(aggregates[p].duration),
+    },
+    {
+      label: 'Blocks',
+      value: bestVal(a => a.blockCount, 'max'),
+      fmt: v => fmtCount(v),
+      perPlatform: p => fmtCount(aggregates[p].blockCount),
+    },
+    {
+      label: 'Avg Fullness',
+      value: bestVal(a => {
+        if (a.isSubstrate && a.refTimeFullness) return a.refTimeFullness.mean;
+        if (a.gasFullness) return a.gasFullness.mean;
+        return null;
+      }, 'max'),
+      fmt: v => fmtPct(v),
+      perPlatform: p => {
+        const a = aggregates[p];
+        if (a.isSubstrate && a.refTimeFullness) return fmtPct(a.refTimeFullness.mean);
+        if (a.gasFullness) return fmtPct(a.gasFullness.mean);
+        return '\u2014';
+      },
+    },
+  ];
+
+  for (const kpi of kpis) {
+    const card = document.createElement('div');
+    card.className = 'kpi-card';
+    let html = '<div class="kpi-label">' + kpi.label + '</div>';
+    html += '<div class="kpi-value">' + kpi.fmt(kpi.value) + '</div>';
+    if (multi) {
+      html += '<div class="kpi-breakdown">';
+      for (const p of vp) {
+        html += '<div class="kpi-platform-row"><span class="dot" style="background:' + platformColor(p) + '"></span><span>' + p + '</span><span class="val">' + kpi.perPlatform(p) + '</span></div>';
+      }
+      html += '</div>';
+    }
+    card.innerHTML = html;
+    container.appendChild(card);
+  }
+}
+
+function renderTPSChart(metricsMap, platforms) {
+  const vp = visiblePlatforms(platforms);
+  const series = [];
+  for (const p of vp) {
+    const blocks = metricsMap[p] || [];
+    const data = blocks
+      .filter(b => b.transactions_per_second != null)
+      .map(b => [b.relative_observation_time_seconds, b.transactions_per_second]);
+    series.push(lineSeries(p, data, platformColor(p)));
+  }
+  createChart('chart-tps', {
+    ...baseOption(),
+    xAxis: timeXAxis(),
+    yAxis: valueYAxis('TPS', v => fmtTps(v)),
+    series,
+    dataZoom: makeDataZoom(true),
+  });
+}
+
+function renderTxCountChart(metricsMap, platforms) {
+  const vp = visiblePlatforms(platforms);
+  const series = [];
+  for (const p of vp) {
+    const blocks = metricsMap[p] || [];
+    const data = blocks.map(b => [b.relative_observation_time_seconds, b.transaction_count]);
+    series.push(barSeries(p, data, platformColor(p)));
+  }
+  createChart('chart-tx-count', {
+    ...baseOption(),
+    xAxis: timeXAxis(),
+    yAxis: valueYAxis('Tx Count'),
+    series,
+    dataZoom: makeDataZoom(false),
+  });
+}
+
+function renderGasPerSecondChart(metricsMap, platforms) {
+  const vp = visiblePlatforms(platforms);
+  const series = [];
+  for (const p of vp) {
+    const blocks = metricsMap[p] || [];
+    const data = blocks
+      .filter(b => b.gas_per_second != null)
+      .map(b => [b.relative_observation_time_seconds, b.gas_per_second]);
+    series.push(lineSeries(p, data, platformColor(p)));
+  }
+  createChart('chart-gas-per-s', {
+    ...baseOption(),
+    xAxis: timeXAxis(),
+    yAxis: valueYAxis('Gas/s', v => fmtSI(v)),
+    series,
+    dataZoom: makeDataZoom(false),
+  });
+}
+
+function renderUtilizationCharts(metricsMap, platforms, hasSubstrate) {
+  const headingEl = document.getElementById('utilization-heading');
+  const gridEl = document.getElementById('utilization-grid');
+
+  const vp = visiblePlatforms(platforms);
+  const charts = [];
+
+  // Gas Fullness — skip platforms with unlimited gas
+  const gasPlats = vp.filter(p => {
+    const blocks = metricsMap[p] || [];
+    return blocks.length > 0 && !isGasLimitUnlimited(blocks[0].block_gas_limit);
+  });
+  if (gasPlats.length > 0) {
+    charts.push({
+      id: 'chart-gas-fullness',
+      title: 'Gas Fullness %',
+      render: (id) => {
+        const series = [];
+        for (const p of gasPlats) {
+          const blocks = metricsMap[p] || [];
+          const data = blocks.map(b => [b.relative_observation_time_seconds, b.block_gas_fullness]);
+          series.push(areaSeries(p, data, platformColor(p)));
+        }
+        createChart(id, {
+          ...baseOption(),
+          xAxis: timeXAxis(),
+          yAxis: percentYAxis('Gas Fullness'),
+          series,
+          dataZoom: makeDataZoom(false),
+        });
+      }
+    });
+  }
+
+  // Substrate: Ref Time Fullness
+  if (hasSubstrate) {
+    const substratePlats = vp.filter(p => (metricsMap[p] || []).some(b => b.block_ref_time_fullness != null));
+    if (substratePlats.length > 0) {
+      charts.push({
+        id: 'chart-ref-time-fullness',
+        title: 'Ref Time Fullness %',
+        render: (id) => {
+          const series = [];
+          for (const p of substratePlats) {
+            const blocks = metricsMap[p] || [];
+            const data = blocks.filter(b => b.block_ref_time_fullness != null).map(b => [b.relative_observation_time_seconds, b.block_ref_time_fullness]);
+            series.push(areaSeries(p, data, platformColor(p)));
+          }
+          createChart(id, {
+            ...baseOption(),
+            xAxis: timeXAxis(),
+            yAxis: percentYAxis('Ref Time Fullness'),
+            series,
+            dataZoom: makeDataZoom(false),
+          });
+        }
+      });
+    }
+  }
+
+  // Substrate: Proof Size Fullness
+  if (hasSubstrate) {
+    const substratePlats = vp.filter(p => (metricsMap[p] || []).some(b => b.block_proof_size_fullness != null));
+    if (substratePlats.length > 0) {
+      charts.push({
+        id: 'chart-proof-size-fullness',
+        title: 'Proof Size Fullness %',
+        render: (id) => {
+          const series = [];
+          for (const p of substratePlats) {
+            const blocks = metricsMap[p] || [];
+            const data = blocks.filter(b => b.block_proof_size_fullness != null).map(b => [b.relative_observation_time_seconds, b.block_proof_size_fullness]);
+            series.push(areaSeries(p, data, platformColor(p)));
+          }
+          createChart(id, {
+            ...baseOption(),
+            xAxis: timeXAxis(),
+            yAxis: percentYAxis('Proof Size Fullness'),
+            series,
+            dataZoom: makeDataZoom(false),
+          });
+        }
+      });
+    }
+  }
+
+  // Substrate: Rates (dual-axis)
+  if (hasSubstrate) {
+    const substratePlats = vp.filter(p => (metricsMap[p] || []).some(b => b.ref_time_per_second != null));
+    if (substratePlats.length > 0) {
+      charts.push({
+        id: 'chart-substrate-rates',
+        title: 'Substrate Rates',
+        render: (id) => {
+          const series = [];
+          for (const p of substratePlats) {
+            const blocks = metricsMap[p] || [];
+            const refData = blocks.filter(b => b.ref_time_per_second != null).map(b => [b.relative_observation_time_seconds, b.ref_time_per_second]);
+            const proofData = blocks.filter(b => b.proof_size_per_second != null).map(b => [b.relative_observation_time_seconds, b.proof_size_per_second]);
+            series.push({
+              ...lineSeries(p + ' (ref_time)', refData, platformColor(p)),
+              yAxisIndex: 0,
+            });
+            series.push({
+              name: p + ' (proof_size)',
+              type: 'line', data: proofData, smooth: true, symbol: 'diamond', symbolSize: 4,
+              lineStyle: { width: 2, color: platformColor(p), type: 'dashed' },
+              itemStyle: { color: platformColor(p) },
+              yAxisIndex: 1,
+            });
+          }
+          createChart(id, {
+            ...baseOption(),
+            xAxis: timeXAxis(),
+            yAxis: [
+              { ...valueYAxis('Ref Time/s'), position: 'left' },
+              { ...valueYAxis('Proof Size/s'), position: 'right', splitLine: { show: false } },
+            ],
+            series,
+            dataZoom: makeDataZoom(false),
+          });
+        }
+      });
+    }
+  }
+
+  if (charts.length === 0) {
+    headingEl.classList.add('hidden');
+    gridEl.classList.add('hidden');
+    return;
+  }
+
+  headingEl.classList.remove('hidden');
+  gridEl.classList.remove('hidden');
+  gridEl.innerHTML = '';
+
+  for (const chart of charts) {
+    const card = document.createElement('div');
+    card.className = 'chart-card';
+    card.innerHTML = '<div class="chart-title">' + chart.title + '</div><div id="' + chart.id + '" class="chart-area chart-area-half"></div>';
+    gridEl.appendChild(card);
+  }
+
+  for (const chart of charts) {
+    chart.render(chart.id);
+  }
+}
+
+function renderStepDistribution(metricsMap, platforms, allSteps) {
+  if (allSteps.length === 0) {
+    document.getElementById('step-heading').classList.add('hidden');
+    document.getElementById('step-section').classList.add('hidden');
+    return;
+  }
+
+  document.getElementById('step-heading').classList.remove('hidden');
+  document.getElementById('step-section').classList.remove('hidden');
+
+  const vp = visiblePlatforms(platforms);
+  const select = document.getElementById('step-platform-select');
+  select.innerHTML = '';
+  for (const p of vp) {
+    const o = document.createElement('option');
+    o.value = p;
+    o.textContent = p;
+    select.appendChild(o);
+  }
+
+  function renderForPlatform(platform) {
+    const blocks = metricsMap[platform] || [];
+    const xData = blocks.map(b => b.relative_observation_time_seconds + 's');
+    const series = [];
+    const STEP_COLORS = ['#3B82F6','#10B981','#F59E0B','#EF4444','#8B5CF6','#EC4899','#14B8A6','#F97316','#6366F1','#84CC16'];
+
+    for (let i = 0; i < allSteps.length; i++) {
+      const step = allSteps[i];
+      const data = blocks.map(b => (b.step_count && b.step_count[step]) || 0);
+      series.push({
+        name: 'Step ' + step,
+        type: 'bar',
+        stack: 'steps',
+        data,
+        itemStyle: { color: STEP_COLORS[i % STEP_COLORS.length] },
+        barMaxWidth: 40,
+      });
+    }
+
+    // Dispose previous step chart if exists
+    const el = document.getElementById('chart-step-dist');
+    const existing = echarts.getInstanceByDom(el);
+    if (existing) {
+      const idx = chartInstances.indexOf(existing);
+      if (idx !== -1) chartInstances.splice(idx, 1);
+      existing.dispose();
+    }
+
+    createChart('chart-step-dist', {
+      ...baseOption(),
+      xAxis: {
+        type: 'category',
+        data: xData,
+        name: 'Elapsed Time',
+        nameLocation: 'center',
+        nameGap: 30,
+        nameTextStyle: { fontFamily: 'Inter, sans-serif', fontSize: 12, color: '#6B7280' },
+        axisLabel: { fontFamily: 'JetBrains Mono, monospace', fontSize: 11 },
+      },
+      yAxis: valueYAxis('Tx Count'),
+      series,
+      dataZoom: makeDataZoom(false),
+    });
+  }
+
+  renderForPlatform(vp[0]);
+  select.addEventListener('change', () => renderForPlatform(select.value));
+}
+
+function renderStatsTable(aggregates, platforms, hasSubstrate) {
+  const container = document.getElementById('stats-table-container');
+  const vp = visiblePlatforms(platforms);
+
+  const metrics = [
+    { name: 'TPS', key: 'tps', fmt: v => fmtTps(v), filter: () => true },
+    { name: 'Gas/s', key: 'gasPerSecond', fmt: v => fmtSI(v), filter: () => true },
+    { name: 'Tx Count/Block', key: 'txCount', fmt: v => fmtSI(v), filter: () => true },
+    { name: 'Gas Fullness %', key: 'gasFullness', fmt: v => fmtPct(v), filter: (p) => !aggregates[p].unlimitedGas },
+    { name: 'Ref Time Fullness %', key: 'refTimeFullness', fmt: v => fmtPct(v), filter: (p) => aggregates[p].isSubstrate },
+    { name: 'Proof Size Fullness %', key: 'proofSizeFullness', fmt: v => fmtPct(v), filter: (p) => aggregates[p].isSubstrate },
+    { name: 'Ref Time/s', key: 'refTimePerSecond', fmt: v => fmtSI(v), filter: (p) => aggregates[p].isSubstrate },
+    { name: 'Proof Size/s', key: 'proofSizePerSecond', fmt: v => fmtSI(v), filter: (p) => aggregates[p].isSubstrate },
+  ];
+
+  let html = '<table class="stats-table">';
+  html += '<thead><tr><th>Metric</th><th>Platform</th><th class="num">Mean</th><th class="num">Median</th><th class="num">P5</th><th class="num">P95</th><th class="num">Min</th><th class="num">Max</th></tr></thead>';
+  html += '<tbody>';
+
+  for (const metric of metrics) {
+    const plats = vp.filter(p => metric.filter(p));
+    if (plats.length === 0) continue;
+
+    let first = true;
+    for (const p of plats) {
+      const stats = aggregates[p][metric.key];
+      html += '<tr>';
+      if (first) {
+        html += '<td rowspan="' + plats.length + '" style="font-weight:600">' + metric.name + '</td>';
+        first = false;
+      }
+      html += '<td><span class="platform-dot" style="background:' + platformColor(p) + '"></span>' + p + '</td>';
+      if (stats) {
+        html += '<td class="num">' + metric.fmt(stats.mean) + '</td>';
+        html += '<td class="num">' + metric.fmt(stats.median) + '</td>';
+        html += '<td class="num">' + metric.fmt(stats.p5) + '</td>';
+        html += '<td class="num">' + metric.fmt(stats.p95) + '</td>';
+        html += '<td class="num">' + metric.fmt(stats.min) + '</td>';
+        html += '<td class="num">' + metric.fmt(stats.max) + '</td>';
+      } else {
+        html += '<td class="num" colspan="6">\u2014</td>';
+      }
+      html += '</tr>';
+    }
+  }
+
+  html += '</tbody></table>';
+  container.innerHTML = html;
+}
+
+function renderRawBlockData(metricsMap, platforms) {
+  const vp = visiblePlatforms(platforms);
+  const select = document.getElementById('raw-platform-select');
+  select.innerHTML = '';
+  for (const p of vp) {
+    const o = document.createElement('option');
+    o.value = p;
+    o.textContent = p;
+    select.appendChild(o);
+  }
+
+  function renderTable(platform) {
+    const blocks = metricsMap[platform] || [];
+    const hasSubstrate = blocks.some(b => b.block_ref_time != null);
+
+    let html = '<table class="raw-table"><thead><tr>';
+    html += '<th style="text-align:left">Block #</th>';
+    html += '<th>Elapsed (s)</th>';
+    html += '<th>Tx Count</th>';
+    html += '<th>TPS</th>';
+    html += '<th>Gas/s</th>';
+    html += '<th>Gas Mined</th>';
+    html += '<th>Gas Fullness %</th>';
+    if (hasSubstrate) {
+      html += '<th>Ref Time</th>';
+      html += '<th>Ref Time Fullness %</th>';
+      html += '<th>Proof Size</th>';
+      html += '<th>Proof Size Fullness %</th>';
+    }
+    html += '</tr></thead><tbody>';
+
+    for (const b of blocks) {
+      html += '<tr>';
+      html += '<td style="text-align:left">' + b.relative_block_number + '</td>';
+      html += '<td>' + b.relative_observation_time_seconds + '</td>';
+      html += '<td>' + fmtCount(b.transaction_count) + '</td>';
+      html += '<td>' + (b.transactions_per_second != null ? fmtTps(b.transactions_per_second) : '\u2014') + '</td>';
+      html += '<td>' + (b.gas_per_second != null ? fmtSI(b.gas_per_second) : '\u2014') + '</td>';
+      html += '<td>' + fmtGas(b.block_gas_mined) + '</td>';
+      html += '<td>' + fmtPct(b.block_gas_fullness) + '</td>';
+      if (hasSubstrate) {
+        html += '<td>' + fmtGas(b.block_ref_time) + '</td>';
+        html += '<td>' + (b.block_ref_time_fullness != null ? fmtPct(b.block_ref_time_fullness) : '\u2014') + '</td>';
+        html += '<td>' + fmtGas(b.block_proof_size) + '</td>';
+        html += '<td>' + (b.block_proof_size_fullness != null ? fmtPct(b.block_proof_size_fullness) : '\u2014') + '</td>';
+      }
+      html += '</tr>';
+    }
+
+    html += '</tbody></table>';
+    document.getElementById('raw-table-container').innerHTML = html;
+  }
+
+  renderTable(vp[0]);
+  select.onchange = () => renderTable(select.value);
+
+  // CSV export
+  document.getElementById('raw-csv-btn').onclick = () => {
+    const platform = select.value;
+    const blocks = metricsMap[platform] || [];
+    const hasSubstrate = blocks.some(b => b.block_ref_time != null);
+    const cols = ['Block #','Elapsed (s)','Tx Count','TPS','Gas/s','Gas Mined','Gas Fullness %'];
+    if (hasSubstrate) cols.push('Ref Time','Ref Time Fullness %','Proof Size','Proof Size Fullness %');
+    let csv = cols.join(',') + '\n';
+    for (const b of blocks) {
+      const row = [
+        b.relative_block_number,
+        b.relative_observation_time_seconds,
+        b.transaction_count,
+        b.transactions_per_second != null ? b.transactions_per_second.toFixed(2) : '',
+        b.gas_per_second != null ? b.gas_per_second.toFixed(2) : '',
+        b.block_gas_mined,
+        b.block_gas_fullness,
+      ];
+      if (hasSubstrate) {
+        row.push(
+          b.block_ref_time != null ? b.block_ref_time : '',
+          b.block_ref_time_fullness != null ? b.block_ref_time_fullness : '',
+          b.block_proof_size != null ? b.block_proof_size : '',
+          b.block_proof_size_fullness != null ? b.block_proof_size_fullness : '',
+        );
+      }
+      csv += row.join(',') + '\n';
+    }
+    navigator.clipboard.writeText(csv).then(() => {
+      const btn = document.getElementById('raw-csv-btn');
+      btn.textContent = 'Copied!';
+      setTimeout(() => { btn.textContent = 'Copy as CSV'; }, 2000);
+    });
+  };
+}
+
+function renderContractInfo(execReport) {
+  const contracts = execReport.compiled_contracts || {};
+  const addresses = execReport.contract_addresses || {};
+  const hasContracts = Object.keys(contracts).length > 0;
+  const hasAddresses = Object.keys(addresses).length > 0;
+
+  if (!hasContracts && !hasAddresses) {
+    document.getElementById('contract-section').classList.add('hidden');
+    return;
+  }
+
+  document.getElementById('contract-section').classList.remove('hidden');
+  const content = document.getElementById('contract-content');
+  let html = '';
+
+  if (hasContracts) {
+    html += '<h4 style="font-size:13px;margin-bottom:8px">Compiled Contracts</h4>';
+    html += '<table class="contract-table"><thead><tr><th>File</th><th>Contract</th><th>Platform</th><th>Size</th></tr></thead><tbody>';
+    for (const [file, contractMap] of Object.entries(contracts)) {
+      for (const [name, info] of Object.entries(contractMap)) {
+        const sizes = info.bytecode_sizes || {};
+        if (Object.keys(sizes).length > 0) {
+          for (const [platform, size] of Object.entries(sizes)) {
+            html += '<tr><td>' + file + '</td><td>' + name + '</td><td>' + platform + '</td><td>' + fmtCount(size) + ' bytes</td></tr>';
+          }
+        } else {
+          html += '<tr><td>' + file + '</td><td>' + name + '</td><td colspan="2">\u2014</td></tr>';
+        }
+      }
+    }
+    html += '</tbody></table>';
+  }
+
+  if (hasAddresses) {
+    html += '<h4 style="font-size:13px;margin:16px 0 8px">Contract Addresses</h4>';
+    html += '<table class="contract-table"><thead><tr><th>Contract</th><th>Platform</th><th>Address</th></tr></thead><tbody>';
+    for (const [instance, platformAddrs] of Object.entries(addresses)) {
+      for (const [platform, addrs] of Object.entries(platformAddrs)) {
+        for (const addr of (Array.isArray(addrs) ? addrs : [addrs])) {
+          html += '<tr><td>' + instance + '</td><td>' + platform + '</td><td>' + addr + '</td></tr>';
+        }
+      }
+    }
+    html += '</tbody></table>';
+  }
+
+  content.innerHTML = html;
+}
+
+function renderRunContext(rpt) {
+  const ctx = rpt.context;
+  if (!ctx) {
+    document.getElementById('context-section').classList.add('hidden');
+    return;
+  }
+
+  const content = document.getElementById('context-content');
+  let html = '<div class="context-grid">';
+
+  function addRow(key, val) {
+    if (val == null || val === '') return;
+    html += '<div class="context-key">' + key + '</div>';
+    html += '<div class="context-val">' + val + '</div>';
+  }
+
+  if (ctx.platforms) addRow('Platforms', (Array.isArray(ctx.platforms) ? ctx.platforms : [ctx.platforms]).join(', '));
+  if (ctx.test_specifiers) addRow('Test Specifiers', (Array.isArray(ctx.test_specifiers) ? ctx.test_specifiers : [ctx.test_specifiers]).join(', '));
+  if (ctx.repetitions != null) addRow('Repetitions', ctx.repetitions);
+  if (ctx.concurrency) {
+    const c = ctx.concurrency;
+    if (c.number_of_nodes) addRow('Nodes', c.number_of_nodes);
+    if (c.number_of_threads) addRow('Threads', c.number_of_threads);
+    if (c.number_of_concurrent_tasks) addRow('Concurrent Tasks', c.number_of_concurrent_tasks);
+  }
+  if (ctx.resolc) {
+    const r = ctx.resolc;
+    if (r.path) addRow('Resolc Path', r.path);
+    if (r.heap_size) addRow('Resolc Heap Size', fmtCount(r.heap_size) + ' bytes');
+    if (r.stack_size) addRow('Resolc Stack Size', fmtCount(r.stack_size) + ' bytes');
+  }
+  if (ctx.working_directory) addRow('Working Directory', ctx.working_directory);
+
+  // Fallback: show all top-level keys not yet displayed
+  const shown = new Set(['platforms','test_specifiers','repetitions','concurrency','resolc','working_directory']);
+  for (const [key, val] of Object.entries(ctx)) {
+    if (shown.has(key)) continue;
+    if (typeof val === 'object' && val !== null) {
+      addRow(key, JSON.stringify(val, null, 2));
+    } else {
+      addRow(key, String(val));
+    }
+  }
+
+  html += '</div>';
+  content.innerHTML = html;
+}
+
+// ── Main render ──
+function renderAll() {
+  disposeAllCharts();
+
+  const { execReport } = currentWorkload;
+  const { metricsMap, platforms, hasSubstrate, aggregates, allSteps } = extractMetrics(execReport);
+
+  // Ensure activePlatforms is valid
+  for (const p of [...activePlatforms]) {
+    if (!platforms.includes(p)) activePlatforms.delete(p);
+  }
+  if (activePlatforms.size === 0) {
+    for (const p of platforms) activePlatforms.add(p);
+  }
+
+  renderPlatformChips(platforms);
+  renderKPIs(aggregates, platforms);
+  renderTPSChart(metricsMap, platforms);
+  renderTxCountChart(metricsMap, platforms);
+  renderGasPerSecondChart(metricsMap, platforms);
+  renderUtilizationCharts(metricsMap, platforms, hasSubstrate);
+  renderStepDistribution(metricsMap, platforms, allSteps);
+  renderStatsTable(aggregates, platforms, hasSubstrate);
+  renderRawBlockData(metricsMap, platforms);
+  renderContractInfo(execReport);
+  renderRunContext(report);
+
+  connectCharts();
+}
+
+// ── Resize handler ──
+let resizeTimer;
+window.addEventListener('resize', () => {
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(() => {
+    for (const c of chartInstances) {
+      try { c.resize(); } catch(e) {}
+    }
+  }, 150);
+});
+
+// ── Init ──
+async function init() {
+  const scriptEl = document.getElementById('report-data');
+  const raw = scriptEl ? scriptEl.textContent.trim() : '';
+
+  if (raw && raw !== '/*__REPORT_DATA__*/') {
+    report = JSON.parse(raw);
+  } else {
+    try {
+      const resp = await fetch('sample-report.json');
+      report = await resp.json();
+    } catch (e) {
+      document.querySelector('.container').innerHTML =
+        '<div style="padding:48px;text-align:center;color:#EF4444">' +
+        '<h2 style="font-family:Inter Tight,sans-serif;margin-bottom:8px">No report data found</h2>' +
+        '<p>Embed report data in the <code>/*__REPORT_DATA__*/</code> placeholder or place <code>sample-report.json</code> alongside this file.</p></div>';
+      return;
+    }
+  }
+
+  allWorkloads = preprocessReport(report);
+  if (allWorkloads.length === 0) {
+    document.querySelector('.container').innerHTML =
+      '<div style="padding:48px;text-align:center;color:#F59E0B">' +
+      '<h2 style="font-family:Inter Tight,sans-serif;margin-bottom:8px">No benchmark metrics found</h2>' +
+      '<p>The report does not contain any <code>metrics_information</code> data.</p></div>';
+    return;
+  }
+
+  currentWorkload = allWorkloads[0];
+
+  // Initialize active platforms from first workload
+  const { platforms } = extractMetrics(currentWorkload.execReport);
+  activePlatforms = new Set(platforms);
+
+  renderWorkloadSelector(allWorkloads);
+  renderAll();
+}
+
+init();
+
+})();
+</script>
+</body>
+</html>
