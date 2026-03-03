@@ -33,6 +33,7 @@ pub(crate) mod internal_prelude {
     pub use std::str::FromStr;
     pub use std::sync::atomic::{AtomicUsize, Ordering};
     pub use std::sync::{Arc, LazyLock};
+    pub use std::time::SystemTime;
 
     pub use alloy::primitives::{BlockNumber, BlockTimestamp, TxHash, U256};
     pub use alloy::signers::local::PrivateKeySigner;

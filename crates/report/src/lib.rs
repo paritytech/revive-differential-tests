@@ -21,7 +21,6 @@ pub(crate) mod internal_prelude {
 
     pub use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
     pub use std::fs::OpenOptions;
-    pub use std::ops::{Add, Div};
     pub use std::path::PathBuf;
     pub use std::sync::Arc;
     pub use std::time::{SystemTime, UNIX_EPOCH};
@@ -32,7 +31,6 @@ pub(crate) mod internal_prelude {
     pub use anyhow::Context as _;
     pub use anyhow::Result;
     pub use indexmap::IndexMap;
-    pub use itertools::Itertools;
     pub use semver::Version;
     pub use serde::{Deserialize, Serialize};
     pub use serde_with::{DisplayFromStr, serde_as};

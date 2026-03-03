@@ -5,6 +5,7 @@ pub struct MinedBlockInformation {
     pub ethereum_block_information: EthereumMinedBlockInformation,
     pub substrate_block_information: Option<SubstrateMinedBlockInformation>,
     pub tx_counts: BTreeMap<StepPath, usize>,
+    pub observation_time: SystemTime,
 }
 
 impl MinedBlockInformation {

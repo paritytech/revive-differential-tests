@@ -149,17 +149,15 @@ impl Watcher {
             async move {
                 let mut observed_transaction_hashes = HashSet::new();
                 let mut observed_blocks = vec![];
-                while let Some(MinedBlockInformation {
-                    ethereum_block_information: eth_block,
-                    substrate_block_information: substrate_block,
-                    tx_counts,
-                }) = self.blocks_stream.next().await
-                {
+                while let Some(block_information) = self.blocks_stream.next().await {
                     // Keep skipping block as long as their block number is below the block number
                     // we were tasked to start at.
-                    if eth_block.block_number <= ignore_blocks_before_block_number {
+                    if block_information.ethereum_block_information.block_number
+                        <= ignore_blocks_before_block_number
+                    {
                         info!(
-                            block_number = eth_block.block_number,
+                            block_number =
+                                block_information.ethereum_block_information.block_number,
                             ignore_blocks_before_block_number,
                             "Observed a block, but it's being ignored"
                         );
@@ -169,26 +167,31 @@ impl Watcher {
                     // Add the transaction hashes from this block to the set of transaction hashes
                     // we've observed and also add it's information to the map we store where we
                     // keep track of the transaction and which block contained it.
-                    observed_transaction_hashes.extend(eth_block.transaction_hashes.clone());
+                    observed_transaction_hashes.extend(
+                        block_information
+                            .ethereum_block_information
+                            .transaction_hashes
+                            .clone(),
+                    );
 
                     // Logging information about this newly observed block and adding it to the set
                     // of block we will return at the end.
                     let requested_transactions_len = watch_requests.read().await.len();
                     info!(
-                        block.number = eth_block.block_number,
-                        block.timestamp = eth_block.block_timestamp,
-                        block.tx_hashes_len = eth_block.transaction_hashes.len(),
+                        block.number = block_information.ethereum_block_information.block_number,
+                        block.timestamp =
+                            block_information.ethereum_block_information.block_timestamp,
+                        block.tx_hashes_len = block_information
+                            .ethereum_block_information
+                            .transaction_hashes
+                            .len(),
                         transactions.observed = observed_transaction_hashes.len(),
                         transactions.requested = requested_transactions_len,
                         transactions.remaining = requested_transactions_len
                             .saturating_sub(observed_transaction_hashes.len()),
                         "Observed a new block"
                     );
-                    observed_blocks.push(MinedBlockInformation {
-                        ethereum_block_information: eth_block,
-                        substrate_block_information: substrate_block,
-                        tx_counts,
-                    });
+                    observed_blocks.push(block_information);
 
                     // This is the primary condition which determines if we should break out of the
                     // loop or not. If all of the transactions have been submitted and there's no

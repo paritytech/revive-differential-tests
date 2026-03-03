@@ -77,7 +77,6 @@ pub struct ZombienetNode {
 
 impl ZombienetNode {
     const BASE_DIRECTORY: &str = "zombienet";
-    const DATA_DIRECTORY: &str = "data";
     const LOGS_DIRECTORY: &str = "logs";
 
     const ETH_RPC_BASE_PORT: u16 = 8545;
@@ -177,11 +176,14 @@ impl ZombienetNode {
 
         let append_suffix = |nodes: &mut Vec<toml::Value>| {
             for node in nodes.iter_mut() {
-                if let Some(name) = node.get_mut("name").and_then(|v| v.as_str().map(String::from))
+                if let Some(name) = node
+                    .get_mut("name")
+                    .and_then(|v| v.as_str().map(String::from))
                 {
-                    node.as_table_mut()
-                        .unwrap()
-                        .insert("name".into(), toml::Value::String(format!("{name}{suffix}")));
+                    node.as_table_mut().unwrap().insert(
+                        "name".into(),
+                        toml::Value::String(format!("{name}{suffix}")),
+                    );
                 }
             }
         };
@@ -584,11 +586,6 @@ impl Node for ZombienetNode {
                 });
                 let _ = jh.join();
             });
-
-        // Remove the database directory
-        if let Err(e) = remove_dir_all(self.base_directory.join(Self::DATA_DIRECTORY)) {
-            tracing::warn!("Failed to remove database directory: {e:?}");
-        }
 
         Ok(())
     }
