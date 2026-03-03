@@ -8,9 +8,28 @@ default_args = ["-linfo", "--no-mdns"]
 chain = "polkadot-local"
 chain_spec_command = "chain-spec-generator {{chainName}}"
 
+# Scheduler and async backing params are patched to match Polkadot mainnet.
+# Confirmed via RPC calls to https://rpc.polkadot.io
+# (ParachainHost_scheduling_lookahead, ParachainHost_async_backing_params).
+# See: https://docs.polkadot.com/develop/parachains/maintenance/configure-asynchronous-backing/
+
 [relaychain.genesis.runtimeGenesis.patch.configuration.config.scheduler_params]
-num_cores = 1
-lookahead = 2
+# Mainnet uses 3 cores for Asset Hub elastic scaling (BLOCK_PROCESSING_VELOCITY=3).
+# Requires num_validators > num_cores (4 validators for 3 cores).
+# Source: polkadot-fellows/runtimes system-parachains/constants/src/polkadot.rs
+num_cores = 3
+# Must be 3 for async backing; lower values degrade parachain block times.
+lookahead = 3
+
+[relaychain.genesis.runtimeGenesis.patch.configuration.config.async_backing_params]
+# polkadot-local defaults to max_candidate_depth=2, but mainnet was updated to 3
+# via governance to support elastic scaling.
+# Source: https://github.com/polkadot-fellows/runtimes/pull/1048
+max_candidate_depth = 3
+allowed_ancestry_len = 2
+
+# 4 validators needed: num_cores=3 requires at least num_cores+1 validators
+# for the relay chain to finalize blocks.
 
 [[relaychain.nodes]]
 name = "alice"
@@ -18,6 +37,14 @@ validator = true
 
 [[relaychain.nodes]]
 name = "bob"
+validator = true
+
+[[relaychain.nodes]]
+name = "charlie"
+validator = true
+
+[[relaychain.nodes]]
+name = "dave"
 validator = true
 
 [[parachains]]
