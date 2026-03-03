@@ -5,7 +5,7 @@ use futures::{Stream, StreamExt, stream};
 use indexmap::{IndexMap, indexmap};
 use regex::Regex;
 use revive_dt_common::{cached_fs::read_to_string, types::CompilerIdentifier};
-use revive_dt_compiler::{Mode, SolidityCompiler, revive_resolc::Resolc};
+use revive_dt_compiler::{Mode, ParsedMode, SolidityCompiler, revive_resolc::Resolc};
 use revive_dt_config::Compile;
 use revive_dt_format::{corpus::Corpus, metadata::MetadataFile};
 use revive_dt_report::{PreLinkCompilationSpecificReporter, PreLinkCompilationSpecifier, Reporter};
@@ -137,7 +137,7 @@ pub async fn create_compilation_definitions_stream<'a>(
     corpus: &'a Corpus,
     reporter: Reporter,
 ) -> impl Stream<Item = CompilationDefinition<'a>> {
-    let modes: Vec<Mode> = context.corpus.mode.to_modes().collect();
+    let modes: Vec<Mode> = ParsedMode::many_to_modes(context.corpus.modes.iter()).collect();
     let cloned_reporter = reporter.clone();
     stream::iter(
         corpus

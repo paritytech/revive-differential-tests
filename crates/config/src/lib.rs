@@ -228,7 +228,7 @@ mod context {
 
         /// The compiler mode(s) to use for all compilations.
         ///
-        /// Format: Y[+-]? (M[0123sz])? (S[+-])? <semver>?
+        /// Format: `Y[+-]? (M[0123sz])? (S[+-])? <semver>?`
         ///
         /// - `Y`: Pipeline (via Yul IR)
         /// - `[+-]`: Optimization shorthand
@@ -245,14 +245,14 @@ mod context {
         /// - If omitted, expands to all combinations we'd like to test. E.g.:
         ///   - `Y M3` → `Y M3 S+` and `Y M3 S-`
         ///   - `Y S+` → `Y M0 S+`, `Y M3 S+`, and `Y Mz S+`
-        #[serde_as(as = "serde_with::DisplayFromStr")]
+        #[serde_as(as = "Vec<serde_with::DisplayFromStr>")]
         #[arg(
             short = 'm',
             long = "mode",
             default_value = "Y Mz S+",
             verbatim_doc_comment
         )]
-        pub mode: ParsedMode,
+        pub modes: Vec<ParsedMode>,
     }
 
     /// A set of configuration parameters for Solc.
