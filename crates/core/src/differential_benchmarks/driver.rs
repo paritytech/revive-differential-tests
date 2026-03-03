@@ -35,6 +35,10 @@ pub struct Driver<'a, I> {
     /// A map of the gas limit for all of the transactions we have.
     gas_limits: Arc<RwLock<HashMap<StepPath, u64>>>,
 
+    /// A limiter on the submissions, we await for the limiter to be ready before submitting any
+    /// transaction and its shared between the various drivers.
+    limiter: Arc<Option<DefaultDirectRateLimiter>>,
+
     /// This function controls if the driver should wait for transactions to be included in a block
     /// or not before proceeding forward.
     await_transaction_inclusion: bool,
@@ -58,6 +62,7 @@ where
         watcher_tx: UnboundedSender<WatcherEvent>,
         await_transaction_inclusion: bool,
         inclusion_watcher: &'a InclusionWatcher,
+        limiter: Arc<Option<DefaultDirectRateLimiter>>,
         steps: I,
     ) -> Result<Self> {
         let mut this = Driver {
@@ -71,6 +76,7 @@ where
             inclusion_watcher,
             await_transaction_inclusion,
             watcher_tx,
+            limiter,
             gas_limits: Arc::new(Default::default()),
         };
         this.init_execution_state(cached_compiler)
@@ -457,6 +463,7 @@ where
                 },
                 await_transaction_inclusion: self.await_transaction_inclusion,
                 inclusion_watcher: self.inclusion_watcher,
+                limiter: self.limiter.clone(),
                 watcher_tx: self.watcher_tx.clone(),
                 gas_limits: self.gas_limits.clone(),
             })
@@ -699,7 +706,9 @@ where
         let node = self.platform_information.node;
         let provider = node.provider().await.context("Creating provider failed")?;
 
-        if let Some(step_path) = step_path {
+        if let Some(step_path) = step_path
+            && self.platform_information.platform.allow_caching_gas_limit()
+        {
             let read_guard = self.gas_limits.read().await;
             let gas_limit = match read_guard.get(step_path) {
                 Some(gas_estimate) => {
@@ -744,7 +753,11 @@ where
                     }
                 }
             };
-            transaction.set_gas_limit(gas_limit * 120 / 100);
+            transaction.set_gas_limit(gas_limit * 110 / 100);
+        }
+
+        if let Some(limiter) = &*self.limiter {
+            limiter.until_ready().await
         }
 
         let pending_transaction_builder = provider

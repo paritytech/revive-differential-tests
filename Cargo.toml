@@ -33,6 +33,7 @@ clap = { version = "4", features = ["derive", "wrap_help"] }
 dashmap = { version = "6.1.0" }
 foundry-compilers-artifacts = { version = "0.18.0" }
 futures = { version = "0.3.31" }
+governor = { version = "0.10.4" }
 hex = "0.4.3"
 quote = "1.0.44"
 regex = "1"

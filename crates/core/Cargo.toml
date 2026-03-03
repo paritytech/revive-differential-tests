@@ -28,6 +28,7 @@ bson = { workspace = true }
 cacache = { workspace = true }
 clap = { workspace = true }
 futures = { workspace = true }
+governor = { workspace = true }
 indexmap = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }

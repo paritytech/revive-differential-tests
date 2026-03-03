@@ -152,6 +152,7 @@ impl LighthouseGethNode {
                 execution_layer_type: ExecutionLayerType::Geth,
                 consensus_layer_type: ConsensusLayerType::Lighthouse,
                 execution_layer_extra_parameters: vec![
+                    "--syncmode=full".to_string(),
                     "--nodiscover".to_string(),
                     "--cache=4096".to_string(),
                     "--txlookuplimit=0".to_string(),
@@ -171,7 +172,6 @@ impl LighthouseGethNode {
                 ],
                 consensus_layer_extra_parameters: vec![
                     "--disable-quic".to_string(),
-                    "--disable-deposit-contract-sync".to_string(),
                 ],
             }],
             network_parameters: NetworkParameters {
@@ -184,6 +184,7 @@ impl LighthouseGethNode {
                 capella_fork_epoch: 0,
                 deneb_fork_epoch: 0,
                 electra_fork_epoch: 0,
+                fulu_fork_epoch: u64::MAX,
                 preregistered_validator_keys_mnemonic: Self::VALIDATOR_MNEMONIC.to_string(),
                 num_validator_keys_per_node: 64,
                 genesis_delay: 10,
@@ -616,6 +617,7 @@ struct NetworkParameters {
     pub capella_fork_epoch: u64,
     pub deneb_fork_epoch: u64,
     pub electra_fork_epoch: u64,
+    pub fulu_fork_epoch: u64,
 
     pub preregistered_validator_keys_mnemonic: String,
 

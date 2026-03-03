@@ -148,6 +148,17 @@ pub async fn handle_differential_benchmarks(
                 watcher_tx.clone(),
                 context.benchmark_run.await_transaction_inclusion,
                 &inclusion_watcher,
+                match platform_information
+                    .platform
+                    .benchmarking_submissions_behavior()
+                {
+                    revive_dt_core::BenchmarksSubmissionsBehavior::Stream => Arc::new(None),
+                    revive_dt_core::BenchmarksSubmissionsBehavior::Bursts {
+                        submissions_per_seconds,
+                    } => Arc::new(Some(DefaultDirectRateLimiter::direct(Quota::per_second(
+                        submissions_per_seconds.try_into().unwrap(),
+                    )))),
+                },
                 test_definition
                     .case
                     .steps_iterator_for_benchmarks(context.benchmark_run.default_repetition_count)

@@ -71,6 +71,16 @@ pub trait Platform {
 
     /// Exports the genesis/chainspec for the node.
     fn export_genesis(&self, context: Context) -> anyhow::Result<serde_json::Value>;
+
+    /// Describes if the platform allows for the gas fees to be cached.
+    fn allow_caching_gas_limit(&self) -> bool {
+        true
+    }
+
+    /// Describes the behavior of how transactions are submitted when benchmarking.
+    fn benchmarking_submissions_behavior(&self) -> BenchmarksSubmissionsBehavior {
+        BenchmarksSubmissionsBehavior::Stream
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Default, Hash)]
@@ -180,6 +190,16 @@ impl Platform for LighthouseGethEvmSolcPlatform {
         let node_genesis = LighthouseGethNode::node_genesis(genesis.clone(), &wallet);
         serde_json::to_value(node_genesis)
             .context("Failed to convert node genesis to a serde_value")
+    }
+
+    fn allow_caching_gas_limit(&self) -> bool {
+        false
+    }
+
+    fn benchmarking_submissions_behavior(&self) -> BenchmarksSubmissionsBehavior {
+        BenchmarksSubmissionsBehavior::Bursts {
+            submissions_per_seconds: 49,
+        }
     }
 }
 
@@ -629,4 +649,13 @@ fn spawn_node<T: Node + NodeApi + Send + Sync>(mut node: T, genesis: Genesis) ->
         "Spawned node"
     );
     Ok(node)
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum BenchmarksSubmissionsBehavior {
+    /// Submits all of the benchmarks as a stream of transactions, which means that there's no limit
+    /// on how many are submitted.
+    Stream,
+    /// Submits transactions in bursts as controlled by a limiter.
+    Bursts { submissions_per_seconds: u32 },
 }

@@ -37,6 +37,7 @@ mod internal_prelude {
     pub use clap::Parser;
     pub use futures::future::{join_all, try_join_all};
     pub use futures::{FutureExt, Stream, StreamExt, TryFutureExt, TryStreamExt, stream};
+    pub use governor::{DefaultDirectRateLimiter, Quota};
     pub use indexmap::{IndexMap, indexmap};
     pub use semver::Version;
     pub use serde::{Deserialize, Serialize};
