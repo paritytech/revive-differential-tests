@@ -1,0 +1,214 @@
+name: Benchmarks
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+    types: [opened, synchronize]
+  workflow_dispatch:
+    inputs:
+      polkadot_version:
+        description: "Polkadot SDK version tag (e.g. polkadot-stable2512-2)"
+        required: false
+      runtimes_version:
+        description: "Runtimes commit hash"
+        required: false
+      additional_keys:
+        description: "Number of additional wallet keys to generate"
+        required: false
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  POLKADOT_VERSION: ${{ inputs.polkadot_version || 'polkadot-stable2512-2' }}
+  RUNTIMES_VERSION: ${{ inputs.runtimes_version || '220928aa6e87b11cf2b40a6ad893bdbd6efd87d6' }}
+  ADDITIONAL_KEYS: ${{ inputs.additional_keys || '200010' }}
+
+permissions:
+  contents: write
+
+jobs:
+  benchmark:
+    name: Run Benchmarks
+    runs-on: parity-large
+    env:
+      SCCACHE_GHA_ENABLED: "true"
+      RUSTC_WRAPPER: "sccache"
+    steps:
+      # ── Toolchain ──────────────────────────────────────────────────────
+
+      - name: Setup Rust toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+
+      - name: Setup sccache
+        uses: mozilla-actions/sccache-action@v0.0.9
+
+      # ── External dependencies ─────────────────────────────────────────
+
+      - name: Install Docker
+        uses: docker/setup-docker-action@v4
+
+      - name: Install Kurtosis
+        run: |
+          echo "deb [trusted=yes] https://apt.fury.io/kurtosis-tech/ /" | sudo tee /etc/apt/sources.list.d/kurtosis.list
+          sudo apt-get update
+          sudo apt-get install -y kurtosis-cli
+
+      # ── Checkout repositories ──────────────────────────────────────────
+
+      - name: Checkout This Repository
+        uses: actions/checkout@v4
+
+      - name: Checkout resolc-compiler-tests
+        uses: actions/checkout@v4
+        with:
+          repository: paritytech/resolc-compiler-tests
+          path: compiler-tests
+
+      - name: Checkout runtimes
+        uses: actions/checkout@v4
+        with:
+          repository: polkadot-fellows/runtimes
+          ref: ${{ env.RUNTIMES_VERSION }}
+          path: runtimes
+
+      - name: Checkout polkadot-sdk
+        uses: actions/checkout@v4
+        with:
+          repository: paritytech/polkadot-sdk
+          ref: ${{ env.POLKADOT_VERSION }}
+          path: polkadot-sdk
+
+      # ── Install retester tooling ────────────────────────────────────────
+
+      - name: Install retester and report-processor
+        run: |
+          cargo build --profile production -p retester -p report-processor
+          cp -t ~/.cargo/bin \
+            target/production/retester \
+            target/production/report-processor
+
+      # ── Install chainspec-generator (cached by runtimes commit) ────────
+
+      - name: Cache chainspec-generator
+        id: cache-chainspec-generator
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/chain-spec-generator
+          key: chainspec-generator-${{ env.RUNTIMES_VERSION }}
+
+      - name: Install chainspec-generator
+        if: steps.cache-chainspec-generator.outputs.cache-hit != 'true'
+        run: |
+          cargo build --locked --profile production \
+            --manifest-path runtimes/chain-spec-generator/Cargo.toml \
+            --no-default-features \
+            --features polkadot,asset-hub-polkadot,fast-runtime
+          cp -t ~/.cargo/bin \
+            runtimes/target/production/chain-spec-generator
+
+      # ── Install polkadot-sdk binaries (cached by pinned tag) ───────────
+
+      - name: Cache polkadot-sdk binaries
+        id: cache-polkadot-sdk
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/polkadot
+            ~/.cargo/bin/polkadot-prepare-worker
+            ~/.cargo/bin/polkadot-execute-worker
+            ~/.cargo/bin/polkadot-parachain
+            ~/.cargo/bin/eth-rpc
+          key: polkadot-sdk-${{ env.POLKADOT_VERSION }}
+
+      - name: Install polkadot-sdk binaries
+        if: steps.cache-polkadot-sdk.outputs.cache-hit != 'true'
+        working-directory: polkadot-sdk
+        run: |
+          cargo build --locked --profile production \
+            --features fast-runtime \
+            --bin polkadot \
+            --bin polkadot-parachain \
+            -p polkadot-node-core-pvf-prepare-worker \
+            -p polkadot-node-core-pvf-execute-worker \
+            -p pallet-revive-eth-rpc
+          cp -t ~/.cargo/bin \
+            target/production/polkadot \
+            target/production/polkadot-prepare-worker \
+            target/production/polkadot-execute-worker \
+            target/production/polkadot-parachain \
+            target/production/eth-rpc
+
+      # ── Run benchmarks ───────────────────────────────────────────────────
+
+      - name: Create working directory
+        run: mkdir -p ./workdir
+
+      - name: Run benchmarks
+        run: |
+          retester benchmark \
+            --test ./compiler-tests/fixtures/solidity/workloads \
+            --platform lighthouse-geth-evm-solc \
+            --platform zombienet-revm-solc \
+            --platform zombienet-polkavm-resolc \
+            --benchmark.await-transaction-inclusion \
+            --working-directory ./workdir \
+            --concurrency.number-of-nodes 1 \
+            --concurrency.number-of-threads 12 \
+            --concurrency.number-of-concurrent-tasks 1000 \
+            --zombienet.config-path ./assets/polkadot-assethub-zombienet.toml \
+            --wallet.additional-keys ${{ env.ADDITIONAL_KEYS }} \
+            --report.file-name report.json \
+            > ./workdir/retester.log 2>&1
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-logs
+          path: ./workdir/retester.log
+
+      - name: Generate HTML report
+        run: |
+          report-processor generate-benchmarks-html-report \
+            --report-path ./workdir/report.json \
+            --output-path ./workdir/benchmark-report.html
+
+      # ── Publish to GitHub Pages ────────────────────────────────────────
+
+      - name: Checkout gh-pages
+        uses: actions/checkout@v4
+        with:
+          ref: gh-pages
+          path: gh-pages-dir
+
+      - name: Add report
+        run: |
+          REPORT_NAME="benchmark-$(date -u +%Y-%m-%d-%H%M%S).html"
+          echo "REPORT_NAME=${REPORT_NAME}" >> "$GITHUB_ENV"
+          mkdir -p gh-pages-dir/reports
+          cp ./workdir/benchmark-report.html "gh-pages-dir/reports/${REPORT_NAME}"
+
+      - name: Update redirect
+        run: |
+          cat > gh-pages-dir/index.html <<EOF
+          <!DOCTYPE html>
+          <html>
+          <head><meta http-equiv="refresh" content="0; url=reports/${REPORT_NAME}"></head>
+          </html>
+          EOF
+
+      - name: Push to gh-pages
+        working-directory: gh-pages-dir
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add .
+          git commit -m "Update benchmark report"
+          git push
