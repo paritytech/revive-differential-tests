@@ -185,7 +185,11 @@ pub async fn handle_differential_benchmarks(
             // Running the driver.
             driver
                 .execute_all()
-                .instrument(info_span!("Executing Benchmarks", %platform_identifier))
+                .instrument(info_span!(
+                    "Executing Benchmarks",
+                    %platform_identifier,
+                    case_name = ?test_definition.case.name
+                ))
                 .inspect(|_| {
                     info!("All transactions submitted - driver completed execution");
                 })
