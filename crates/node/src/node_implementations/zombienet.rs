@@ -145,6 +145,10 @@ impl ZombienetNode {
         let mut toml_value: toml::Value =
             toml::from_str(&toml_content).context("Failed to parse zombienet TOML")?;
 
+        super::zombienet_core_assignment::inject_core_assignments(
+            &mut toml_value,
+            &self.base_directory,
+        )?;
         self.inject_prefunded_chainspec(&mut toml_value)?;
         self.make_node_names_unique(&mut toml_value);
 
@@ -253,14 +257,7 @@ impl ZombienetNode {
             .context("Failed to parse chainspec JSON")?;
 
         // Append wallet balances to the existing balances array.
-        let balances = chainspec["genesis"]["runtimeGenesis"]["patch"]["balances"]["balances"]
-            .as_array_mut()
-            .context("Failed to find balances array in chainspec")?;
-
-        for address in NetworkWallet::<Ethereum>::signer_addresses(&self.wallet) {
-            let substrate_address = Self::eth_to_polkadot_address(&address);
-            balances.push(json!((substrate_address, INITIAL_BALANCE)));
-        }
+        inject_wallet_balances(&mut chainspec, &self.wallet)?;
 
         // Write the pre-funded chainspec to a file.
         let chainspec_path = self.base_directory.join("chainspec.json");
@@ -426,16 +423,6 @@ impl ZombienetNode {
         })
     }
 
-    fn eth_to_polkadot_address(address: &Address) -> String {
-        let eth_bytes = address.0.0;
-
-        let mut padded = [0xEEu8; 32];
-        padded[..20].copy_from_slice(&eth_bytes);
-
-        let account_id = AccountId32::from(padded);
-        account_id.to_ss58check()
-    }
-
     pub fn eth_rpc_version(&self) -> anyhow::Result<String> {
         let output = Command::new(&self.eth_proxy_binary)
             .arg("--version")
@@ -491,16 +478,7 @@ impl ZombienetNode {
         let mut chainspec_json = serde_json::from_str::<serde_json::Value>(&content)
             .context("Failed to parse Substrate chain spec JSON")?;
 
-        let existing_chainspec_balances =
-            chainspec_json["genesis"]["runtimeGenesis"]["patch"]["balances"]["balances"]
-                .as_array_mut()
-                .expect("Can't fail");
-
-        for address in NetworkWallet::<Ethereum>::signer_addresses(wallet) {
-            let substrate_address = Self::eth_to_polkadot_address(&address);
-            let balance = INITIAL_BALANCE;
-            existing_chainspec_balances.push(json!((substrate_address, balance)));
-        }
+        inject_wallet_balances(&mut chainspec_json, wallet)?;
 
         Ok(chainspec_json)
     }
@@ -689,53 +667,6 @@ mod tests {
             .get_receipt()
             .await
             .expect("Failed to get the receipt for the transfer");
-    }
-
-    #[test]
-    #[ignore = "Ignored since CI doesn't have zombienet installed"]
-    fn print_eth_to_polkadot_mappings() {
-        let eth_addresses = vec![
-            "0x90F8bf6A479f320ead074411a4B0e7944Ea8c9C1",
-            "0xffffffffffffffffffffffffffffffffffffffff",
-            "90F8bf6A479f320ead074411a4B0e7944Ea8c9C1",
-        ];
-
-        for eth_addr in eth_addresses {
-            let ss58 = ZombienetNode::eth_to_polkadot_address(&eth_addr.parse().unwrap());
-
-            println!("Ethereum: {eth_addr} -> Polkadot SS58: {ss58}");
-        }
-    }
-
-    #[test]
-    #[ignore = "Ignored since CI doesn't have zombienet installed"]
-    fn test_eth_to_polkadot_address() {
-        let cases = vec![
-            (
-                "0x90F8bf6A479f320ead074411a4B0e7944Ea8c9C1",
-                "5FLneRcWAfk3X3tg6PuGyLNGAquPAZez5gpqvyuf3yUK8VaV",
-            ),
-            (
-                "90F8bf6A479f320ead074411a4B0e7944Ea8c9C1",
-                "5FLneRcWAfk3X3tg6PuGyLNGAquPAZez5gpqvyuf3yUK8VaV",
-            ),
-            (
-                "0x0000000000000000000000000000000000000000",
-                "5C4hrfjw9DjXZTzV3MwzrrAr9P1MLDHajjSidz9bR544LEq1",
-            ),
-            (
-                "0xffffffffffffffffffffffffffffffffffffffff",
-                "5HrN7fHLXWcFiXPwwtq2EkSGns9eMmoUQnbVKweNz3VVr6N4",
-            ),
-        ];
-
-        for (eth_addr, expected_ss58) in cases {
-            let result = ZombienetNode::eth_to_polkadot_address(&eth_addr.parse().unwrap());
-            assert_eq!(
-                result, expected_ss58,
-                "Mismatch for Ethereum address {eth_addr}"
-            );
-        }
     }
 
     #[test]

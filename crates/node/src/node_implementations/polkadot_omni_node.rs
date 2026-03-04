@@ -268,16 +268,6 @@ impl PolkadotOmnichainNode {
         Ok(())
     }
 
-    fn eth_to_substrate_address(address: &Address) -> String {
-        let eth_bytes = address.0.0;
-
-        let mut padded = [0xEEu8; 32];
-        padded[..20].copy_from_slice(&eth_bytes);
-
-        let account_id = AccountId32::from(padded);
-        account_id.to_ss58check()
-    }
-
     pub fn eth_rpc_version(&self) -> anyhow::Result<String> {
         let output = Command::new(&self.eth_rpc_binary_path)
             .arg("--version")
@@ -318,16 +308,7 @@ impl PolkadotOmnichainNode {
             serde_json::from_reader::<_, serde_json::Value>(&unmodified_chainspec_file)
                 .context("Failed to read the unmodified chainspec JSON")?;
 
-        let existing_chainspec_balances =
-            chainspec_json["genesis"]["runtimeGenesis"]["patch"]["balances"]["balances"]
-                .as_array_mut()
-                .expect("Can't fail");
-
-        for address in NetworkWallet::<Ethereum>::signer_addresses(wallet) {
-            let substrate_address = Self::eth_to_substrate_address(&address);
-            let balance = INITIAL_BALANCE;
-            existing_chainspec_balances.push(json!((substrate_address, balance)));
-        }
+        inject_wallet_balances(&mut chainspec_json, wallet)?;
 
         Ok(chainspec_json)
     }

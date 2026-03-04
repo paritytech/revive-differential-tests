@@ -170,9 +170,7 @@ impl LighthouseGethNode {
                     "--ws.origins=*".to_string(),
                     "--miner.gaslimit=30000000".to_string(),
                 ],
-                consensus_layer_extra_parameters: vec![
-                    "--disable-quic".to_string(),
-                ],
+                consensus_layer_extra_parameters: vec!["--disable-quic".to_string()],
             }],
             network_parameters: NetworkParameters {
                 preset: NetworkPreset::Mainnet,
