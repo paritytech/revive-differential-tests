@@ -169,6 +169,7 @@ impl LighthouseGethNode {
                     "--ws.api=eth,net,web3,txpool,engine".to_string(),
                     "--ws.origins=*".to_string(),
                     "--miner.gaslimit=60000000".to_string(),
+                    "--miner.gasprice=0".to_string(),
                 ],
                 consensus_layer_extra_parameters: vec!["--disable-quic".to_string()],
             }],
@@ -450,6 +451,23 @@ impl NodeApi for LighthouseGethNode {
 
     fn evm_version(&self) -> EVMVersion {
         EVMVersion::Cancun
+    }
+
+    fn submit_transaction(
+        &self,
+        mut transaction: TransactionRequest,
+    ) -> FrameworkFuture<Result<alloy::primitives::TxHash>> {
+        transaction.set_gas_price(10_000 * GWEI_TO_WEI as u128);
+        let provider = self.provider();
+        Box::pin(async move {
+            provider
+                .await
+                .context("Failed to get the provider")?
+                .send_transaction(transaction)
+                .await
+                .context("Failed to submit transaction")
+                .map(|pending_transaction| *pending_transaction.tx_hash())
+        })
     }
 
     fn provider(&self) -> FrameworkFuture<anyhow::Result<DynProvider>> {

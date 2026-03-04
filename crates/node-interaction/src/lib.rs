@@ -76,16 +76,15 @@ pub trait NodeApi {
         &self,
         transaction: TransactionRequest,
     ) -> FrameworkFuture<Result<TransactionReceipt>> {
+        let submission_future = self.submit_transaction(transaction);
         let provider = self.provider();
         Box::pin(async move {
+            let tx_hash = submission_future.await?;
+            let provider = provider.await.context("Failed to get the provider")?;
             provider
+                .get_transaction_receipt(tx_hash)
                 .await
-                .context("Failed to get the provider")?
-                .send_transaction(transaction)
-                .await
-                .context("Failed to submit transaction")?
-                .get_receipt()
-                .await
+                .context("Failed to get the transaction receipt")?
                 .context("Failed to get the transaction receipt")
         })
     }
