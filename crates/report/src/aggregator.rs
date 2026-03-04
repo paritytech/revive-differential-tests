@@ -767,17 +767,18 @@ pub fn compute_metrics_information(blocks: &[MinedBlockInformation]) -> Vec<Metr
         .as_secs();
 
     let mut result = Vec::with_capacity(trimmed.len());
-    let mut prev_observation_time: Option<u64> = None;
+    let mut prev_observation_time_millis: Option<u128> = None;
 
     for block in trimmed {
         let eth = &block.ethereum_block_information;
         let tx_count = eth.transaction_hashes.len() as u64;
         let this_ts = eth.block_timestamp;
-        let this_obs = block
+        let obs_duration = block
             .observation_time
             .duration_since(UNIX_EPOCH)
-            .expect("observation_time before UNIX_EPOCH")
-            .as_secs();
+            .expect("observation_time before UNIX_EPOCH");
+        let this_obs = obs_duration.as_secs();
+        let this_obs_millis = obs_duration.as_millis();
 
         let step_count = block
             .tx_counts
@@ -785,11 +786,12 @@ pub fn compute_metrics_information(blocks: &[MinedBlockInformation]) -> Vec<Metr
             .map(|(k, v)| (k.clone(), *v as u64))
             .collect();
 
-        // Compute rate fields using observation time deltas
-        let (tps, gps, rt_ps, ps_ps) = if let Some(prev_obs) = prev_observation_time {
-            let dt = this_obs.saturating_sub(prev_obs);
-            if dt > 0 {
-                let dt_f = dt as f64;
+        // Compute rate fields using observation time deltas (millisecond precision)
+        let (tps, gps, rt_ps, ps_ps) = if let Some(prev_obs_millis) = prev_observation_time_millis
+        {
+            let dt_millis = this_obs_millis.saturating_sub(prev_obs_millis);
+            if dt_millis > 0 {
+                let dt_f = dt_millis as f64 / 1000.0;
                 let tps = Some(tx_count as f64 / dt_f);
                 let gps = Some(eth.mined_gas as f64 / dt_f);
                 let rt_ps = block
@@ -867,7 +869,7 @@ pub fn compute_metrics_information(blocks: &[MinedBlockInformation]) -> Vec<Metr
             block_proof_size_fullness: proof_size_fullness,
         });
 
-        prev_observation_time = Some(this_obs);
+        prev_observation_time_millis = Some(this_obs_millis);
     }
 
     result
