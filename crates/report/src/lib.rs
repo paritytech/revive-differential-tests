@@ -21,7 +21,7 @@ pub(crate) mod internal_prelude {
 
     pub use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
     pub use std::fs::OpenOptions;
-    pub use std::path::PathBuf;
+    pub use std::path::{Path, PathBuf};
     pub use std::sync::Arc;
     pub use std::time::{SystemTime, UNIX_EPOCH};
 

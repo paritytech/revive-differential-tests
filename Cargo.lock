@@ -5949,7 +5949,9 @@ name = "revive-dt-report-processor"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "base64 0.22.1",
  "clap",
+ "flate2",
  "revive-dt-common",
  "revive-dt-report",
  "serde",

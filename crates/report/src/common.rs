@@ -8,6 +8,12 @@ define_wrapper_type!(
     pub struct MetadataFilePath(PathBuf);
 );
 
+impl AsRef<Path> for MetadataFilePath {
+    fn as_ref(&self) -> &Path {
+        self.as_path()
+    }
+}
+
 /// An absolute specifier for a test.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct TestSpecifier {

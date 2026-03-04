@@ -2,11 +2,15 @@ use std::{
     borrow::Cow,
     collections::{BTreeMap, BTreeSet, HashSet},
     fmt::Display,
-    fs::{File, OpenOptions},
+    fs::{File, OpenOptions, read_to_string},
     ops::{Deref, DerefMut},
     path::{Path, PathBuf},
     str::FromStr,
 };
+
+use base64::Engine as _;
+use base64::engine::general_purpose::STANDARD;
+use flate2::{Compression, write::GzEncoder};
 
 use anyhow::{Context as _, Error, Result, bail};
 use clap::{Parser, ValueEnum};
@@ -21,7 +25,7 @@ fn main() -> Result<()> {
 
     match cli {
         Cli::GenerateExpectationsFile {
-            report_path,
+            report: report_path,
             output_path: output_file,
             remove_prefix,
             include_status,
@@ -95,8 +99,8 @@ fn main() -> Result<()> {
                 .context("Failed to write the expectations to file")?;
         }
         Cli::CompareExpectationFiles {
-            base_expectation_path,
-            other_expectation_path,
+            base_expectations: base_expectation_path,
+            other_expectations: other_expectation_path,
         } => {
             let keys = base_expectation_path
                 .keys()
@@ -123,9 +127,66 @@ fn main() -> Result<()> {
                 }
             }
         }
+        Cli::GenerateBenchmarksHtmlReport {
+            report: report_path,
+            output_path,
+        } => {
+            const TEMPLATE: &str = include_str!("../../../assets/benchmark-report.html");
+            const INJECT_BEFORE: &str = "<script>\n// ── Configuration ──";
+
+            if !TEMPLATE.contains(INJECT_BEFORE) {
+                anyhow::bail!(
+                    "Injection marker not found in HTML template. \
+                     Expected to find: {:?}",
+                    INJECT_BEFORE
+                );
+            }
+
+            let report_base64 = gzip_base64(&*report_path).context("Failed to embed report")?;
+
+            let metadata_base64 = gzip_base64(
+                &report_path
+                    .metadata_files
+                    .iter()
+                    .map(|path| {
+                        let path_ref: &Path = path.as_ref();
+                        let key = path_ref.display().to_string();
+                        let value: serde_json::Value = serde_json::from_str(
+                            &read_to_string(path_ref)
+                                .with_context(|| format!("Failed to read metadata file: {key}"))?,
+                        )
+                        .with_context(|| format!("Failed to parse metadata file as JSON: {key}"))?;
+                        Ok((key, value))
+                    })
+                    .collect::<Result<serde_json::Map<String, serde_json::Value>>>()?,
+            )
+            .context("Failed to embed metadata")?;
+
+            let html = TEMPLATE.replacen(
+                INJECT_BEFORE,
+                &format!(
+                    "<script>const EMBEDDED_REPORT=\"{report_base64}\";const EMBEDDED_METADATA=\"{metadata_base64}\";</script>\n{INJECT_BEFORE}"
+                ),
+                1,
+            );
+
+            std::fs::write(&output_path, &html).with_context(|| {
+                format!("Failed to write HTML report to {}", output_path.display())
+            })?;
+        }
     };
 
     Ok(())
+}
+
+/// Serialize `value` as JSON, gzip-compress it at maximum compression, and return a standard
+/// base64-encoded string. The browser decompresses this with the native
+/// `DecompressionStream('gzip')` API.
+fn gzip_base64(value: &impl Serialize) -> Result<String> {
+    let mut encoder = GzEncoder::new(Vec::new(), Compression::best());
+    serde_json::to_writer(&mut encoder, value).context("Failed to serialize into gzip encoder")?;
+    let compressed = encoder.finish().context("Failed to finalize gzip stream")?;
+    Ok(STANDARD.encode(compressed))
 }
 
 type Expectations<'a> = BTreeMap<TestSpecifier<'a>, Status>;
@@ -137,8 +198,8 @@ pub enum Cli {
     /// Generates an expectation file out of a given report.
     GenerateExpectationsFile {
         /// The path of the report's JSON file to generate the expectation's file for.
-        #[clap(long)]
-        report_path: JsonFile<Report>,
+        #[clap(long = "report-path")]
+        report: JsonFile<Report>,
 
         /// The path of the output file to generate.
         ///
@@ -162,12 +223,23 @@ pub enum Cli {
     /// Compares two expectation files to ensure that they match each other.
     CompareExpectationFiles {
         /// The path of the base expectation file.
-        #[clap(long)]
-        base_expectation_path: JsonFile<Expectations<'static>>,
+        #[clap(long = "base-expectation-path")]
+        base_expectations: JsonFile<Expectations<'static>>,
 
         /// The path of the other expectation file.
+        #[clap(long = "other-expectation-path")]
+        other_expectations: JsonFile<Expectations<'static>>,
+    },
+
+    /// Generates an HTML report for the provided benchmark report.
+    GenerateBenchmarksHtmlReport {
+        /// The path of the report's JSON file to generate the HTML report for.
+        #[clap(long = "report-path")]
+        report: JsonFile<Report>,
+
+        /// The path of the output file to output the HTML report to.
         #[clap(long)]
-        other_expectation_path: JsonFile<Expectations<'static>>,
+        output_path: PathBuf,
     },
 }
 
