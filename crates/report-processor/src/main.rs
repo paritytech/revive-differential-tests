@@ -132,7 +132,7 @@ fn main() -> Result<()> {
             output_path,
         } => {
             const TEMPLATE: &str = include_str!("../../../assets/benchmark-report.html");
-            const INJECT_BEFORE: &str = "<script>\n// ── Configuration ──";
+            const INJECT_BEFORE: &str = "<script>\n// ═══════════════════════════════════════════════════════════════════════════\n// Constants";
 
             if !TEMPLATE.contains(INJECT_BEFORE) {
                 anyhow::bail!(
