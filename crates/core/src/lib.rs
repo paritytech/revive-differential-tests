@@ -191,10 +191,6 @@ impl Platform for LighthouseGethEvmSolcPlatform {
         serde_json::to_value(node_genesis)
             .context("Failed to convert node genesis to a serde_value")
     }
-
-    fn allow_caching_gas_limit(&self) -> bool {
-        false
-    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Default, Hash)]
