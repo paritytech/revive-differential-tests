@@ -17,6 +17,12 @@ on:
       additional_keys:
         description: "Number of additional wallet keys to generate"
         required: false
+      resolc_version:
+        description: "Resolc compiler version tag (e.g. v0.6.0)"
+        required: false
+      solc_version:
+        description: "Solc compiler version (e.g. v0.8.28)"
+        required: false
 
 concurrency:
   group: ${{ github.workflow }}
@@ -27,6 +33,8 @@ env:
   POLKADOT_VERSION: ${{ inputs.polkadot_version || 'polkadot-stable2512-2' }}
   RUNTIMES_VERSION: ${{ inputs.runtimes_version || '220928aa6e87b11cf2b40a6ad893bdbd6efd87d6' }}
   ADDITIONAL_KEYS: ${{ inputs.additional_keys || '200010' }}
+  RESOLC_VERSION: ${{ inputs.resolc_version || 'v0.6.0' }}
+  SOLC_VERSION: ${{ inputs.solc_version || 'v0.8.28' }}
 
 permissions:
   contents: write
@@ -82,6 +90,20 @@ jobs:
           repository: paritytech/polkadot-sdk
           ref: ${{ env.POLKADOT_VERSION }}
           path: polkadot-sdk
+
+      # ── Install compilers ───────────────────────────────────────────────
+
+      - name: Install solc
+        run: |
+          curl -sSLo ~/.cargo/bin/solc \
+            "https://github.com/ethereum/solidity/releases/download/${{ env.SOLC_VERSION }}/solc-static-linux"
+          chmod +x ~/.cargo/bin/solc
+
+      - name: Install resolc
+        run: |
+          curl -sSLo ~/.cargo/bin/resolc \
+            "https://github.com/paritytech/revive/releases/download/${{ env.RESOLC_VERSION }}/resolc-x86_64-unknown-linux-musl"
+          chmod +x ~/.cargo/bin/resolc
 
       # ── Install retester tooling ────────────────────────────────────────
 
