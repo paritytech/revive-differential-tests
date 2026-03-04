@@ -195,12 +195,6 @@ impl Platform for LighthouseGethEvmSolcPlatform {
     fn allow_caching_gas_limit(&self) -> bool {
         false
     }
-
-    fn benchmarking_submissions_behavior(&self) -> BenchmarksSubmissionsBehavior {
-        BenchmarksSubmissionsBehavior::Bursts {
-            submissions_per_seconds: 49,
-        }
-    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Default, Hash)]
