@@ -25,7 +25,7 @@ mod internal_prelude {
     pub use alloy::json_abi::JsonAbi;
     pub use alloy::network::{Ethereum, TransactionBuilder};
     pub use alloy::primitives::{Address, BlockNumber, TxHash, U256, address};
-    pub use alloy::providers::Provider;
+    pub use alloy::providers::{PendingTransactionBuilder, Provider};
     pub use alloy::rpc::types::trace::geth::{
         CallFrame, GethDebugBuiltInTracerType, GethDebugTracerConfig, GethDebugTracerType,
         GethDebugTracingOptions,

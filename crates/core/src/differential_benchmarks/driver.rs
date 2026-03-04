@@ -760,12 +760,14 @@ where
             limiter.until_ready().await
         }
 
-        let pending_transaction_builder = provider
-            .send_transaction(transaction)
+        let transaction_hash = self
+            .platform_information
+            .node
+            .submit_transaction(transaction)
             .await
             .context("Failed to submit transaction")?;
-
-        let transaction_hash = *pending_transaction_builder.tx_hash();
+        let pending_transaction_builder =
+            PendingTransactionBuilder::new(provider.root().clone(), transaction_hash);
         Span::current().record("transaction_hash", display(transaction_hash));
 
         info!("Submitted transaction");
