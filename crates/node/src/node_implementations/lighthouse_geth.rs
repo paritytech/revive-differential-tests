@@ -33,6 +33,7 @@ pub struct LighthouseGethNode {
     /* Directory Paths */
     base_directory: PathBuf,
     logs_directory: PathBuf,
+    wrapper_directory: PathBuf,
 
     /* File Paths */
     config_file_path: PathBuf,
@@ -42,9 +43,6 @@ pub struct LighthouseGethNode {
 
     /* Spawned Processes */
     process: Option<Process>,
-
-    /* Prefunded Account Information */
-    prefunded_account_address: Address,
 
     /* Provider Related Fields */
     wallet: Arc<EthereumWallet>,
@@ -103,6 +101,7 @@ impl LighthouseGethNode {
 
             /* Directory Paths */
             logs_directory: base_directory.join(Self::LOGS_DIRECTORY),
+            wrapper_directory: base_directory.join("wrapper"),
             base_directory,
 
             /* Binary Paths & Timeouts */
@@ -110,9 +109,6 @@ impl LighthouseGethNode {
 
             /* Spawned Processes */
             process: None,
-
-            /* Prefunded Account Information */
-            prefunded_account_address: wallet.default_signer().address(),
 
             /* Provider Related Fields */
             wallet: wallet.clone(),
@@ -142,6 +138,8 @@ impl LighthouseGethNode {
             .context("Failed to create base directory for geth node")?;
         create_dir_all(&self.logs_directory)
             .context("Failed to create logs directory for geth node")?;
+        create_dir_all(&self.wrapper_directory)
+            .context("Failed to create wrapper directory for geth node")?;
 
         Ok(())
     }
@@ -169,6 +167,7 @@ impl LighthouseGethNode {
                     "--ws.api=eth,net,web3,txpool,engine".to_string(),
                     "--ws.origins=*".to_string(),
                     "--miner.gaslimit=60000000".to_string(),
+                    "--rpc.txfeecap=0".to_string(),
                 ],
                 consensus_layer_extra_parameters: vec!["--disable-quic".to_string()],
             }],
@@ -186,12 +185,7 @@ impl LighthouseGethNode {
                 preregistered_validator_keys_mnemonic: Self::VALIDATOR_MNEMONIC.to_string(),
                 num_validator_keys_per_node: 64,
                 genesis_delay: 10,
-                prefunded_accounts: {
-                    let map = std::iter::once(self.prefunded_account_address)
-                        .map(|address| (address, GenesisAccount::default().with_balance(U256::MAX)))
-                        .collect::<BTreeMap<_, _>>();
-                    serde_json::to_string(&map).unwrap()
-                },
+                prefunded_accounts: "{}".to_string(),
                 gas_limit: 60_000_000,
                 genesis_gaslimit: 60_000_000,
             },
@@ -212,10 +206,51 @@ impl LighthouseGethNode {
             }),
         };
 
+        // Write the kurtosis args config file.
         let file = File::create(self.config_file_path.as_path())
             .context("Failed to open the config yaml file")?;
         serde_yaml_ng::to_writer(file, &config)
             .context("Failed to write the config to the yaml file")?;
+
+        // Write the prefunded accounts JSON into the wrapper package. This is
+        // read server-side by Starlark's `read_file` and injected into the
+        // ethereum-package via `additional_preloaded_contracts`, bypassing the
+        // 4 MB gRPC arg size limit that `prefunded_accounts` is subject to.
+        let prefunded_accounts = {
+            let map = NetworkWallet::<Ethereum>::signer_addresses(self.wallet.as_ref())
+                .map(|address| (address, GenesisAccount::default().with_balance(U256::MAX)))
+                .collect::<BTreeMap<_, _>>();
+            serde_json::to_string(&map).context("Failed to serialize prefunded accounts")?
+        };
+        std::fs::write(
+            self.wrapper_directory.join("prefunded_accounts.json"),
+            &prefunded_accounts,
+        )
+        .context("Failed to write prefunded_accounts.json")?;
+
+        // Write the Kurtosis package manifest for the wrapper.
+        std::fs::write(
+            self.wrapper_directory.join("kurtosis.yml"),
+            "name: github.com/local/ethereum-wrapper\nreplace:\n  {}\n",
+        )
+        .context("Failed to write kurtosis.yml")?;
+
+        // Write the Starlark entrypoint that reads the prefunded accounts from
+        // the package files and passes them to the upstream ethereum-package.
+        std::fs::write(
+            self.wrapper_directory.join("main.star"),
+            r#"ethereum_package = import_module("github.com/ethpandaops/ethereum-package/main.star")
+
+def run(plan, args={}):
+    accounts_json = read_file("./prefunded_accounts.json")
+    accounts = json.decode(accounts_json)
+    if "network_params" not in args:
+        args["network_params"] = {}
+    args["network_params"]["additional_preloaded_contracts"] = accounts
+    return ethereum_package.run(plan, args)
+"#,
+        )
+        .context("Failed to write main.star")?;
 
         Ok(())
     }
@@ -232,7 +267,7 @@ impl LighthouseGethNode {
                     .arg("run")
                     .arg("--enclave")
                     .arg(self.enclave_name.as_str())
-                    .arg("github.com/ethpandaops/ethereum-package")
+                    .arg(self.wrapper_directory.as_path())
                     .arg("--args-file")
                     .arg(self.config_file_path.as_path())
                     .stdout(stdout)
@@ -356,75 +391,6 @@ impl LighthouseGethNode {
             .cloned()
     }
 
-    /// Funds all of the accounts in the Ethereum wallet from the initially funded account.
-    fn fund_all_accounts(&self) -> FrameworkFuture<anyhow::Result<()>> {
-        let provider = self.provider();
-        let wallet = self.wallet.clone();
-        let prefunded_account_address = self.prefunded_account_address;
-
-        Box::pin(async move {
-            let provider = provider.await.context("Failed to get provider")?;
-            let mut full_block_subscriber = provider
-                .subscribe_full_blocks()
-                .into_stream()
-                .await
-                .context("Full block subscriber")?;
-
-            let mut tx_hashes = futures::future::try_join_all(
-                NetworkWallet::<Ethereum>::signer_addresses(wallet.as_ref())
-                    .enumerate()
-                    .map(move |(nonce, address)| {
-                        let provider = provider.clone();
-                        async move {
-                            let mut transaction = TransactionRequest::default()
-                                .from(prefunded_account_address)
-                                .to(address)
-                                .nonce(nonce as _)
-                                .value(INITIAL_BALANCE.try_into().unwrap())
-                                .gas_price(10_000 * GWEI_TO_WEI as u128);
-                            transaction.chain_id = Some(CHAIN_ID);
-                            provider
-                                .send_transaction(transaction)
-                                .await
-                                .map(|pending_transaction| *pending_transaction.tx_hash())
-                        }
-                    }),
-            )
-            .await
-            .context("Failed to submit all transactions")?
-            .into_iter()
-            .collect::<HashSet<_>>();
-
-            while let Some(block) = full_block_subscriber.next().await {
-                let Ok(block) = block else {
-                    continue;
-                };
-
-                let block_number = block.number();
-                let block_timestamp = block.header.timestamp;
-                let block_transaction_count = block.transactions.len();
-
-                for hash in block.transactions.into_hashes().as_hashes().unwrap() {
-                    tx_hashes.remove(hash);
-                }
-
-                info!(
-                    block.number = block_number,
-                    block.timestamp = block_timestamp,
-                    block.transaction_count = block_transaction_count,
-                    remaining_transactions = tx_hashes.len(),
-                    "Discovered new block when funding accounts"
-                );
-
-                if tx_hashes.is_empty() {
-                    break;
-                }
-            }
-
-            Ok(())
-        })
-    }
-
     pub fn node_genesis(mut genesis: Genesis, wallet: &EthereumWallet) -> Genesis {
         for signer_address in NetworkWallet::<Ethereum>::signer_addresses(&wallet) {
             genesis
@@ -437,10 +403,6 @@ impl LighthouseGethNode {
 }
 
 impl NodeApi for LighthouseGethNode {
-    fn pre_transactions(&mut self) -> FrameworkFuture<anyhow::Result<()>> {
-        self.fund_all_accounts()
-    }
-
     fn id(&self) -> usize {
         self.id as _
     }
@@ -543,6 +505,8 @@ impl Node for LighthouseGethNode {
         }
 
         drop(self.process.take());
+
+        let _ = remove_dir_all(self.wrapper_directory.as_path());
 
         Ok(())
     }
@@ -742,7 +706,6 @@ mod tests {
     async fn node_mines_simple_transfer_transaction_and_returns_receipt() {
         // Arrange
         let (context, node) = new_node();
-        node.fund_all_accounts().await.expect("Failed");
 
         let account_address = context.wallet.wallet().default_signer().address();
         let transaction = TransactionRequest::default()

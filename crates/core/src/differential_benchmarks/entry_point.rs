@@ -171,7 +171,11 @@ pub async fn handle_differential_benchmarks(
             .context("Failed to create the benchmarks driver")?;
 
             // Running the auxiliary tasks
-            let watcher_task = tokio::spawn(watcher.run());
+            let watcher_task = tokio::spawn(watcher.run().instrument(info_span!(
+                "Running Watcher",
+                %platform_identifier,
+                case_name = %test_definition.case.name.clone().unwrap_or_default()
+            )));
             let inclusion_watcher_task = tokio::spawn(
                 inclusion_watcher.run(
                     platform_information
@@ -188,7 +192,7 @@ pub async fn handle_differential_benchmarks(
                 .instrument(info_span!(
                     "Executing Benchmarks",
                     %platform_identifier,
-                    case_name = ?test_definition.case.name
+                    case_name = %test_definition.case.name.clone().unwrap_or_default()
                 ))
                 .inspect(|_| {
                     info!("All transactions submitted - driver completed execution");

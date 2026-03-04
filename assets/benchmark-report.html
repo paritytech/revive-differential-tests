@@ -1217,9 +1217,6 @@ const CAPACITY_LINE_VALUE = 100;
 /** Distinct symbols per platform for color-blind accessibility. */
 const PLATFORM_SYMBOLS = ['circle', 'rect', 'triangle', 'diamond', 'pin', 'arrow', 'roundRect', 'emptyCircle'];
 
-/** Distinct dash patterns per platform for color-blind accessibility. null = solid. */
-const PLATFORM_DASHES = [null, [5, 3], [2, 2], [8, 4, 2, 4], null, [5, 3], [2, 2], [8, 4, 2, 4]];
-
 const PLATFORM_COLORS = [
   '#2563eb', // blue
   '#dc2626', // red
@@ -1661,7 +1658,6 @@ function baseChartOption({ yFormatter, legendData }) {
 function makeLineSeries(platform, data, colorIdx) {
   const color = getColor(colorIdx);
   const symbol = PLATFORM_SYMBOLS[colorIdx % PLATFORM_SYMBOLS.length];
-  const dash = PLATFORM_DASHES[colorIdx % PLATFORM_DASHES.length];
   return {
     type: 'line',
     name: platform,
@@ -1671,7 +1667,7 @@ function makeLineSeries(platform, data, colorIdx) {
     symbolSize: SYMBOL_SIZE_DEFAULT,
     showSymbol: false,
     emphasis: { scale: true, focus: 'series', symbolSize: SYMBOL_SIZE_EMPHASIS, lineStyle: { width: LINE_WIDTH_EMPHASIS } },
-    lineStyle: { color, width: LINE_WIDTH_DEFAULT, ...(dash ? { type: dash } : {}) },
+    lineStyle: { color, width: LINE_WIDTH_DEFAULT },
     itemStyle: { color, borderWidth: 2, borderColor: '#fff' },
   };
 }

@@ -25,7 +25,7 @@ pub(crate) mod internal_prelude {
     pub use revive_dt_config::prelude::*;
     pub use revive_dt_node_interaction::prelude::*;
 
-    pub use std::collections::{BTreeMap, HashSet};
+    pub use std::collections::BTreeMap;
     pub use std::fs::{File, OpenOptions, create_dir_all, remove_dir_all};
     pub use std::io::{BufRead, BufReader, Read, Write};
     pub use std::path::{Path, PathBuf};
