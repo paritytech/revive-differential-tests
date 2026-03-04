@@ -169,7 +169,6 @@ impl LighthouseGethNode {
                     "--ws.api=eth,net,web3,txpool,engine".to_string(),
                     "--ws.origins=*".to_string(),
                     "--miner.gaslimit=60000000".to_string(),
-                    "--miner.gasprice=0".to_string(),
                 ],
                 consensus_layer_extra_parameters: vec!["--disable-quic".to_string()],
             }],
@@ -381,7 +380,8 @@ impl LighthouseGethNode {
                                 .from(prefunded_account_address)
                                 .to(address)
                                 .nonce(nonce as _)
-                                .value(INITIAL_BALANCE.try_into().unwrap());
+                                .value(INITIAL_BALANCE.try_into().unwrap())
+                                .gas_price(10_000 * GWEI_TO_WEI as u128);
                             transaction.chain_id = Some(CHAIN_ID);
                             provider
                                 .send_transaction(transaction)
