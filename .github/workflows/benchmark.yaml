@@ -177,12 +177,13 @@ jobs:
         working-directory: polkadot-sdk
         run: |
           cargo build --locked --profile production \
+            -p polkadot -p polkadot-parachain-bin -p pallet-revive-eth-rpc \
             --features polkadot/fast-runtime \
             --bin polkadot \
+            --bin polkadot-prepare-worker \
+            --bin polkadot-execute-worker \
             --bin polkadot-parachain \
-            -p polkadot-node-core-pvf-prepare-worker \
-            -p polkadot-node-core-pvf-execute-worker \
-            -p pallet-revive-eth-rpc
+            --bin eth-rpc
           cp -t ~/.cargo/bin \
             target/production/polkadot \
             target/production/polkadot-prepare-worker \
