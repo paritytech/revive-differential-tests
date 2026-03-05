@@ -188,6 +188,8 @@ jobs:
       - name: Install polkadot-sdk binaries
         if: steps.cache-polkadot-sdk.outputs.cache-hit != 'true'
         working-directory: polkadot-sdk
+        env:
+          RUSTFLAGS: "-Awarnings"
         run: |
           cargo build --locked --profile production \
             -p polkadot -p polkadot-parachain-bin -p pallet-revive-eth-rpc \
