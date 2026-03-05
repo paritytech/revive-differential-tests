@@ -57,6 +57,11 @@ jobs:
 
       # ── External dependencies ─────────────────────────────────────────
 
+      - name: Install iptables
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y iptables
+
       - name: Install Docker
         uses: docker/setup-docker-action@v4
 
