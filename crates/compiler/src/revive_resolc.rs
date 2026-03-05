@@ -119,6 +119,8 @@ impl SolidityCompiler for Resolc {
                 );
             }
 
+            let optimize_setting = optimization.unwrap_or_default();
+
             let input = SolcStandardJsonInput {
                 language: SolcStandardJsonInputLanguage::Solidity,
                 sources: sources
@@ -148,10 +150,8 @@ impl SolidityCompiler for Resolc {
                         SolcStandardJsonInputSettingsSelection::new_required_for_tests(),
                     via_ir: Some(true),
                     optimizer: SolcStandardJsonInputSettingsOptimizer::new(
-                        optimization
-                            .unwrap_or(ModeOptimizerSetting::M0)
-                            .optimizations_enabled(),
-                        ResolcOptimizer::default_mode(),
+                        optimize_setting.solc_optimizer_enabled,
+                        optimize_setting.level.to_mode_char(),
                         ResolcOptimizerDetails::disabled(&Version::new(0, 0, 0)),
                     ),
                     polkavm: self.polkavm_settings(),
@@ -325,12 +325,8 @@ impl SolidityCompiler for Resolc {
         })
     }
 
-    fn supports_mode(
-        &self,
-        optimize_setting: ModeOptimizerSetting,
-        pipeline: ModePipeline,
-    ) -> bool {
-        pipeline == ModePipeline::ViaYulIR
-            && SolidityCompiler::supports_mode(&self.0.solc, optimize_setting, pipeline)
+    fn supports_mode(&self, mode: &Mode) -> bool {
+        mode.pipeline == ModePipeline::ViaYulIR
+            && SolidityCompiler::supports_mode(&self.0.solc, mode)
     }
 }

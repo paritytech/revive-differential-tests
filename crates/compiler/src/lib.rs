@@ -6,7 +6,7 @@
 use crate::internal_prelude::*;
 
 // Re-export this as it's a part of the compiler interface.
-pub use revive_dt_common::types::{Mode, ModeOptimizerSetting, ModePipeline};
+pub use revive_dt_common::types::{Mode, ModeOptimizerLevel, ModeOptimizerSetting, ModePipeline};
 
 pub mod prelude {
     pub use crate::revive_resolc::Resolc;
@@ -48,7 +48,6 @@ pub(crate) mod internal_prelude {
         SolcStandardJsonInputSettingsOptimizer, SolcStandardJsonInputSettingsPolkaVM,
         SolcStandardJsonInputSettingsPolkaVMMemory, SolcStandardJsonInputSettingsSelection,
         SolcStandardJsonOutput,
-        standard_json::input::settings::optimizer::Optimizer as ResolcOptimizer,
         standard_json::input::settings::optimizer::details::Details as ResolcOptimizerDetails,
     };
     pub use semver::Version;
@@ -81,11 +80,7 @@ pub trait SolidityCompiler {
     ) -> Pin<Box<dyn Future<Output = Result<CompilerOutput>> + '_>>;
 
     /// Does the compiler support the provided mode and version settings.
-    fn supports_mode(
-        &self,
-        optimizer_setting: ModeOptimizerSetting,
-        pipeline: ModePipeline,
-    ) -> bool;
+    fn supports_mode(&self, mode: &Mode) -> bool;
 }
 
 /// The generic compilation input configuration.

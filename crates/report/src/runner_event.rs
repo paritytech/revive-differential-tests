@@ -23,6 +23,40 @@ revive_dt_proc_macros::define_runner_event! {
             },
             /// Reports the completion of the run.
             Completion {},
+            /// An event emitted by the runners when the compilation of the pre-link contracts
+            /// has succeeded. Uses CompilationSpecifier to support both execution and pre-link-only
+            /// compilation contexts.
+            PreLinkContractsCompilationSucceeded {
+                /// A specifier for the compilation taking place.
+                specifier: CompilationSpecifier,
+                /// The version of the compiler used to compile the contracts.
+                compiler_version: Version,
+                /// The path of the compiler used to compile the contracts.
+                compiler_path: PathBuf,
+                /// A flag of whether the contract bytecode and ABI were cached or if they were
+                /// compiled anew.
+                is_cached: bool,
+                /// The input provided to the compiler — optional and not provided if the
+                /// contracts were obtained from the cache.
+                compiler_input: Option<CompilerInput>,
+                /// The output of the compiler.
+                compiler_output: CompilerOutput,
+            },
+            /// An event emitted by the runners when the compilation of the pre-link contract
+            /// has failed.
+            PreLinkContractsCompilationFailed {
+                /// A specifier for the compilation taking place.
+                specifier: CompilationSpecifier,
+                /// The version of the compiler used to compile the contracts.
+                compiler_version: Option<Version>,
+                /// The path of the compiler used to compile the contracts.
+                compiler_path: Option<PathBuf>,
+                /// The input provided to the compiler — optional and not provided if the
+                /// contracts were obtained from the cache.
+                compiler_input: Option<CompilerInput>,
+                /// The failure reason.
+                reason: String,
+            },
         },
 
         // Events on TestSpecificReporter — test_specifier: Arc<TestSpecifier> auto-filled.
@@ -60,22 +94,6 @@ revive_dt_proc_macros::define_runner_event! {
         // Events on ExecutionSpecificReporter — execution_specifier: Arc<ExecutionSpecifier>
         // auto-filled.
         ExecutionSpecifier => {
-            /// An event emitted by the runners when the compilation of the pre-link contracts
-            /// has succeeded.
-            PreLinkContractsCompilationSucceeded {
-                /// The version of the compiler used to compile the contracts.
-                compiler_version: Version,
-                /// The path of the compiler used to compile the contracts.
-                compiler_path: PathBuf,
-                /// A flag of whether the contract bytecode and ABI were cached or if they were
-                /// compiled anew.
-                is_cached: bool,
-                /// The input provided to the compiler — optional and not provided if the
-                /// contracts were obtained from the cache.
-                compiler_input: Option<CompilerInput>,
-                /// The output of the compiler.
-                compiler_output: CompilerOutput,
-            },
             /// An event emitted by the runners when the compilation of the post-link contracts
             /// has succeeded.
             PostLinkContractsCompilationSucceeded {
@@ -91,19 +109,6 @@ revive_dt_proc_macros::define_runner_event! {
                 compiler_input: Option<CompilerInput>,
                 /// The output of the compiler.
                 compiler_output: CompilerOutput,
-            },
-            /// An event emitted by the runners when the compilation of the pre-link contract
-            /// has failed.
-            PreLinkContractsCompilationFailed {
-                /// The version of the compiler used to compile the contracts.
-                compiler_version: Option<Version>,
-                /// The path of the compiler used to compile the contracts.
-                compiler_path: Option<PathBuf>,
-                /// The input provided to the compiler — optional and not provided if the
-                /// contracts were obtained from the cache.
-                compiler_input: Option<CompilerInput>,
-                /// The failure reason.
-                reason: String,
             },
             /// An event emitted by the runners when the compilation of the post-link contract
             /// has failed.
@@ -124,6 +129,11 @@ revive_dt_proc_macros::define_runner_event! {
                 contract_instance: ContractInstance,
                 /// The address of the contract.
                 address: Address,
+            },
+            /// An event emitted by the runners when libraries have been deployed.
+            LibrariesDeployed {
+                /// The addresses of the libraries that were deployed.
+                libraries: BTreeMap<ContractInstance, Address>,
             },
             /// An event emitted with information on a transaction that was submitted for a
             /// certain step of the execution.
@@ -148,6 +158,20 @@ revive_dt_proc_macros::define_runner_event! {
                 mined_block_information: MinedBlockInformation,
             },
         },
+
+        // Events on PreLinkCompilationSpecificReporter —
+        // pre_link_compilation_specifier: Arc<PreLinkCompilationSpecifier> auto-filled.
+        PreLinkCompilationSpecifier => {
+            /// An event emitted by the runners when they discover a pre-link-only compilation.
+            PreLinkCompilationDiscovery {},
+            /// An event emitted by the runners when a pre-link-only compilation is ignored.
+            PreLinkContractsCompilationIgnored {
+                /// A reason for the compilation to be ignored.
+                reason: String,
+                /// Additional fields that describe more information on why the compilation was ignored.
+                additional_fields: IndexMap<String, serde_json::Value>,
+            },
+        },
     }
 }
 
@@ -159,6 +183,16 @@ impl Reporter {
         TestSpecificReporter {
             reporter: self.clone(),
             test_specifier: test_specifier.into(),
+        }
+    }
+
+    pub fn pre_link_compilation_specific_reporter(
+        &self,
+        compilation_specifier: impl Into<Arc<PreLinkCompilationSpecifier>>,
+    ) -> PreLinkCompilationSpecificReporter {
+        PreLinkCompilationSpecificReporter {
+            reporter: self.clone(),
+            pre_link_compilation_specifier: compilation_specifier.into(),
         }
     }
 
@@ -184,5 +218,67 @@ impl TestSpecificReporter {
                 platform_identifier: platform_identifier.into(),
             }),
         }
+    }
+}
+
+/// A wrapper that allows functions to accept either reporter type for compilation events.
+pub enum CompilationReporter<'a> {
+    Execution(&'a ExecutionSpecificReporter),
+    PreLink(&'a PreLinkCompilationSpecificReporter),
+}
+
+impl CompilationReporter<'_> {
+    fn reporter(&self) -> &Reporter {
+        match self {
+            CompilationReporter::Execution(r) => &r.reporter,
+            CompilationReporter::PreLink(r) => &r.reporter,
+        }
+    }
+
+    fn compilation_specifier(&self) -> CompilationSpecifier {
+        match self {
+            CompilationReporter::Execution(r) => {
+                CompilationSpecifier::Execution(r.execution_specifier.clone())
+            }
+            CompilationReporter::PreLink(r) => {
+                CompilationSpecifier::PreLink(r.pre_link_compilation_specifier.clone())
+            }
+        }
+    }
+
+    pub fn report_pre_link_contracts_compilation_succeeded_event(
+        &self,
+        compiler_version: impl Into<Version>,
+        compiler_path: impl Into<PathBuf>,
+        is_cached: impl Into<bool>,
+        compiler_input: impl Into<Option<CompilerInput>>,
+        compiler_output: impl Into<CompilerOutput>,
+    ) -> anyhow::Result<()> {
+        self.reporter()
+            .report_pre_link_contracts_compilation_succeeded_event(
+                self.compilation_specifier(),
+                compiler_version,
+                compiler_path,
+                is_cached,
+                compiler_input,
+                compiler_output,
+            )
+    }
+
+    pub fn report_pre_link_contracts_compilation_failed_event(
+        &self,
+        compiler_version: impl Into<Option<Version>>,
+        compiler_path: impl Into<Option<PathBuf>>,
+        compiler_input: impl Into<Option<CompilerInput>>,
+        reason: impl Into<String>,
+    ) -> anyhow::Result<()> {
+        self.reporter()
+            .report_pre_link_contracts_compilation_failed_event(
+                self.compilation_specifier(),
+                compiler_version,
+                compiler_path,
+                compiler_input,
+                reason,
+            )
     }
 }

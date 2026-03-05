@@ -7,6 +7,7 @@ pub struct ReportAggregator {
     /* Internal Report State */
     report: Report,
     remaining_cases: HashMap<MetadataFilePath, HashMap<Mode, HashSet<CaseIdx>>>,
+    remaining_compilation_modes: HashMap<MetadataFilePath, HashSet<Mode>>,
     /* Channels */
     runner_tx: Option<UnboundedSender<RunnerEvent>>,
     runner_rx: UnboundedReceiver<RunnerEvent>,
@@ -24,9 +25,11 @@ impl ReportAggregator {
                 Context::Test(ref context) => context.report.file_name.clone(),
                 Context::Benchmark(ref context) => context.report.file_name.clone(),
                 Context::ExportJsonSchema(_) | Context::ExportGenesis(..) => None,
+                Context::Compile(ref context) => context.report.file_name.clone(),
             },
             report: Report::new(context),
             remaining_cases: Default::default(),
+            remaining_compilation_modes: Default::default(),
             runner_tx: Some(runner_tx),
             runner_rx,
             listener_tx,
@@ -57,6 +60,9 @@ impl ReportAggregator {
                 RunnerEvent::TestCaseDiscovery(event) => {
                     self.handle_test_case_discovery(*event);
                 }
+                RunnerEvent::PreLinkCompilationDiscovery(event) => {
+                    self.handle_pre_link_compilation_discovery(*event);
+                }
                 RunnerEvent::TestSucceeded(event) => {
                     self.handle_test_succeeded_event(*event);
                 }
@@ -80,6 +86,12 @@ impl ReportAggregator {
                 }
                 RunnerEvent::PostLinkContractsCompilationFailed(event) => {
                     self.handle_post_link_contracts_compilation_failed_event(*event)
+                }
+                RunnerEvent::PreLinkContractsCompilationIgnored(event) => {
+                    self.handle_pre_link_contracts_compilation_ignored_event(*event);
+                }
+                RunnerEvent::LibrariesDeployed(event) => {
+                    self.handle_libraries_deployed_event(*event);
                 }
                 RunnerEvent::ContractDeployed(event) => {
                     self.handle_contract_deployed_event(*event);
@@ -148,19 +160,27 @@ impl ReportAggregator {
         self.remaining_cases
             .entry(event.test_specifier.metadata_file_path.clone().into())
             .or_default()
-            .entry(event.test_specifier.solc_mode.clone())
+            .entry(event.test_specifier.compiler_mode.clone())
             .or_default()
             .insert(event.test_specifier.case_idx);
     }
 
+    fn handle_pre_link_compilation_discovery(&mut self, event: PreLinkCompilationDiscoveryEvent) {
+        self.remaining_compilation_modes
+            .entry(
+                event
+                    .pre_link_compilation_specifier
+                    .metadata_file_path
+                    .clone()
+                    .into(),
+            )
+            .or_default()
+            .insert(event.pre_link_compilation_specifier.compiler_mode.clone());
+    }
+
     fn handle_test_succeeded_event(&mut self, event: TestSucceededEvent) {
         // Remove this from the set of cases we're tracking since it has completed.
-        self.remaining_cases
-            .entry(event.test_specifier.metadata_file_path.clone().into())
-            .or_default()
-            .entry(event.test_specifier.solc_mode.clone())
-            .or_default()
-            .remove(&event.test_specifier.case_idx);
+        self.remove_remaining_case(&event.test_specifier);
 
         // Add information on the fact that the case was ignored to the report.
         let test_case_report = self.test_case_report(&event.test_specifier);
@@ -172,12 +192,7 @@ impl ReportAggregator {
 
     fn handle_test_failed_event(&mut self, event: TestFailedEvent) {
         // Remove this from the set of cases we're tracking since it has completed.
-        self.remaining_cases
-            .entry(event.test_specifier.metadata_file_path.clone().into())
-            .or_default()
-            .entry(event.test_specifier.solc_mode.clone())
-            .or_default()
-            .remove(&event.test_specifier.case_idx);
+        self.remove_remaining_case(&event.test_specifier);
 
         // Add information on the fact that the case was ignored to the report.
         let test_case_report = self.test_case_report(&event.test_specifier);
@@ -189,12 +204,7 @@ impl ReportAggregator {
 
     fn handle_test_ignored_event(&mut self, event: TestIgnoredEvent) {
         // Remove this from the set of cases we're tracking since it has completed.
-        self.remaining_cases
-            .entry(event.test_specifier.metadata_file_path.clone().into())
-            .or_default()
-            .entry(event.test_specifier.solc_mode.clone())
-            .or_default()
-            .remove(&event.test_specifier.case_idx);
+        self.remove_remaining_case(&event.test_specifier);
 
         // Add information on the fact that the case was ignored to the report.
         let test_case_report = self.test_case_report(&event.test_specifier);
@@ -210,7 +220,7 @@ impl ReportAggregator {
             .remaining_cases
             .entry(specifier.metadata_file_path.clone().into())
             .or_default()
-            .entry(specifier.solc_mode.clone())
+            .entry(specifier.compiler_mode.clone())
             .or_default();
         if !remaining_cases.is_empty() {
             return;
@@ -226,7 +236,7 @@ impl ReportAggregator {
             .flat_map(|(case_idx, mode_to_execution_map)| {
                 let case_status = mode_to_execution_map
                     .mode_execution_reports
-                    .get(&specifier.solc_mode)?
+                    .get(&specifier.compiler_mode)?
                     .status
                     .clone()
                     .expect("Can't be uninitialized");
@@ -235,7 +245,7 @@ impl ReportAggregator {
             .collect::<BTreeMap<_, _>>();
         let event = ReporterEvent::MetadataFileSolcModeCombinationExecutionCompleted {
             metadata_file_path: specifier.metadata_file_path.clone().into(),
-            mode: specifier.solc_mode.clone(),
+            mode: specifier.compiler_mode.clone(),
             case_status,
         };
 
@@ -262,98 +272,165 @@ impl ReportAggregator {
         &mut self,
         event: PreLinkContractsCompilationSucceededEvent,
     ) {
-        let include_input = self
-            .report
-            .context
-            .as_report_configuration()
-            .include_compiler_input;
-        let include_output = self
-            .report
-            .context
-            .as_report_configuration()
-            .include_compiler_output;
-
-        let execution_information = self.execution_information(&event.execution_specifier);
-
-        let compiler_input = if include_input {
+        let report_configuration = self.report.context.as_report_configuration();
+        let compiler_input = if report_configuration.include_compiler_input {
             event.compiler_input
         } else {
             None
         };
 
-        execution_information.pre_link_compilation_status = Some(CompilationStatus::Success {
+        let status = CompilationStatus::Success {
             is_cached: event.is_cached,
             compiler_version: event.compiler_version,
             compiler_path: event.compiler_path,
             compiler_input,
             compiled_contracts_info: Self::generate_compiled_contracts_info(
                 event.compiler_output,
-                include_output,
+                report_configuration.include_compiler_output,
             ),
-        });
+        };
+
+        match &event.specifier {
+            CompilationSpecifier::Execution(specifier) => {
+                let execution_information = self.execution_information(specifier);
+                execution_information.pre_link_compilation_status = Some(status);
+            }
+            CompilationSpecifier::PreLink(specifier) => {
+                let report = self.pre_link_compilation_report(specifier);
+                report.status = Some(status);
+                self.handle_post_pre_link_contracts_compilation_status_update(specifier);
+            }
+        }
     }
 
     fn handle_post_link_contracts_compilation_succeeded_event(
         &mut self,
         event: PostLinkContractsCompilationSucceededEvent,
     ) {
-        let include_input = self
-            .report
-            .context
-            .as_report_configuration()
-            .include_compiler_input;
-        let include_output = self
-            .report
-            .context
-            .as_report_configuration()
-            .include_compiler_output;
-
-        let execution_information = self.execution_information(&event.execution_specifier);
-
-        let compiler_input = if include_input {
+        let report_configuration = self.report.context.as_report_configuration();
+        let compiler_input = if report_configuration.include_compiler_input {
             event.compiler_input
         } else {
             None
         };
 
-        execution_information.post_link_compilation_status = Some(CompilationStatus::Success {
+        let status = CompilationStatus::Success {
             is_cached: event.is_cached,
             compiler_version: event.compiler_version,
             compiler_path: event.compiler_path,
             compiler_input,
             compiled_contracts_info: Self::generate_compiled_contracts_info(
                 event.compiler_output,
-                include_output,
+                report_configuration.include_compiler_output,
             ),
-        });
+        };
+
+        let execution_information = self.execution_information(&event.execution_specifier);
+        execution_information.post_link_compilation_status = Some(status);
     }
 
     fn handle_pre_link_contracts_compilation_failed_event(
         &mut self,
         event: PreLinkContractsCompilationFailedEvent,
     ) {
-        let execution_information = self.execution_information(&event.execution_specifier);
-
-        execution_information.pre_link_compilation_status = Some(CompilationStatus::Failure {
+        let status = CompilationStatus::Failure {
             reason: event.reason,
             compiler_version: event.compiler_version,
             compiler_path: event.compiler_path,
             compiler_input: event.compiler_input,
-        });
+        };
+
+        match &event.specifier {
+            CompilationSpecifier::Execution(specifier) => {
+                let execution_information = self.execution_information(specifier);
+                execution_information.pre_link_compilation_status = Some(status);
+            }
+            CompilationSpecifier::PreLink(specifier) => {
+                let report = self.pre_link_compilation_report(specifier);
+                report.status = Some(status);
+                self.handle_post_pre_link_contracts_compilation_status_update(specifier);
+            }
+        }
     }
 
     fn handle_post_link_contracts_compilation_failed_event(
         &mut self,
         event: PostLinkContractsCompilationFailedEvent,
     ) {
-        let execution_information = self.execution_information(&event.execution_specifier);
-
-        execution_information.post_link_compilation_status = Some(CompilationStatus::Failure {
+        let status = CompilationStatus::Failure {
             reason: event.reason,
             compiler_version: event.compiler_version,
             compiler_path: event.compiler_path,
             compiler_input: event.compiler_input,
-        });
+        };
+
+        let execution_information = self.execution_information(&event.execution_specifier);
+        execution_information.post_link_compilation_status = Some(status);
+    }
+
+    fn handle_pre_link_contracts_compilation_ignored_event(
+        &mut self,
+        event: PreLinkContractsCompilationIgnoredEvent,
+    ) {
+        let status = CompilationStatus::Ignored {
+            reason: event.reason,
+            additional_fields: event.additional_fields,
+        };
+
+        let report = self.pre_link_compilation_report(&event.pre_link_compilation_specifier);
+        report.status = Some(status.clone());
+        self.handle_post_pre_link_contracts_compilation_status_update(
+            &event.pre_link_compilation_specifier,
+        );
+    }
+
+    fn handle_post_pre_link_contracts_compilation_status_update(
+        &mut self,
+        specifier: &PreLinkCompilationSpecifier,
+    ) {
+        // Remove this from the set we're tracking since it has completed.
+        self.remove_remaining_compilation_mode(specifier);
+
+        let remaining_modes = self
+            .remaining_compilation_modes
+            .entry(specifier.metadata_file_path.clone().into())
+            .or_default();
+        if !remaining_modes.is_empty() {
+            return;
+        }
+
+        let status_per_mode = self
+            .report
+            .execution_information
+            .entry(specifier.metadata_file_path.clone().into())
+            .or_default()
+            .compilation_reports
+            .iter()
+            .flat_map(|(mode, report)| {
+                let status = report.status.clone().expect("Can't be uninitialized");
+                Some((mode.clone(), status))
+            })
+            .collect::<BTreeMap<_, _>>();
+
+        let event = ReporterEvent::MetadataFileModeCombinationCompilationCompleted {
+            metadata_file_path: specifier.metadata_file_path.clone().into(),
+            compilation_status: status_per_mode,
+        };
+
+        // According to the documentation on send, the sending fails if there are no more receiver
+        // handles. Therefore, this isn't an error that we want to bubble up or anything. If we fail
+        // to send then we ignore the error.
+        let _ = self.listener_tx.send(event);
+    }
+
+    fn handle_libraries_deployed_event(&mut self, event: LibrariesDeployedEvent) {
+        let execution_information = self.execution_information(&event.execution_specifier);
+        let deployed_libraries = execution_information
+            .deployed_libraries
+            .get_or_insert_default();
+        for (contract_instance, address) in event.libraries {
+            deployed_libraries.insert(contract_instance, address);
+        }
     }
 
     fn handle_contract_deployed_event(&mut self, event: ContractDeployedEvent) {
@@ -442,7 +519,7 @@ impl ReportAggregator {
             .entry(specifier.case_idx)
             .or_default()
             .mode_execution_reports
-            .entry(specifier.solc_mode.clone())
+            .entry(specifier.compiler_mode.clone())
             .or_default()
     }
 
@@ -456,6 +533,19 @@ impl ReportAggregator {
             .entry(specifier.platform_identifier)
             .or_default()
             .get_or_insert_default()
+    }
+
+    fn pre_link_compilation_report(
+        &mut self,
+        specifier: &PreLinkCompilationSpecifier,
+    ) -> &mut PreLinkCompilationReport {
+        self.report
+            .execution_information
+            .entry(specifier.metadata_file_path.clone().into())
+            .or_default()
+            .compilation_reports
+            .entry(specifier.compiler_mode.clone())
+            .or_default()
     }
 
     /// Generates the compiled contract information for each contract at each path.
@@ -508,16 +598,34 @@ impl ReportAggregator {
             Err(_) => (false, B256::from_slice(&Sha256::digest(input.as_bytes()))),
         }
     }
+
+    /// Removes the case specified by the `specifier` from the tracked remaining cases.
+    fn remove_remaining_case(&mut self, specifier: &TestSpecifier) {
+        self.remaining_cases
+            .entry(specifier.metadata_file_path.clone().into())
+            .or_default()
+            .entry(specifier.compiler_mode.clone())
+            .or_default()
+            .remove(&specifier.case_idx);
+    }
+
+    /// Removes the compilation mode specified by the `specifier` from the tracked remaining compilation modes.
+    fn remove_remaining_compilation_mode(&mut self, specifier: &PreLinkCompilationSpecifier) {
+        self.remaining_compilation_modes
+            .entry(specifier.metadata_file_path.clone().into())
+            .or_default()
+            .remove(&specifier.compiler_mode);
+    }
 }
 
-#[serde_as]
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Report {
     /// The context that the tool was started up with.
     pub context: Context,
     /// The list of metadata files that were found by the tool.
     pub metadata_files: BTreeSet<MetadataFilePath>,
-    /// Information relating to each test case.
+    /// Information relating to each metadata file after executing the tool.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub execution_information: BTreeMap<MetadataFilePath, MetadataFileReport>,
 }
 
@@ -531,10 +639,16 @@ impl Report {
     }
 }
 
+#[serde_as]
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
 pub struct MetadataFileReport {
     /// The report of each case keyed by the case idx.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub case_reports: BTreeMap<CaseIdx, CaseReport>,
+    /// The [`CompilationReport`] for each of the [`Mode`]s.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    #[serde_as(as = "BTreeMap<DisplayFromStr, _>")]
+    pub compilation_reports: BTreeMap<Mode, PreLinkCompilationReport>,
 }
 
 #[serde_as]
@@ -621,6 +735,17 @@ pub struct ExecutionInformation {
     /// Information on the deployed contracts.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub deployed_contracts: Option<BTreeMap<ContractInstance, Address>>,
+    /// Information on the deployed libraries.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub deployed_libraries: Option<BTreeMap<ContractInstance, Address>>,
+}
+
+/// The pre-link-only compilation report.
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
+pub struct PreLinkCompilationReport {
+    /// The compilation status.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status: Option<CompilationStatus>,
 }
 
 /// Information related to compilation
@@ -658,6 +783,14 @@ pub enum CompilationStatus {
         /// the compiler was invoked.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         compiler_input: Option<CompilerInput>,
+    },
+    /// The compilation was ignored.
+    Ignored {
+        /// The reason behind the compilation being ignored.
+        reason: String,
+        /// Additional fields that describe more information on why the compilation is ignored.
+        #[serde(flatten)]
+        additional_fields: IndexMap<String, serde_json::Value>,
     },
 }
 
@@ -787,8 +920,7 @@ pub fn compute_metrics_information(blocks: &[MinedBlockInformation]) -> Vec<Metr
             .collect();
 
         // Compute rate fields using observation time deltas (millisecond precision)
-        let (tps, gps, rt_ps, ps_ps) = if let Some(prev_obs_millis) = prev_observation_time_millis
-        {
+        let (tps, gps, rt_ps, ps_ps) = if let Some(prev_obs_millis) = prev_observation_time_millis {
             let dt_millis = this_obs_millis.saturating_sub(prev_obs_millis);
             if dt_millis > 0 {
                 let dt_f = dt_millis as f64 / 1000.0;

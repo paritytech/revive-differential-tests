@@ -149,8 +149,9 @@ where
                 test_definition.mode.clone(),
                 None,
                 platform_information.compiler.as_ref(),
-                platform_information.platform,
-                &platform_information.reporter,
+                platform_information.platform.compiler_identifier(),
+                Some(platform_information.platform.platform_identifier()),
+                &CompilationReporter::Execution(&platform_information.reporter),
             )
             .await
             .inspect_err(|err| {
@@ -232,8 +233,9 @@ where
                 test_definition.mode.clone(),
                 deployed_libraries.as_ref(),
                 platform_information.compiler.as_ref(),
-                platform_information.platform,
-                &platform_information.reporter,
+                platform_information.platform.compiler_identifier(),
+                Some(platform_information.platform.platform_identifier()),
+                &CompilationReporter::Execution(&platform_information.reporter),
             )
             .await
             .inspect_err(|err| {

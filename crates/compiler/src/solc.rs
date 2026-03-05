@@ -109,7 +109,7 @@ impl SolidityCompiler for Solc {
                 ),
                 settings: Settings {
                     optimizer: Optimizer {
-                        enabled: optimization.map(|o| o.optimizations_enabled()),
+                        enabled: Some(optimization.unwrap_or_default().solc_optimizer_enabled),
                         details: Some(Default::default()),
                         ..Default::default()
                     },
@@ -257,15 +257,11 @@ impl SolidityCompiler for Solc {
         })
     }
 
-    fn supports_mode(
-        &self,
-        _optimize_setting: ModeOptimizerSetting,
-        pipeline: ModePipeline,
-    ) -> bool {
+    fn supports_mode(&self, mode: &Mode) -> bool {
         // solc 0.8.13 and above supports --via-ir, and less than that does not. Thus, we support mode E
         // (ie no Yul IR) in either case, but only support Y (via Yul IR) if the compiler is new enough.
-        pipeline == ModePipeline::ViaEVMAssembly
-            || (pipeline == ModePipeline::ViaYulIR && self.compiler_supports_yul())
+        mode.pipeline == ModePipeline::ViaEVMAssembly
+            || (mode.pipeline == ModePipeline::ViaYulIR && self.compiler_supports_yul())
     }
 }
 

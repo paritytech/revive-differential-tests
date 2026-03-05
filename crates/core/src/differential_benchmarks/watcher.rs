@@ -254,31 +254,6 @@ impl Watcher {
             let _ = self.reporter.report_block_mined_event(block);
         }
 
-        // // Iterate over all of the transactions in the registration information to submit additional
-        // // data about them to the reporter. Note here that we're GUARANTEED to have the hash from
-        // // the registration information in the other map since the futures have resolved.
-        // for (transaction_hash, (step_path, submission_time)) in
-        //     transaction_registration_information.into_iter()
-        // {
-        //     let Some((block_number, block_timestamp)) =
-        //         transaction_observation_information.remove(&transaction_hash)
-        //     else {
-        //         unreachable!()
-        //     };
-        //     let transaction_information = TransactionInformation {
-        //         transaction_hash,
-        //         submission_timestamp: submission_time
-        //             .duration_since(UNIX_EPOCH)
-        //             .expect("Can't fail")
-        //             .as_secs() as _,
-        //         block_timestamp,
-        //         block_number,
-        //     };
-        //     self.reporter
-        //         .report_step_transaction_information_event(step_path, transaction_information)
-        //         .expect("Can't fail")
-        // }
-
         Ok(())
     }
 }

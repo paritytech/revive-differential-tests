@@ -1,3 +1,4 @@
+mod compilations;
 mod differential_benchmarks;
 mod differential_tests;
 mod helpers;
@@ -13,10 +14,10 @@ mod internal_prelude {
     pub use revive_dt_report::prelude::*;
 
     pub use std::borrow::Cow;
-    pub use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+    pub use std::collections::{BTreeMap, HashMap, HashSet};
     pub use std::io::{BufWriter, Write, stderr};
     pub use std::path::{Path, PathBuf};
-    pub use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+    pub use std::sync::atomic::{AtomicUsize, Ordering};
     pub use std::sync::{Arc, LazyLock};
     pub use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -56,13 +57,14 @@ mod internal_prelude {
     };
     pub use tracing_subscriber::{EnvFilter, FmtSubscriber};
 
+    pub use crate::compilations::handle_compilations;
     pub use crate::differential_benchmarks::{
         InclusionWatcher, Watcher, WatcherEvent, handle_differential_benchmarks,
     };
     pub use crate::differential_tests::handle_differential_tests;
     pub use crate::helpers::{
-        CachedCompiler, NodePool, TestCaseIgnoreResolvedConfiguration, TestDefinition,
-        TestPlatformInformation, create_test_definitions_stream,
+        CachedCompiler, CorpusDefinitionProcessor, NodePool, TestCaseIgnoreResolvedConfiguration,
+        TestDefinition, TestPlatformInformation, create_test_definitions_stream, process_corpus,
     };
 }
 
@@ -174,5 +176,31 @@ fn main() -> anyhow::Result<()> {
 
             Ok(())
         }
+        Context::Compile(context) => tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(context.concurrency.number_of_threads)
+            .enable_all()
+            .build()
+            .expect("Failed building the Runtime")
+            .block_on(async move {
+                let compilations_handling_task = handle_compilations(*context, reporter);
+
+                let (_, report) =
+                    futures::future::try_join(compilations_handling_task, report_aggregator_task)
+                        .await?;
+
+                let contains_failure = report
+                    .execution_information
+                    .values()
+                    .flat_map(|metadata_file_report| {
+                        metadata_file_report.compilation_reports.values()
+                    })
+                    .any(|report| matches!(report.status, Some(CompilationStatus::Failure { .. })));
+
+                if contains_failure {
+                    bail!("Some compilations failed")
+                }
+
+                Ok(())
+            }),
     }
 }

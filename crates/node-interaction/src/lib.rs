@@ -421,3 +421,5 @@ where
         std::pin::Pin::new(&mut self.stream).poll_next(cx)
     }
 }
+
+pub type SharedNode = Arc<dyn NodeApi>;

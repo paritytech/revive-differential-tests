@@ -14,4 +14,11 @@ pub enum ReporterEvent {
         /// The status of each one of the cases.
         case_status: BTreeMap<CaseIdx, TestCaseStatus>,
     },
+
+    /// An event sent by the reporter once an entire metadata file and mode combination has
+    /// finished pre-link-only compilation.
+    MetadataFileModeCombinationCompilationCompleted {
+        metadata_file_path: MetadataFilePath,
+        compilation_status: BTreeMap<Mode, CompilationStatus>,
+    },
 }
