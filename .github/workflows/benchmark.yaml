@@ -114,7 +114,7 @@ jobs:
 
       - name: Install retester and report-processor
         run: |
-          cargo build --profile production -p retester -p report-processor
+          cargo build --profile production -p revive-dt-core -p revive-dt-report-processor
           cp -t ~/.cargo/bin \
             target/production/retester \
             target/production/report-processor
