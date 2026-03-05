@@ -77,6 +77,7 @@ jobs:
           echo "deb [trusted=yes] https://apt.fury.io/kurtosis-tech/ /" | sudo tee /etc/apt/sources.list.d/kurtosis.list
           sudo apt-get update
           sudo apt-get install -y kurtosis-cli
+          kurtosis engine start
 
       # ── Checkout repositories ──────────────────────────────────────────
 
