@@ -23,22 +23,15 @@ impl InclusionWatcher {
 
     pub fn run(
         &self,
-        mut blocks_stream: FrameworkStream<MinedBlockInformation>,
+        mut transaction_inclusion_stream: FrameworkStream<TxHash>,
     ) -> FrameworkFuture<()> {
         let transactions_map = self.transactions_map.clone();
         let notify = self.stop_notifier.clone();
 
         Box::pin(async move {
             let task = async move {
-                while let Some(mined_block) = blocks_stream.next().await {
-                    join_all(
-                        mined_block
-                            .ethereum_block_information
-                            .transaction_hashes
-                            .iter()
-                            .map(|tx_hash| transactions_map.insert(*tx_hash, ())),
-                    )
-                    .await;
+                while let Some(transaction_hash) = transaction_inclusion_stream.next().await {
+                    transactions_map.insert(transaction_hash, ()).await;
                 }
             };
             select! {

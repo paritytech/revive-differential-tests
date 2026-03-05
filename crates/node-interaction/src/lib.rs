@@ -6,10 +6,11 @@ pub mod prelude {
 }
 
 use std::collections::HashMap;
+use std::future::ready;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use alloy::primitives::{Address, StorageKey, TxHash, U256};
+use alloy::primitives::{Address, StorageKey, TxHash, U256, keccak256};
 use alloy::providers::ext::DebugApi;
 use alloy::providers::{DynProvider, Provider};
 use alloy::rpc::types::trace::geth::{
@@ -18,7 +19,8 @@ use alloy::rpc::types::trace::geth::{
 use alloy::rpc::types::{EIP1186AccountProofResponse, TransactionReceipt, TransactionRequest};
 use anyhow::{Context as _, Result};
 
-use futures::{Stream, StreamExt};
+use futures::future::Either;
+use futures::{Stream, StreamExt, stream};
 use revive_common::EVMVersion;
 use revive_dt_common::futures::{FrameworkFuture, FrameworkStream};
 
@@ -172,12 +174,44 @@ pub trait NodeApi {
         let substrate_provider = self.substrate_provider();
 
         let future = if let Some(substrate_provider) = substrate_provider {
-            futures::future::Either::Left(subscribe_to_full_blocks_information_substrate(
+            Either::Left(subscribe_to_full_blocks_information_substrate(
                 provider,
                 substrate_provider,
             ))
         } else {
-            futures::future::Either::Right(subscribe_to_full_blocks_information_ethereum(provider))
+            Either::Right(subscribe_to_full_blocks_information_ethereum(provider))
+        };
+        Box::pin(future) as _
+    }
+
+    /// Subscribes to transaction hashes included in the blocks.
+    ///
+    /// The default implementation of this function uses a different strategy between the Ethereum
+    /// nodes and the Substrate based nodes.
+    ///
+    /// For Ethereum node, we subscribe to blocks and then flatten their included transaction hashes
+    /// into the stream and return them.
+    ///
+    /// For Substrate based nodes we subscribe to the best blocks, filter for the [`EthTransact`]
+    /// extrinsics included in there, compute the transaction hashes from them, and then we return
+    /// these hashes in the stream.
+    ///
+    /// The key thing in this implementation is that it makes some assumptions about how the down
+    /// stream clients will use it. It assumes that the clients do not rely on finalized blocks to
+    /// determine transaction inclusion and are fine with transactions merely being included in best
+    /// blocks.
+    fn subscribe_to_transaction_inclusions(
+        &self,
+    ) -> FrameworkFuture<Result<FrameworkStream<TxHash>>> {
+        let provider = self.provider();
+        let substrate_provider = self.substrate_provider();
+
+        let future = if let Some(substrate_provider) = substrate_provider {
+            Either::Left(subscribe_to_transaction_inclusions_substrate(
+                substrate_provider,
+            ))
+        } else {
+            Either::Right(subscribe_to_transaction_inclusions_ethereum(provider))
         };
         Box::pin(future) as _
     }
@@ -420,6 +454,51 @@ where
     ) -> std::task::Poll<Option<Self::Item>> {
         std::pin::Pin::new(&mut self.stream).poll_next(cx)
     }
+}
+
+fn subscribe_to_transaction_inclusions_ethereum(
+    provider: FrameworkFuture<Result<DynProvider>>,
+) -> FrameworkFuture<Result<FrameworkStream<TxHash>>> {
+    Box::pin(async move {
+        let stream = provider
+            .await
+            .context("Failed to get the provider")?
+            .subscribe_full_blocks()
+            .into_stream()
+            .await
+            .context("Failed to subscribe to blocks")?
+            .filter_map(|block| ready(block.ok()))
+            .flat_map(|block| stream::iter(block.into_hashes_vec()));
+        Ok(Box::pin(stream) as _)
+    })
+}
+
+fn subscribe_to_transaction_inclusions_substrate(
+    provider: FrameworkFuture<Result<OnlineClient<SubstrateConfig>>>,
+) -> FrameworkFuture<Result<FrameworkStream<TxHash>>> {
+    Box::pin(async move {
+        let stream = provider
+            .await
+            .context("Failed to get the provider")?
+            .blocks()
+            .subscribe_best()
+            .await
+            .context("Failed to subscribe to blocks")?
+            .filter_map(|block| ready(block.ok()))
+            .then(|block| async move { block.extrinsics().await })
+            .filter_map(|extrinsics| ready(extrinsics.ok()))
+            .flat_map(move |extrinsics| {
+                stream::iter(
+                    extrinsics
+                        .find::<revive_metadata::revive::calls::types::EthTransact>()
+                        .filter_map(|ext| ext.ok())
+                        .map(|ext| keccak256(&ext.value.payload))
+                        .collect::<Vec<_>>(),
+                )
+            });
+
+        Ok(Box::pin(stream) as _)
+    })
 }
 
 pub type SharedNode = Arc<dyn NodeApi>;

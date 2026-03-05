@@ -17,6 +17,7 @@ mod internal_prelude {
     pub use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
     pub use std::future::Future;
     pub use std::io::{BufWriter, Write, stderr};
+    pub use std::pin::Pin;
     pub use std::path::{Path, PathBuf};
     pub use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     pub use std::sync::{Arc, LazyLock};
@@ -37,7 +38,7 @@ mod internal_prelude {
     pub use anyhow::Context as _;
     pub use anyhow::{Error, Result, bail};
     pub use clap::Parser;
-    pub use futures::future::{join_all, try_join_all};
+    pub use futures::future::try_join_all;
     pub use futures::{FutureExt, Stream, StreamExt, TryFutureExt, TryStreamExt, stream};
     pub use governor::{DefaultDirectRateLimiter, Quota};
     pub use indexmap::{IndexMap, indexmap};

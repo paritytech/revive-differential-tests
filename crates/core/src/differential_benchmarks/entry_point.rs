@@ -180,7 +180,7 @@ pub async fn handle_differential_benchmarks(
                 inclusion_watcher.run(
                     platform_information
                         .node
-                        .subscribe_to_full_blocks_information()
+                        .subscribe_to_transaction_inclusions()
                         .await
                         .context("Failed to subscribe to full blocks information from the node")?,
                 ),

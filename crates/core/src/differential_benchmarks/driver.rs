@@ -39,9 +39,13 @@ pub struct Driver<'a, I> {
     /// transaction and its shared between the various drivers.
     limiter: Arc<Option<DefaultDirectRateLimiter>>,
 
-    /// This function controls if the driver should wait for transactions to be included in a block
-    /// or not before proceeding forward.
+    /// This field controls if the driver should wait for transactions to be included in a block or
+    /// not before proceeding forward.
     await_transaction_inclusion: bool,
+
+    /// This field controls if the driver should wait for transaction receipts or not before
+    /// proceeding forward.
+    await_transaction_receipts: bool,
 
     /// This is the queue of steps that are to be executed by the driver for this test case. Each
     /// time `execute_step` is called one of the steps is executed.
@@ -75,6 +79,7 @@ where
             steps_iterator: steps,
             inclusion_watcher,
             await_transaction_inclusion,
+            await_transaction_receipts: true,
             watcher_tx,
             limiter,
             gas_limits: Arc::new(Default::default()),
@@ -356,10 +361,12 @@ where
                     )
                     .await?;
 
-                let (tx_hash, _, inclusion_future) = self
+                let (tx_hash, receipt_future, inclusion_future) = self
                     .execute_transaction(tx.clone(), Some(step_path), Duration::from_secs(30 * 60))
                     .await?;
-                if self.await_transaction_inclusion {
+                if self.await_transaction_receipts {
+                    receipt_future.await?;
+                } else if self.await_transaction_inclusion {
                     inclusion_future.await;
                 }
 
@@ -435,14 +442,16 @@ where
         Ok(())
     }
 
-    #[instrument(level = "info", skip_all, fields(driver_id = self.driver_id), err(Debug))]
-    async fn execute_repeat_step(
-        &mut self,
-        step_path: &StepPath,
-        step: &RepeatStep,
-    ) -> Result<usize> {
-        let tasks = (0..step.repeat)
-            .map(|_| Driver {
+    fn execute_repeat_step<'b>(
+        &'b mut self,
+        step_path: &'b StepPath,
+        step: &'b RepeatStep,
+    ) -> Pin<Box<dyn Future<Output = Result<usize>> + 'b>> {
+        let driver_id = self.driver_id;
+        Box::pin(
+            async move {
+        let mut tasks = (0..step.repeat)
+            .map(|i| Driver {
                 driver_id: DRIVER_COUNT.fetch_add(1, Ordering::SeqCst),
                 platform_information: self.platform_information,
                 test_definition: self.test_definition,
@@ -464,6 +473,7 @@ where
                     steps.into_iter()
                 },
                 await_transaction_inclusion: self.await_transaction_inclusion,
+                await_transaction_receipts: i == 0,
                 inclusion_watcher: self.inclusion_watcher,
                 limiter: self.limiter.clone(),
                 watcher_tx: self.watcher_tx.clone(),
@@ -471,9 +481,6 @@ where
             })
             .map(|driver| driver.execute_all());
 
-        // TODO: Determine how we want to know the `ignore_block_before` and if it's through the
-        // receipt and how this would impact the architecture and the possibility of us not waiting
-        // for receipts in the future.
         self.watcher_tx
             .send(WatcherEvent::StartEvent {
                 ignore_block_before: self
@@ -488,10 +495,25 @@ where
             })
             .context("Failed to send message on the watcher's tx")?;
 
+        // We run just one of the drivers first before all of the other drivers to allow it to cache
+        // the gas limits for all of the subsequent runs.
+        let Some(first_task) = tasks.next() else {
+            return Ok(0);
+        };
+        let first_res = Box::pin(first_task)
+            .await
+            .context("Running the first initialization driver failed")?;
+
         let res = futures::future::try_join_all(tasks)
             .await
             .context("Repetition execution failed")?;
-        Ok(res.into_iter().sum())
+        Ok(res.into_iter().sum::<usize>() + first_res)
+            }
+            .instrument(info_span!(
+                "execute_repeat_step",
+                driver_id,
+            )),
+        )
     }
 
     #[instrument(level = "info", fields(driver_id = self.driver_id), skip_all, err(Debug))]
