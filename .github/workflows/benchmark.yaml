@@ -119,15 +119,14 @@ jobs:
 
       # ── Install retester tooling ────────────────────────────────────────
 
-      - name: Cache retester tooling
+      - name: Restore retester cache
         id: cache-retester
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: |
             ~/.cargo/bin/retester
             ~/.cargo/bin/report-processor
           key: retester-${{ hashFiles('crates/**', 'assets/**') }}
-          save-always: true
 
       - name: Install retester and report-processor
         if: steps.cache-retester.outputs.cache-hit != 'true'
@@ -137,15 +136,23 @@ jobs:
             target/production/retester \
             target/production/report-processor
 
+      - name: Save retester cache
+        if: always() && steps.cache-retester.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/.cargo/bin/retester
+            ~/.cargo/bin/report-processor
+          key: retester-${{ hashFiles('crates/**', 'assets/**') }}
+
       # ── Install chainspec-generator (cached by runtimes commit) ────────
 
-      - name: Cache chainspec-generator
+      - name: Restore chainspec-generator cache
         id: cache-chainspec-generator
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: ~/.cargo/bin/chain-spec-generator
           key: chainspec-generator-${{ env.RUNTIMES_VERSION }}
-          save-always: true
 
       - name: Install chainspec-generator
         if: steps.cache-chainspec-generator.outputs.cache-hit != 'true'
@@ -157,11 +164,18 @@ jobs:
           cp -t ~/.cargo/bin \
             runtimes/target/production/chain-spec-generator
 
+      - name: Save chainspec-generator cache
+        if: always() && steps.cache-chainspec-generator.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.cargo/bin/chain-spec-generator
+          key: chainspec-generator-${{ env.RUNTIMES_VERSION }}
+
       # ── Install polkadot-sdk binaries (cached by pinned tag) ───────────
 
-      - name: Cache polkadot-sdk binaries
+      - name: Restore polkadot-sdk cache
         id: cache-polkadot-sdk
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: |
             ~/.cargo/bin/polkadot
@@ -170,7 +184,6 @@ jobs:
             ~/.cargo/bin/polkadot-parachain
             ~/.cargo/bin/eth-rpc
           key: polkadot-sdk-${{ env.POLKADOT_VERSION }}
-          save-always: true
 
       - name: Install polkadot-sdk binaries
         if: steps.cache-polkadot-sdk.outputs.cache-hit != 'true'
@@ -190,6 +203,18 @@ jobs:
             target/production/polkadot-execute-worker \
             target/production/polkadot-parachain \
             target/production/eth-rpc
+
+      - name: Save polkadot-sdk cache
+        if: always() && steps.cache-polkadot-sdk.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/.cargo/bin/polkadot
+            ~/.cargo/bin/polkadot-prepare-worker
+            ~/.cargo/bin/polkadot-execute-worker
+            ~/.cargo/bin/polkadot-parachain
+            ~/.cargo/bin/eth-rpc
+          key: polkadot-sdk-${{ env.POLKADOT_VERSION }}
 
       # ── Run benchmarks ───────────────────────────────────────────────────
 
