@@ -88,19 +88,32 @@ pub fn extract_hashes(
 /// normalized path = "solidity/simple/loop.sol"
 /// ```
 fn normalize_path(path: &Path, base_dir: &Path) -> String {
-    let remainder = path.strip_prefix(base_dir).unwrap_or_else(|_| {
-        panic!(
-            "The base directory '{}' is not a prefix of path '{}'",
-            base_dir.display(),
-            path.display(),
-        )
-    });
+    // In order to be able to unit test Windows paths on non-Windows machines, string-based
+    // prefix stripping is used here rather than `Path::strip_prefix()` because the
+    // latter compares path components, and component parsing is platform-dependent
+    // (on Unix, backslashes are not treated as separators).
 
-    remainder
-        .components()
-        .map(|c| c.as_os_str().to_string_lossy())
-        .collect::<Vec<_>>()
-        .join("/")
+    let path_string = path.to_string_lossy().replace('\\', "/");
+    // Ensure base ends with `/` so only complete directory components are matched.
+    // E.g. '/home/runner/fixtures' is not seen as a base dir of '/home/runner/fixturesABC/file.sol'.
+    let base_string = format!(
+        "{}/",
+        base_dir
+            .to_string_lossy()
+            .replace('\\', "/")
+            .trim_end_matches('/')
+    );
+
+    path_string
+        .strip_prefix(&base_string)
+        .unwrap_or_else(|| {
+            panic!(
+                "'{}' is not a base directory of path '{}'",
+                base_dir.display(),
+                path.display(),
+            )
+        })
+        .to_string()
 }
 
 #[cfg(test)]
@@ -113,12 +126,11 @@ mod tests {
             Path::new("/home/runner/fixtures/solidity/simple/default.sol"),
             Path::new("/home/runner/fixtures"),
         );
-        // TODO: Update normalize_path to allow testing Windows path strings on a linux.
-        // let normalized_windows_path = normalize_path(
-        //     Path::new("C:\\Users\\runner\\fixtures\\solidity\\simple\\default.sol"),
-        //     Path::new("C:\\Users\\runner\\fixtures"),
-        // );
-        // assert_eq!(normalized_unix_path, normalized_windows_path,);
+        let normalized_windows_path = normalize_path(
+            Path::new("C:\\Users\\runner\\fixtures\\solidity\\simple\\default.sol"),
+            Path::new("C:\\Users\\runner\\fixtures"),
+        );
+        assert_eq!(normalized_unix_path, normalized_windows_path);
         assert_eq!(normalized_unix_path, "solidity/simple/default.sol");
     }
 
@@ -135,11 +147,22 @@ mod tests {
 
     #[test]
     #[should_panic(
-        expected = "base directory '/home/runner/fixtures' is not a prefix of path '/other/path/file.sol'"
+        expected = "'/home/runner/fixtures' is not a base directory of path '/other/path/file.sol'"
     )]
-    fn normalize_path_invalid_prefix() {
+    fn normalize_path_invalid_base_dir() {
         normalize_path(
             Path::new("/other/path/file.sol"),
+            Path::new("/home/runner/fixtures"),
+        );
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "'/home/runner/fixtures' is not a base directory of path '/home/runner/fixturesABC/file.sol'"
+    )]
+    fn normalize_path_invalid_partial_base_dir() {
+        normalize_path(
+            Path::new("/home/runner/fixturesABC/file.sol"),
             Path::new("/home/runner/fixtures"),
         );
     }
