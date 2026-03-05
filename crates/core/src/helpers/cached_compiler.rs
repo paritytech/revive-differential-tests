@@ -273,16 +273,19 @@ impl ArtifactsCache {
         }
     }
 
-    #[instrument(level = "debug", skip_all, err)]
-    pub async fn with_invalidated_cache(self) -> Result<Self> {
-        match cacache::clear(self.path.as_path()).await {
-            Ok(()) => Ok(self),
-            Err(cacache::Error::IoError(err, _)) if err.kind() == std::io::ErrorKind::NotFound => {
-                Ok(self)
+    pub fn with_invalidated_cache(self) -> FrameworkFuture<Result<Self>> {
+        Box::pin(async move {
+            match cacache::clear(self.path.as_path()).await {
+                Ok(()) => Ok(self),
+                Err(cacache::Error::IoError(err, _))
+                    if err.kind() == std::io::ErrorKind::NotFound =>
+                {
+                    Ok(self)
+                }
+                Err(err) => Err(Into::<Error>::into(err))
+                    .with_context(|| format!("Failed to clear cache at {}", self.path.display())),
             }
-            Err(err) => Err(Into::<Error>::into(err))
-                .with_context(|| format!("Failed to clear cache at {}", self.path.display())),
-        }
+        })
     }
 
     #[instrument(level = "debug", skip_all, err)]

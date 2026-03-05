@@ -40,7 +40,7 @@ use crate::internal_prelude::*;
 /// and not download it again.
 pub async fn download_solc(
     cache_directory: &Path,
-    version: impl Into<VersionOrRequirement>,
+    version: impl Into<VersionOrRequirement> + Send + 'static,
     wasm: bool,
 ) -> anyhow::Result<(Version, PathBuf)> {
     let downloader = if wasm {

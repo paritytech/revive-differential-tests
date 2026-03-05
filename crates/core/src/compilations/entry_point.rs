@@ -9,6 +9,7 @@ use ansi_term::{ANSIStrings, Color};
 use anyhow::Context as _;
 use futures::StreamExt;
 use indexmap::IndexMap;
+use revive_dt_common::futures::FrameworkFuture;
 use revive_dt_compiler::{Mode, ModeOptimizerLevel, ModeOptimizerSetting, ModePipeline};
 use revive_dt_config::{
     Compile, Context, FailFastConfiguration, OutputFormat, OutputFormatConfiguration,
@@ -164,224 +165,228 @@ pub async fn handle_compilations(mut context: Compile, reporter: Reporter) -> an
 }
 
 #[allow(irrefutable_let_patterns, clippy::uninlined_format_args)]
-async fn start_cli_reporting_task(
+fn start_cli_reporting_task(
     output_format: OutputFormatConfiguration,
     mut aggregator_events_rx: broadcast::Receiver<ReporterEvent>,
-) {
-    let start = Instant::now();
+) -> FrameworkFuture<()> {
+    Box::pin(async move {
+        let start = Instant::now();
 
-    let mut global_success_count = 0;
-    let mut global_failure_count = 0;
-    let mut global_ignore_count = 0;
+        let mut global_success_count = 0;
+        let mut global_failure_count = 0;
+        let mut global_ignore_count = 0;
 
-    let mut buf = BufWriter::new(stderr());
-    while let Ok(event) = aggregator_events_rx.recv().await {
-        let ReporterEvent::MetadataFileModeCombinationCompilationCompleted {
-            metadata_file_path,
-            compilation_status,
-        } = event
-        else {
-            continue;
-        };
+        let mut buf = BufWriter::new(stderr());
+        while let Ok(event) = aggregator_events_rx.recv().await {
+            let ReporterEvent::MetadataFileModeCombinationCompilationCompleted {
+                metadata_file_path,
+                compilation_status,
+            } = event
+            else {
+                continue;
+            };
 
-        match output_format.output_format {
-            OutputFormat::Legacy => {
-                let _ = write!(buf, "{}", metadata_file_path.display());
-                for (mode, status) in compilation_status {
-                    let _ = write!(buf, "\tMode {}: ", mode);
-                    let _ = match &status {
-                        CompilationStatus::Success {
-                            is_cached,
-                            compiled_contracts_info,
-                            ..
-                        } => {
-                            global_success_count += 1;
-                            let contract_count: usize = compiled_contracts_info
-                                .values()
-                                .map(|contracts| contracts.len())
-                                .sum();
-                            writeln!(
-                                buf,
-                                "{}",
-                                ANSIStrings(&[
-                                    Color::Green.bold().paint("Compilation Succeeded"),
-                                    Color::Green.paint(format!(
-                                        " - Contracts compiled: {}, Cached: {}",
-                                        contract_count,
-                                        if *is_cached { "yes" } else { "no" }
-                                    )),
-                                ])
-                            )
-                        }
-                        CompilationStatus::Failure { reason, .. } => {
-                            global_failure_count += 1;
-                            writeln!(
-                                buf,
-                                "{}",
-                                ANSIStrings(&[
-                                    Color::Red.bold().paint("Compilation Failed"),
-                                    Color::Red.paint(format!(" - Reason: {}", reason.trim())),
-                                ])
-                            )
-                        }
-                        CompilationStatus::Ignored { reason, .. } => {
-                            global_ignore_count += 1;
-                            writeln!(
-                                buf,
-                                "{}",
-                                ANSIStrings(&[
-                                    Color::Yellow.bold().paint("Compilation Ignored"),
-                                    Color::Yellow.paint(format!(" - Reason: {}", reason.trim())),
-                                ])
-                            )
-                        }
-                    };
+            match output_format.output_format {
+                OutputFormat::Legacy => {
+                    let _ = write!(buf, "{}", metadata_file_path.display());
+                    for (mode, status) in compilation_status {
+                        let _ = write!(buf, "\tMode {}: ", mode);
+                        let _ = match &status {
+                            CompilationStatus::Success {
+                                is_cached,
+                                compiled_contracts_info,
+                                ..
+                            } => {
+                                global_success_count += 1;
+                                let contract_count: usize = compiled_contracts_info
+                                    .values()
+                                    .map(|contracts| contracts.len())
+                                    .sum();
+                                writeln!(
+                                    buf,
+                                    "{}",
+                                    ANSIStrings(&[
+                                        Color::Green.bold().paint("Compilation Succeeded"),
+                                        Color::Green.paint(format!(
+                                            " - Contracts compiled: {}, Cached: {}",
+                                            contract_count,
+                                            if *is_cached { "yes" } else { "no" }
+                                        )),
+                                    ])
+                                )
+                            }
+                            CompilationStatus::Failure { reason, .. } => {
+                                global_failure_count += 1;
+                                writeln!(
+                                    buf,
+                                    "{}",
+                                    ANSIStrings(&[
+                                        Color::Red.bold().paint("Compilation Failed"),
+                                        Color::Red.paint(format!(" - Reason: {}", reason.trim())),
+                                    ])
+                                )
+                            }
+                            CompilationStatus::Ignored { reason, .. } => {
+                                global_ignore_count += 1;
+                                writeln!(
+                                    buf,
+                                    "{}",
+                                    ANSIStrings(&[
+                                        Color::Yellow.bold().paint("Compilation Ignored"),
+                                        Color::Yellow
+                                            .paint(format!(" - Reason: {}", reason.trim())),
+                                    ])
+                                )
+                            }
+                        };
+                    }
+                    let _ = writeln!(buf);
                 }
-                let _ = writeln!(buf);
-            }
-            OutputFormat::CargoTestLike => {
-                let mut success_count = 0;
-                let mut failure_count = 0;
-                let mut ignored_count = 0;
+                OutputFormat::CargoTestLike => {
+                    let mut success_count = 0;
+                    let mut failure_count = 0;
+                    let mut ignored_count = 0;
 
-                for (mode, status) in compilation_status {
-                    match &status {
-                        CompilationStatus::Success {
-                            compiled_contracts_info,
-                            ..
-                        } => {
-                            success_count += 1;
-                            global_success_count += 1;
-                            let contract_count: usize = compiled_contracts_info
-                                .values()
-                                .map(|contracts| contracts.len())
-                                .sum();
+                    for (mode, status) in compilation_status {
+                        match &status {
+                            CompilationStatus::Success {
+                                compiled_contracts_info,
+                                ..
+                            } => {
+                                success_count += 1;
+                                global_success_count += 1;
+                                let contract_count: usize = compiled_contracts_info
+                                    .values()
+                                    .map(|contracts| contracts.len())
+                                    .sum();
 
-                            if output_format.verbose {
-                                // Verbose: show header + per-contract lines + summary.
-                                writeln!(
-                                    buf,
-                                    "\t{} {} - {}\n",
-                                    Color::Green.paint("Compiling"),
-                                    metadata_file_path.display(),
-                                    mode
-                                )
-                                .unwrap();
-                                writeln!(buf, "compiling {} contracts", contract_count).unwrap();
-
-                                for (source_path, contracts) in compiled_contracts_info {
-                                    for contract_name in contracts.keys() {
-                                        writeln!(
-                                            buf,
-                                            "compile {}::{} ... {}",
-                                            source_path.display(),
-                                            contract_name,
-                                            Color::Green.paint("ok")
-                                        )
+                                if output_format.verbose {
+                                    // Verbose: show header + per-contract lines + summary.
+                                    writeln!(
+                                        buf,
+                                        "\t{} {} - {}\n",
+                                        Color::Green.paint("Compiling"),
+                                        metadata_file_path.display(),
+                                        mode
+                                    )
+                                    .unwrap();
+                                    writeln!(buf, "compiling {} contracts", contract_count)
                                         .unwrap();
-                                    }
-                                }
-                                writeln!(buf).unwrap();
 
+                                    for (source_path, contracts) in compiled_contracts_info {
+                                        for contract_name in contracts.keys() {
+                                            writeln!(
+                                                buf,
+                                                "compile {}::{} ... {}",
+                                                source_path.display(),
+                                                contract_name,
+                                                Color::Green.paint("ok")
+                                            )
+                                            .unwrap();
+                                        }
+                                    }
+                                    writeln!(buf).unwrap();
+
+                                    writeln!(
+                                        buf,
+                                        "compile result: {}. {} contracts compiled",
+                                        Color::Green.paint("ok"),
+                                        contract_count
+                                    )
+                                    .unwrap();
+                                    writeln!(buf).unwrap();
+                                } else {
+                                    // Non-verbose: single line with contract count.
+                                    writeln!(
+                                        buf,
+                                        "compile {} ({}) ... {} ({} contracts)",
+                                        metadata_file_path.display(),
+                                        mode,
+                                        Color::Green.paint("ok"),
+                                        contract_count
+                                    )
+                                    .unwrap();
+                                }
+                            }
+                            CompilationStatus::Failure { reason, .. } => {
+                                failure_count += 1;
+                                global_failure_count += 1;
                                 writeln!(
                                     buf,
-                                    "compile result: {}. {} contracts compiled",
-                                    Color::Green.paint("ok"),
-                                    contract_count
-                                )
-                                .unwrap();
-                                writeln!(buf).unwrap();
-                            } else {
-                                // Non-verbose: single line with contract count.
-                                writeln!(
-                                    buf,
-                                    "compile {} ({}) ... {} ({} contracts)",
+                                    "compile {} ({}) ... {}",
                                     metadata_file_path.display(),
                                     mode,
-                                    Color::Green.paint("ok"),
-                                    contract_count
+                                    Color::Red.paint(format!("FAILED, {}", reason.trim()))
+                                )
+                                .unwrap();
+                            }
+                            CompilationStatus::Ignored { reason, .. } => {
+                                ignored_count += 1;
+                                global_ignore_count += 1;
+                                writeln!(
+                                    buf,
+                                    "compile {} ({}) ... {}",
+                                    metadata_file_path.display(),
+                                    mode,
+                                    Color::Yellow.paint(format!("ignored, {}", reason.trim()))
                                 )
                                 .unwrap();
                             }
                         }
-                        CompilationStatus::Failure { reason, .. } => {
-                            failure_count += 1;
-                            global_failure_count += 1;
-                            writeln!(
-                                buf,
-                                "compile {} ({}) ... {}",
-                                metadata_file_path.display(),
-                                mode,
-                                Color::Red.paint(format!("FAILED, {}", reason.trim()))
-                            )
-                            .unwrap();
-                        }
-                        CompilationStatus::Ignored { reason, .. } => {
-                            ignored_count += 1;
-                            global_ignore_count += 1;
-                            writeln!(
-                                buf,
-                                "compile {} ({}) ... {}",
-                                metadata_file_path.display(),
-                                mode,
-                                Color::Yellow.paint(format!("ignored, {}", reason.trim()))
-                            )
-                            .unwrap();
-                        }
                     }
-                }
 
-                let status = if failure_count > 0 {
-                    Color::Red.paint("FAILED")
-                } else {
-                    Color::Green.paint("ok")
-                };
-                writeln!(
-                    buf,
-                    "compile result: {}. {} succeeded; {} failed; {} ignored",
-                    status, success_count, failure_count, ignored_count,
-                )
-                .unwrap();
-                writeln!(buf).unwrap();
-
-                if aggregator_events_rx.is_empty() {
-                    buf = tokio::task::spawn_blocking(move || {
-                        buf.flush().unwrap();
-                        buf
-                    })
-                    .await
+                    let status = if failure_count > 0 {
+                        Color::Red.paint("FAILED")
+                    } else {
+                        Color::Green.paint("ok")
+                    };
+                    writeln!(
+                        buf,
+                        "compile result: {}. {} succeeded; {} failed; {} ignored",
+                        status, success_count, failure_count, ignored_count,
+                    )
                     .unwrap();
+                    writeln!(buf).unwrap();
+
+                    if aggregator_events_rx.is_empty() {
+                        buf = tokio::task::spawn_blocking(move || {
+                            buf.flush().unwrap();
+                            buf
+                        })
+                        .await
+                        .unwrap();
+                    }
                 }
             }
         }
-    }
-    info!("Aggregator Broadcast Channel Closed");
+        info!("Aggregator Broadcast Channel Closed");
 
-    // Summary at the end.
-    let total = global_success_count + global_failure_count + global_ignore_count;
-    match output_format.output_format {
-        OutputFormat::Legacy => {
-            writeln!(
-                buf,
-                "{} compilations: {} succeeded, {} failed, {} ignored in {} seconds",
-                total,
-                Color::Green.paint(global_success_count.to_string()),
-                Color::Red.paint(global_failure_count.to_string()),
-                Color::Yellow.paint(global_ignore_count.to_string()),
-                start.elapsed().as_secs()
-            )
-            .unwrap();
+        // Summary at the end.
+        let total = global_success_count + global_failure_count + global_ignore_count;
+        match output_format.output_format {
+            OutputFormat::Legacy => {
+                writeln!(
+                    buf,
+                    "{} compilations: {} succeeded, {} failed, {} ignored in {} seconds",
+                    total,
+                    Color::Green.paint(global_success_count.to_string()),
+                    Color::Red.paint(global_failure_count.to_string()),
+                    Color::Yellow.paint(global_ignore_count.to_string()),
+                    start.elapsed().as_secs()
+                )
+                .unwrap();
+            }
+            OutputFormat::CargoTestLike => {
+                writeln!(
+                    buf,
+                    "\nrun finished. {} succeeded; {} failed; {} ignored; finished in {}s",
+                    global_success_count,
+                    global_failure_count,
+                    global_ignore_count,
+                    start.elapsed().as_secs()
+                )
+                .unwrap();
+            }
         }
-        OutputFormat::CargoTestLike => {
-            writeln!(
-                buf,
-                "\nrun finished. {} succeeded; {} failed; {} ignored; finished in {}s",
-                global_success_count,
-                global_failure_count,
-                global_ignore_count,
-                start.elapsed().as_secs()
-            )
-            .unwrap();
-        }
-    }
+    })
 }

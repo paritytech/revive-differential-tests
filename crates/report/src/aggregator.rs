@@ -36,116 +36,118 @@ impl ReportAggregator {
         }
     }
 
-    pub fn into_task(mut self) -> (Reporter, impl Future<Output = Result<Report>>) {
+    pub fn into_task(mut self) -> (Reporter, FrameworkFuture<Result<Report>>) {
         let reporter = self
             .runner_tx
             .take()
             .map(Into::into)
             .expect("Can't fail since this can only be called once");
-        (reporter, async move { self.aggregate().await })
+        (reporter, self.aggregate())
     }
 
-    async fn aggregate(mut self) -> Result<Report> {
-        debug!("Starting to aggregate report");
+    fn aggregate(mut self) -> FrameworkFuture<Result<Report>> {
+        Box::pin(async move {
+            debug!("Starting to aggregate report");
 
-        while let Some(event) = self.runner_rx.recv().await {
-            debug!(event = event.variant_name(), "Received Event");
-            match event {
-                RunnerEvent::SubscribeToEvents(event) => {
-                    self.handle_subscribe_to_events_event(*event);
+            while let Some(event) = self.runner_rx.recv().await {
+                debug!(event = event.variant_name(), "Received Event");
+                match event {
+                    RunnerEvent::SubscribeToEvents(event) => {
+                        self.handle_subscribe_to_events_event(*event);
+                    }
+                    RunnerEvent::MetadataFileDiscovery(event) => {
+                        self.handle_metadata_file_discovery_event(*event);
+                    }
+                    RunnerEvent::TestCaseDiscovery(event) => {
+                        self.handle_test_case_discovery(*event);
+                    }
+                    RunnerEvent::PreLinkCompilationDiscovery(event) => {
+                        self.handle_pre_link_compilation_discovery(*event);
+                    }
+                    RunnerEvent::TestSucceeded(event) => {
+                        self.handle_test_succeeded_event(*event);
+                    }
+                    RunnerEvent::TestFailed(event) => {
+                        self.handle_test_failed_event(*event);
+                    }
+                    RunnerEvent::TestIgnored(event) => {
+                        self.handle_test_ignored_event(*event);
+                    }
+                    RunnerEvent::NodeAssigned(event) => {
+                        self.handle_node_assigned_event(*event);
+                    }
+                    RunnerEvent::PreLinkContractsCompilationSucceeded(event) => {
+                        self.handle_pre_link_contracts_compilation_succeeded_event(*event)
+                    }
+                    RunnerEvent::PostLinkContractsCompilationSucceeded(event) => {
+                        self.handle_post_link_contracts_compilation_succeeded_event(*event)
+                    }
+                    RunnerEvent::PreLinkContractsCompilationFailed(event) => {
+                        self.handle_pre_link_contracts_compilation_failed_event(*event)
+                    }
+                    RunnerEvent::PostLinkContractsCompilationFailed(event) => {
+                        self.handle_post_link_contracts_compilation_failed_event(*event)
+                    }
+                    RunnerEvent::PreLinkContractsCompilationIgnored(event) => {
+                        self.handle_pre_link_contracts_compilation_ignored_event(*event);
+                    }
+                    RunnerEvent::LibrariesDeployed(event) => {
+                        self.handle_libraries_deployed_event(*event);
+                    }
+                    RunnerEvent::ContractDeployed(event) => {
+                        self.handle_contract_deployed_event(*event);
+                    }
+                    RunnerEvent::Completion(_) => {
+                        break;
+                    }
+                    /* Benchmarks Events */
+                    RunnerEvent::StepTransactionInformation(event) => {
+                        self.handle_step_transaction_information(*event)
+                    }
+                    RunnerEvent::ContractInformation(event) => {
+                        self.handle_contract_information(*event);
+                    }
+                    RunnerEvent::BlockMined(event) => self.handle_block_mined(*event),
                 }
-                RunnerEvent::MetadataFileDiscovery(event) => {
-                    self.handle_metadata_file_discovery_event(*event);
-                }
-                RunnerEvent::TestCaseDiscovery(event) => {
-                    self.handle_test_case_discovery(*event);
-                }
-                RunnerEvent::PreLinkCompilationDiscovery(event) => {
-                    self.handle_pre_link_compilation_discovery(*event);
-                }
-                RunnerEvent::TestSucceeded(event) => {
-                    self.handle_test_succeeded_event(*event);
-                }
-                RunnerEvent::TestFailed(event) => {
-                    self.handle_test_failed_event(*event);
-                }
-                RunnerEvent::TestIgnored(event) => {
-                    self.handle_test_ignored_event(*event);
-                }
-                RunnerEvent::NodeAssigned(event) => {
-                    self.handle_node_assigned_event(*event);
-                }
-                RunnerEvent::PreLinkContractsCompilationSucceeded(event) => {
-                    self.handle_pre_link_contracts_compilation_succeeded_event(*event)
-                }
-                RunnerEvent::PostLinkContractsCompilationSucceeded(event) => {
-                    self.handle_post_link_contracts_compilation_succeeded_event(*event)
-                }
-                RunnerEvent::PreLinkContractsCompilationFailed(event) => {
-                    self.handle_pre_link_contracts_compilation_failed_event(*event)
-                }
-                RunnerEvent::PostLinkContractsCompilationFailed(event) => {
-                    self.handle_post_link_contracts_compilation_failed_event(*event)
-                }
-                RunnerEvent::PreLinkContractsCompilationIgnored(event) => {
-                    self.handle_pre_link_contracts_compilation_ignored_event(*event);
-                }
-                RunnerEvent::LibrariesDeployed(event) => {
-                    self.handle_libraries_deployed_event(*event);
-                }
-                RunnerEvent::ContractDeployed(event) => {
-                    self.handle_contract_deployed_event(*event);
-                }
-                RunnerEvent::Completion(_) => {
-                    break;
-                }
-                /* Benchmarks Events */
-                RunnerEvent::StepTransactionInformation(event) => {
-                    self.handle_step_transaction_information(*event)
-                }
-                RunnerEvent::ContractInformation(event) => {
-                    self.handle_contract_information(*event);
-                }
-                RunnerEvent::BlockMined(event) => self.handle_block_mined(*event),
             }
-        }
-        self.handle_completion(CompletionEvent {});
-        debug!("Report aggregation completed");
+            self.handle_completion(CompletionEvent {});
+            debug!("Report aggregation completed");
 
-        let default_file_name = {
-            let current_timestamp = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .context("System clock is before UNIX_EPOCH; cannot compute report timestamp")?
-                .as_secs();
-            let mut file_name = current_timestamp.to_string();
-            file_name.push_str(".json");
-            file_name
-        };
-        let file_name = self.file_name.unwrap_or(default_file_name);
-        let file_path = self
-            .report
-            .context
-            .as_working_directory_configuration()
-            .working_directory
-            .as_path()
-            .join(file_name);
-        let file = OpenOptions::new()
-            .create(true)
-            .write(true)
-            .truncate(true)
-            .read(false)
-            .open(&file_path)
-            .with_context(|| {
-                format!(
-                    "Failed to open report file for writing: {}",
-                    file_path.display()
-                )
+            let default_file_name = {
+                let current_timestamp = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .context("System clock is before UNIX_EPOCH; cannot compute report timestamp")?
+                    .as_secs();
+                let mut file_name = current_timestamp.to_string();
+                file_name.push_str(".json");
+                file_name
+            };
+            let file_name = self.file_name.unwrap_or(default_file_name);
+            let file_path = self
+                .report
+                .context
+                .as_working_directory_configuration()
+                .working_directory
+                .as_path()
+                .join(file_name);
+            let file = OpenOptions::new()
+                .create(true)
+                .write(true)
+                .truncate(true)
+                .read(false)
+                .open(&file_path)
+                .with_context(|| {
+                    format!(
+                        "Failed to open report file for writing: {}",
+                        file_path.display()
+                    )
+                })?;
+            serde_json::to_writer_pretty(&file, &self.report).with_context(|| {
+                format!("Failed to serialize report JSON to {}", file_path.display())
             })?;
-        serde_json::to_writer_pretty(&file, &self.report).with_context(|| {
-            format!("Failed to serialize report JSON to {}", file_path.display())
-        })?;
 
-        Ok(self.report)
+            Ok(self.report)
+        })
     }
 
     fn handle_subscribe_to_events_event(&self, event: SubscribeToEventsEvent) {

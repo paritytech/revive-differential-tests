@@ -64,197 +64,200 @@ impl Watcher {
     ///
     /// This future resolves once the two above described tasks resolve and complete their execution
     /// based on the above described logic.
-    #[instrument(level = "info", skip_all)]
-    pub async fn run(mut self) -> Result<()> {
-        // We start by waiting for the `StartEvent` which informs us of the first block that we want
-        // to watch for. Any event that we receive before this `StartEvent` is ignored as the driver
-        // is allowed to send events to the watcher before watching has started.
-        let ignore_blocks_before_block_number = loop {
-            let Some(WatcherEvent::StartEvent {
-                ignore_block_before,
-            }) = self.rx.recv().await
-            else {
-                continue;
-            };
-            break ignore_block_before;
-        };
-
-        /* Initializing the shared state between the two tasks we will be spawning */
-
-        // This boolean is shared between the two tasks and it's a boolean which the registration
-        // task uses to denote the block subscription task when the submission of transactions has
-        // completed and no more transactions will be submitted. When this boolean is set to `true`
-        // it means that not a single hash more will be added to the set of transactions we're
-        // watching for making the set immutable at that point.
-        let is_submission_completed = Arc::new(RwLock::new(false));
-
-        // This is the set of transaction hashes which the registration task were asked to register
-        // and have the block subscription task watch for. This is the absolute and canonical set of
-        // transaction hashes we expect to see mined in the blocks and any other transaction hashes
-        // which are observed in blocks are accidental or non canonical.
-        let watch_requests = Arc::new(RwLock::new(HashSet::<TxHash>::new()));
-
-        // The registration task, which performs what's been described in the doc-comment of this
-        // method.
-        let registration_task = {
-            let is_submission_completed = is_submission_completed.clone();
-            let watch_requests = watch_requests.clone();
-            async move {
-                let mut transaction_information = HashMap::new();
-                while let Some(watcher_event) = self.rx.recv().await {
-                    match watcher_event {
-                        // A start event which was resent to the watcher. There's nothing that we do
-                        // about this event since the drivers are permitted to resend this event
-                        // even after the initial start had happened and therefore we skip this
-                        // event without doing any kind of processing on it.
-                        WatcherEvent::StartEvent { .. } => {}
-                        // The driver submitted a transaction to the chain and therefore it's being
-                        // registered for the block subscription task to watch for it. We add it to
-                        // the shared state between us and the subscription task and also to the map
-                        // that will be returned when this task resolves containing the step that
-                        // the transaction belongs to as well as when it was submitted.
-                        WatcherEvent::SubmittedTransaction {
-                            transaction_hash,
-                            step_path,
-                            submission_time,
-                        } => {
-                            transaction_information
-                                .insert(transaction_hash, (step_path, submission_time));
-                            watch_requests.write().await.insert(transaction_hash);
-                        }
-                        // The driver has completed the submission of all of the tasks at this point
-                        // and we can safely stop this task. We update the `is_submission_completed`
-                        // shared boolean and then we break out of the loop.
-                        WatcherEvent::AllTransactionsSubmitted => {
-                            info!(
-                                tx_count = transaction_information.len(),
-                                "All transactions have been submitted"
-                            );
-                            self.rx.close();
-                            *is_submission_completed.write().await = true;
-                            break;
-                        }
-                    }
-                }
-                transaction_information
-            }
-        };
-
-        // This is the block subscription task which is the main watcher task watching for all of
-        // the observed transactions and keeping track of them. It's implemented as described in the
-        // doc comment of the function.
-        let block_subscription_task = {
-            let is_submission_completed = is_submission_completed.clone();
-            let watch_requests = watch_requests.clone();
-            async move {
-                let mut observed_transaction_hashes = HashSet::new();
-                let mut observed_blocks = vec![];
-                while let Some(block_information) = self.blocks_stream.next().await {
-                    // Keep skipping block as long as their block number is below the block number
-                    // we were tasked to start at.
-                    if block_information.ethereum_block_information.block_number
-                        < ignore_blocks_before_block_number
-                    {
-                        info!(
-                            block_number =
-                                block_information.ethereum_block_information.block_number,
-                            ignore_blocks_before_block_number,
-                            "Observed a block, but it's being ignored"
-                        );
-                        continue;
-                    }
-
-                    // Add the transaction hashes from this block to the set of transaction hashes
-                    // we've observed and also add it's information to the map we store where we
-                    // keep track of the transaction and which block contained it.
-                    observed_transaction_hashes.extend(
-                        block_information
-                            .ethereum_block_information
-                            .transaction_hashes
-                            .clone(),
-                    );
-
-                    // Logging information about this newly observed block and adding it to the set
-                    // of block we will return at the end.
-                    let requested_transactions_len = watch_requests.read().await.len();
-                    info!(
-                        block.number = block_information.ethereum_block_information.block_number,
-                        block.timestamp =
-                            block_information.ethereum_block_information.block_timestamp,
-                        block.tx_hashes_len = block_information
-                            .ethereum_block_information
-                            .transaction_hashes
-                            .len(),
-                        transactions.observed = observed_transaction_hashes.len(),
-                        transactions.requested = requested_transactions_len,
-                        transactions.remaining = requested_transactions_len
-                            .saturating_sub(observed_transaction_hashes.len()),
-                        "Observed a new block"
-                    );
-                    observed_blocks.push(block_information);
-
-                    // This is the primary condition which determines if we should break out of the
-                    // loop or not. If all of the transactions have been submitted and there's no
-                    // difference between the transactions the user requested us to watch and the
-                    // ones we've seen then we break out of the loop and stop.
-                    if *is_submission_completed.read().await
-                        && watch_requests
-                            .read()
-                            .await
-                            .is_subset(&observed_transaction_hashes)
-                    {
-                        info!("All transactions observed");
-                        break;
-                    }
-                }
-                observed_blocks
-            }
-        };
-
-        // Execute both of the tasks concurrently until they both complete.
-        let (transaction_registration_information, observed_blocks) =
-            join(registration_task, block_subscription_task).await;
-
-        // Reporting all of the information to the reporter about all of the observed blocks, the tx
-        // counts, the transaction information, and everything else.
-        for mut block in observed_blocks.into_iter() {
-            // Update the tx counts for this block
-            for tx_hash in block.ethereum_block_information.transaction_hashes.iter() {
-                let Some((step_path, _)) = transaction_registration_information.get(tx_hash) else {
-                    continue;
-                };
-                *block.tx_counts.entry(step_path.clone()).or_default() += 1;
-            }
-
-            // Report information about the transactions within a block.
-            for tx_hash in block.ethereum_block_information.transaction_hashes.iter() {
-                let Some((step_path, submission_time)) =
-                    transaction_registration_information.get(tx_hash)
+    pub fn run(mut self) -> FrameworkFuture<Result<()>> {
+        Box::pin(async move {
+            // We start by waiting for the `StartEvent` which informs us of the first block that we want
+            // to watch for. Any event that we receive before this `StartEvent` is ignored as the driver
+            // is allowed to send events to the watcher before watching has started.
+            let ignore_blocks_before_block_number = loop {
+                let Some(WatcherEvent::StartEvent {
+                    ignore_block_before,
+                }) = self.rx.recv().await
                 else {
                     continue;
                 };
-                let transaction_information = TransactionInformation {
-                    transaction_hash: *tx_hash,
-                    submission_timestamp: submission_time
-                        .duration_since(UNIX_EPOCH)
+                break ignore_block_before;
+            };
+
+            /* Initializing the shared state between the two tasks we will be spawning */
+
+            // This boolean is shared between the two tasks and it's a boolean which the registration
+            // task uses to denote the block subscription task when the submission of transactions has
+            // completed and no more transactions will be submitted. When this boolean is set to `true`
+            // it means that not a single hash more will be added to the set of transactions we're
+            // watching for making the set immutable at that point.
+            let is_submission_completed = Arc::new(RwLock::new(false));
+
+            // This is the set of transaction hashes which the registration task were asked to register
+            // and have the block subscription task watch for. This is the absolute and canonical set of
+            // transaction hashes we expect to see mined in the blocks and any other transaction hashes
+            // which are observed in blocks are accidental or non canonical.
+            let watch_requests = Arc::new(RwLock::new(HashSet::<TxHash>::new()));
+
+            // The registration task, which performs what's been described in the doc-comment of this
+            // method.
+            let registration_task = {
+                let is_submission_completed = is_submission_completed.clone();
+                let watch_requests = watch_requests.clone();
+                async move {
+                    let mut transaction_information = HashMap::new();
+                    while let Some(watcher_event) = self.rx.recv().await {
+                        match watcher_event {
+                            // A start event which was resent to the watcher. There's nothing that we do
+                            // about this event since the drivers are permitted to resend this event
+                            // even after the initial start had happened and therefore we skip this
+                            // event without doing any kind of processing on it.
+                            WatcherEvent::StartEvent { .. } => {}
+                            // The driver submitted a transaction to the chain and therefore it's being
+                            // registered for the block subscription task to watch for it. We add it to
+                            // the shared state between us and the subscription task and also to the map
+                            // that will be returned when this task resolves containing the step that
+                            // the transaction belongs to as well as when it was submitted.
+                            WatcherEvent::SubmittedTransaction {
+                                transaction_hash,
+                                step_path,
+                                submission_time,
+                            } => {
+                                transaction_information
+                                    .insert(transaction_hash, (step_path, submission_time));
+                                watch_requests.write().await.insert(transaction_hash);
+                            }
+                            // The driver has completed the submission of all of the tasks at this point
+                            // and we can safely stop this task. We update the `is_submission_completed`
+                            // shared boolean and then we break out of the loop.
+                            WatcherEvent::AllTransactionsSubmitted => {
+                                info!(
+                                    tx_count = transaction_information.len(),
+                                    "All transactions have been submitted"
+                                );
+                                self.rx.close();
+                                *is_submission_completed.write().await = true;
+                                break;
+                            }
+                        }
+                    }
+                    transaction_information
+                }
+            };
+
+            // This is the block subscription task which is the main watcher task watching for all of
+            // the observed transactions and keeping track of them. It's implemented as described in the
+            // doc comment of the function.
+            let block_subscription_task = {
+                let is_submission_completed = is_submission_completed.clone();
+                let watch_requests = watch_requests.clone();
+                async move {
+                    let mut observed_transaction_hashes = HashSet::new();
+                    let mut observed_blocks = vec![];
+                    while let Some(block_information) = self.blocks_stream.next().await {
+                        // Keep skipping block as long as their block number is below the block number
+                        // we were tasked to start at.
+                        if block_information.ethereum_block_information.block_number
+                            < ignore_blocks_before_block_number
+                        {
+                            info!(
+                                block_number =
+                                    block_information.ethereum_block_information.block_number,
+                                ignore_blocks_before_block_number,
+                                "Observed a block, but it's being ignored"
+                            );
+                            continue;
+                        }
+
+                        // Add the transaction hashes from this block to the set of transaction hashes
+                        // we've observed and also add it's information to the map we store where we
+                        // keep track of the transaction and which block contained it.
+                        observed_transaction_hashes.extend(
+                            block_information
+                                .ethereum_block_information
+                                .transaction_hashes
+                                .clone(),
+                        );
+
+                        // Logging information about this newly observed block and adding it to the set
+                        // of block we will return at the end.
+                        let requested_transactions_len = watch_requests.read().await.len();
+                        info!(
+                            block.number =
+                                block_information.ethereum_block_information.block_number,
+                            block.timestamp =
+                                block_information.ethereum_block_information.block_timestamp,
+                            block.tx_hashes_len = block_information
+                                .ethereum_block_information
+                                .transaction_hashes
+                                .len(),
+                            transactions.observed = observed_transaction_hashes.len(),
+                            transactions.requested = requested_transactions_len,
+                            transactions.remaining = requested_transactions_len
+                                .saturating_sub(observed_transaction_hashes.len()),
+                            "Observed a new block"
+                        );
+                        observed_blocks.push(block_information);
+
+                        // This is the primary condition which determines if we should break out of the
+                        // loop or not. If all of the transactions have been submitted and there's no
+                        // difference between the transactions the user requested us to watch and the
+                        // ones we've seen then we break out of the loop and stop.
+                        if *is_submission_completed.read().await
+                            && watch_requests
+                                .read()
+                                .await
+                                .is_subset(&observed_transaction_hashes)
+                        {
+                            info!("All transactions observed");
+                            break;
+                        }
+                    }
+                    observed_blocks
+                }
+            };
+
+            // Execute both of the tasks concurrently until they both complete.
+            let (transaction_registration_information, observed_blocks) =
+                join(registration_task, block_subscription_task).await;
+
+            // Reporting all of the information to the reporter about all of the observed blocks, the tx
+            // counts, the transaction information, and everything else.
+            for mut block in observed_blocks.into_iter() {
+                // Update the tx counts for this block
+                for tx_hash in block.ethereum_block_information.transaction_hashes.iter() {
+                    let Some((step_path, _)) = transaction_registration_information.get(tx_hash)
+                    else {
+                        continue;
+                    };
+                    *block.tx_counts.entry(step_path.clone()).or_default() += 1;
+                }
+
+                // Report information about the transactions within a block.
+                for tx_hash in block.ethereum_block_information.transaction_hashes.iter() {
+                    let Some((step_path, submission_time)) =
+                        transaction_registration_information.get(tx_hash)
+                    else {
+                        continue;
+                    };
+                    let transaction_information = TransactionInformation {
+                        transaction_hash: *tx_hash,
+                        submission_timestamp: submission_time
+                            .duration_since(UNIX_EPOCH)
+                            .expect("Can't fail")
+                            .as_secs() as _,
+                        block_timestamp: block.ethereum_block_information.block_timestamp,
+                        block_number: block.ethereum_block_information.block_number,
+                    };
+                    self.reporter
+                        .report_step_transaction_information_event(
+                            step_path.clone(),
+                            transaction_information,
+                        )
                         .expect("Can't fail")
-                        .as_secs() as _,
-                    block_timestamp: block.ethereum_block_information.block_timestamp,
-                    block_number: block.ethereum_block_information.block_number,
-                };
-                self.reporter
-                    .report_step_transaction_information_event(
-                        step_path.clone(),
-                        transaction_information,
-                    )
-                    .expect("Can't fail")
+                }
+
+                // Report the block to the reporter.
+                let _ = self.reporter.report_block_mined_event(block);
             }
 
-            // Report the block to the reporter.
-            let _ = self.reporter.report_block_mined_event(block);
-        }
-
-        Ok(())
+            Ok(())
+        })
     }
 }
 

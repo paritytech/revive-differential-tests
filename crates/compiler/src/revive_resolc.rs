@@ -20,39 +20,46 @@ struct ResolcInner {
 }
 
 impl Resolc {
-    pub async fn new(
-        context: impl HasSolcConfiguration + HasResolcConfiguration + HasWorkingDirectoryConfiguration,
-        version: impl Into<Option<VersionOrRequirement>>,
-    ) -> Result<Self> {
-        /// This is a cache of all of the resolc compiler objects. Since we do not currently support
-        /// multiple resolc compiler versions, so our cache is just keyed by the solc compiler and
-        /// its version to the resolc compiler.
-        static COMPILERS_CACHE: LazyLock<DashMap<Solc, Resolc>> = LazyLock::new(Default::default);
+    pub fn new(
+        context: impl HasSolcConfiguration
+        + HasResolcConfiguration
+        + HasWorkingDirectoryConfiguration
+        + Send
+        + 'static,
+        version: impl Into<Option<VersionOrRequirement>> + Send + 'static,
+    ) -> FrameworkFuture<Result<Self>> {
+        Box::pin(async move {
+            /// This is a cache of all of the resolc compiler objects. Since we do not currently support
+            /// multiple resolc compiler versions, so our cache is just keyed by the solc compiler and
+            /// its version to the resolc compiler.
+            static COMPILERS_CACHE: LazyLock<DashMap<Solc, Resolc>> =
+                LazyLock::new(Default::default);
 
-        let resolc_configuration = context.as_resolc_configuration();
-        let resolc_path = resolc_configuration.path.clone();
-        let pvm_heap_size = resolc_configuration
-            .heap_size
-            .unwrap_or(PolkaVMDefaultHeapMemorySize);
-        let pvm_stack_size = resolc_configuration
-            .stack_size
-            .unwrap_or(PolkaVMDefaultStackMemorySize);
+            let resolc_configuration = context.as_resolc_configuration();
+            let resolc_path = resolc_configuration.path.clone();
+            let pvm_heap_size = resolc_configuration
+                .heap_size
+                .unwrap_or(PolkaVMDefaultHeapMemorySize);
+            let pvm_stack_size = resolc_configuration
+                .stack_size
+                .unwrap_or(PolkaVMDefaultStackMemorySize);
 
-        let solc = Solc::new(context, version)
-            .await
-            .context("Failed to create the solc compiler frontend for resolc")?;
+            let solc = Solc::new(context, version)
+                .await
+                .context("Failed to create the solc compiler frontend for resolc")?;
 
-        Ok(COMPILERS_CACHE
-            .entry(solc.clone())
-            .or_insert_with(|| {
-                Self(Arc::new(ResolcInner {
-                    solc,
-                    resolc_path,
-                    pvm_heap_size,
-                    pvm_stack_size,
-                }))
-            })
-            .clone())
+            Ok(COMPILERS_CACHE
+                .entry(solc.clone())
+                .or_insert_with(|| {
+                    Self(Arc::new(ResolcInner {
+                        solc,
+                        resolc_path,
+                        pvm_heap_size,
+                        pvm_stack_size,
+                    }))
+                })
+                .clone())
+        })
     }
 
     fn polkavm_settings(&self) -> SolcStandardJsonInputSettingsPolkaVM {

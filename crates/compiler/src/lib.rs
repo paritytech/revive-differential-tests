@@ -57,6 +57,7 @@ pub(crate) mod internal_prelude {
 
     pub use revive_common::EVMVersion;
     pub use revive_dt_common::cached_fs::read_to_string;
+    pub use revive_dt_common::futures::FrameworkFuture;
     pub use revive_dt_common::types::VersionOrRequirement;
     pub use revive_dt_solc_binaries::download_solc;
 }
