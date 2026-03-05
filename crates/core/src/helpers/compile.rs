@@ -5,8 +5,8 @@ use futures::{Stream, StreamExt, stream};
 use indexmap::{IndexMap, indexmap};
 use regex::Regex;
 use revive_dt_common::{cached_fs::read_to_string, types::CompilerIdentifier};
-use revive_dt_compiler::{Mode, SolidityCompiler, revive_resolc::Resolc};
-use revive_dt_config::Context;
+use revive_dt_compiler::{Mode, ParsedMode, SolidityCompiler, revive_resolc::Resolc};
+use revive_dt_config::Compile;
 use revive_dt_format::{corpus::Corpus, metadata::MetadataFile};
 use revive_dt_report::{PreLinkCompilationSpecificReporter, PreLinkCompilationSpecifier, Reporter};
 use semver::VersionReq;
@@ -130,13 +130,14 @@ impl<'a> CompilationDefinition<'a> {
 type CompilationCheckFunctionResult =
     Result<(), (&'static str, IndexMap<&'static str, serde_json::Value>)>;
 
-/// Creates a stream of [`CompilationDefinition`]s for the contracts to be compiled.
+/// Creates a stream of [`CompilationDefinition`]s for each "metadata file and mode"
+/// combination to be compiled.
 pub async fn create_compilation_definitions_stream<'a>(
-    context: &Context,
+    context: &Compile,
     corpus: &'a Corpus,
-    mode: Mode,
     reporter: Reporter,
 ) -> impl Stream<Item = CompilationDefinition<'a>> {
+    let modes: Vec<Mode> = ParsedMode::many_to_modes(context.corpus.modes.iter()).collect();
     let cloned_reporter = reporter.clone();
     stream::iter(
         corpus
@@ -149,7 +150,13 @@ pub async fn create_compilation_definitions_stream<'a>(
                     )
                     .unwrap();
             })
-            .map(move |metadata_file| {
+            .flat_map(move |metadata_file| {
+                modes
+                    .clone()
+                    .into_iter()
+                    .map(move |mode| (metadata_file, mode))
+            })
+            .map(move |(metadata_file, mode)| {
                 let reporter = reporter.clone();
 
                 (
@@ -157,7 +164,7 @@ pub async fn create_compilation_definitions_stream<'a>(
                     Cow::<'_, Mode>::Owned(mode.clone()),
                     reporter.pre_link_compilation_specific_reporter(Arc::new(
                         PreLinkCompilationSpecifier {
-                            compiler_mode: mode.clone(),
+                            compiler_mode: mode,
                             metadata_file_path: metadata_file.metadata_file_path.clone(),
                         },
                     )),

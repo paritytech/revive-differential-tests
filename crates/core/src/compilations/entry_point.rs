@@ -9,10 +9,7 @@ use ansi_term::{ANSIStrings, Color};
 use anyhow::Context as _;
 use futures::StreamExt;
 use indexmap::IndexMap;
-use revive_dt_compiler::{Mode, ModeOptimizerLevel, ModeOptimizerSetting, ModePipeline};
-use revive_dt_config::{
-    Compile, Context, FailFastConfiguration, OutputFormat, OutputFormatConfiguration,
-};
+use revive_dt_config::{Compile, FailFastConfiguration, OutputFormat, OutputFormatConfiguration};
 use revive_dt_format::corpus::Corpus;
 use revive_dt_report::{CompilationStatus, Reporter, ReporterEvent};
 use tokio::sync::broadcast;
@@ -106,24 +103,11 @@ pub async fn handle_compilations(mut context: Compile, reporter: Reporter) -> an
         "Discovered metadata files"
     );
 
-    let full_context = Context::Compile(Box::new(context.clone()));
-    let compilation_definitions = create_compilation_definitions_stream(
-        &full_context,
-        &corpus,
-        // TODO (temporarily always using `z`): Accept mode(s) via CLI.
-        Mode {
-            pipeline: ModePipeline::ViaYulIR,
-            optimize_setting: ModeOptimizerSetting {
-                solc_optimizer_enabled: true,
-                level: ModeOptimizerLevel::Mz,
-            },
-            solc_version: None,
-        },
-        reporter.clone(),
-    )
-    .await
-    .collect::<Vec<_>>()
-    .await;
+    let compilation_definitions =
+        create_compilation_definitions_stream(&context, &corpus, reporter.clone())
+            .await
+            .collect::<Vec<_>>()
+            .await;
     drop(reporter);
     info!(
         len = compilation_definitions.len(),

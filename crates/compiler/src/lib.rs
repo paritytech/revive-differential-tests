@@ -20,7 +20,9 @@ use revive_common::EVMVersion;
 use revive_dt_common::cached_fs::read_to_string;
 
 // Re-export this as it's a part of the compiler interface.
-pub use revive_dt_common::types::{Mode, ModeOptimizerLevel, ModeOptimizerSetting, ModePipeline};
+pub use revive_dt_common::types::{
+    Mode, ModeOptimizerLevel, ModeOptimizerSetting, ModePipeline, ParsedMode,
+};
 
 pub mod revive_js;
 pub mod revive_resolc;
