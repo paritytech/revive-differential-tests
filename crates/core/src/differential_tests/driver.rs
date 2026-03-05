@@ -30,6 +30,7 @@ use revive_dt_format::{
     },
     traits::ResolutionContext,
 };
+use revive_dt_report::CompilationReporter;
 use subxt::{ext::codec::Decode, metadata::Metadata, tx::Payload};
 use tokio::sync::Mutex;
 use tracing::{error, info, instrument};
@@ -186,8 +187,9 @@ where
                 test_definition.mode.clone(),
                 None,
                 platform_information.compiler.as_ref(),
-                platform_information.platform,
-                &platform_information.reporter,
+                platform_information.platform.compiler_identifier(),
+                Some(platform_information.platform.platform_identifier()),
+                &CompilationReporter::Execution(&platform_information.reporter),
             )
             .await
             .inspect_err(|err| {
@@ -269,8 +271,9 @@ where
                 test_definition.mode.clone(),
                 deployed_libraries.as_ref(),
                 platform_information.compiler.as_ref(),
-                platform_information.platform,
-                &platform_information.reporter,
+                platform_information.platform.compiler_identifier(),
+                Some(platform_information.platform.platform_identifier()),
+                &CompilationReporter::Execution(&platform_information.reporter),
             )
             .await
             .inspect_err(|err| {

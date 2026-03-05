@@ -16,13 +16,30 @@ use tokio::sync::{broadcast, oneshot};
 
 use crate::MinedBlockInformation;
 use crate::TransactionInformation;
-use crate::{ExecutionSpecifier, ReporterEvent, TestSpecifier, common::MetadataFilePath};
+use crate::{
+    CompilationSpecifier, ExecutionSpecifier, PreLinkCompilationSpecifier, ReporterEvent,
+    TestSpecifier, common::MetadataFilePath,
+};
 
-macro_rules! __report_gen_emit_test_specific {
+/// Conditionally wraps a value, or returns it as is.
+macro_rules! __maybe_wrap {
+    ($value:expr, $wrapper:path) => {
+        $wrapper($value)
+    };
+    ($value:expr) => {
+        $value
+    };
+}
+
+/// Generates a report method that emits an event, auto-filling the specifier from self.
+/// Optionally wraps the specifier in if a wrapper path is provided.
+macro_rules! __report_gen_emit_with_specifier {
     (
         $ident:ident,
         $variant_ident:ident,
-        $skip_field:ident;
+        $specifier_field_on_self:ident,
+        $specifier_field_on_event:ident
+        $(, $specifier_wrapper:path)?;
         $( $bname:ident : $bty:ty, )*
         ;
         $( $aname:ident : $aty:ty, )*
@@ -34,7 +51,10 @@ macro_rules! __report_gen_emit_test_specific {
                 $(, $aname: impl Into<$aty> )*
             ) -> anyhow::Result<()> {
                 self.report([< $variant_ident Event >] {
-                    $skip_field: self.test_specifier.clone()
+                    $specifier_field_on_event: __maybe_wrap!(
+                        self.$specifier_field_on_self.clone()
+                        $(, $specifier_wrapper)?
+                    )
                     $(, $bname: $bname.into() )*
                     $(, $aname: $aname.into() )*
                 })
@@ -43,259 +63,189 @@ macro_rules! __report_gen_emit_test_specific {
     };
 }
 
-macro_rules! __report_gen_emit_test_specific_by_parse {
+/// Scans event fields looking for a matching specifier field name.
+///
+/// Each MATCH arm maps a specifier field on `self` (the reporter) to a specifier field
+/// on the event enum variant. This allows for the event's field to have a different name
+/// than the reporter's specifier field if needed (e.g., `specifier` instead of `test_specifier`).
+///
+/// To support a new specifier field, just add a corresponding MATCH arm.
+macro_rules! __report_gen_scan_for_specifier {
+    // MATCH: test_specifier (on self) -> test_specifier (on event).
     (
         $ident:ident,
         $variant_ident:ident,
-        $skip_field:ident;
-        $( $bname:ident : $bty:ty, )* ; $( $aname:ident : $aty:ty, )*
-    ) => {
-        __report_gen_emit_test_specific!(
-            $ident, $variant_ident, $skip_field;
-            $( $bname : $bty, )* ; $( $aname : $aty, )*
-        );
-    };
-}
-
-macro_rules! __report_gen_scan_before {
-    (
-        $ident:ident, $variant_ident:ident;
+        test_specifier;
         $( $before:ident : $bty:ty, )*
         ;
         test_specifier : $skip_ty:ty,
         $( $after:ident : $aty:ty, )*
         ;
     ) => {
-        __report_gen_emit_test_specific_by_parse!(
-            $ident, $variant_ident, test_specifier;
+        __report_gen_emit_with_specifier!(
+            $ident,
+            $variant_ident,
+            test_specifier,
+            test_specifier;
             $( $before : $bty, )* ; $( $after : $aty, )*
         );
     };
-    (
-        $ident:ident, $variant_ident:ident;
-        $( $before:ident : $bty:ty, )*
-        ;
-        $name:ident : $ty:ty, $( $after:ident : $aty:ty, )*
-        ;
-    ) => {
-        __report_gen_scan_before!(
-            $ident, $variant_ident;
-            $( $before : $bty, )* $name : $ty,
-            ;
-            $( $after : $aty, )*
-            ;
-        );
-    };
-    (
-        $ident:ident, $variant_ident:ident;
-        $( $before:ident : $bty:ty, )*
-        ;
-        ;
-    ) => {};
-}
 
-macro_rules! __report_gen_for_variant {
-    (
-        $ident:ident,
-        $variant_ident:ident;
-    ) => {};
-    (
-        $ident:ident,
-        $variant_ident:ident;
-        $( $field_ident:ident : $field_ty:ty ),+ $(,)?
-    ) => {
-        __report_gen_scan_before!(
-            $ident, $variant_ident;
-            ;
-            $( $field_ident : $field_ty, )*
-            ;
-        );
-    };
-}
-
-macro_rules! __report_gen_emit_execution_specific {
+    // MATCH: execution_specifier (on self) -> execution_specifier (on event).
     (
         $ident:ident,
         $variant_ident:ident,
-        $skip_field:ident;
-        $( $bname:ident : $bty:ty, )*
-        ;
-        $( $aname:ident : $aty:ty, )*
-    ) => {
-        paste::paste! {
-            pub fn [< report_ $variant_ident:snake _event >](
-                &self
-                $(, $bname: impl Into<$bty> )*
-                $(, $aname: impl Into<$aty> )*
-            ) -> anyhow::Result<()> {
-                self.report([< $variant_ident Event >] {
-                    $skip_field: self.execution_specifier.clone()
-                    $(, $bname: $bname.into() )*
-                    $(, $aname: $aname.into() )*
-                })
-            }
-        }
-    };
-}
-
-macro_rules! __report_gen_emit_execution_specific_by_parse {
-    (
-        $ident:ident,
-        $variant_ident:ident,
-        $skip_field:ident;
-        $( $bname:ident : $bty:ty, )* ; $( $aname:ident : $aty:ty, )*
-    ) => {
-        __report_gen_emit_execution_specific!(
-            $ident, $variant_ident, $skip_field;
-            $( $bname : $bty, )* ; $( $aname : $aty, )*
-        );
-    };
-}
-
-macro_rules! __report_gen_scan_before_exec {
-    (
-        $ident:ident, $variant_ident:ident;
+        execution_specifier;
         $( $before:ident : $bty:ty, )*
         ;
         execution_specifier : $skip_ty:ty,
         $( $after:ident : $aty:ty, )*
         ;
     ) => {
-        __report_gen_emit_execution_specific_by_parse!(
-            $ident, $variant_ident, execution_specifier;
+        __report_gen_emit_with_specifier!(
+            $ident,
+            $variant_ident,
+            execution_specifier,
+            execution_specifier;
             $( $before : $bty, )* ; $( $after : $aty, )*
         );
     };
-    (
-        $ident:ident, $variant_ident:ident;
-        $( $before:ident : $bty:ty, )*
-        ;
-        $name:ident : $ty:ty, $( $after:ident : $aty:ty, )*
-        ;
-    ) => {
-        __report_gen_scan_before_exec!(
-            $ident, $variant_ident;
-            $( $before : $bty, )* $name : $ty,
-            ;
-            $( $after : $aty, )*
-            ;
-        );
-    };
-    (
-        $ident:ident, $variant_ident:ident;
-        $( $before:ident : $bty:ty, )*
-        ;
-        ;
-    ) => {};
-}
 
-macro_rules! __report_gen_for_variant_exec {
-    (
-        $ident:ident,
-        $variant_ident:ident;
-    ) => {};
-    (
-        $ident:ident,
-        $variant_ident:ident;
-        $( $field_ident:ident : $field_ty:ty ),+ $(,)?
-    ) => {
-        __report_gen_scan_before_exec!(
-            $ident, $variant_ident;
-            ;
-            $( $field_ident : $field_ty, )*
-            ;
-        );
-    };
-}
-
-macro_rules! __report_gen_emit_step_execution_specific {
+    // MATCH: execution_specifier (on self) -> specifier (on event).
     (
         $ident:ident,
         $variant_ident:ident,
-        $skip_field:ident;
-        $( $bname:ident : $bty:ty, )*
+        execution_specifier;
+        $( $before:ident : $bty:ty, )*
         ;
-        $( $aname:ident : $aty:ty, )*
+        specifier : $skip_ty:ty,
+        $( $after:ident : $aty:ty, )*
+        ;
     ) => {
-        paste::paste! {
-            pub fn [< report_ $variant_ident:snake _event >](
-                &self
-                $(, $bname: impl Into<$bty> )*
-                $(, $aname: impl Into<$aty> )*
-            ) -> anyhow::Result<()> {
-                self.report([< $variant_ident Event >] {
-                    $skip_field: self.step_specifier.clone()
-                    $(, $bname: $bname.into() )*
-                    $(, $aname: $aname.into() )*
-                })
-            }
-        }
+        __report_gen_emit_with_specifier!(
+            $ident,
+            $variant_ident,
+            execution_specifier,
+            specifier,
+            $crate::CompilationSpecifier::Execution;
+            $( $before : $bty, )* ; $( $after : $aty, )*
+        );
     };
-}
 
-macro_rules! __report_gen_emit_step_execution_specific_by_parse {
+    // MATCH: step_specifier (on self) -> step_specifier (on event).
     (
         $ident:ident,
         $variant_ident:ident,
-        $skip_field:ident;
-        $( $bname:ident : $bty:ty, )* ; $( $aname:ident : $aty:ty, )*
-    ) => {
-        __report_gen_emit_step_execution_specific!(
-            $ident, $variant_ident, $skip_field;
-            $( $bname : $bty, )* ; $( $aname : $aty, )*
-        );
-    };
-}
-
-macro_rules! __report_gen_scan_before_step {
-    (
-        $ident:ident, $variant_ident:ident;
+        step_specifier;
         $( $before:ident : $bty:ty, )*
         ;
         step_specifier : $skip_ty:ty,
         $( $after:ident : $aty:ty, )*
         ;
     ) => {
-        __report_gen_emit_step_execution_specific_by_parse!(
-            $ident, $variant_ident, step_specifier;
+        __report_gen_emit_with_specifier!(
+            $ident,
+            $variant_ident,
+            step_specifier,
+            step_specifier;
             $( $before : $bty, )* ; $( $after : $aty, )*
         );
     };
+
+    // MATCH: compilation_specifier (on self) -> compilation_specifier (on event).
     (
-        $ident:ident, $variant_ident:ident;
+        $ident:ident,
+        $variant_ident:ident,
+        compilation_specifier;
         $( $before:ident : $bty:ty, )*
         ;
-        $name:ident : $ty:ty, $( $after:ident : $aty:ty, )*
+        compilation_specifier : $skip_ty:ty,
+        $( $after:ident : $aty:ty, )*
         ;
     ) => {
-        __report_gen_scan_before_step!(
-            $ident, $variant_ident;
+        __report_gen_emit_with_specifier!(
+            $ident,
+            $variant_ident,
+            compilation_specifier,
+            compilation_specifier;
+            $( $before : $bty, )* ; $( $after : $aty, )*
+        );
+    };
+
+    // MATCH: compilation_specifier (on self) -> specifier (on event).
+    (
+        $ident:ident,
+        $variant_ident:ident,
+        compilation_specifier;
+        $( $before:ident : $bty:ty, )*
+        ;
+        specifier : $skip_ty:ty,
+        $( $after:ident : $aty:ty, )*
+        ;
+    ) => {
+        __report_gen_emit_with_specifier!(
+            $ident,
+            $variant_ident,
+            compilation_specifier,
+            specifier,
+            $crate::CompilationSpecifier::PreLink;
+            $( $before : $bty, )* ; $( $after : $aty, )*
+        );
+    };
+
+    // RECURSIVE: Field doesn't match, continue scanning.
+    (
+        $ident:ident,
+        $variant_ident:ident,
+        $specifier_field_on_self:ident;
+        $( $before:ident : $bty:ty, )*
+        ;
+        $name:ident : $ty:ty,
+        $( $after:ident : $aty:ty, )*
+        ;
+    ) => {
+        __report_gen_scan_for_specifier!(
+            $ident,
+            $variant_ident,
+            $specifier_field_on_self;
             $( $before : $bty, )* $name : $ty,
             ;
             $( $after : $aty, )*
             ;
         );
     };
+
+    // TERMINAL: No matching specifier found.
     (
-        $ident:ident, $variant_ident:ident;
+        $ident:ident,
+        $variant_ident:ident,
+        $specifier_field_on_self:ident;
         $( $before:ident : $bty:ty, )*
         ;
         ;
     ) => {};
 }
 
-macro_rules! __report_gen_for_variant_step {
+/// Entry point: Processes a variant and starts scanning for specifier fields.
+macro_rules! __report_gen_for_variant {
+    // Empty variant - no fields.
     (
         $ident:ident,
-        $variant_ident:ident;
+        $variant_ident:ident,
+        $specifier_field_on_self:ident;
     ) => {};
+
+    // Variant with fields - start scanning.
     (
         $ident:ident,
-        $variant_ident:ident;
+        $variant_ident:ident,
+        $specifier_field_on_self:ident;
         $( $field_ident:ident : $field_ty:ty ),+ $(,)?
     ) => {
-        __report_gen_scan_before_step!(
-            $ident, $variant_ident;
+        __report_gen_scan_for_specifier!(
+            $ident,
+            $variant_ident,
+            $specifier_field_on_self;
             ;
             $( $field_ident : $field_ty, )*
             ;
@@ -401,6 +351,16 @@ macro_rules! define_event {
                     }
                 }
 
+                pub fn pre_link_compilation_specific_reporter(
+                    &self,
+                    compilation_specifier: impl Into<std::sync::Arc<crate::common::PreLinkCompilationSpecifier>>
+                ) -> [< $ident PreLinkCompilationSpecificReporter >] {
+                    [< $ident PreLinkCompilationSpecificReporter >] {
+                        reporter: self.clone(),
+                        compilation_specifier: compilation_specifier.into(),
+                    }
+                }
+
                 fn report(&self, event: impl Into<$ident>) -> anyhow::Result<()> {
                     self.0.send(event.into()).map_err(Into::into)
                 }
@@ -442,7 +402,12 @@ macro_rules! define_event {
                 }
 
                 $(
-                    __report_gen_for_variant! { $ident, $variant_ident; $( $field_ident : $field_ty ),* }
+                    __report_gen_for_variant! {
+                        $ident,
+                        $variant_ident,
+                        test_specifier;
+                        $( $field_ident : $field_ty ),*
+                    }
                 )*
             }
 
@@ -460,7 +425,12 @@ macro_rules! define_event {
                 }
 
                 $(
-                    __report_gen_for_variant_exec! { $ident, $variant_ident; $( $field_ident : $field_ty ),* }
+                    __report_gen_for_variant! {
+                        $ident,
+                        $variant_ident,
+                        execution_specifier;
+                        $( $field_ident : $field_ty ),*
+                    }
                 )*
             }
 
@@ -477,7 +447,34 @@ macro_rules! define_event {
                 }
 
                 $(
-                    __report_gen_for_variant_step! { $ident, $variant_ident; $( $field_ident : $field_ty ),* }
+                    __report_gen_for_variant! {
+                        $ident,
+                        $variant_ident,
+                        step_specifier;
+                        $( $field_ident : $field_ty ),*
+                    }
+                )*
+            }
+
+            /// A reporter that's tied to a specific compilation.
+            #[derive(Clone, Debug)]
+            pub struct [< $ident PreLinkCompilationSpecificReporter >] {
+                $vis reporter: [< $ident Reporter >],
+                $vis compilation_specifier: std::sync::Arc<crate::common::PreLinkCompilationSpecifier>,
+            }
+
+            impl [< $ident PreLinkCompilationSpecificReporter >] {
+                fn report(&self, event: impl Into<$ident>) -> anyhow::Result<()> {
+                    self.reporter.report(event)
+                }
+
+                $(
+                    __report_gen_for_variant! {
+                        $ident,
+                        $variant_ident,
+                        compilation_specifier;
+                        $( $field_ident : $field_ty ),*
+                    }
                 )*
             }
         }
@@ -504,6 +501,11 @@ define_event! {
         TestCaseDiscovery {
             /// A specifier for the test that was discovered.
             test_specifier: Arc<TestSpecifier>,
+        },
+        /// An event emitted by the runners when they discover a pre-link-only compilation.
+        PreLinkCompilationDiscovery {
+            /// A specifier for the compilation that was discovered.
+            compilation_specifier: Arc<PreLinkCompilationSpecifier>,
         },
         /// An event emitted by the runners when a test case is ignored.
         TestIgnored {
@@ -542,14 +544,13 @@ define_event! {
         /// An event emitted by the runners when the compilation of the contracts has succeeded
         /// on the pre-link contracts.
         PreLinkContractsCompilationSucceeded {
-            /// A specifier for the execution that's taking place.
-            execution_specifier: Arc<ExecutionSpecifier>,
+            /// A specifier for the compilation taking place.
+            specifier: CompilationSpecifier,
             /// The version of the compiler used to compile the contracts.
             compiler_version: Version,
             /// The path of the compiler used to compile the contracts.
             compiler_path: PathBuf,
-            /// A flag of whether the contract bytecode and ABI were cached or if they were compiled
-            /// anew.
+            /// A flag of whether the contract bytecode and ABI were cached or if they were compiled anew.
             is_cached: bool,
             /// The input provided to the compiler - this is optional and not provided if the
             /// contracts were obtained from the cache.
@@ -560,14 +561,13 @@ define_event! {
         /// An event emitted by the runners when the compilation of the contracts has succeeded
         /// on the post-link contracts.
         PostLinkContractsCompilationSucceeded {
-            /// A specifier for the execution that's taking place.
+            /// A specifier for the compilation taking place in an execution context.
             execution_specifier: Arc<ExecutionSpecifier>,
             /// The version of the compiler used to compile the contracts.
             compiler_version: Version,
             /// The path of the compiler used to compile the contracts.
             compiler_path: PathBuf,
-            /// A flag of whether the contract bytecode and ABI were cached or if they were compiled
-            /// anew.
+            /// A flag of whether the contract bytecode and ABI were cached or if they were compiled anew.
             is_cached: bool,
             /// The input provided to the compiler - this is optional and not provided if the
             /// contracts were obtained from the cache.
@@ -575,10 +575,23 @@ define_event! {
             /// The output of the compiler.
             compiler_output: CompilerOutput
         },
-        /// An event emitted by the runners when the compilation of the pre-link contract has
-        /// failed.
+        /// An event emitted by the runners when the compilation of the pre-link contract has failed.
         PreLinkContractsCompilationFailed {
-            /// A specifier for the execution that's taking place.
+            /// A specifier for the compilation taking place.
+            specifier: CompilationSpecifier,
+            /// The version of the compiler used to compile the contracts.
+            compiler_version: Option<Version>,
+            /// The path of the compiler used to compile the contracts.
+            compiler_path: Option<PathBuf>,
+            /// The input provided to the compiler - this is optional and not provided if the
+            /// contracts were obtained from the cache.
+            compiler_input: Option<CompilerInput>,
+            /// The failure reason.
+            reason: String,
+        },
+        /// An event emitted by the runners when the compilation of the post-link contract has failed.
+        PostLinkContractsCompilationFailed {
+            /// A specifier for the compilation taking place in an execution context.
             execution_specifier: Arc<ExecutionSpecifier>,
             /// The version of the compiler used to compile the contracts.
             compiler_version: Option<Version>,
@@ -590,20 +603,14 @@ define_event! {
             /// The failure reason.
             reason: String,
         },
-        /// An event emitted by the runners when the compilation of the post-link contract has
-        /// failed.
-        PostLinkContractsCompilationFailed {
-            /// A specifier for the execution that's taking place.
-            execution_specifier: Arc<ExecutionSpecifier>,
-            /// The version of the compiler used to compile the contracts.
-            compiler_version: Option<Version>,
-            /// The path of the compiler used to compile the contracts.
-            compiler_path: Option<PathBuf>,
-            /// The input provided to the compiler - this is optional and not provided if the
-            /// contracts were obtained from the cache.
-            compiler_input: Option<CompilerInput>,
-            /// The failure reason.
+        /// An event emitted by the runners when a pre-link-only compilation is ignored.
+        PreLinkContractsCompilationIgnored {
+            /// A specifier for the compilation that has been ignored.
+            compilation_specifier: Arc<PreLinkCompilationSpecifier>,
+            /// A reason for the compilation to be ignored.
             reason: String,
+            /// Additional fields that describe more information on why the compilation was ignored.
+            additional_fields: IndexMap<String, serde_json::Value>
         },
         /// An event emitted by the runners when a library has been deployed.
         LibrariesDeployed {
@@ -667,3 +674,10 @@ impl RunnerEventReporter {
 pub type Reporter = RunnerEventReporter;
 pub type TestSpecificReporter = RunnerEventTestSpecificReporter;
 pub type ExecutionSpecificReporter = RunnerEventExecutionSpecificReporter;
+pub type PreLinkCompilationSpecificReporter = RunnerEventPreLinkCompilationSpecificReporter;
+
+/// A wrapper that allows functions to accept either reporter type for compilation events.
+pub enum CompilationReporter<'a> {
+    Execution(&'a ExecutionSpecificReporter),
+    PreLink(&'a PreLinkCompilationSpecificReporter),
+}

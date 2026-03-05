@@ -33,6 +33,7 @@ use revive_dt_format::{
     },
     traits::{ResolutionContext, ResolverApi},
 };
+use revive_dt_report::CompilationReporter;
 use tokio::{
     sync::{Mutex, OnceCell, RwLock, mpsc::UnboundedSender},
     time::{interval, timeout},
@@ -137,8 +138,9 @@ where
                 self.test_definition.mode.clone(),
                 None,
                 self.platform_information.compiler.as_ref(),
-                self.platform_information.platform,
-                &self.platform_information.reporter,
+                self.platform_information.platform.compiler_identifier(),
+                Some(self.platform_information.platform.platform_identifier()),
+                &CompilationReporter::Execution(&self.platform_information.reporter),
             )
             .await
             .inspect_err(|err| error!(?err, "Pre-linking compilation failed"))
@@ -213,8 +215,9 @@ where
                 self.test_definition.mode.clone(),
                 deployed_libraries.as_ref(),
                 self.platform_information.compiler.as_ref(),
-                self.platform_information.platform,
-                &self.platform_information.reporter,
+                self.platform_information.platform.compiler_identifier(),
+                Some(self.platform_information.platform.platform_identifier()),
+                &CompilationReporter::Execution(&self.platform_information.reporter),
             )
             .await
             .inspect_err(|err| error!(?err, "Post-linking compilation failed"))
