@@ -16,6 +16,8 @@ use revive_dt_common::types::{Mode, ParsedTestSpecifier};
 use revive_dt_report::{Report, TestCaseStatus};
 use strum::EnumString;
 
+mod export_hashes;
+
 fn main() -> Result<()> {
     let cli = Cli::try_parse().context("Failed to parse the CLI arguments")?;
 
