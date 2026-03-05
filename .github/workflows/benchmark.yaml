@@ -225,6 +225,8 @@ jobs:
         run: mkdir -p ./workdir
 
       - name: Run benchmarks
+        env:
+          RUST_LOG: info,alloy=off
         run: |
           retester benchmark \
             --test ./compiler-tests/fixtures/solidity/workloads \
@@ -241,12 +243,12 @@ jobs:
             --report.file-name report.json \
             > ./workdir/retester.log 2>&1
 
-      - name: Upload logs
+      - name: Upload workdir
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: benchmark-logs
-          path: ./workdir/retester.log
+          name: benchmark-workdir
+          path: ./workdir
 
       - name: Generate HTML report
         run: |
