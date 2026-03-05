@@ -57,13 +57,15 @@ jobs:
 
       # ── External dependencies ─────────────────────────────────────────
 
-      - name: Install iptables
+      - name: Install network tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y iptables
+          sudo apt-get install -y iptables iproute2 bridge-utils
 
       - name: Install Docker
         uses: docker/setup-docker-action@v4
+        with:
+          rootless: true
 
       - name: Install Kurtosis
         run: |
