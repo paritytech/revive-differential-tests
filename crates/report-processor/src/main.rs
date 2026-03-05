@@ -125,6 +125,38 @@ fn main() -> Result<()> {
                 }
             }
         }
+        Cli::ExportHashes {
+            report_path,
+            output_path,
+            remove_prefix,
+            platform_label,
+        } => {
+            let hash_data =
+                export_hashes::extract_hashes(&*report_path, &remove_prefix, &platform_label);
+
+            let output_file = OpenOptions::new()
+                .create(true)
+                .write(true)
+                .truncate(true)
+                .open(&output_path)
+                .context("Failed to create output file")?;
+
+            serde_json::to_writer_pretty(&output_file, &hash_data)
+                .context("Failed to write the hashes to file")?;
+
+            println!(
+                "Exported {} hashes across {} modes ({}) to {}",
+                hash_data.count_hashes(),
+                hash_data.hashes.len(),
+                hash_data
+                    .hashes
+                    .keys()
+                    .cloned()
+                    .collect::<Vec<_>>()
+                    .join(", "),
+                output_path.display()
+            );
+        }
     };
 
     Ok(())
@@ -170,6 +202,37 @@ pub enum Cli {
         /// The path of the other expectation file.
         #[clap(long)]
         other_expectation_path: JsonFile<Expectations<'static>>,
+    },
+
+    /// Extracts and exports the bytecode hashes from a [`Report`].
+    ExportHashes {
+        /// The path to the report's JSON file.
+        #[clap(long)]
+        report_path: JsonFile<Report>,
+
+        /// The path of the output file to generate.
+        ///
+        /// Note the following expectations:
+        /// 1. The provided path points to a JSON file.
+        /// 1. The ancestors of the provided path already exist such that no directory creations
+        ///    are required.
+        #[clap(long)]
+        output_path: PathBuf,
+
+        /// The absolute prefix path to remove from each source path found in the [`Report`]
+        /// when added to the exported file. This is essential for normalization if the hashes
+        /// are used for cross-platform comparison. For cross-platform comparison, this
+        /// value should be the path to the base directory shared by all contracts,
+        /// e.g. "/home/runner/work/contracts" or "C:\\Users\\runner\\work\\contracts".
+        ///
+        /// Note that the normalized paths added to the exported file should thereby not
+        /// be used to access the filesystem.
+        #[clap(long)]
+        remove_prefix: PathBuf,
+
+        /// The platform to be associated with the hashes (e.g. "linux" or "macos").
+        #[clap(long)]
+        platform_label: String,
     },
 }
 
