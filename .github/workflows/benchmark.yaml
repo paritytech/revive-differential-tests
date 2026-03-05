@@ -57,17 +57,12 @@ jobs:
 
       # ── External dependencies ─────────────────────────────────────────
 
-      - name: Install Docker prerequisites
+      - name: Install Docker
         run: |
           sudo apt-get update
-          sudo apt-get install -y \
-            iptables iproute2 bridge-utils \
-            uidmap dbus-user-session fuse-overlayfs slirp4netns
-
-      - name: Install Docker
-        uses: docker/setup-docker-action@v4
-        with:
-          rootless: true
+          sudo apt-get install -y docker.io
+          sudo systemctl start docker
+          sudo usermod -aG docker "$USER"
 
       - name: Install Kurtosis
         run: |
