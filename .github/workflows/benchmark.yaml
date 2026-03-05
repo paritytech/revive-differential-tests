@@ -60,7 +60,7 @@ jobs:
       - name: Install system packages
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential pkg-config libssl-dev docker.io
+          sudo apt-get install -y build-essential pkg-config libssl-dev protobuf-compiler docker.io
           sudo dockerd &
           for i in $(seq 1 15); do
             docker info > /dev/null 2>&1 && break
@@ -116,7 +116,17 @@ jobs:
 
       # ── Install retester tooling ────────────────────────────────────────
 
+      - name: Cache retester tooling
+        id: cache-retester
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/retester
+            ~/.cargo/bin/report-processor
+          key: retester-${{ hashFiles('crates/**', 'assets/**') }}
+
       - name: Install retester and report-processor
+        if: steps.cache-retester.outputs.cache-hit != 'true'
         run: |
           cargo build --profile production -p revive-dt-core -p revive-dt-report-processor
           cp -t ~/.cargo/bin \
