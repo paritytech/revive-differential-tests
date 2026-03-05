@@ -127,6 +127,7 @@ jobs:
             ~/.cargo/bin/retester
             ~/.cargo/bin/report-processor
           key: retester-${{ hashFiles('crates/**', 'assets/**') }}
+          save-always: true
 
       - name: Install retester and report-processor
         if: steps.cache-retester.outputs.cache-hit != 'true'
@@ -144,6 +145,7 @@ jobs:
         with:
           path: ~/.cargo/bin/chain-spec-generator
           key: chainspec-generator-${{ env.RUNTIMES_VERSION }}
+          save-always: true
 
       - name: Install chainspec-generator
         if: steps.cache-chainspec-generator.outputs.cache-hit != 'true'
@@ -168,13 +170,14 @@ jobs:
             ~/.cargo/bin/polkadot-parachain
             ~/.cargo/bin/eth-rpc
           key: polkadot-sdk-${{ env.POLKADOT_VERSION }}
+          save-always: true
 
       - name: Install polkadot-sdk binaries
         if: steps.cache-polkadot-sdk.outputs.cache-hit != 'true'
         working-directory: polkadot-sdk
         run: |
           cargo build --locked --profile production \
-            --features fast-runtime \
+            --features polkadot/fast-runtime \
             --bin polkadot \
             --bin polkadot-parachain \
             -p polkadot-node-core-pvf-prepare-worker \
