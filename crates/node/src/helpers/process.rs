@@ -102,11 +102,12 @@ impl Process {
                     }
 
                     let check_result =
-                        check_function(stdout_line.as_deref(), stderr_line.as_deref()).context(
-                            format!(
-                                "Failed to wait for the process to be ready - {stdout} - {stderr}"
-                            ),
-                        )?;
+                        check_function(stdout_line.as_deref(), stderr_line.as_deref())
+                            .with_context(|| {
+                                format!(
+                                    "Failed to wait for the process to be ready - {stdout} - {stderr}"
+                                )
+                            })?;
 
                     if check_result {
                         break;
