@@ -1,22 +1,6 @@
 //! Shared corpus processing infrastructure.
 
-use std::{
-    collections::BTreeSet,
-    future::Future,
-    sync::{
-        Arc,
-        atomic::{AtomicBool, Ordering},
-    },
-    time::Duration,
-};
-
-use anyhow::Result;
-use revive_dt_config::{ConcurrencyConfiguration, FailFastConfiguration};
-use revive_dt_report::Reporter;
-use tokio::sync::{Notify, RwLock, Semaphore};
-use tracing::{Instrument, error, info};
-
-use crate::helpers::CachedCompiler;
+use crate::internal_prelude::*;
 
 /// A guard that invokes `action` when dropped without a terminal status, unless explicitly
 /// disarmed via `reported()`.

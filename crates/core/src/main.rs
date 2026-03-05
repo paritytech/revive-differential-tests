@@ -14,10 +14,11 @@ mod internal_prelude {
     pub use revive_dt_report::prelude::*;
 
     pub use std::borrow::Cow;
-    pub use std::collections::{BTreeMap, HashMap, HashSet};
+    pub use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+    pub use std::future::Future;
     pub use std::io::{BufWriter, Write, stderr};
     pub use std::path::{Path, PathBuf};
-    pub use std::sync::atomic::{AtomicUsize, Ordering};
+    pub use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     pub use std::sync::{Arc, LazyLock};
     pub use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -40,13 +41,15 @@ mod internal_prelude {
     pub use futures::{FutureExt, Stream, StreamExt, TryFutureExt, TryStreamExt, stream};
     pub use governor::{DefaultDirectRateLimiter, Quota};
     pub use indexmap::{IndexMap, indexmap};
-    pub use semver::Version;
+    pub use regex::Regex;
+    pub use semver::{Version, VersionReq};
     pub use serde::{Deserialize, Serialize};
     pub use serde_json::{self, Value, json};
     pub use subxt::ext::codec::Decode;
     pub use subxt::metadata::Metadata as SubxtMetadata;
     pub use subxt::tx::Payload;
     pub use tokio::select;
+    pub use tokio::sync::broadcast;
     pub use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
     pub use tokio::sync::{Mutex, Notify, OnceCell, RwLock, Semaphore};
     pub use tokio::time::{interval, timeout};
@@ -63,8 +66,9 @@ mod internal_prelude {
     };
     pub use crate::differential_tests::handle_differential_tests;
     pub use crate::helpers::{
-        CachedCompiler, CorpusDefinitionProcessor, NodePool, TestCaseIgnoreResolvedConfiguration,
-        TestDefinition, TestPlatformInformation, create_test_definitions_stream, process_corpus,
+        CachedCompiler, CompilationDefinition, CorpusDefinitionProcessor, NodePool,
+        TestCaseIgnoreResolvedConfiguration, TestDefinition, TestPlatformInformation,
+        create_compilation_definitions_stream, create_test_definitions_stream, process_corpus,
     };
 }
 

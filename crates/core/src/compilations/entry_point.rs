@@ -1,31 +1,8 @@
 //! The main entry point into compiling in pre-link-only mode without any test execution.
 
-use std::{
-    io::{BufWriter, Write, stderr},
-    time::Instant,
-};
+use crate::internal_prelude::*;
 
-use ansi_term::{ANSIStrings, Color};
-use anyhow::Context as _;
-use futures::StreamExt;
-use indexmap::IndexMap;
-use revive_dt_common::futures::FrameworkFuture;
-use revive_dt_compiler::{Mode, ModeOptimizerLevel, ModeOptimizerSetting, ModePipeline};
-use revive_dt_config::{
-    Compile, Context, FailFastConfiguration, OutputFormat, OutputFormatConfiguration,
-};
-use revive_dt_format::corpus::Corpus;
-use revive_dt_report::{CompilationStatus, Reporter, ReporterEvent};
-use tokio::sync::broadcast;
-use tracing::{info, info_span, instrument, warn};
-
-use crate::{
-    compilations::Driver,
-    helpers::{
-        CachedCompiler, CompilationDefinition, CorpusDefinitionProcessor,
-        create_compilation_definitions_stream, process_corpus,
-    },
-};
+use crate::compilations::Driver;
 
 /// The definition processor for compilations.
 struct CompilationDefinitionProcessor;
