@@ -22,7 +22,7 @@ use alloy::{
 use anyhow::Context as _;
 use clap::{Parser, ValueEnum, ValueHint};
 use revive_dt_common::types::{
-    ParsedCompilationSpecifier, ParsedTestSpecifier, PlatformIdentifier,
+    ParsedCompilationSpecifier, ParsedMode, ParsedTestSpecifier, PlatformIdentifier,
 };
 use semver::Version;
 use serde::{Deserialize, Serialize, Serializer};
@@ -229,6 +229,34 @@ mod context {
         #[serde_as(as = "Vec<serde_with::DisplayFromStr>")]
         #[arg(short = 'c', long = "compile", required = true)]
         pub compilation_specifiers: Vec<ParsedCompilationSpecifier>,
+
+        /// The compiler mode(s) to use for all compilations.
+        ///
+        /// Format: `Y[+-]? (M[0123sz])? (S[+-])? <semver>?`
+        ///
+        /// - `Y`: Pipeline (via Yul IR)
+        /// - `[+-]`: Optimization shorthand
+        ///           - `+` (optimized:   M3, solc optimizer enabled)
+        ///           - `-` (unoptimized: M0, solc optimizer disabled)
+        /// - `M[0123sz]`: Resolc/LLVM optimization level
+        /// - `S[+-]`: Solc optimizer
+        ///           - `S+` (enabled)
+        ///           - `S-` (disabled)
+        /// - `<semver>`: Solc version requirement
+        ///
+        /// Priority:
+        /// - Explicit `M`/`S` settings override the `+`/`-` shorthand.
+        /// - If omitted, expands to all combinations we'd like to test. E.g.:
+        ///   - `Y M3` → `Y M3 S+` and `Y M3 S-`
+        ///   - `Y S+` → `Y M0 S+`, `Y M3 S+`, and `Y Mz S+`
+        #[serde_as(as = "Vec<serde_with::DisplayFromStr>")]
+        #[arg(
+            short = 'm',
+            long = "mode",
+            default_value = "Y Mz S+",
+            verbatim_doc_comment
+        )]
+        pub modes: Vec<ParsedMode>,
     }
 
     /// A set of configuration parameters for Solc.

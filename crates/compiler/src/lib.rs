@@ -6,7 +6,9 @@
 use crate::internal_prelude::*;
 
 // Re-export this as it's a part of the compiler interface.
-pub use revive_dt_common::types::{Mode, ModeOptimizerLevel, ModeOptimizerSetting, ModePipeline};
+pub use revive_dt_common::types::{
+    Mode, ModeOptimizerLevel, ModeOptimizerSetting, ModePipeline, ParsedMode,
+};
 
 pub mod prelude {
     pub use crate::revive_resolc::Resolc;
