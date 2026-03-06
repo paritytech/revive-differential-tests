@@ -228,7 +228,6 @@ jobs:
             --platform lighthouse-geth-evm-solc \
             --platform zombienet-revm-solc \
             --platform zombienet-polkavm-resolc \
-            --benchmark.await-transaction-inclusion \
             --working-directory ./workdir \
             --concurrency.number-of-nodes 1 \
             --concurrency.number-of-threads 12 \
