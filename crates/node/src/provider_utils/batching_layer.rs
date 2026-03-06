@@ -139,8 +139,7 @@ where
                     let mut chunk_futures = Vec::new();
                     while !remaining.is_empty() {
                         let chunk_end = remaining.len().min(max_batch_size);
-                        let chunk: Vec<PendingRequest> =
-                            remaining.drain(..chunk_end).collect();
+                        let chunk: Vec<PendingRequest> = remaining.drain(..chunk_end).collect();
                         let mut svc = service.clone();
 
                         chunk_futures.push(async move {
@@ -197,8 +196,7 @@ where
             if unmatched > 0 {
                 debug!(
                     unmatched,
-                    response_count, chunk_size,
-                    "Some requests had no matching response in batch"
+                    response_count, chunk_size, "Some requests had no matching response in batch"
                 );
             }
 

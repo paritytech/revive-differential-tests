@@ -17,8 +17,8 @@ mod internal_prelude {
     pub use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
     pub use std::future::Future;
     pub use std::io::{BufWriter, Write, stderr};
-    pub use std::pin::Pin;
     pub use std::path::{Path, PathBuf};
+    pub use std::pin::Pin;
     pub use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     pub use std::sync::{Arc, LazyLock};
     pub use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -97,7 +97,9 @@ fn main() -> anyhow::Result<()> {
         .from_env_lossy();
 
     use tracing_subscriber::layer::SubscriberExt;
-    let registry = tracing_subscriber::registry().with(fmt_layer).with(env_filter);
+    let registry = tracing_subscriber::registry()
+        .with(fmt_layer)
+        .with(env_filter);
 
     #[cfg(feature = "tokio-debug")]
     let registry = registry.with(console_subscriber::spawn());
