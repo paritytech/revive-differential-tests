@@ -12,10 +12,16 @@ use anyhow::{Context as _, Error, Result, bail};
 use clap::{Parser, ValueEnum};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
-use revive_dt_common::types::{Mode, ParsedTestSpecifier};
+use revive_dt_common::types::{Mode, ParsedMode, ParsedTestSpecifier};
 use revive_dt_report::{Report, TestCaseStatus};
 use strum::EnumString;
 
+use crate::{
+    compare_hashes::compare_hashes,
+    export_hashes::{HashData, extract_hashes},
+};
+
+mod compare_hashes;
 mod export_hashes;
 
 fn main() -> Result<()> {
@@ -87,12 +93,7 @@ fn main() -> Result<()> {
                 })
                 .collect::<Expectations>();
 
-            let output_file = OpenOptions::new()
-                .truncate(true)
-                .create(true)
-                .write(true)
-                .open(output_file)
-                .context("Failed to create the output file")?;
+            let output_file = write_or_overwrite_file(&output_file)?;
             serde_json::to_writer_pretty(output_file, &expectations)
                 .context("Failed to write the expectations to file")?;
         }
@@ -131,24 +132,16 @@ fn main() -> Result<()> {
             remove_prefix,
             platform_label,
         } => {
-            let hash_data =
-                export_hashes::extract_hashes(&*report_path, &remove_prefix, &platform_label);
-
-            let output_file = OpenOptions::new()
-                .create(true)
-                .write(true)
-                .truncate(true)
-                .open(&output_path)
-                .context("Failed to create output file")?;
-
-            serde_json::to_writer_pretty(&output_file, &hash_data)
+            let platform_hash_data = extract_hashes(&report_path, &remove_prefix, &platform_label);
+            let output_file = write_or_overwrite_file(&output_path)?;
+            serde_json::to_writer_pretty(&output_file, &platform_hash_data)
                 .context("Failed to write the hashes to file")?;
 
             println!(
                 "Exported {} hashes across {} modes ({}) to {}",
-                hash_data.count_hashes(),
-                hash_data.hashes.len(),
-                hash_data
+                platform_hash_data.count_hashes(),
+                platform_hash_data.hashes.len(),
+                platform_hash_data
                     .hashes
                     .keys()
                     .cloned()
@@ -157,9 +150,35 @@ fn main() -> Result<()> {
                 output_path.display()
             );
         }
+        Cli::CompareHashes { hash_paths, modes } => {
+            let hashes: Vec<HashData> = hash_paths
+                .into_iter()
+                .map(|json_file| json_file.into_inner())
+                .collect();
+
+            let explicit_modes: Option<Vec<String>> = modes.map(|parsed_modes| {
+                ParsedMode::many_to_modes(parsed_modes.iter())
+                    .map(|mode| mode.to_string())
+                    .collect()
+            });
+
+            compare_hashes(&hashes, explicit_modes.as_deref())?;
+
+            // TODO.
+            println!("Comparing {} files", hashes.len());
+        }
     };
 
     Ok(())
+}
+
+fn write_or_overwrite_file(output_path: &Path) -> Result<File, Error> {
+    OpenOptions::new()
+        .create(true)
+        .write(true)
+        .truncate(true)
+        .open(output_path)
+        .context("Failed to create output file")
 }
 
 type Expectations<'a> = BTreeMap<TestSpecifier<'a>, Status>;
@@ -178,9 +197,9 @@ pub enum Cli {
         ///
         /// Note that we expect that:
         /// 1. The provided path points to a JSON file.
-        /// 1. The ancestor's of the provided path already exist such that no directory creations
+        /// 2. The ancestor's of the provided path already exist such that no directory creations
         ///    are required.
-        #[clap(long)]
+        #[clap(long, verbatim_doc_comment)]
         output_path: PathBuf,
 
         /// Prefix paths to remove from the paths in the final expectations file.
@@ -214,9 +233,9 @@ pub enum Cli {
         ///
         /// Note the following expectations:
         /// 1. The provided path points to a JSON file.
-        /// 1. The ancestors of the provided path already exist such that no directory creations
+        /// 2. The ancestors of the provided path already exist such that no directory creations
         ///    are required.
-        #[clap(long)]
+        #[clap(long, verbatim_doc_comment)]
         output_path: PathBuf,
 
         /// The absolute prefix path to remove from each source path found in the [`Report`]
@@ -233,6 +252,18 @@ pub enum Cli {
         /// The platform to be associated with the hashes (e.g. "linux" or "macos").
         #[clap(long)]
         platform_label: String,
+    },
+
+    /// Compares hashes from multiple platforms and reports mismatches.
+    CompareHashes {
+        /// The paths to the files containing the hashes.
+        #[clap(long = "hash-path")]
+        hash_paths: Vec<JsonFile<HashData>>,
+
+        /// The mode(s) to compare across the files provided.
+        /// If omitted, the union of all modes found in the files will be compared.
+        #[clap(short = 'm', long = "mode")]
+        modes: Option<Vec<ParsedMode>>,
     },
 }
 
@@ -324,6 +355,16 @@ impl<T> Display for JsonFile<T> {
 impl<T> From<JsonFile<T>> for String {
     fn from(value: JsonFile<T>) -> Self {
         value.to_string()
+    }
+}
+
+impl<T> JsonFile<T> {
+    pub fn into_inner(self) -> T {
+        *self.content
+    }
+
+    pub fn path(&self) -> &Path {
+        &self.path
     }
 }
 

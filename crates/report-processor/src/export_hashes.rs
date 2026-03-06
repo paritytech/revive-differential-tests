@@ -37,7 +37,7 @@ pub fn extract_hashes(
     // TODO: Account for the report having been generated both via --compile and another command.
     // (Can determine from the "context" in the report.)
 
-    for (_metadata_file_path, metadata_file_report) in &report.execution_information {
+    for metadata_file_report in report.execution_information.values() {
         for (mode, compilation_report) in &metadata_file_report.compilation_reports {
             if let Some(CompilationStatus::Success {
                 compiled_contracts_info,
