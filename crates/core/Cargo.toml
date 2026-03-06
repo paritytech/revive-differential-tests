@@ -40,6 +40,10 @@ semver = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 subxt = { workspace = true }
+console-subscriber = { workspace = true, optional = true }
+
+[features]
+tokio-debug = ["dep:console-subscriber", "tokio/tracing"]
 
 [lints]
 workspace = true

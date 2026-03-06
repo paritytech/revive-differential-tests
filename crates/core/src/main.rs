@@ -59,7 +59,7 @@ mod internal_prelude {
         Instrument, Span, debug, debug_span, error, field::display, info, info_span, instrument,
         warn,
     };
-    pub use tracing_subscriber::{EnvFilter, FmtSubscriber};
+    pub use tracing_subscriber::EnvFilter;
 
     pub use crate::compilations::handle_compilations;
     pub use crate::differential_benchmarks::{
@@ -85,19 +85,24 @@ fn main() -> anyhow::Result<()> {
         .thread_name("buffered writer")
         .finish(std::io::stdout());
 
-    let subscriber = FmtSubscriber::builder()
+    let fmt_layer = tracing_subscriber::fmt::layer()
         .with_writer(writer)
         .with_thread_ids(false)
         .with_thread_names(false)
-        .with_env_filter(
-            EnvFilter::builder()
-                .with_default_directive(LevelFilter::OFF.into())
-                .from_env_lossy(),
-        )
         .with_ansi(false)
-        .pretty()
-        .finish();
-    tracing::subscriber::set_global_default(subscriber)?;
+        .pretty();
+
+    let env_filter = EnvFilter::builder()
+        .with_default_directive(LevelFilter::OFF.into())
+        .from_env_lossy();
+
+    use tracing_subscriber::layer::SubscriberExt;
+    let registry = tracing_subscriber::registry().with(fmt_layer).with(env_filter);
+
+    #[cfg(feature = "tokio-debug")]
+    let registry = registry.with(console_subscriber::spawn());
+
+    tracing::subscriber::set_global_default(registry)?;
     info!("Differential testing tool is starting");
 
     let mut context = Context::try_parse()?;

@@ -95,7 +95,7 @@ impl SubstrateNode {
     }
 
     fn init(&mut self, _: Genesis) -> anyhow::Result<&mut Self> {
-        static CHAINSPEC_MUTEX: Mutex<Option<Value>> = Mutex::new(None);
+        static CHAINSPEC_MUTEX: StdMutex<Option<Value>> = StdMutex::new(None);
 
         if !self.rpc_url.is_empty() {
             return Ok(self);
@@ -226,6 +226,8 @@ impl SubstrateNode {
                     .arg(NUMBER_OF_CACHED_BLOCKS.to_string())
                     .arg("--cache-size")
                     .arg(NUMBER_OF_CACHED_BLOCKS.to_string())
+                    .arg("--rpc-max-batch-request-len")
+                    .arg(u32::MAX.to_string())
                     .env("RUST_LOG", self.eth_rpc_logging_level.as_str())
                     .stdout(stdout_file)
                     .stderr(stderr_file);

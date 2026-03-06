@@ -33,8 +33,9 @@ where
         LazyLock::new(|| ConcurrencyLimiterLayer::new(1_500));
 
     let client = ClientBuilder::default()
-        .layer(GLOBAL_CONCURRENCY_LIMITER_LAYER.clone())
         .layer(RetryLayer::default())
+        .layer(BatchingLayer::new().with_max_batch_size(1000usize))
+        .layer(GLOBAL_CONCURRENCY_LIMITER_LAYER.clone())
         .connect(rpc_url)
         .await
         .context("Failed to construct the RPC client")?;

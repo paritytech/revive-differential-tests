@@ -170,7 +170,7 @@ pub trait NodeApi {
     fn subscribe_to_full_blocks_information(
         &self,
     ) -> FrameworkFuture<Result<FrameworkStream<MinedBlockInformation>>> {
-        let provider = self.provider();
+        let provider = self.subscriptions_provider();
         let substrate_provider = self.substrate_provider();
 
         let future = if let Some(substrate_provider) = substrate_provider {
@@ -203,7 +203,7 @@ pub trait NodeApi {
     fn subscribe_to_transaction_inclusions(
         &self,
     ) -> FrameworkFuture<Result<FrameworkStream<TxHash>>> {
-        let provider = self.provider();
+        let provider = self.subscriptions_provider();
         let substrate_provider = self.substrate_provider();
 
         let future = if let Some(substrate_provider) = substrate_provider {
@@ -221,8 +221,13 @@ pub trait NodeApi {
         Box::pin(async move { Ok(()) })
     }
 
-    /// The alloy driver connected to the node's Rpc.
+    /// The alloy provider connected to the node's Rpc.
     fn provider(&self) -> FrameworkFuture<Result<DynProvider>>;
+
+    /// The alloy provider we use for all of the subscriptions through this node.
+    fn subscriptions_provider(&self) -> FrameworkFuture<Result<DynProvider>> {
+        self.provider()
+    }
 
     /// The substrate provider used by the node. None if it's not a substrate node.
     fn substrate_provider(&self) -> Option<FrameworkFuture<Result<OnlineClient<SubstrateConfig>>>> {
@@ -481,7 +486,7 @@ fn subscribe_to_transaction_inclusions_substrate(
             .await
             .context("Failed to get the provider")?
             .blocks()
-            .subscribe_best()
+            .subscribe_all()
             .await
             .context("Failed to subscribe to blocks")?
             .filter_map(|block| ready(block.ok()))

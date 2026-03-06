@@ -368,7 +368,7 @@ where
                     receipt_future.await?;
                 } else if self.await_transaction_inclusion {
                     inclusion_future.await;
-                }
+                };
 
                 Ok(tx_hash)
             }
@@ -450,69 +450,66 @@ where
         let driver_id = self.driver_id;
         Box::pin(
             async move {
-        let mut tasks = (0..step.repeat)
-            .map(|i| Driver {
-                driver_id: DRIVER_COUNT.fetch_add(1, Ordering::SeqCst),
-                platform_information: self.platform_information,
-                test_definition: self.test_definition,
-                private_key_allocator: self.private_key_allocator.clone(),
-                execution_state: self.execution_state.clone(),
-                steps_executed: 0,
-                steps_iterator: {
-                    let steps = step
-                        .steps
-                        .iter()
-                        .cloned()
-                        .enumerate()
-                        .map(|(step_idx, step)| {
-                            let step_idx = StepIdx::new(step_idx);
-                            let step_path = step_path.append(step_idx);
-                            (step_path, step)
-                        })
-                        .collect::<Vec<_>>();
-                    steps.into_iter()
-                },
-                await_transaction_inclusion: self.await_transaction_inclusion,
-                await_transaction_receipts: i == 0,
-                inclusion_watcher: self.inclusion_watcher,
-                limiter: self.limiter.clone(),
-                watcher_tx: self.watcher_tx.clone(),
-                gas_limits: self.gas_limits.clone(),
-            })
-            .map(|driver| driver.execute_all());
+                let mut tasks = (0..step.repeat)
+                    .map(|i| Driver {
+                        driver_id: DRIVER_COUNT.fetch_add(1, Ordering::SeqCst),
+                        platform_information: self.platform_information,
+                        test_definition: self.test_definition,
+                        private_key_allocator: self.private_key_allocator.clone(),
+                        execution_state: self.execution_state.clone(),
+                        steps_executed: 0,
+                        steps_iterator: {
+                            let steps = step
+                                .steps
+                                .iter()
+                                .cloned()
+                                .enumerate()
+                                .map(|(step_idx, step)| {
+                                    let step_idx = StepIdx::new(step_idx);
+                                    let step_path = step_path.append(step_idx);
+                                    (step_path, step)
+                                })
+                                .collect::<Vec<_>>();
+                            steps.into_iter()
+                        },
+                        await_transaction_inclusion: self.await_transaction_inclusion,
+                        await_transaction_receipts: i == 0,
+                        inclusion_watcher: self.inclusion_watcher,
+                        limiter: self.limiter.clone(),
+                        watcher_tx: self.watcher_tx.clone(),
+                        gas_limits: self.gas_limits.clone(),
+                    })
+                    .map(|driver| driver.execute_all());
 
-        self.watcher_tx
-            .send(WatcherEvent::StartEvent {
-                ignore_block_before: self
-                    .platform_information
-                    .node
-                    .provider()
+                self.watcher_tx
+                    .send(WatcherEvent::StartEvent {
+                        ignore_block_before: self
+                            .platform_information
+                            .node
+                            .provider()
+                            .await
+                            .context("Failed to get the provider")?
+                            .get_block_number()
+                            .await
+                            .context("Failed to get the block number of the latest block")?,
+                    })
+                    .context("Failed to send message on the watcher's tx")?;
+
+                // We run just one of the drivers first before all of the other drivers to allow it to cache
+                // the gas limits for all of the subsequent runs.
+                let Some(first_task) = tasks.next() else {
+                    return Ok(0);
+                };
+                let first_res = Box::pin(first_task)
                     .await
-                    .context("Failed to get the provider")?
-                    .get_block_number()
+                    .context("Running the first initialization driver failed")?;
+
+                let res = futures::future::try_join_all(tasks)
                     .await
-                    .context("Failed to get the block number of the latest block")?,
-            })
-            .context("Failed to send message on the watcher's tx")?;
-
-        // We run just one of the drivers first before all of the other drivers to allow it to cache
-        // the gas limits for all of the subsequent runs.
-        let Some(first_task) = tasks.next() else {
-            return Ok(0);
-        };
-        let first_res = Box::pin(first_task)
-            .await
-            .context("Running the first initialization driver failed")?;
-
-        let res = futures::future::try_join_all(tasks)
-            .await
-            .context("Repetition execution failed")?;
-        Ok(res.into_iter().sum::<usize>() + first_res)
+                    .context("Repetition execution failed")?;
+                Ok(res.into_iter().sum::<usize>() + first_res)
             }
-            .instrument(info_span!(
-                "execute_repeat_step",
-                driver_id,
-            )),
+            .instrument(info_span!("execute_repeat_step", driver_id,)),
         )
     }
 
@@ -724,8 +721,8 @@ where
         receipt_wait_duration: Duration,
     ) -> anyhow::Result<(
         TxHash,
-        impl Future<Output = Result<TransactionReceipt>>,
-        impl Future<Output = ()>,
+        impl Future<Output = Result<TransactionReceipt>> + Send + 'static,
+        impl Future<Output = ()> + Send + 'static,
     )> {
         let node = self.platform_information.node;
         let provider = node.provider().await.context("Creating provider failed")?;
@@ -794,7 +791,7 @@ where
             PendingTransactionBuilder::new(provider.root().clone(), transaction_hash);
         Span::current().record("transaction_hash", display(transaction_hash));
 
-        info!("Submitted transaction");
+        info!(%transaction_hash, "Submitted transaction");
         if let Some(step_path) = step_path {
             self.watcher_tx
                 .send(WatcherEvent::SubmittedTransaction {
@@ -811,6 +808,7 @@ where
                 .with_timeout(Some(receipt_wait_duration))
                 .with_required_confirmations(2)
                 .get_receipt()
+                .inspect_ok(|receipt| info!(transaction_hash = %receipt.transaction_hash, "Obtained receipt"))
                 .map(|res| res.context("Failed to get the receipt of the transaction")),
             self.inclusion_watcher.await_transaction(transaction_hash),
         ))

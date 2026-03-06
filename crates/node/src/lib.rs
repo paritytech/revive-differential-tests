@@ -31,7 +31,7 @@ pub(crate) mod internal_prelude {
     pub use std::path::{Path, PathBuf};
     pub use std::process::{Child, Command, Stdio};
     pub use std::sync::atomic::{AtomicU32, Ordering};
-    pub use std::sync::{Arc, LazyLock, Mutex};
+    pub use std::sync::{Arc, LazyLock, Mutex as StdMutex};
     pub use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
     pub use alloy::{
@@ -53,7 +53,7 @@ pub(crate) mod internal_prelude {
         },
         rpc::{
             client::ClientBuilder,
-            json_rpc::{RequestPacket, ResponsePacket},
+            json_rpc::{Id, RequestPacket, Response, ResponsePacket, SerializedRequest},
             types::{
                 TransactionRequest,
                 trace::geth::{
@@ -77,10 +77,11 @@ pub(crate) mod internal_prelude {
     pub use sp_runtime::AccountId32;
     pub use subxt::{OnlineClient, SubstrateConfig};
     pub use tokio::sync::{OnceCell, Semaphore};
+    pub use tokio::task::AbortHandle;
     pub use tokio::time::{interval, timeout};
     pub use toml;
     pub use tower::{Layer, Service};
-    pub use tracing::{error, info, instrument, trace};
+    pub use tracing::{debug, error, info, instrument, trace};
     pub use zombienet_sdk::{LocalFileSystem, NetworkConfig, NetworkConfigExt};
 
     pub use revive_common::EVMVersion;

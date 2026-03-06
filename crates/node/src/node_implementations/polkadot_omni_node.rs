@@ -243,6 +243,8 @@ impl PolkadotOmnichainNode {
                     .arg(NUMBER_OF_CACHED_BLOCKS.to_string())
                     .arg("--cache-size")
                     .arg(NUMBER_OF_CACHED_BLOCKS.to_string())
+                    .arg("--rpc-max-batch-request-len")
+                    .arg(u32::MAX.to_string())
                     .env("RUST_LOG", self.eth_rpc_logging_level.as_str())
                     .stdout(stdout_file)
                     .stderr(stderr_file);

@@ -48,8 +48,9 @@ pub struct LighthouseGethNode {
     wallet: Arc<EthereumWallet>,
     nonce_manager: CachedNonceManager,
 
-    persistent_http_provider: Arc<OnceCell<ConcreteProvider<Ethereum, Arc<EthereumWallet>>>>,
     persistent_ws_provider: Arc<OnceCell<ConcreteProvider<Ethereum, Arc<EthereumWallet>>>>,
+    persistent_ws_subscriptions_provider:
+        Arc<OnceCell<ConcreteProvider<Ethereum, Arc<EthereumWallet>>>>,
 
     use_fallback_gas_filler: bool,
 }
@@ -113,8 +114,8 @@ impl LighthouseGethNode {
             /* Provider Related Fields */
             wallet: wallet.clone(),
             nonce_manager: Default::default(),
-            persistent_http_provider: Default::default(),
             persistent_ws_provider: Default::default(),
+            persistent_ws_subscriptions_provider: Default::default(),
             use_fallback_gas_filler,
         }
     }
@@ -168,6 +169,7 @@ impl LighthouseGethNode {
                     "--ws.origins=*".to_string(),
                     "--miner.gaslimit=60000000".to_string(),
                     "--rpc.txfeecap=0".to_string(),
+                    "--rpc.batch-request-limit=0".to_string(),
                 ],
                 consensus_layer_extra_parameters: vec!["--disable-quic".to_string()],
             }],
@@ -365,32 +367,6 @@ def run(plan, args={}):
             .cloned()
     }
 
-    #[instrument(
-        level = "info",
-        skip_all,
-        fields(lighthouse_node_id = self.id, connection_string = self.ws_connection_string),
-        err(Debug),
-    )]
-    #[allow(clippy::type_complexity)]
-    async fn http_provider(
-        &self,
-    ) -> anyhow::Result<ConcreteProvider<Ethereum, Arc<EthereumWallet>>> {
-        self.persistent_http_provider
-            .get_or_try_init(|| async move {
-                construct_concurrency_limited_provider::<Ethereum, _>(
-                    self.http_connection_string.as_str(),
-                    FallbackGasFiller::default(),
-                    ChainIdFiller::new(Some(CHAIN_ID)),
-                    NonceFiller::new(self.nonce_manager.clone()),
-                    self.wallet.clone(),
-                )
-                .await
-                .context("Failed to construct the provider")
-            })
-            .await
-            .cloned()
-    }
-
     pub fn node_genesis(mut genesis: Genesis, wallet: &EthereumWallet) -> Genesis {
         for signer_address in NetworkWallet::<Ethereum>::signer_addresses(&wallet) {
             genesis
@@ -434,6 +410,32 @@ impl NodeApi for LighthouseGethNode {
 
     fn provider(&self) -> FrameworkFuture<anyhow::Result<DynProvider>> {
         let provider = self.persistent_ws_provider.clone();
+        let connection_string = self.ws_connection_string.clone();
+        let gas_filler =
+            FallbackGasFiller::default().with_fallback_mechanism(self.use_fallback_gas_filler);
+        let nonce_filler = NonceFiller::new(self.nonce_manager.clone());
+        let wallet = self.wallet.clone();
+
+        Box::pin(async move {
+            provider
+                .get_or_try_init(|| async move {
+                    construct_concurrency_limited_provider::<Ethereum, _>(
+                        &connection_string,
+                        gas_filler,
+                        ChainIdFiller::default(),
+                        nonce_filler,
+                        wallet,
+                    )
+                    .await
+                    .context("Failed to construct the provider")
+                })
+                .await
+                .map(|provider| provider.clone().erased())
+        })
+    }
+
+    fn subscriptions_provider(&self) -> FrameworkFuture<anyhow::Result<DynProvider>> {
+        let provider = self.persistent_ws_subscriptions_provider.clone();
         let connection_string = self.ws_connection_string.clone();
         let gas_filler =
             FallbackGasFiller::default().with_fallback_mechanism(self.use_fallback_gas_filler);

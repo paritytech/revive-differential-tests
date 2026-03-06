@@ -158,6 +158,8 @@ impl GethNode {
                     .arg("archive")
                     .arg("--verbosity")
                     .arg(self.node_logging_level.as_str())
+                    .arg("--rpc.batch-request-limit")
+                    .arg("0")
                     .stderr(stderr_file)
                     .stdout(stdout_file);
             },
