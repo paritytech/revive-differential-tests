@@ -365,9 +365,63 @@ where
                     .execute_transaction(tx.clone(), Some(step_path), Duration::from_secs(30 * 60))
                     .await?;
                 if self.await_transaction_receipts {
-                    receipt_future.await?;
+                    let receipt = receipt_future.await?;
+                    if !receipt.status() {
+                        bail!("Transaction failed {receipt:?}");
+                    }
                 } else if self.await_transaction_inclusion {
                     inclusion_future.await;
+                } else {
+                    // We've not been configured to await for inclusion or await for the receipt but
+                    // we still want to get insight on how long it takes for us to observe the txs
+                    // and also their status and add it to our logs and perhaps make use of it later
+                    // on if we need to debug them.
+                    tokio::spawn(
+                        async move {
+                            static AWAITING_RECEIPTS_COUNT: Mutex<usize> = Mutex::const_new(0);
+
+                            let elapsed_seconds = {
+                                let now = SystemTime::now();
+                                move || now.elapsed().unwrap().as_secs()
+                            };
+                            debug!("Starting to await for the receipt");
+
+                            // Increment the static counter since we're about to await a new receipt
+                            // to arrive.
+                            {
+                                let mut guard = AWAITING_RECEIPTS_COUNT.lock().await;
+                                *guard += 1;
+                                debug!(awaiting = *guard, "Incremented the receipt await counter");
+                            }
+
+                            // Await for the receipt and log information
+                            match receipt_future.await {
+                                Ok(receipt) if receipt.status() => {
+                                    debug!(
+                                        elapsed_seconds = elapsed_seconds(),
+                                        "Got the transaction receipt"
+                                    );
+                                }
+                                Ok(receipt) => {
+                                    warn!(
+                                        elapsed_seconds = elapsed_seconds(),
+                                        ?receipt,
+                                        "Got the transaction receipt, but the transaction failed"
+                                    )
+                                }
+                                Err(error) => {
+                                    warn!(
+                                        elapsed_seconds = elapsed_seconds(),
+                                        ?error,
+                                        "Failed to get receipt"
+                                    )
+                                }
+                            };
+
+                            *AWAITING_RECEIPTS_COUNT.lock().await -= 1;
+                        }
+                        .instrument(info_span!("Awaiting receipt", %tx_hash)),
+                    );
                 };
 
                 Ok(tx_hash)
@@ -472,7 +526,7 @@ where
                                 .collect::<Vec<_>>();
                             steps.into_iter()
                         },
-                        await_transaction_inclusion: self.await_transaction_inclusion,
+                        await_transaction_inclusion: step.await_transaction_inclusion,
                         await_transaction_receipts: i == 0,
                         inclusion_watcher: self.inclusion_watcher,
                         limiter: self.limiter.clone(),

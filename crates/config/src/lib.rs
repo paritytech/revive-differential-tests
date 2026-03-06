@@ -169,11 +169,6 @@ mod context {
         /// repeat step.
         #[arg(short = 'r', default_value_t = 1000)]
         pub default_repetition_count: usize,
-
-        /// This transaction controls whether the benchmarking driver should await for
-        /// transactions to be included in a block before moving on to the next transaction in
-        /// the sequence or not.
-        pub await_transaction_inclusion: bool,
     }
 
     /// Configuration for the export-genesis target platform.

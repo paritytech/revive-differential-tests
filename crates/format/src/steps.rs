@@ -121,6 +121,12 @@ pub struct RepeatStep {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub comment: Option<String>,
 
+    /// This parameter controls if the driver performing the execution should await for the the
+    /// transactions within the repeat step to be included before moving on to the next transaction.
+    /// By default, this is set to false and it isn't a required parameter to be provided.
+    #[serde(default)]
+    pub await_transaction_inclusion: bool,
+
     /// The number of repetitions that the steps should be repeated for.
     pub repeat: usize,
 

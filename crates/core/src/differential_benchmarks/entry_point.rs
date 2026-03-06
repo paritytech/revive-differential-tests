@@ -146,7 +146,7 @@ pub async fn handle_differential_benchmarks(
                 private_key_allocator,
                 cached_compiler.as_ref(),
                 watcher_tx.clone(),
-                context.benchmark_run.await_transaction_inclusion,
+                false,
                 &inclusion_watcher,
                 match platform_information
                     .platform
