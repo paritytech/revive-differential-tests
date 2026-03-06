@@ -1004,6 +1004,126 @@
     .raw-row-odd td.raw-data-td-block,
     .raw-row-odd td.raw-data-td { background: var(--color-surface-alt); }
 
+    /* ── Configuration Section ── */
+    .config-section {
+      margin-top: 48px;
+    }
+
+    .config-variant-tag {
+      display: inline-block;
+      font-family: var(--font-heading);
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      padding: 2px 10px;
+      border-radius: 100px;
+      background: rgba(99,102,241,0.09);
+      color: var(--color-accent);
+      border: 1px solid rgba(99,102,241,0.2);
+      margin-bottom: 16px;
+    }
+
+    .config-groups {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+      gap: 12px;
+    }
+
+    .config-group {
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius);
+      overflow: hidden;
+      background: var(--color-surface);
+    }
+
+    .config-group-header {
+      font-family: var(--font-heading);
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--color-text-secondary);
+      padding: 9px 14px;
+      background: var(--color-bg);
+      border-bottom: 1px solid var(--color-border);
+    }
+
+    .config-group-rows {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .config-row {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 6px 14px;
+      border-bottom: 1px solid var(--color-border-light);
+    }
+
+    .config-row:last-child { border-bottom: none; }
+
+    .config-row-key {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--color-text-muted);
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+
+    .config-row-value {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--color-text);
+      text-align: right;
+      word-break: break-all;
+      min-width: 0;
+    }
+
+    .config-row-value.is-default {
+      color: var(--color-text-muted);
+    }
+
+    .config-value-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px;
+      justify-content: flex-end;
+    }
+
+    .config-value-pill {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      padding: 1px 7px;
+      border-radius: 4px;
+      background: var(--color-bg);
+      border: 1px solid var(--color-border);
+      white-space: nowrap;
+    }
+
+    .config-value-bool {
+      font-weight: 600;
+    }
+
+    .config-value-bool.is-true { color: var(--color-success); }
+    .config-value-bool.is-false { color: var(--color-text-muted); }
+
+    .config-value-null {
+      color: var(--color-text-muted);
+      font-style: italic;
+    }
+
+    .config-value-path {
+      direction: rtl;
+      text-align: right;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      max-width: 220px;
+    }
+
     /* ── Responsive ── */
     @media (max-width: 960px) {
       .chart-row-3 { grid-template-columns: 1fr 1fr; }
@@ -1185,6 +1305,21 @@
           <div class="raw-data-table-outer">
             <div class="raw-data-table-wrap" id="rawDataTableWrap"></div>
           </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="config-section hidden" id="configSection">
+    <div class="chart-group">
+      <div class="chart-group-header">
+        <span class="chart-group-label">Framework Configuration</span>
+        <button class="collapsible-toggle" aria-expanded="false" aria-controls="configContent" aria-label="Toggle Configuration section">
+          <svg class="collapsible-chevron" width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M3 5l3 3 3-3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+      </div>
+      <div class="collapsible-content collapsed" id="configContent">
+        <div class="chart-card">
+          <div id="configBody"></div>
         </div>
       </div>
     </div>
@@ -2587,6 +2722,99 @@ function initCollapsibleSections() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+// Configuration Section
+// ═══════════════════════════════════════════════════════════════════════════
+
+/** Render the framework configuration from reportData.context. */
+function renderConfigSection() {
+  const section = document.getElementById('configSection');
+  const body = document.getElementById('configBody');
+  if (!reportData?.context) { section.classList.add('hidden'); return; }
+
+  const ctx = reportData.context;
+  // Context is serialized as { "VariantName": { ...fields } }
+  const variantName = Object.keys(ctx)[0];
+  const config = ctx[variantName];
+
+  let html = `<span class="config-variant-tag">${escapeHtml(variantName)}</span>`;
+  html += `<div class="config-groups">`;
+
+  for (const [groupKey, groupValue] of Object.entries(config)) {
+    const groupLabel = formatGroupLabel(groupKey);
+
+    if (groupValue && typeof groupValue === 'object' && !Array.isArray(groupValue)) {
+      const entries = Object.entries(groupValue);
+      if (entries.length === 0) continue;
+      html += `<div class="config-group">`;
+      html += `<div class="config-group-header">${escapeHtml(groupLabel)}</div>`;
+      html += `<div class="config-group-rows">`;
+      for (const [key, value] of entries) {
+        html += renderConfigRow(key, value);
+      }
+      html += `</div></div>`;
+    } else {
+      // Top-level scalar or array — render as a single-row group
+      html += `<div class="config-group">`;
+      html += `<div class="config-group-header">${escapeHtml(groupLabel)}</div>`;
+      html += `<div class="config-group-rows">`;
+      html += renderConfigRow(groupKey, groupValue);
+      html += `</div></div>`;
+    }
+  }
+
+  html += `</div>`;
+  body.innerHTML = html;
+  section.classList.remove('hidden');
+}
+
+/** Convert a snake_case key like "working_directory" to "Working Directory". */
+function formatGroupLabel(key) {
+  return key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+}
+
+/** Convert a snake_case key to a short display label. */
+function formatKeyLabel(key) {
+  return key.replace(/_/g, '_');
+}
+
+/** Render a single config key-value row. */
+function renderConfigRow(key, value) {
+  return `<div class="config-row">` +
+    `<span class="config-row-key">${escapeHtml(formatKeyLabel(key))}</span>` +
+    `<span class="config-row-value">${renderConfigValue(value)}</span>` +
+    `</div>`;
+}
+
+/** Render a config value with appropriate formatting. */
+function renderConfigValue(value) {
+  if (value === null || value === undefined) {
+    return `<span class="config-value-null">—</span>`;
+  }
+  if (typeof value === 'boolean') {
+    return `<span class="config-value-bool ${value ? 'is-true' : 'is-false'}">${value}</span>`;
+  }
+  if (typeof value === 'number') {
+    return escapeHtml(value.toLocaleString());
+  }
+  if (Array.isArray(value)) {
+    if (value.length === 0) return `<span class="config-value-null">—</span>`;
+    return `<span class="config-value-list">${value.map(v =>
+      `<span class="config-value-pill">${escapeHtml(String(v))}</span>`
+    ).join('')}</span>`;
+  }
+  if (typeof value === 'object') {
+    // Nested object that wasn't a top-level group — show as compact JSON
+    return escapeHtml(JSON.stringify(value));
+  }
+  const str = String(value);
+  // Heuristic: looks like a file path
+  if (str.includes('/') || str.includes('\\')) {
+    return `<span class="config-value-path" title="${escapeHtml(str)}">${escapeHtml(str)}</span>`;
+  }
+  return escapeHtml(str);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 // Decompression & Initialization
 // ═══════════════════════════════════════════════════════════════════════════
 
@@ -2613,6 +2841,7 @@ async function init() {
     contentPlaceholder.classList.remove('hidden');
 
     populateWorkloads();
+    renderConfigSection();
     initCollapsibleSections();
 
     announce('Benchmark report loaded successfully.');
