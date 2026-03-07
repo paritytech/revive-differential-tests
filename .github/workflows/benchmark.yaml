@@ -74,6 +74,9 @@ jobs:
           sudo apt-get install -y kurtosis-cli
           kurtosis engine start
 
+      - name: Install Axiom CLI
+        run: curl -sL https://raw.githubusercontent.com/axiomhq/cli/main/scripts/install.sh | sh
+
       # ── Checkout repositories ──────────────────────────────────────────
 
       - name: Checkout This Repository
@@ -222,6 +225,7 @@ jobs:
       - name: Run benchmarks
         env:
           RUST_LOG: info,alloy=off
+          AXIOM_TOKEN: ${{ secrets.AXIOM_API_KEY }}
         run: |
           retester benchmark \
             --test ./compiler-tests/fixtures/solidity/workloads \
@@ -235,7 +239,7 @@ jobs:
             --zombienet.config-path ./assets/polkadot-assethub-zombienet.toml \
             --wallet.additional-keys ${{ env.ADDITIONAL_KEYS }} \
             --report.file-name report.json \
-            > ./workdir/retester.log 2>&1
+            2>&1 | tee ./workdir/retester.log | (axiom ingest benchmark-logs || true)
 
       - name: Upload workdir
         if: always()
