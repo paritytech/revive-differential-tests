@@ -384,7 +384,7 @@ where
                                 let now = SystemTime::now();
                                 move || now.elapsed().unwrap().as_secs()
                             };
-                            debug!("Starting to await for the receipt");
+                            debug!("Starting the process");
 
                             // Increment the static counter since we're about to await a new receipt
                             // to arrive.
@@ -394,7 +394,13 @@ where
                                 debug!(awaiting = *guard, "Incremented the receipt await counter");
                             }
 
+                            // Await for the transaction to be included in a block.
+                            debug!("Starting to await for inclusion");
+                            inclusion_future.await;
+                            debug!("Transaction included in a block");
+
                             // Await for the receipt and log information
+                            debug!("Starting to await for receipt");
                             match receipt_future.await {
                                 Ok(receipt) if receipt.status() => {
                                     debug!(
