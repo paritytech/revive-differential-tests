@@ -43,6 +43,7 @@ mod internal_prelude {
     pub use governor::{DefaultDirectRateLimiter, Quota};
     pub use indexmap::{IndexMap, indexmap};
     pub use regex::Regex;
+    pub use schemars::schema_for;
     pub use semver::{Version, VersionReq};
     pub use serde::{Deserialize, Serialize};
     pub use serde_json::{self, Value, json};
@@ -74,9 +75,13 @@ mod internal_prelude {
 }
 
 use crate::internal_prelude::*;
-use schemars::schema_for;
 
 fn main() -> anyhow::Result<()> {
+    let mut context = Context::try_parse()?;
+    context.update_for_profile();
+
+    let log_config: &LogConfiguration = context.as_ref();
+
     let (writer, _guard) = tracing_appender::non_blocking::NonBlockingBuilder::default()
         .lossy(false)
         // Assuming that each line contains 255 characters and that each character is one byte, then
@@ -85,12 +90,25 @@ fn main() -> anyhow::Result<()> {
         .thread_name("buffered writer")
         .finish(std::io::stdout());
 
-    let fmt_layer = tracing_subscriber::fmt::layer()
-        .with_writer(writer)
-        .with_thread_ids(false)
-        .with_thread_names(false)
-        .with_ansi(false)
-        .pretty();
+    let fmt_layer: Box<dyn tracing_subscriber::Layer<_> + Send + Sync> = match log_config.log_format
+    {
+        LogFormat::Json => Box::new(
+            tracing_subscriber::fmt::layer()
+                .with_writer(writer)
+                .with_thread_ids(false)
+                .with_thread_names(false)
+                .with_ansi(false)
+                .json(),
+        ),
+        LogFormat::Pretty => Box::new(
+            tracing_subscriber::fmt::layer()
+                .with_writer(writer)
+                .with_thread_ids(false)
+                .with_thread_names(false)
+                .with_ansi(false)
+                .pretty(),
+        ),
+    };
 
     let env_filter = EnvFilter::builder()
         .with_default_directive(LevelFilter::OFF.into())
@@ -106,9 +124,6 @@ fn main() -> anyhow::Result<()> {
 
     tracing::subscriber::set_global_default(registry)?;
     info!("Differential testing tool is starting");
-
-    let mut context = Context::try_parse()?;
-    context.update_for_profile();
 
     let (reporter, report_aggregator_task) = ReportAggregator::new(context.clone()).into_task();
 

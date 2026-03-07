@@ -233,6 +233,7 @@ jobs:
           AXIOM_TOKEN: ${{ secrets.AXIOM_API_KEY }}
         run: |
           retester benchmark \
+            --log-format json \
             --test ./compiler-tests/fixtures/solidity/workloads \
             --platform lighthouse-geth-evm-solc \
             --platform zombienet-revm-solc \
@@ -244,7 +245,7 @@ jobs:
             --zombienet.config-path ./assets/polkadot-assethub-zombienet.toml \
             --wallet.additional-keys ${{ env.ADDITIONAL_KEYS }} \
             --report.file-name report.json \
-            2>&1 | tee ./workdir/retester.log | (axiom ingest benchmark-logs || true)
+            2>&1 | tee ./workdir/retester.log | (axiom ingest --content-type ndjson benchmark-logs || true)
 
       - name: Upload workdir
         if: always()

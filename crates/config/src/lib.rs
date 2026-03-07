@@ -42,6 +42,7 @@ mod context {
     #[subcommand]
     pub struct Test {
         pub profile: ProfileConfiguration,
+        pub log: LogConfiguration,
         pub output_format: OutputFormatConfiguration,
         pub platforms: PlatformConfiguration,
         pub working_directory: WorkingDirectoryConfiguration,
@@ -68,6 +69,7 @@ mod context {
     #[subcommand]
     pub struct Benchmark {
         pub profile: ProfileConfiguration,
+        pub log: LogConfiguration,
         pub platforms: PlatformConfiguration,
         pub working_directory: WorkingDirectoryConfiguration,
         pub benchmark_run: BenchmarkRunConfiguration,
@@ -106,6 +108,7 @@ mod context {
     /// Compiles contracts for pre-link compilations only without executing any tests.
     #[subcommand]
     pub struct Compile {
+        pub log: LogConfiguration,
         pub output_format: OutputFormatConfiguration,
         pub working_directory: WorkingDirectoryConfiguration,
         pub corpus: CorpusCompilationConfiguration,
@@ -124,6 +127,14 @@ mod context {
         /// cli arguments.
         #[arg(long = "profile", default_value_t = Profile::Default)]
         pub profile: Profile,
+    }
+
+    /// Configuration for the log format used by the tracing subscriber.
+    #[configuration]
+    pub struct LogConfiguration {
+        /// The log output format.
+        #[arg(long = "log-format", default_value_t = LogFormat::Pretty)]
+        pub log_format: LogFormat,
     }
 
     /// Configuration for the output format.
@@ -819,6 +830,35 @@ pub enum Profile {
     /// * `concurrency.number-of-threads` set to 5.
     /// * `working-directory` set to ~/.retester-workdir
     Debug,
+}
+
+/// The log output format used by the tracing subscriber.
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    Default,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    Serialize,
+    Deserialize,
+    ValueEnum,
+    EnumString,
+    Display,
+    AsRefStr,
+    IntoStaticStr,
+)]
+#[strum(serialize_all = "kebab-case")]
+pub enum LogFormat {
+    /// Human-readable pretty-printed log output.
+    #[default]
+    Pretty,
+
+    /// Machine-readable JSON log output (NDJSON). Each log line is a JSON object.
+    Json,
 }
 
 fn parse_duration(s: &str) -> anyhow::Result<Duration> {
