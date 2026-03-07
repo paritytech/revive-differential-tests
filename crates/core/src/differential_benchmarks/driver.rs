@@ -379,6 +379,9 @@ where
                     tokio::spawn(
                         async move {
                             static AWAITING_RECEIPTS_COUNT: Mutex<usize> = Mutex::const_new(0);
+                            static SEMAPHORE: Semaphore = Semaphore::const_new(1000);
+
+                            let _guard = SEMAPHORE.acquire().await.expect("Poisoned");
 
                             let elapsed_seconds = {
                                 let now = SystemTime::now();
