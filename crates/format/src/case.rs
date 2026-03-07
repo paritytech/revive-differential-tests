@@ -1,13 +1,4 @@
-use alloy::primitives::{Address, map::HashSet};
-use schemars::JsonSchema;
-use serde::{Deserialize, Serialize};
-
-use revive_dt_common::{
-    macros::define_wrapper_type,
-    types::{Mode, ParsedMode, VmIdentifier},
-};
-
-use crate::steps::*;
+use crate::internal_prelude::*;
 
 #[derive(Debug, Default, Serialize, Deserialize, Clone, Eq, PartialEq, JsonSchema)]
 pub struct Case {
@@ -103,6 +94,7 @@ impl Case {
             Box::new(std::iter::once(Step::Repeat(Box::new(RepeatStep {
                 comment: None,
                 repeat: default_repeat_count,
+                await_transaction_inclusion: Default::default(),
                 steps: self.steps_iterator().collect(),
             })))) as Box<_>
         }

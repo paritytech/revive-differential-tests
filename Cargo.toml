@@ -26,6 +26,8 @@ revive-dt-report-processor = { version = "0.1.0", path = "crates/report-processo
 
 alloy = { version = "1.4.1", features = ["full", "genesis", "json-rpc"] }
 ansi_term = "0.12.1"
+base64 = "0.22"
+flate2 = "1.0"
 anyhow = "1.0"
 bson = { version = "2.15.0" }
 cacache = { version = "13.1.0" }
@@ -33,6 +35,7 @@ clap = { version = "4", features = ["derive", "wrap_help"] }
 dashmap = { version = "6.1.0" }
 foundry-compilers-artifacts = { version = "0.18.0" }
 futures = { version = "0.3.31" }
+governor = { version = "0.10.4" }
 hex = "0.4.3"
 quote = "1.0.44"
 regex = "1"
@@ -76,6 +79,7 @@ tracing-subscriber = { version = "0.3.19", default-features = false, features = 
     "json",
     "env-filter",
 ] }
+console-subscriber = { version = "0.4" }
 indexmap = { version = "2.10.0", default-features = false }
 itertools = { version = "0.14.0" }
 

@@ -3,23 +3,85 @@ mod differential_benchmarks;
 mod differential_tests;
 mod helpers;
 
-use anyhow::{Context as _, bail};
-use clap::Parser;
-use revive_dt_report::{CompilationStatus, ReportAggregator, TestCaseStatus};
-use schemars::schema_for;
-use tracing::{info, level_filters::LevelFilter};
-use tracing_subscriber::{EnvFilter, FmtSubscriber};
+mod internal_prelude {
+    pub use revive_dt_common::prelude::*;
+    pub use revive_dt_compiler::prelude::*;
+    pub use revive_dt_config::prelude::*;
+    pub use revive_dt_core::prelude::*;
+    pub use revive_dt_format::prelude::*;
+    pub use revive_dt_node::prelude::*;
+    pub use revive_dt_node_interaction::prelude::*;
+    pub use revive_dt_report::prelude::*;
 
-use revive_dt_config::Context;
-use revive_dt_core::Platform;
-use revive_dt_format::metadata::Metadata;
+    pub use std::borrow::Cow;
+    pub use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+    pub use std::future::Future;
+    pub use std::io::{BufWriter, Write, stderr};
+    pub use std::path::{Path, PathBuf};
+    pub use std::pin::Pin;
+    pub use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+    pub use std::sync::{Arc, LazyLock};
+    pub use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use crate::{
-    compilations::handle_compilations, differential_benchmarks::handle_differential_benchmarks,
-    differential_tests::handle_differential_tests,
-};
+    pub use alloy::consensus::EMPTY_ROOT_HASH;
+    pub use alloy::hex::{self, ToHexExt};
+    pub use alloy::json_abi::JsonAbi;
+    pub use alloy::network::{Ethereum, TransactionBuilder};
+    pub use alloy::primitives::{Address, BlockNumber, TxHash, U256, address};
+    pub use alloy::providers::{PendingTransactionBuilder, Provider};
+    pub use alloy::rpc::types::trace::geth::{
+        CallFrame, GethDebugBuiltInTracerType, GethDebugTracerConfig, GethDebugTracerType,
+        GethDebugTracingOptions,
+    };
+    pub use alloy::rpc::types::{TransactionReceipt, TransactionRequest};
+    pub use ansi_term::{ANSIStrings, Color};
+    pub use anyhow::Context as _;
+    pub use anyhow::{Error, Result, bail};
+    pub use clap::Parser;
+    pub use futures::future::try_join_all;
+    pub use futures::{FutureExt, Stream, StreamExt, TryFutureExt, TryStreamExt, stream};
+    pub use governor::{DefaultDirectRateLimiter, Quota};
+    pub use indexmap::{IndexMap, indexmap};
+    pub use regex::Regex;
+    pub use schemars::schema_for;
+    pub use semver::{Version, VersionReq};
+    pub use serde::{Deserialize, Serialize};
+    pub use serde_json::{self, Value, json};
+    pub use subxt::ext::codec::Decode;
+    pub use subxt::metadata::Metadata as SubxtMetadata;
+    pub use subxt::tx::Payload;
+    pub use tokio::select;
+    pub use tokio::sync::broadcast;
+    pub use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
+    pub use tokio::sync::{Mutex, Notify, OnceCell, RwLock, Semaphore};
+    pub use tokio::time::{interval, timeout};
+    pub use tracing::level_filters::LevelFilter;
+    pub use tracing::{
+        Instrument, Span, debug, debug_span, error, field::display, info, info_span, instrument,
+        warn,
+    };
+    pub use tracing_subscriber::EnvFilter;
+
+    pub use crate::compilations::handle_compilations;
+    pub use crate::differential_benchmarks::{
+        InclusionWatcher, Watcher, WatcherEvent, handle_differential_benchmarks,
+    };
+    pub use crate::differential_tests::handle_differential_tests;
+    pub use crate::helpers::{
+        CachedCompiler, CompilationDefinition, CorpusDefinitionProcessor, NodePool,
+        TestCaseIgnoreResolvedConfiguration, TestDefinition, TestPlatformInformation,
+        create_compilation_definitions_stream, create_test_definitions_stream, process_corpus,
+    };
+}
+
+use crate::internal_prelude::*;
 
 fn main() -> anyhow::Result<()> {
+    let mut context = Context::try_parse()?;
+    context.update_for_profile();
+
+    let log_config: &LogConfiguration = context.as_ref();
+
     let (writer, _guard) = tracing_appender::non_blocking::NonBlockingBuilder::default()
         .lossy(false)
         // Assuming that each line contains 255 characters and that each character is one byte, then
@@ -28,23 +90,40 @@ fn main() -> anyhow::Result<()> {
         .thread_name("buffered writer")
         .finish(std::io::stdout());
 
-    let subscriber = FmtSubscriber::builder()
-        .with_writer(writer)
-        .with_thread_ids(false)
-        .with_thread_names(false)
-        .with_env_filter(
-            EnvFilter::builder()
-                .with_default_directive(LevelFilter::OFF.into())
-                .from_env_lossy(),
-        )
-        .with_ansi(false)
-        .pretty()
-        .finish();
-    tracing::subscriber::set_global_default(subscriber)?;
-    info!("Differential testing tool is starting");
+    let fmt_layer: Box<dyn tracing_subscriber::Layer<_> + Send + Sync> = match log_config.log_format
+    {
+        LogFormat::Json => Box::new(
+            tracing_subscriber::fmt::layer()
+                .with_writer(writer)
+                .with_thread_ids(false)
+                .with_thread_names(false)
+                .with_ansi(false)
+                .json(),
+        ),
+        LogFormat::Pretty => Box::new(
+            tracing_subscriber::fmt::layer()
+                .with_writer(writer)
+                .with_thread_ids(false)
+                .with_thread_names(false)
+                .with_ansi(false)
+                .pretty(),
+        ),
+    };
 
-    let mut context = Context::try_parse()?;
-    context.update_for_profile();
+    let env_filter = EnvFilter::builder()
+        .with_default_directive(LevelFilter::OFF.into())
+        .from_env_lossy();
+
+    use tracing_subscriber::layer::SubscriberExt;
+    let registry = tracing_subscriber::registry()
+        .with(fmt_layer)
+        .with(env_filter);
+
+    #[cfg(feature = "tokio-debug")]
+    let registry = registry.with(console_subscriber::spawn());
+
+    tracing::subscriber::set_global_default(registry)?;
+    info!("Differential testing tool is starting");
 
     let (reporter, report_aggregator_task) = ReportAggregator::new(context.clone()).into_task();
 

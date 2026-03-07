@@ -1,37 +1,7 @@
 //! Implementation of the report aggregator task which consumes the events sent by the various
 //! reporters and combines them into a single unified report.
 
-use std::{
-    collections::{BTreeMap, BTreeSet, HashMap, HashSet},
-    fs::OpenOptions,
-    ops::{Add, Div},
-    path::PathBuf,
-    time::{SystemTime, UNIX_EPOCH},
-};
-
-use alloy::{
-    hex,
-    json_abi::JsonAbi,
-    primitives::{Address, B256, BlockNumber, BlockTimestamp, TxHash},
-};
-use anyhow::{Context as _, Result};
-use indexmap::IndexMap;
-use itertools::Itertools;
-use revive_dt_common::types::PlatformIdentifier;
-use revive_dt_compiler::{CompilerInput, CompilerOutput, Mode};
-use revive_dt_config::{Context, HasReportConfiguration, HasWorkingDirectoryConfiguration};
-use revive_dt_format::{case::CaseIdx, metadata::ContractInstance, steps::StepPath};
-use semver::Version;
-use serde::{Deserialize, Serialize};
-use serde_with::{DisplayFromStr, serde_as};
-use sha2::{Digest, Sha256};
-use tokio::sync::{
-    broadcast::{Sender, channel},
-    mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel},
-};
-use tracing::debug;
-
-use crate::*;
+use crate::internal_prelude::*;
 
 pub struct ReportAggregator {
     /* Internal Report State */
@@ -66,116 +36,118 @@ impl ReportAggregator {
         }
     }
 
-    pub fn into_task(mut self) -> (Reporter, impl Future<Output = Result<Report>>) {
+    pub fn into_task(mut self) -> (Reporter, FrameworkFuture<Result<Report>>) {
         let reporter = self
             .runner_tx
             .take()
             .map(Into::into)
             .expect("Can't fail since this can only be called once");
-        (reporter, async move { self.aggregate().await })
+        (reporter, self.aggregate())
     }
 
-    async fn aggregate(mut self) -> Result<Report> {
-        debug!("Starting to aggregate report");
+    fn aggregate(mut self) -> FrameworkFuture<Result<Report>> {
+        Box::pin(async move {
+            debug!("Starting to aggregate report");
 
-        while let Some(event) = self.runner_rx.recv().await {
-            debug!(event = event.variant_name(), "Received Event");
-            match event {
-                RunnerEvent::SubscribeToEvents(event) => {
-                    self.handle_subscribe_to_events_event(*event);
+            while let Some(event) = self.runner_rx.recv().await {
+                debug!(event = event.variant_name(), "Received Event");
+                match event {
+                    RunnerEvent::SubscribeToEvents(event) => {
+                        self.handle_subscribe_to_events_event(*event);
+                    }
+                    RunnerEvent::MetadataFileDiscovery(event) => {
+                        self.handle_metadata_file_discovery_event(*event);
+                    }
+                    RunnerEvent::TestCaseDiscovery(event) => {
+                        self.handle_test_case_discovery(*event);
+                    }
+                    RunnerEvent::PreLinkCompilationDiscovery(event) => {
+                        self.handle_pre_link_compilation_discovery(*event);
+                    }
+                    RunnerEvent::TestSucceeded(event) => {
+                        self.handle_test_succeeded_event(*event);
+                    }
+                    RunnerEvent::TestFailed(event) => {
+                        self.handle_test_failed_event(*event);
+                    }
+                    RunnerEvent::TestIgnored(event) => {
+                        self.handle_test_ignored_event(*event);
+                    }
+                    RunnerEvent::NodeAssigned(event) => {
+                        self.handle_node_assigned_event(*event);
+                    }
+                    RunnerEvent::PreLinkContractsCompilationSucceeded(event) => {
+                        self.handle_pre_link_contracts_compilation_succeeded_event(*event)
+                    }
+                    RunnerEvent::PostLinkContractsCompilationSucceeded(event) => {
+                        self.handle_post_link_contracts_compilation_succeeded_event(*event)
+                    }
+                    RunnerEvent::PreLinkContractsCompilationFailed(event) => {
+                        self.handle_pre_link_contracts_compilation_failed_event(*event)
+                    }
+                    RunnerEvent::PostLinkContractsCompilationFailed(event) => {
+                        self.handle_post_link_contracts_compilation_failed_event(*event)
+                    }
+                    RunnerEvent::PreLinkContractsCompilationIgnored(event) => {
+                        self.handle_pre_link_contracts_compilation_ignored_event(*event);
+                    }
+                    RunnerEvent::LibrariesDeployed(event) => {
+                        self.handle_libraries_deployed_event(*event);
+                    }
+                    RunnerEvent::ContractDeployed(event) => {
+                        self.handle_contract_deployed_event(*event);
+                    }
+                    RunnerEvent::Completion(_) => {
+                        break;
+                    }
+                    /* Benchmarks Events */
+                    RunnerEvent::StepTransactionInformation(event) => {
+                        self.handle_step_transaction_information(*event)
+                    }
+                    RunnerEvent::ContractInformation(event) => {
+                        self.handle_contract_information(*event);
+                    }
+                    RunnerEvent::BlockMined(event) => self.handle_block_mined(*event),
                 }
-                RunnerEvent::MetadataFileDiscovery(event) => {
-                    self.handle_metadata_file_discovery_event(*event);
-                }
-                RunnerEvent::TestCaseDiscovery(event) => {
-                    self.handle_test_case_discovery(*event);
-                }
-                RunnerEvent::PreLinkCompilationDiscovery(event) => {
-                    self.handle_pre_link_compilation_discovery(*event);
-                }
-                RunnerEvent::TestSucceeded(event) => {
-                    self.handle_test_succeeded_event(*event);
-                }
-                RunnerEvent::TestFailed(event) => {
-                    self.handle_test_failed_event(*event);
-                }
-                RunnerEvent::TestIgnored(event) => {
-                    self.handle_test_ignored_event(*event);
-                }
-                RunnerEvent::NodeAssigned(event) => {
-                    self.handle_node_assigned_event(*event);
-                }
-                RunnerEvent::PreLinkContractsCompilationSucceeded(event) => {
-                    self.handle_pre_link_contracts_compilation_succeeded_event(*event)
-                }
-                RunnerEvent::PostLinkContractsCompilationSucceeded(event) => {
-                    self.handle_post_link_contracts_compilation_succeeded_event(*event)
-                }
-                RunnerEvent::PreLinkContractsCompilationFailed(event) => {
-                    self.handle_pre_link_contracts_compilation_failed_event(*event)
-                }
-                RunnerEvent::PostLinkContractsCompilationFailed(event) => {
-                    self.handle_post_link_contracts_compilation_failed_event(*event)
-                }
-                RunnerEvent::PreLinkContractsCompilationIgnored(event) => {
-                    self.handle_pre_link_contracts_compilation_ignored_event(*event);
-                }
-                RunnerEvent::LibrariesDeployed(event) => {
-                    self.handle_libraries_deployed_event(*event);
-                }
-                RunnerEvent::ContractDeployed(event) => {
-                    self.handle_contract_deployed_event(*event);
-                }
-                RunnerEvent::Completion(_) => {
-                    break;
-                }
-                /* Benchmarks Events */
-                RunnerEvent::StepTransactionInformation(event) => {
-                    self.handle_step_transaction_information(*event)
-                }
-                RunnerEvent::ContractInformation(event) => {
-                    self.handle_contract_information(*event);
-                }
-                RunnerEvent::BlockMined(event) => self.handle_block_mined(*event),
             }
-        }
-        self.handle_completion(CompletionEvent {});
-        debug!("Report aggregation completed");
+            self.handle_completion(CompletionEvent {});
+            debug!("Report aggregation completed");
 
-        let default_file_name = {
-            let current_timestamp = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .context("System clock is before UNIX_EPOCH; cannot compute report timestamp")?
-                .as_secs();
-            let mut file_name = current_timestamp.to_string();
-            file_name.push_str(".json");
-            file_name
-        };
-        let file_name = self.file_name.unwrap_or(default_file_name);
-        let file_path = self
-            .report
-            .context
-            .as_working_directory_configuration()
-            .working_directory
-            .as_path()
-            .join(file_name);
-        let file = OpenOptions::new()
-            .create(true)
-            .write(true)
-            .truncate(true)
-            .read(false)
-            .open(&file_path)
-            .with_context(|| {
-                format!(
-                    "Failed to open report file for writing: {}",
-                    file_path.display()
-                )
+            let default_file_name = {
+                let current_timestamp = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .context("System clock is before UNIX_EPOCH; cannot compute report timestamp")?
+                    .as_secs();
+                let mut file_name = current_timestamp.to_string();
+                file_name.push_str(".json");
+                file_name
+            };
+            let file_name = self.file_name.unwrap_or(default_file_name);
+            let file_path = self
+                .report
+                .context
+                .as_working_directory_configuration()
+                .working_directory
+                .as_path()
+                .join(file_name);
+            let file = OpenOptions::new()
+                .create(true)
+                .write(true)
+                .truncate(true)
+                .read(false)
+                .open(&file_path)
+                .with_context(|| {
+                    format!(
+                        "Failed to open report file for writing: {}",
+                        file_path.display()
+                    )
+                })?;
+            serde_json::to_writer_pretty(&file, &self.report).with_context(|| {
+                format!("Failed to serialize report JSON to {}", file_path.display())
             })?;
-        serde_json::to_writer_pretty(&file, &self.report).with_context(|| {
-            format!("Failed to serialize report JSON to {}", file_path.display())
-        })?;
 
-        Ok(self.report)
+            Ok(self.report)
+        })
     }
 
     fn handle_subscribe_to_events_event(&self, event: SubscribeToEventsEvent) {
@@ -199,13 +171,13 @@ impl ReportAggregator {
         self.remaining_compilation_modes
             .entry(
                 event
-                    .compilation_specifier
+                    .pre_link_compilation_specifier
                     .metadata_file_path
                     .clone()
                     .into(),
             )
             .or_default()
-            .insert(event.compilation_specifier.compiler_mode.clone());
+            .insert(event.pre_link_compilation_specifier.compiler_mode.clone());
     }
 
     fn handle_test_succeeded_event(&mut self, event: TestSucceededEvent) {
@@ -407,9 +379,11 @@ impl ReportAggregator {
             additional_fields: event.additional_fields,
         };
 
-        let report = self.pre_link_compilation_report(&event.compilation_specifier);
+        let report = self.pre_link_compilation_report(&event.pre_link_compilation_specifier);
         report.status = Some(status.clone());
-        self.handle_post_pre_link_contracts_compilation_status_update(&event.compilation_specifier);
+        self.handle_post_pre_link_contracts_compilation_status_update(
+            &event.pre_link_compilation_specifier,
+        );
     }
 
     fn handle_post_pre_link_contracts_compilation_status_update(
@@ -452,8 +426,13 @@ impl ReportAggregator {
     }
 
     fn handle_libraries_deployed_event(&mut self, event: LibrariesDeployedEvent) {
-        self.execution_information(&event.execution_specifier)
-            .deployed_libraries = Some(event.libraries);
+        let execution_information = self.execution_information(&event.execution_specifier);
+        let deployed_libraries = execution_information
+            .deployed_libraries
+            .get_or_insert_default();
+        for (contract_instance, address) in event.libraries {
+            deployed_libraries.insert(contract_instance, address);
+        }
     }
 
     fn handle_contract_deployed_event(&mut self, event: ContractDeployedEvent) {
@@ -488,78 +467,11 @@ impl ReportAggregator {
                                 .cmp(&b.ethereum_block_information.block_number)
                         });
 
-                        // Computing the TPS.
-                        let tps = block_information
-                            .iter()
-                            .tuple_windows::<(_, _)>()
-                            .map(|(block1, block2)| {
-                                block2.ethereum_block_information.transaction_hashes.len() as u64
-                                    / (block2.ethereum_block_information.block_timestamp
-                                        - block1.ethereum_block_information.block_timestamp)
-                            })
-                            .collect::<Vec<_>>();
-                        report
-                            .metrics
-                            .get_or_insert_default()
-                            .transaction_per_second
-                            .with_list(*platform_identifier, tps);
-
-                        // Computing the GPS.
-                        let gps = block_information
-                            .iter()
-                            .tuple_windows::<(_, _)>()
-                            .map(|(block1, block2)| {
-                                block2.ethereum_block_information.mined_gas as u64
-                                    / (block2.ethereum_block_information.block_timestamp
-                                        - block1.ethereum_block_information.block_timestamp)
-                            })
-                            .collect::<Vec<_>>();
-                        report
-                            .metrics
-                            .get_or_insert_default()
-                            .gas_per_second
-                            .with_list(*platform_identifier, gps);
-
-                        // Computing the gas block fullness
-                        let gas_block_fullness = block_information
-                            .iter()
-                            .map(|block| block.gas_block_fullness_percentage())
-                            .map(|v| v as u64)
-                            .collect::<Vec<_>>();
-                        report
-                            .metrics
-                            .get_or_insert_default()
-                            .gas_block_fullness
-                            .with_list(*platform_identifier, gas_block_fullness);
-
-                        // Computing the ref-time block fullness
-                        let reftime_block_fullness = block_information
-                            .iter()
-                            .filter_map(|block| block.ref_time_block_fullness_percentage())
-                            .map(|v| v as u64)
-                            .collect::<Vec<_>>();
-                        if !reftime_block_fullness.is_empty() {
+                        let metrics = compute_metrics_information(block_information);
+                        if !metrics.is_empty() {
                             report
-                                .metrics
-                                .get_or_insert_default()
-                                .ref_time_block_fullness
-                                .get_or_insert_default()
-                                .with_list(*platform_identifier, reftime_block_fullness);
-                        }
-
-                        // Computing the proof size block fullness
-                        let proof_size_block_fullness = block_information
-                            .iter()
-                            .filter_map(|block| block.proof_size_block_fullness_percentage())
-                            .map(|v| v as u64)
-                            .collect::<Vec<_>>();
-                        if !proof_size_block_fullness.is_empty() {
-                            report
-                                .metrics
-                                .get_or_insert_default()
-                                .proof_size_block_fullness
-                                .get_or_insert_default()
-                                .with_list(*platform_identifier, proof_size_block_fullness);
+                                .metrics_information
+                                .insert(*platform_identifier, metrics);
                         }
                     }
                 }
@@ -714,9 +626,6 @@ pub struct Report {
     pub context: Context,
     /// The list of metadata files that were found by the tool.
     pub metadata_files: BTreeSet<MetadataFilePath>,
-    /// Metrics from the execution.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub metrics: Option<Metrics>,
     /// Information relating to each metadata file after executing the tool.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub execution_information: BTreeMap<MetadataFilePath, MetadataFileReport>,
@@ -726,7 +635,6 @@ impl Report {
     pub fn new(context: Context) -> Self {
         Self {
             context,
-            metrics: Default::default(),
             metadata_files: Default::default(),
             execution_information: Default::default(),
         }
@@ -736,9 +644,6 @@ impl Report {
 #[serde_as]
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
 pub struct MetadataFileReport {
-    /// Metrics from the execution.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub metrics: Option<Metrics>,
     /// The report of each case keyed by the case idx.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub case_reports: BTreeMap<CaseIdx, CaseReport>,
@@ -751,9 +656,6 @@ pub struct MetadataFileReport {
 #[serde_as]
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
 pub struct CaseReport {
-    /// Metrics from the execution.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub metrics: Option<Metrics>,
     /// The [`ExecutionReport`] for each one of the [`Mode`]s.
     #[serde_as(as = "HashMap<DisplayFromStr, _>")]
     pub mode_execution_reports: HashMap<Mode, ExecutionReport>,
@@ -764,9 +666,9 @@ pub struct ExecutionReport {
     /// Information on the status of the test case and whether it succeeded, failed, or was ignored.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub status: Option<TestCaseStatus>,
-    /// Metrics from the execution.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub metrics: Option<Metrics>,
+    /// Per-block metrics information for each platform.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub metrics_information: PlatformKeyedInformation<Vec<MetricsInformation>>,
     /// Information related to the execution on one of the platforms.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub platform_execution: PlatformKeyedInformation<Option<ExecutionInformation>>,
@@ -832,12 +734,12 @@ pub struct ExecutionInformation {
     /// Information on the post-link compiled contracts.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub post_link_compilation_status: Option<CompilationStatus>,
-    /// Information on the deployed libraries.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub deployed_libraries: Option<BTreeMap<ContractInstance, Address>>,
     /// Information on the deployed contracts.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub deployed_contracts: Option<BTreeMap<ContractInstance, Address>>,
+    /// Information on the deployed libraries.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub deployed_libraries: Option<BTreeMap<ContractInstance, Address>>,
 }
 
 /// The pre-link-only compilation report.
@@ -927,140 +829,184 @@ pub struct TransactionInformation {
     pub block_number: BlockNumber,
 }
 
-/// The metrics we collect for our benchmarks.
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
-pub struct Metrics {
-    pub transaction_per_second: Metric<u64>,
-    pub gas_per_second: Metric<u64>,
-    /* Block Fullness */
-    pub gas_block_fullness: Metric<u64>,
+/// Per-block metrics information for benchmark reporting. Each instance maps directly to an
+/// (x, y) coordinate for graphing, with the block number or timestamp as x and various metrics
+/// as y values.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct MetricsInformation {
+    pub block_number: u64,
+    pub relative_block_number: u64,
+    pub block_timestamp_seconds: u64,
+    pub relative_block_timestamp_seconds: u64,
+    pub observation_time_seconds: u64,
+    pub relative_observation_time_seconds: u64,
+    pub transaction_count: u64,
+    pub step_count: BTreeMap<StepPath, u64>,
+
+    // Rate fields - None for first block
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub ref_time_block_fullness: Option<Metric<u64>>,
+    pub transactions_per_second: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub proof_size_block_fullness: Option<Metric<u64>>,
+    pub ref_time_per_second: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub proof_size_per_second: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub gas_per_second: Option<f64>,
+
+    // Gas fields
+    pub block_gas_mined: u128,
+    pub block_gas_limit: u128,
+    pub block_gas_fullness: u64,
+
+    // Substrate fields - None for non-substrate chains
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub block_ref_time: Option<u128>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub block_ref_time_limit: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub block_ref_time_fullness: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub block_proof_size: Option<u128>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub block_proof_size_limit: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub block_proof_size_fullness: Option<u64>,
 }
 
-/// The data that we store for a given metric (e.g., TPS).
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
-pub struct Metric<T> {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub minimum: Option<PlatformKeyedInformation<T>>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub maximum: Option<PlatformKeyedInformation<T>>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub mean: Option<PlatformKeyedInformation<T>>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub median: Option<PlatformKeyedInformation<T>>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub raw: Option<PlatformKeyedInformation<Vec<T>>>,
-}
+/// Computes per-block [`MetricsInformation`] from a sorted slice of mined blocks.
+///
+/// Leading and trailing blocks with zero transactions are trimmed; interior empty blocks are
+/// preserved. Rate fields (`transactions_per_second`, `gas_per_second`, etc.) are `None` for
+/// the first retained block and computed as `f64` division for subsequent blocks.
+pub fn compute_metrics_information(blocks: &[MinedBlockInformation]) -> Vec<MetricsInformation> {
+    // Find the first and last block indices with transactions.
+    let first = blocks
+        .iter()
+        .position(|b| !b.ethereum_block_information.transaction_hashes.is_empty());
+    let last = blocks
+        .iter()
+        .rposition(|b| !b.ethereum_block_information.transaction_hashes.is_empty());
 
-impl<T> Metric<T>
-where
-    T: Default
-        + Copy
-        + Ord
-        + PartialOrd
-        + Add<Output = T>
-        + Div<Output = T>
-        + TryFrom<usize, Error: std::fmt::Debug>,
-{
-    pub fn new() -> Self {
-        Default::default()
-    }
+    let (first, last) = match (first, last) {
+        (Some(f), Some(l)) => (f, l),
+        _ => return Vec::new(),
+    };
 
-    pub fn platform_identifiers(&self) -> BTreeSet<PlatformIdentifier> {
-        self.minimum
-            .as_ref()
-            .map(|m| m.keys())
-            .into_iter()
-            .flatten()
-            .chain(
-                self.maximum
+    let trimmed = &blocks[first..=last];
+    let min_block_number = trimmed[0].ethereum_block_information.block_number;
+    let min_timestamp = trimmed[0].ethereum_block_information.block_timestamp;
+    let min_observation_time = trimmed[0]
+        .observation_time
+        .duration_since(UNIX_EPOCH)
+        .expect("observation_time before UNIX_EPOCH")
+        .as_secs();
+
+    let mut result = Vec::with_capacity(trimmed.len());
+    let mut prev_observation_time_millis: Option<u128> = None;
+
+    for block in trimmed {
+        let eth = &block.ethereum_block_information;
+        let tx_count = eth.transaction_hashes.len() as u64;
+        let this_ts = eth.block_timestamp;
+        let obs_duration = block
+            .observation_time
+            .duration_since(UNIX_EPOCH)
+            .expect("observation_time before UNIX_EPOCH");
+        let this_obs = obs_duration.as_secs();
+        let this_obs_millis = obs_duration.as_millis();
+
+        let step_count = block
+            .tx_counts
+            .iter()
+            .map(|(k, v)| (k.clone(), *v as u64))
+            .collect();
+
+        // Compute rate fields using observation time deltas (millisecond precision)
+        let (tps, gps, rt_ps, ps_ps) = if let Some(prev_obs_millis) = prev_observation_time_millis {
+            let dt_millis = this_obs_millis.saturating_sub(prev_obs_millis);
+            if dt_millis > 0 {
+                let dt_f = dt_millis as f64 / 1000.0;
+                let tps = Some(tx_count as f64 / dt_f);
+                let gps = Some(eth.mined_gas as f64 / dt_f);
+                let rt_ps = block
+                    .substrate_block_information
                     .as_ref()
-                    .map(|m| m.keys())
-                    .into_iter()
-                    .flatten(),
-            )
-            .chain(self.mean.as_ref().map(|m| m.keys()).into_iter().flatten())
-            .chain(self.median.as_ref().map(|m| m.keys()).into_iter().flatten())
-            .chain(self.raw.as_ref().map(|m| m.keys()).into_iter().flatten())
-            .copied()
-            .collect()
-    }
-
-    pub fn with_list(
-        &mut self,
-        platform_identifier: PlatformIdentifier,
-        original_list: Vec<T>,
-    ) -> &mut Self {
-        let mut list = original_list.clone();
-        list.sort();
-        let Some(min) = list.first().copied() else {
-            return self;
-        };
-        let Some(max) = list.last().copied() else {
-            return self;
-        };
-        let sum = list.iter().fold(T::default(), |acc, num| acc + *num);
-        let mean = sum / TryInto::<T>::try_into(list.len()).unwrap();
-
-        let median = match list.len().is_multiple_of(2) {
-            true => {
-                let idx = list.len() / 2;
-                let val1 = *list.get(idx - 1).unwrap();
-                let val2 = *list.get(idx).unwrap();
-                (val1 + val2) / TryInto::<T>::try_into(2usize).unwrap()
+                    .map(|s| s.ref_time as f64 / dt_f);
+                let ps_ps = block
+                    .substrate_block_information
+                    .as_ref()
+                    .map(|s| s.proof_size as f64 / dt_f);
+                (tps, gps, rt_ps, ps_ps)
+            } else {
+                (
+                    Some(0.0),
+                    Some(0.0),
+                    block.substrate_block_information.as_ref().map(|_| 0.0),
+                    block.substrate_block_information.as_ref().map(|_| 0.0),
+                )
             }
-            false => {
-                let idx = list.len() / 2;
-                *list.get(idx).unwrap()
-            }
+        } else {
+            (None, None, None, None)
         };
 
-        self.minimum
-            .get_or_insert_default()
-            .insert(platform_identifier, min);
-        self.maximum
-            .get_or_insert_default()
-            .insert(platform_identifier, max);
-        self.mean
-            .get_or_insert_default()
-            .insert(platform_identifier, mean);
-        self.median
-            .get_or_insert_default()
-            .insert(platform_identifier, median);
-        self.raw
-            .get_or_insert_default()
-            .insert(platform_identifier, original_list);
+        let gas_fullness = if eth.block_gas_limit > 0 {
+            (eth.mined_gas * 100 / eth.block_gas_limit) as u64
+        } else {
+            0
+        };
 
-        self
+        let (ref_time, ref_time_limit, ref_time_fullness) =
+            if let Some(s) = &block.substrate_block_information {
+                let fullness = if s.max_ref_time > 0 {
+                    (s.ref_time * 100 / s.max_ref_time as u128) as u64
+                } else {
+                    0
+                };
+                (Some(s.ref_time), Some(s.max_ref_time), Some(fullness))
+            } else {
+                (None, None, None)
+            };
+
+        let (proof_size, proof_size_limit, proof_size_fullness) =
+            if let Some(s) = &block.substrate_block_information {
+                let fullness = if s.max_proof_size > 0 {
+                    (s.proof_size * 100 / s.max_proof_size as u128) as u64
+                } else {
+                    0
+                };
+                (Some(s.proof_size), Some(s.max_proof_size), Some(fullness))
+            } else {
+                (None, None, None)
+            };
+
+        result.push(MetricsInformation {
+            block_number: eth.block_number,
+            relative_block_number: eth.block_number - min_block_number,
+            block_timestamp_seconds: this_ts,
+            relative_block_timestamp_seconds: this_ts - min_timestamp,
+            observation_time_seconds: this_obs,
+            relative_observation_time_seconds: this_obs - min_observation_time,
+            transaction_count: tx_count,
+            step_count,
+            transactions_per_second: tps,
+            gas_per_second: gps,
+            ref_time_per_second: rt_ps,
+            proof_size_per_second: ps_ps,
+            block_gas_mined: eth.mined_gas,
+            block_gas_limit: eth.block_gas_limit,
+            block_gas_fullness: gas_fullness,
+            block_ref_time: ref_time,
+            block_ref_time_limit: ref_time_limit,
+            block_ref_time_fullness: ref_time_fullness,
+            block_proof_size: proof_size,
+            block_proof_size_limit: proof_size_limit,
+            block_proof_size_fullness: proof_size_fullness,
+        });
+
+        prev_observation_time_millis = Some(this_obs_millis);
     }
 
-    pub fn combine(&self, other: &Self) -> Self {
-        let mut platform_identifiers = self.platform_identifiers();
-        platform_identifiers.extend(other.platform_identifiers());
-
-        let mut this = Self::new();
-        for platform_identifier in platform_identifiers {
-            let mut l1 = self
-                .raw
-                .as_ref()
-                .and_then(|m| m.get(&platform_identifier))
-                .cloned()
-                .unwrap_or_default();
-            let l2 = other
-                .raw
-                .as_ref()
-                .and_then(|m| m.get(&platform_identifier))
-                .cloned()
-                .unwrap_or_default();
-            l1.extend(l2);
-            this.with_list(platform_identifier, l1);
-        }
-
-        this
-    }
+    result
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
@@ -1069,80 +1015,333 @@ pub struct ContractInformation {
     pub contract_size: PlatformKeyedInformation<usize>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-pub struct MinedBlockInformation {
-    pub ethereum_block_information: EthereumMinedBlockInformation,
-    pub substrate_block_information: Option<SubstrateMinedBlockInformation>,
-    pub tx_counts: BTreeMap<StepPath, usize>,
-}
-
-impl MinedBlockInformation {
-    pub fn gas_block_fullness_percentage(&self) -> u8 {
-        self.ethereum_block_information
-            .gas_block_fullness_percentage()
-    }
-
-    pub fn ref_time_block_fullness_percentage(&self) -> Option<u8> {
-        self.substrate_block_information
-            .as_ref()
-            .map(|block| block.ref_time_block_fullness_percentage())
-    }
-
-    pub fn proof_size_block_fullness_percentage(&self) -> Option<u8> {
-        self.substrate_block_information
-            .as_ref()
-            .map(|block| block.proof_size_block_fullness_percentage())
-    }
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-pub struct EthereumMinedBlockInformation {
-    /// The block number.
-    pub block_number: BlockNumber,
-
-    /// The block timestamp.
-    pub block_timestamp: BlockTimestamp,
-
-    /// The amount of gas mined in the block.
-    pub mined_gas: u128,
-
-    /// The gas limit of the block.
-    pub block_gas_limit: u128,
-
-    /// The hashes of the transactions that were mined as part of the block.
-    pub transaction_hashes: Vec<TxHash>,
-}
-
-impl EthereumMinedBlockInformation {
-    pub fn gas_block_fullness_percentage(&self) -> u8 {
-        (self.mined_gas * 100 / self.block_gas_limit) as u8
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-pub struct SubstrateMinedBlockInformation {
-    /// The ref time for substrate based chains.
-    pub ref_time: u128,
-
-    /// The max ref time for substrate based chains.
-    pub max_ref_time: u64,
-
-    /// The proof size for substrate based chains.
-    pub proof_size: u128,
-
-    /// The max proof size for substrate based chains.
-    pub max_proof_size: u64,
-}
-
-impl SubstrateMinedBlockInformation {
-    pub fn ref_time_block_fullness_percentage(&self) -> u8 {
-        (self.ref_time * 100 / self.max_ref_time as u128) as u8
-    }
-
-    pub fn proof_size_block_fullness_percentage(&self) -> u8 {
-        (self.proof_size * 100 / self.max_proof_size as u128) as u8
-    }
-}
-
 /// Information keyed by the platform identifier.
 pub type PlatformKeyedInformation<T> = BTreeMap<PlatformIdentifier, T>;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use std::time::Duration;
+
+    #[allow(clippy::too_many_arguments)]
+    fn make_block(
+        block_number: u64,
+        block_timestamp: u64,
+        tx_count: usize,
+        mined_gas: u128,
+        gas_limit: u128,
+        substrate: Option<SubstrateMinedBlockInformation>,
+        tx_counts: BTreeMap<StepPath, usize>,
+        observation_time: SystemTime,
+    ) -> MinedBlockInformation {
+        MinedBlockInformation {
+            ethereum_block_information: EthereumMinedBlockInformation {
+                block_number,
+                block_timestamp,
+                mined_gas,
+                block_gas_limit: gas_limit,
+                transaction_hashes: vec![TxHash::ZERO; tx_count],
+            },
+            substrate_block_information: substrate,
+            tx_counts,
+            observation_time,
+        }
+    }
+
+    fn obs(secs: u64) -> SystemTime {
+        UNIX_EPOCH + Duration::from_secs(secs)
+    }
+
+    fn simple_block(
+        block_number: u64,
+        block_timestamp: u64,
+        tx_count: usize,
+        observation_time: SystemTime,
+    ) -> MinedBlockInformation {
+        make_block(
+            block_number,
+            block_timestamp,
+            tx_count,
+            1000,
+            10000,
+            None,
+            BTreeMap::new(),
+            observation_time,
+        )
+    }
+
+    #[test]
+    fn empty_input() {
+        let result = compute_metrics_information(&[]);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn all_zero_tx_blocks() {
+        let blocks = vec![
+            simple_block(1, 100, 0, obs(1000)),
+            simple_block(2, 110, 0, obs(1010)),
+            simple_block(3, 120, 0, obs(1020)),
+        ];
+        let result = compute_metrics_information(&blocks);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn single_block_with_transactions() {
+        let blocks = vec![make_block(
+            5,
+            200,
+            3,
+            750,
+            1000,
+            None,
+            BTreeMap::new(),
+            obs(5000),
+        )];
+        let result = compute_metrics_information(&blocks);
+
+        assert_eq!(result.len(), 1);
+        let m = &result[0];
+        assert_eq!(m.block_number, 5);
+        assert_eq!(m.relative_block_number, 0);
+        assert_eq!(m.block_timestamp_seconds, 200);
+        assert_eq!(m.relative_block_timestamp_seconds, 0);
+        assert_eq!(m.observation_time_seconds, 5000);
+        assert_eq!(m.relative_observation_time_seconds, 0);
+        assert_eq!(m.transaction_count, 3);
+        assert!(m.transactions_per_second.is_none());
+        assert!(m.gas_per_second.is_none());
+        assert!(m.ref_time_per_second.is_none());
+        assert!(m.proof_size_per_second.is_none());
+        assert_eq!(m.block_gas_mined, 750);
+        assert_eq!(m.block_gas_limit, 1000);
+        assert_eq!(m.block_gas_fullness, 75);
+    }
+
+    #[test]
+    fn leading_trailing_zero_tx_trimmed() {
+        let blocks = vec![
+            simple_block(1, 100, 0, obs(1000)),
+            simple_block(2, 110, 0, obs(1010)),
+            simple_block(3, 120, 5, obs(1020)),
+            simple_block(4, 130, 3, obs(1030)),
+            simple_block(5, 140, 0, obs(1040)),
+        ];
+        let result = compute_metrics_information(&blocks);
+
+        assert_eq!(result.len(), 2);
+        assert_eq!(result[0].block_number, 3);
+        assert_eq!(result[0].relative_block_number, 0);
+        assert_eq!(result[0].relative_block_timestamp_seconds, 0);
+        assert_eq!(result[0].relative_observation_time_seconds, 0);
+        assert_eq!(result[0].transaction_count, 5);
+        assert_eq!(result[1].block_number, 4);
+        assert_eq!(result[1].relative_block_number, 1);
+        assert_eq!(result[1].relative_block_timestamp_seconds, 10);
+        assert_eq!(result[1].relative_observation_time_seconds, 10);
+        assert_eq!(result[1].transaction_count, 3);
+    }
+
+    #[test]
+    fn interior_zero_tx_blocks_preserved() {
+        let blocks = vec![
+            simple_block(1, 100, 5, obs(1000)),
+            simple_block(2, 110, 0, obs(1010)),
+            simple_block(3, 120, 3, obs(1020)),
+        ];
+        let result = compute_metrics_information(&blocks);
+
+        assert_eq!(result.len(), 3);
+        assert_eq!(result[0].block_number, 1);
+        assert_eq!(result[0].transaction_count, 5);
+        assert_eq!(result[1].block_number, 2);
+        assert_eq!(result[1].transaction_count, 0);
+        assert_eq!(result[2].block_number, 3);
+        assert_eq!(result[2].transaction_count, 3);
+    }
+
+    #[test]
+    fn rate_computation() {
+        let blocks = vec![
+            make_block(1, 100, 5, 500, 10000, None, BTreeMap::new(), obs(1000)),
+            make_block(2, 110, 20, 1000, 10000, None, BTreeMap::new(), obs(1010)),
+        ];
+        let result = compute_metrics_information(&blocks);
+
+        assert_eq!(result.len(), 2);
+        // First block: no rates
+        assert!(result[0].transactions_per_second.is_none());
+        assert!(result[0].gas_per_second.is_none());
+        // Second block: 10s observation time delta
+        assert_eq!(result[1].transactions_per_second.unwrap(), 2.0); // 20 / 10
+        assert_eq!(result[1].gas_per_second.unwrap(), 100.0); // 1000 / 10
+    }
+
+    #[test]
+    fn substrate_fields_populated() {
+        let substrate = SubstrateMinedBlockInformation {
+            ref_time: 5000,
+            max_ref_time: 10000,
+            proof_size: 3000,
+            max_proof_size: 6000,
+        };
+        let blocks = vec![
+            make_block(
+                1,
+                100,
+                2,
+                500,
+                1000,
+                Some(substrate),
+                BTreeMap::new(),
+                obs(1000),
+            ),
+            make_block(
+                2,
+                110,
+                3,
+                700,
+                1000,
+                Some(substrate),
+                BTreeMap::new(),
+                obs(1010),
+            ),
+        ];
+        let result = compute_metrics_information(&blocks);
+
+        assert_eq!(result.len(), 2);
+        // First block
+        assert_eq!(result[0].block_ref_time, Some(5000));
+        assert_eq!(result[0].block_ref_time_limit, Some(10000));
+        assert_eq!(result[0].block_ref_time_fullness, Some(50));
+        assert_eq!(result[0].block_proof_size, Some(3000));
+        assert_eq!(result[0].block_proof_size_limit, Some(6000));
+        assert_eq!(result[0].block_proof_size_fullness, Some(50));
+        assert!(result[0].ref_time_per_second.is_none());
+        assert!(result[0].proof_size_per_second.is_none());
+        // Second block: rates computed over 10s observation time delta
+        assert_eq!(result[1].ref_time_per_second.unwrap(), 500.0); // 5000 / 10
+        assert_eq!(result[1].proof_size_per_second.unwrap(), 300.0); // 3000 / 10
+    }
+
+    #[test]
+    fn substrate_fields_none_for_non_substrate() {
+        let blocks = vec![simple_block(1, 100, 3, obs(1000))];
+        let result = compute_metrics_information(&blocks);
+
+        assert_eq!(result.len(), 1);
+        assert!(result[0].block_ref_time.is_none());
+        assert!(result[0].block_ref_time_limit.is_none());
+        assert!(result[0].block_ref_time_fullness.is_none());
+        assert!(result[0].block_proof_size.is_none());
+        assert!(result[0].block_proof_size_limit.is_none());
+        assert!(result[0].block_proof_size_fullness.is_none());
+        assert!(result[0].ref_time_per_second.is_none());
+        assert!(result[0].proof_size_per_second.is_none());
+    }
+
+    #[test]
+    fn step_count_mapping() {
+        let mut tx_counts = BTreeMap::new();
+        let step_a: StepPath = "0".parse().unwrap();
+        let step_b: StepPath = "1.0".parse().unwrap();
+        tx_counts.insert(step_a.clone(), 5);
+        tx_counts.insert(step_b.clone(), 3);
+
+        let blocks = vec![make_block(
+            1,
+            100,
+            8,
+            1000,
+            10000,
+            None,
+            tx_counts,
+            obs(1000),
+        )];
+        let result = compute_metrics_information(&blocks);
+
+        assert_eq!(result.len(), 1);
+        assert_eq!(*result[0].step_count.get(&step_a).unwrap(), 5);
+        assert_eq!(*result[0].step_count.get(&step_b).unwrap(), 3);
+    }
+
+    #[test]
+    fn gas_fullness_computation() {
+        let blocks = vec![make_block(
+            1,
+            100,
+            1,
+            75,
+            100,
+            None,
+            BTreeMap::new(),
+            obs(1000),
+        )];
+        let result = compute_metrics_information(&blocks);
+
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].block_gas_fullness, 75);
+    }
+
+    #[test]
+    fn relative_values_across_blocks() {
+        let blocks = vec![
+            simple_block(10, 1000, 2, obs(5000)),
+            simple_block(12, 1005, 3, obs(5005)),
+            simple_block(15, 1020, 1, obs(5020)),
+        ];
+        let result = compute_metrics_information(&blocks);
+
+        assert_eq!(result.len(), 3);
+        // First block anchors
+        assert_eq!(result[0].block_number, 10);
+        assert_eq!(result[0].relative_block_number, 0);
+        assert_eq!(result[0].block_timestamp_seconds, 1000);
+        assert_eq!(result[0].relative_block_timestamp_seconds, 0);
+        assert_eq!(result[0].observation_time_seconds, 5000);
+        assert_eq!(result[0].relative_observation_time_seconds, 0);
+        // Second block
+        assert_eq!(result[1].block_number, 12);
+        assert_eq!(result[1].relative_block_number, 2);
+        assert_eq!(result[1].block_timestamp_seconds, 1005);
+        assert_eq!(result[1].relative_block_timestamp_seconds, 5);
+        assert_eq!(result[1].observation_time_seconds, 5005);
+        assert_eq!(result[1].relative_observation_time_seconds, 5);
+        // Third block
+        assert_eq!(result[2].block_number, 15);
+        assert_eq!(result[2].relative_block_number, 5);
+        assert_eq!(result[2].block_timestamp_seconds, 1020);
+        assert_eq!(result[2].relative_block_timestamp_seconds, 20);
+        assert_eq!(result[2].observation_time_seconds, 5020);
+        assert_eq!(result[2].relative_observation_time_seconds, 20);
+    }
+
+    #[test]
+    fn rate_uses_observation_time_not_block_timestamp() {
+        // Both blocks share the same block_timestamp (e.g. manual-seal mode),
+        // but observation times are 10s apart. Rates should use observation time.
+        let blocks = vec![
+            make_block(1, 100, 5, 500, 10000, None, BTreeMap::new(), obs(1000)),
+            make_block(2, 100, 20, 2000, 10000, None, BTreeMap::new(), obs(1010)),
+        ];
+        let result = compute_metrics_information(&blocks);
+
+        assert_eq!(result.len(), 2);
+        // First block: no rates
+        assert!(result[0].transactions_per_second.is_none());
+        assert!(result[0].gas_per_second.is_none());
+        // Second block: rates based on 10s observation time delta, NOT block timestamp delta (0)
+        assert_eq!(result[1].transactions_per_second.unwrap(), 2.0); // 20 / 10
+        assert_eq!(result[1].gas_per_second.unwrap(), 200.0); // 2000 / 10
+        // Verify the block timestamps are indeed the same
+        assert_eq!(result[0].block_timestamp_seconds, 100);
+        assert_eq!(result[1].block_timestamp_seconds, 100);
+        assert_eq!(result[1].relative_block_timestamp_seconds, 0);
+        // But observation times differ
+        assert_eq!(result[0].observation_time_seconds, 1000);
+        assert_eq!(result[1].observation_time_seconds, 1010);
+        assert_eq!(result[1].relative_observation_time_seconds, 10);
+    }
+}

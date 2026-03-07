@@ -3,26 +3,32 @@
 //! This crate defines the testing configuration and
 //! provides a helper utility to execute tests.
 
-use std::{
-    pin::Pin,
-    thread::{self, JoinHandle},
-};
+pub mod prelude {
+    pub use crate::Platform;
+    pub use crate::{
+        GethEvmSolcPlatform, LighthouseGethEvmSolcPlatform, PolkadotOmniNodePolkavmResolcPlatform,
+        PolkadotOmniNodeRevmSolcPlatform, ReviveDevNodePolkavmResolcPlatform,
+        ReviveDevNodeRevmSolcPlatform, ZombienetPolkavmResolcPlatform, ZombienetRevmSolcPlatform,
+    };
+}
 
-use alloy::genesis::Genesis;
-use anyhow::Context as _;
-use revive_dt_common::types::*;
-use revive_dt_compiler::{SolidityCompiler, revive_resolc::Resolc, solc::Solc};
-use revive_dt_config::*;
-use revive_dt_node::{
-    Node,
-    node_implementations::{
-        geth::GethNode, lighthouse_geth::LighthouseGethNode,
-        polkadot_omni_node::PolkadotOmnichainNode, substrate::SubstrateNode,
-        zombienet::ZombienetNode,
-    },
-};
-use revive_dt_node_interaction::EthereumNode;
-use tracing::info;
+pub(crate) mod internal_prelude {
+    pub use revive_dt_common::prelude::*;
+    pub use revive_dt_compiler::prelude::*;
+    pub use revive_dt_config::prelude::*;
+    pub use revive_dt_node::prelude::*;
+    pub use revive_dt_node_interaction::prelude::*;
+
+    pub use std::pin::Pin;
+    pub use std::thread::{self, JoinHandle};
+
+    pub use alloy::genesis::Genesis;
+    pub use anyhow::Context as _;
+    pub use serde_json;
+    pub use tracing::info;
+}
+
+use crate::internal_prelude::*;
 
 /// A trait that describes the interface for the platforms that are supported by the tool.
 #[allow(clippy::type_complexity)]
@@ -54,7 +60,7 @@ pub trait Platform {
     fn new_node(
         &self,
         context: Context,
-    ) -> anyhow::Result<JoinHandle<anyhow::Result<Box<dyn EthereumNode + Send + Sync>>>>;
+    ) -> anyhow::Result<JoinHandle<anyhow::Result<Box<dyn NodeApi + Send + Sync>>>>;
 
     /// Creates a new compiler for the provided platform
     fn new_compiler(
@@ -65,6 +71,16 @@ pub trait Platform {
 
     /// Exports the genesis/chainspec for the node.
     fn export_genesis(&self, context: Context) -> anyhow::Result<serde_json::Value>;
+
+    /// Describes if the platform allows for the gas fees to be cached.
+    fn allow_caching_gas_limit(&self) -> bool {
+        true
+    }
+
+    /// Describes the behavior of how transactions are submitted when benchmarking.
+    fn benchmarking_submissions_behavior(&self) -> BenchmarksSubmissionsBehavior {
+        BenchmarksSubmissionsBehavior::Stream
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Default, Hash)]
@@ -90,7 +106,7 @@ impl Platform for GethEvmSolcPlatform {
     fn new_node(
         &self,
         context: Context,
-    ) -> anyhow::Result<JoinHandle<anyhow::Result<Box<dyn EthereumNode + Send + Sync>>>> {
+    ) -> anyhow::Result<JoinHandle<anyhow::Result<Box<dyn NodeApi + Send + Sync>>>> {
         let genesis_configuration = context.as_genesis_configuration();
         let genesis = genesis_configuration.genesis()?.clone();
         Ok(thread::spawn(move || {
@@ -145,7 +161,7 @@ impl Platform for LighthouseGethEvmSolcPlatform {
     fn new_node(
         &self,
         context: Context,
-    ) -> anyhow::Result<JoinHandle<anyhow::Result<Box<dyn EthereumNode + Send + Sync>>>> {
+    ) -> anyhow::Result<JoinHandle<anyhow::Result<Box<dyn NodeApi + Send + Sync>>>> {
         let genesis_configuration = context.as_genesis_configuration();
         let genesis = genesis_configuration.genesis()?.clone();
         Ok(thread::spawn(move || {
@@ -200,7 +216,7 @@ impl Platform for ReviveDevNodePolkavmResolcPlatform {
     fn new_node(
         &self,
         context: Context,
-    ) -> anyhow::Result<JoinHandle<anyhow::Result<Box<dyn EthereumNode + Send + Sync>>>> {
+    ) -> anyhow::Result<JoinHandle<anyhow::Result<Box<dyn NodeApi + Send + Sync>>>> {
         let genesis_configuration = context.as_genesis_configuration();
         let revive_dev_node_configuration = context.as_revive_dev_node_configuration();
         let eth_rpc_configuration = context.as_eth_rpc_configuration();
@@ -274,7 +290,7 @@ impl Platform for ReviveDevNodeRevmSolcPlatform {
     fn new_node(
         &self,
         context: Context,
-    ) -> anyhow::Result<JoinHandle<anyhow::Result<Box<dyn EthereumNode + Send + Sync>>>> {
+    ) -> anyhow::Result<JoinHandle<anyhow::Result<Box<dyn NodeApi + Send + Sync>>>> {
         let genesis_configuration = context.as_genesis_configuration();
         let revive_dev_node_configuration = context.as_revive_dev_node_configuration();
         let eth_rpc_configuration = context.as_eth_rpc_configuration();
@@ -348,7 +364,7 @@ impl Platform for ZombienetPolkavmResolcPlatform {
     fn new_node(
         &self,
         context: Context,
-    ) -> anyhow::Result<JoinHandle<anyhow::Result<Box<dyn EthereumNode + Send + Sync>>>> {
+    ) -> anyhow::Result<JoinHandle<anyhow::Result<Box<dyn NodeApi + Send + Sync>>>> {
         let genesis_configuration = context.as_genesis_configuration();
         let polkadot_parachain_path = context.as_polkadot_parachain_configuration().path.clone();
         let genesis = genesis_configuration.genesis()?.clone();
@@ -403,7 +419,7 @@ impl Platform for ZombienetRevmSolcPlatform {
     fn new_node(
         &self,
         context: Context,
-    ) -> anyhow::Result<JoinHandle<anyhow::Result<Box<dyn EthereumNode + Send + Sync>>>> {
+    ) -> anyhow::Result<JoinHandle<anyhow::Result<Box<dyn NodeApi + Send + Sync>>>> {
         let genesis_configuration = context.as_genesis_configuration();
         let polkadot_parachain_path = context.as_polkadot_parachain_configuration().path.clone();
         let genesis = genesis_configuration.genesis()?.clone();
@@ -458,7 +474,7 @@ impl Platform for PolkadotOmniNodePolkavmResolcPlatform {
     fn new_node(
         &self,
         context: Context,
-    ) -> anyhow::Result<JoinHandle<anyhow::Result<Box<dyn EthereumNode + Send + Sync>>>> {
+    ) -> anyhow::Result<JoinHandle<anyhow::Result<Box<dyn NodeApi + Send + Sync>>>> {
         let genesis_configuration = context.as_genesis_configuration();
         let genesis = genesis_configuration.genesis()?.clone();
         Ok(thread::spawn(move || {
@@ -518,7 +534,7 @@ impl Platform for PolkadotOmniNodeRevmSolcPlatform {
     fn new_node(
         &self,
         context: Context,
-    ) -> anyhow::Result<JoinHandle<anyhow::Result<Box<dyn EthereumNode + Send + Sync>>>> {
+    ) -> anyhow::Result<JoinHandle<anyhow::Result<Box<dyn NodeApi + Send + Sync>>>> {
         let genesis_configuration = context.as_genesis_configuration();
         let genesis = genesis_configuration.genesis()?.clone();
         Ok(thread::spawn(move || {
@@ -609,10 +625,7 @@ impl From<PlatformIdentifier> for &dyn Platform {
     }
 }
 
-fn spawn_node<T: Node + EthereumNode + Send + Sync>(
-    mut node: T,
-    genesis: Genesis,
-) -> anyhow::Result<T> {
+fn spawn_node<T: Node + NodeApi + Send + Sync>(mut node: T, genesis: Genesis) -> anyhow::Result<T> {
     info!(
         id = node.id(),
         connection_string = node.connection_string(),
@@ -626,4 +639,13 @@ fn spawn_node<T: Node + EthereumNode + Send + Sync>(
         "Spawned node"
     );
     Ok(node)
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum BenchmarksSubmissionsBehavior {
+    /// Submits all of the benchmarks as a stream of transactions, which means that there's no limit
+    /// on how many are submitted.
+    Stream,
+    /// Submits transactions in bursts as controlled by a limiter.
+    Bursts { submissions_per_seconds: u32 },
 }

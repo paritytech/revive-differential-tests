@@ -1,0 +1,2864 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Benchmark Report</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@500;600;700&family=Inter:wght@400;500&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
+  <style>
+    /* ── Reset ── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    /* ── Design Tokens ── */
+    :root {
+      --font-heading: 'Inter Tight', sans-serif;
+      --font-body: 'Inter', sans-serif;
+      --font-mono: 'JetBrains Mono', monospace;
+
+      --color-bg: #f5f5f4;
+      --color-surface: #ffffff;
+      --color-surface-alt: #faf9f8;
+      --color-border: #e3e2df;
+      --color-border-light: #f0efed;
+      --color-border-hover: #b5b3af;
+      --color-text: #1c1917;
+      --color-text-secondary: #78716c;
+      --color-text-muted: #a8a29e;
+      --color-accent: #6366f1;
+      --color-accent-light: #eef2ff;
+
+      --color-error: #dc2626;
+      --color-error-border: #fca5a5;
+      --color-error-bg: #fef2f2;
+      --color-error-code-bg: #fee2e2;
+
+      --color-success: #10b981;
+      --color-success-bg: #ecfdf5;
+
+      --color-step-accent: #0ea5e9;
+
+      --color-json-key: #0369a1;
+      --color-json-string: #15803d;
+      --color-json-number: #b45309;
+      --color-json-bool: #7c3aed;
+      --color-json-null: #9f1239;
+
+      --radius: 8px;
+      --shadow-sm: 0 1px 2px rgba(0,0,0,0.04), 0 1px 6px rgba(0,0,0,0.03);
+      --shadow-md: 0 2px 8px rgba(0,0,0,0.07), 0 6px 20px rgba(0,0,0,0.04);
+    }
+
+    /* ── Utilities ── */
+    .sr-only {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0,0,0,0);
+      white-space: nowrap;
+      border: 0;
+    }
+
+    .hidden { display: none !important; }
+
+    /* ── Body ── */
+    body {
+      font-family: var(--font-body);
+      background: var(--color-bg);
+      color: var(--color-text);
+      line-height: 1.5;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* ── Header ── */
+    .header {
+      background: var(--color-surface);
+      border-bottom: 1px solid var(--color-border);
+      padding: 16px 32px;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      box-shadow: 0 1px 0 var(--color-border), 0 2px 12px rgba(0,0,0,0.04);
+    }
+
+    .header-top {
+      display: flex;
+      align-items: baseline;
+      gap: 12px;
+      margin-bottom: 14px;
+    }
+
+    .header-title {
+      font-family: var(--font-heading);
+      font-size: 19px;
+      font-weight: 800;
+      color: var(--color-text);
+      letter-spacing: -0.02em;
+    }
+
+    .header-subtitle {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--color-text-muted);
+      letter-spacing: 0.02em;
+    }
+
+    /* ── Filters Row ── */
+    .filters {
+      display: flex;
+      align-items: center;
+      gap: 0;
+      flex-wrap: wrap;
+    }
+
+    .filter-group {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding-right: 20px;
+      margin-right: 20px;
+      border-right: 1px solid var(--color-border);
+    }
+
+    .filter-group:last-child {
+      border-right: none;
+      padding-right: 0;
+      margin-right: 0;
+    }
+
+    .filter-label {
+      font-family: var(--font-body);
+      font-size: 11px;
+      font-weight: 500;
+      color: var(--color-text-secondary);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      white-space: nowrap;
+      cursor: pointer;
+    }
+
+    .filter-select {
+      font-family: var(--font-mono);
+      font-size: 12px;
+      padding: 5px 28px 5px 10px;
+      border: 1px solid var(--color-border);
+      border-radius: 5px;
+      background: var(--color-bg);
+      color: var(--color-text);
+      cursor: pointer;
+      appearance: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath d='M3 5l3 3 3-3' stroke='%2378716c' stroke-width='1.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 8px center;
+      min-width: 130px;
+      height: 30px;
+      transition: border-color 0.15s;
+    }
+
+    .filter-select:hover { border-color: var(--color-border-hover); }
+
+    .filter-select:focus {
+      outline: none;
+      border-color: var(--color-accent);
+      box-shadow: 0 0 0 2px rgba(99,102,241,0.15);
+    }
+
+    /* ── Active Selection Strip ── */
+    .active-selection {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      margin-top: 10px;
+      padding: 7px 14px 7px 16px;
+      background: var(--color-accent-light);
+      border: 1px solid rgba(99,102,241,0.18);
+      border-left: 3px solid var(--color-accent);
+      border-radius: var(--radius);
+      font-size: 12px;
+    }
+
+    .active-selection-item {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+
+    .active-selection-key {
+      font-weight: 500;
+      font-size: 11px;
+      color: var(--color-text-secondary);
+    }
+
+    .active-selection-value {
+      font-family: var(--font-mono);
+      font-weight: 500;
+      font-size: 12px;
+      color: var(--color-accent);
+    }
+
+    .active-selection-sep { color: rgba(99,102,241,0.3); }
+
+    .case-comment {
+      margin-top: 6px;
+      padding: 7px 14px 7px 16px;
+      background: var(--color-accent-light);
+      border: 1px solid rgba(99,102,241,0.12);
+      border-left: 3px solid rgba(99,102,241,0.35);
+      border-radius: var(--radius);
+      font-size: 12px;
+      color: var(--color-text-secondary);
+      line-height: 1.55;
+    }
+
+    /* ── Platform Badges ── */
+    .platforms-list {
+      display: flex;
+      gap: 5px;
+      flex-wrap: wrap;
+    }
+
+    .platform-badge {
+      font-family: var(--font-mono);
+      font-size: 10.5px;
+      font-weight: 500;
+      padding: 2px 9px;
+      border: 1.5px solid transparent;
+      border-radius: 4px;
+      cursor: pointer;
+      user-select: none;
+      transition: opacity 0.15s, transform 0.08s;
+      letter-spacing: 0.01em;
+      white-space: nowrap;
+    }
+
+    .platform-badge.active { color: #fff; }
+
+    .platform-badge.inactive {
+      background: transparent !important;
+      color: var(--color-text-secondary);
+      opacity: 0.38;
+    }
+
+    .platform-badge:hover { opacity: 1 !important; }
+    .platform-badge:active { transform: scale(0.92); }
+
+    .platform-badge:focus-visible {
+      outline: 2px solid var(--color-accent);
+      outline-offset: 2px;
+    }
+
+    /* ── Content ── */
+    .content {
+      padding: 32px 40px;
+      max-width: 1560px;
+      margin: 0 auto;
+    }
+
+    /* ── Placeholder ── */
+    .placeholder {
+      padding: 64px 48px;
+      text-align: center;
+      color: var(--color-text-muted);
+      border: 1px dashed var(--color-border);
+      border-radius: var(--radius);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .placeholder-icon {
+      color: var(--color-border);
+      margin-bottom: 4px;
+    }
+
+    .placeholder-title {
+      font-family: var(--font-heading);
+      font-size: 15px;
+      font-weight: 700;
+      color: var(--color-text-secondary);
+    }
+
+    .placeholder-hint {
+      font-size: 13px;
+      color: var(--color-text-muted);
+      max-width: 340px;
+    }
+
+    /* ── Loading / Error ── */
+    .loading {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      padding: 48px;
+      color: var(--color-text-secondary);
+      font-size: 14px;
+    }
+
+    .loading-spinner {
+      width: 18px;
+      height: 18px;
+      border: 2px solid var(--color-border);
+      border-top-color: var(--color-accent);
+      border-radius: 50%;
+      animation: spin 0.6s linear infinite;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .error {
+      padding: 48px;
+      text-align: center;
+      color: var(--color-error);
+      font-size: 14px;
+      border: 1px dashed var(--color-error-border);
+      border-radius: var(--radius);
+      background: var(--color-error-bg);
+    }
+
+    .error code {
+      font-family: var(--font-mono);
+      font-size: 12px;
+      display: inline-block;
+      margin-top: 8px;
+      background: var(--color-error-code-bg);
+      padding: 2px 6px;
+      border-radius: 3px;
+    }
+
+    /* ── Summary Cards ── */
+    .summary-cards {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 16px;
+      margin-bottom: 40px;
+    }
+
+    .summary-card {
+      background: var(--color-surface);
+      border: 1px solid var(--color-border);
+      border-top: 3px solid var(--color-border);
+      border-radius: var(--radius);
+      padding: 18px 20px 16px;
+      box-shadow: var(--shadow-sm);
+      transition: box-shadow 0.2s;
+    }
+
+    .summary-card:hover {
+      box-shadow: var(--shadow-md);
+    }
+
+    .summary-card-label {
+      font-family: var(--font-heading);
+      font-size: 9.5px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      margin-bottom: 14px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .summary-platform-list {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .summary-platform-row {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 5px 8px;
+      border-radius: 5px;
+    }
+
+    .summary-platform-name {
+      font-family: var(--font-mono);
+      font-size: 10.5px;
+      color: var(--color-text-muted);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      min-width: 0;
+      flex: 1;
+    }
+
+    .summary-platform-name-text {
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .summary-platform-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      flex-shrink: 0;
+      align-self: center;
+    }
+
+    .summary-platform-value {
+      font-family: var(--font-mono);
+      font-size: 12px;
+      color: var(--color-text-secondary);
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+
+    .summary-platform-row.is-best {
+      background: var(--color-bg);
+    }
+
+    .summary-platform-row.is-best .summary-platform-name {
+      color: var(--color-text);
+      font-weight: 600;
+    }
+
+    .summary-platform-row.is-best .summary-platform-value {
+      color: var(--color-text);
+      font-weight: 700;
+      font-size: 14px;
+    }
+
+    /* ── Charts Area ── */
+    .charts-area {
+      display: flex;
+      flex-direction: column;
+      gap: 48px;
+    }
+
+    .chart-group {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .chart-group-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .chart-group-header::after {
+      content: '';
+      flex: 1;
+      height: 1px;
+      background: linear-gradient(to right, var(--color-border), transparent);
+    }
+
+    .chart-group-label {
+      font-family: var(--font-heading);
+      font-size: 10px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      color: var(--color-text-secondary);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      white-space: nowrap;
+    }
+
+    .chart-group-label::before {
+      content: '';
+      display: inline-block;
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--color-accent);
+      flex-shrink: 0;
+    }
+
+    /* Distinct dot colors per group */
+    .chart-group:nth-child(1) .chart-group-label::before { background: #6366f1; }
+    .chart-group:nth-child(2) .chart-group-label::before { background: #10b981; }
+    .chart-group:nth-child(3) .chart-group-label::before { background: #ec4899; }
+    .chart-group:nth-child(4) .chart-group-label::before { background: #0ea5e9; }
+    .chart-group:nth-child(5) .chart-group-label::before { background: #8b5cf6; }
+    .chart-group:nth-child(6) .chart-group-label::before { background: #f59e0b; }
+
+    .chart-sync-badge {
+      font-family: var(--font-mono);
+      font-size: 9px;
+      font-weight: 500;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--color-accent);
+      border: 1px solid rgba(99,102,241,0.25);
+      border-radius: 100px;
+      padding: 2px 8px;
+      background: var(--color-accent-light);
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+
+    /* ── Collapsible Sections ── */
+    .collapsible-toggle {
+      background: none;
+      border: none;
+      cursor: pointer;
+      padding: 4px;
+      color: var(--color-text-muted);
+      transition: color 0.15s;
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+    }
+
+    .collapsible-toggle:hover { color: var(--color-text-secondary); }
+
+    .collapsible-toggle:focus-visible {
+      outline: 2px solid var(--color-accent);
+      outline-offset: 2px;
+      border-radius: 3px;
+    }
+
+    .collapsible-chevron {
+      transition: transform 0.2s ease;
+    }
+
+    .collapsible-toggle[aria-expanded="false"] .collapsible-chevron {
+      transform: rotate(-90deg);
+    }
+
+    .collapsible-content.collapsed {
+      display: none;
+    }
+
+    /* ── Chart Cards ── */
+    .chart-card {
+      background: var(--color-surface);
+      border: 1px solid var(--color-border);
+      border-top: 2px solid var(--color-border);
+      border-radius: var(--radius);
+      padding: 20px 24px 16px;
+      box-shadow: var(--shadow-sm);
+      transition: border-top-color 0.2s ease, box-shadow 0.2s ease;
+    }
+
+    .chart-card:hover {
+      border-top-color: var(--color-accent);
+      box-shadow: var(--shadow-md);
+    }
+
+    .chart-card-title {
+      font-family: var(--font-heading);
+      font-size: 10.5px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--color-text-secondary);
+      margin-bottom: 4px;
+    }
+
+    .chart-card-title.no-margin {
+      margin-bottom: 0;
+    }
+
+    /* Chart heights by context */
+    .chart-group > .collapsible-content > .chart-card .chart-echart,
+    .chart-group > .chart-card .chart-echart { height: 360px; }
+    .chart-row .chart-echart { height: 300px; }
+    .chart-row-3 .chart-echart { height: 270px; }
+
+    .chart-echart {
+      width: 100%;
+    }
+
+    /* ── Chart Grid Layouts ── */
+    .chart-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+
+    .chart-row-3 {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 16px;
+    }
+
+    /* ── Step Details ── */
+    .steps-list {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .step-card {
+      border: 1px solid var(--color-border);
+      border-left: 3px solid var(--color-step-accent);
+      border-radius: var(--radius);
+      overflow: hidden;
+      background: var(--color-surface);
+    }
+
+    .step-header {
+      display: flex;
+      align-items: baseline;
+      gap: 12px;
+      padding: 10px 16px;
+      background: color-mix(in srgb, var(--color-step-accent) 6%, var(--color-surface));
+      border-bottom: 1px solid var(--color-border);
+    }
+
+    .step-index {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--color-step-accent);
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+
+    .step-comment {
+      font-size: 12px;
+      color: var(--color-text-secondary);
+      line-height: 1.4;
+    }
+
+    .step-json {
+      margin: 0;
+      padding: 14px 18px;
+      font-family: var(--font-mono);
+      font-size: 11.5px;
+      line-height: 1.7;
+      overflow-x: auto;
+      background: var(--color-surface-alt);
+      color: var(--color-text);
+      white-space: pre;
+    }
+
+    .json-key    { color: var(--color-json-key); font-weight: 500; }
+    .json-string { color: var(--color-json-string); }
+    .json-number { color: var(--color-json-number); }
+    .json-bool   { color: var(--color-json-bool); font-weight: 500; }
+    .json-null   { color: var(--color-json-null); font-weight: 500; }
+
+    /* ── Contracts Section ── */
+    .contracts-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 24px;
+      align-items: start;
+    }
+
+    .contracts-col {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .contract-card {
+      background: var(--color-surface);
+      border: 1px solid var(--color-border);
+      border-left: 3px solid var(--color-border);
+      border-radius: var(--radius);
+      overflow: hidden;
+      box-shadow: var(--shadow-sm);
+      transition: border-left-color 0.2s, box-shadow 0.2s;
+    }
+
+    .contract-card:hover {
+      border-left-color: var(--color-accent);
+      box-shadow: var(--shadow-md);
+    }
+
+    .contract-card-header {
+      display: flex;
+      align-items: baseline;
+      gap: 14px;
+      padding: 11px 18px;
+      border-bottom: 1px solid var(--color-border);
+      background: var(--color-surface-alt);
+    }
+
+    .contract-name {
+      font-family: var(--font-heading);
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--color-text);
+      letter-spacing: -0.01em;
+      white-space: nowrap;
+    }
+
+    .contract-path {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      color: var(--color-text-muted);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      flex: 1;
+      min-width: 0;
+    }
+
+    .contract-table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+
+    .contract-table thead th {
+      font-family: var(--font-heading);
+      font-size: 9px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--color-text-muted);
+      padding: 7px 16px;
+      text-align: left;
+      background: var(--color-bg);
+      border-bottom: 1px solid var(--color-border);
+    }
+
+    .contract-table thead th:last-child { text-align: right; }
+
+    .contract-table tbody tr {
+      border-bottom: 1px solid var(--color-border-light);
+    }
+
+    .contract-table tbody tr:last-child {
+      border-bottom: none;
+    }
+
+    .contract-table tbody tr:hover td {
+      background: var(--color-surface-alt);
+    }
+
+    .contract-table tbody td {
+      padding: 9px 16px;
+      vertical-align: middle;
+    }
+
+    .contract-platform-cell {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--color-text-secondary);
+      white-space: nowrap;
+    }
+
+    .contract-platform-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+
+    .contract-hex-cell {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--color-text-secondary);
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      cursor: pointer;
+      width: fit-content;
+    }
+
+    .contract-hex-cell:hover {
+      color: var(--color-accent);
+    }
+
+    .contract-hex-copy {
+      opacity: 0;
+      color: currentColor;
+      transition: opacity 0.12s;
+      flex-shrink: 0;
+    }
+
+    .contract-hex-cell:hover .contract-hex-copy {
+      opacity: 1;
+    }
+
+    .contract-size-cell {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--color-text-secondary);
+      text-align: right;
+      white-space: nowrap;
+    }
+
+    .contract-none {
+      color: var(--color-text-muted);
+      font-family: var(--font-mono);
+      font-size: 11px;
+    }
+
+    .contract-type-badge {
+      font-family: var(--font-mono);
+      font-size: 9px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      padding: 2px 8px;
+      border-radius: 100px;
+      flex-shrink: 0;
+      align-self: center;
+    }
+
+    .contract-type-instance {
+      background: rgba(139,92,246,0.09);
+      color: #8b5cf6;
+      border: 1px solid rgba(139,92,246,0.2);
+    }
+
+    .contract-type-compiled {
+      background: rgba(99,102,241,0.08);
+      color: #6366f1;
+      border: 1px solid rgba(99,102,241,0.18);
+    }
+
+    .contract-card.contract-instance-card {
+      border-left-color: rgba(139,92,246,0.35);
+    }
+
+    .contract-card.contract-instance-card:hover {
+      border-left-color: #8b5cf6;
+    }
+
+    .contract-subsection-label {
+      font-family: var(--font-heading);
+      font-size: 9px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      color: var(--color-text-muted);
+      padding: 0 2px;
+    }
+
+    .contract-subsection-sep {
+      height: 1px;
+      background: var(--color-border);
+      margin: 8px 0 16px;
+    }
+
+    /* ── Raw Data Table ── */
+    .raw-data-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 14px;
+    }
+
+    .copy-csv-btn {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      font-weight: 500;
+      padding: 5px 12px;
+      border: 1px solid var(--color-border);
+      border-radius: 5px;
+      background: var(--color-surface);
+      color: var(--color-text-secondary);
+      cursor: pointer;
+      transition: border-color 0.15s, color 0.15s, background 0.15s;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .copy-csv-btn:hover {
+      border-color: var(--color-accent);
+      color: var(--color-accent);
+      background: var(--color-accent-light);
+    }
+
+    .copy-csv-btn.copied {
+      border-color: var(--color-success);
+      color: var(--color-success);
+      background: var(--color-success-bg);
+    }
+
+    .raw-data-table-outer {
+      position: relative;
+    }
+
+    .raw-data-table-outer::after {
+      content: '';
+      position: absolute;
+      right: 0;
+      top: 0;
+      bottom: 0;
+      width: 32px;
+      background: linear-gradient(to right, transparent, var(--color-surface));
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 0.2s;
+    }
+
+    .raw-data-table-outer.has-scroll::after {
+      opacity: 1;
+    }
+
+    .raw-data-table-wrap {
+      overflow-x: auto;
+      overflow-y: auto;
+      max-height: 480px;
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius);
+    }
+
+    .raw-data-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-family: var(--font-mono);
+      font-size: 11.5px;
+      white-space: nowrap;
+    }
+
+    .raw-data-table thead {
+      position: sticky;
+      top: 0;
+      z-index: 2;
+    }
+
+    .raw-data-table thead tr:first-child th {
+      background: var(--color-surface);
+      border-bottom: 1px solid var(--color-border);
+      padding: 8px 12px;
+      text-align: center;
+      font-weight: 700;
+      font-size: 10.5px;
+      font-family: var(--font-heading);
+      letter-spacing: 0;
+    }
+
+    .raw-data-table thead tr:last-child th {
+      background: var(--color-bg);
+      border-bottom: 2px solid var(--color-border);
+      padding: 5px 10px;
+      text-align: right;
+      font-weight: 500;
+      color: var(--color-text-secondary);
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    .raw-data-th-block {
+      background: var(--color-surface) !important;
+      text-align: center !important;
+      border-right: 2px solid var(--color-accent) !important;
+      position: sticky;
+      left: 0;
+      z-index: 3;
+    }
+
+    .raw-data-th-platform {
+      border-left: 2px solid var(--color-border);
+      font-size: 10.5px;
+      font-family: var(--font-mono);
+      letter-spacing: 0;
+    }
+
+    .raw-data-th-metric-first { border-left: 2px solid var(--color-border); }
+    .raw-data-th-metric { border-right: 1px solid var(--color-border-light); }
+
+    .raw-data-table tbody tr { border-bottom: 1px solid var(--color-border-light); }
+
+    .raw-data-table tbody tr:hover td:not(.raw-data-td-block) {
+      background: var(--color-accent-light) !important;
+    }
+
+    .raw-data-table tbody tr:hover .raw-data-td-block {
+      color: var(--color-accent);
+    }
+
+    .raw-data-td-block {
+      font-weight: 600;
+      color: var(--color-text);
+      text-align: center;
+      padding: 6px 12px;
+      border-right: 2px solid var(--color-accent);
+      position: sticky;
+      left: 0;
+      box-shadow: 2px 0 6px rgba(0,0,0,0.05);
+      font-variant-numeric: tabular-nums;
+    }
+
+    .raw-data-td {
+      text-align: right;
+      padding: 5px 10px;
+      color: var(--color-text-muted);
+      border-right: 1px solid var(--color-border-light);
+      font-variant-numeric: tabular-nums;
+    }
+
+    .raw-data-td.has-value { color: var(--color-text); }
+    .raw-data-td.platform-first { border-left: 2px solid var(--color-border); }
+
+    .raw-row-even td.raw-data-td-block,
+    .raw-row-even td.raw-data-td { background: var(--color-surface); }
+
+    .raw-row-odd td.raw-data-td-block,
+    .raw-row-odd td.raw-data-td { background: var(--color-surface-alt); }
+
+    /* ── Configuration Section ── */
+    .config-section {
+      margin-top: 48px;
+    }
+
+    .config-variant-tag {
+      display: inline-block;
+      font-family: var(--font-heading);
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      padding: 2px 10px;
+      border-radius: 100px;
+      background: rgba(99,102,241,0.09);
+      color: var(--color-accent);
+      border: 1px solid rgba(99,102,241,0.2);
+      margin-bottom: 16px;
+    }
+
+    .config-groups {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+      gap: 12px;
+    }
+
+    .config-group {
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius);
+      overflow: hidden;
+      background: var(--color-surface);
+    }
+
+    .config-group-header {
+      font-family: var(--font-heading);
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--color-text-secondary);
+      padding: 9px 14px;
+      background: var(--color-bg);
+      border-bottom: 1px solid var(--color-border);
+    }
+
+    .config-group-rows {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .config-row {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 6px 14px;
+      border-bottom: 1px solid var(--color-border-light);
+    }
+
+    .config-row:last-child { border-bottom: none; }
+
+    .config-row-key {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--color-text-muted);
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+
+    .config-row-value {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--color-text);
+      text-align: right;
+      word-break: break-all;
+      min-width: 0;
+    }
+
+    .config-row-value.is-default {
+      color: var(--color-text-muted);
+    }
+
+    .config-value-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px;
+      justify-content: flex-end;
+    }
+
+    .config-value-pill {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      padding: 1px 7px;
+      border-radius: 4px;
+      background: var(--color-bg);
+      border: 1px solid var(--color-border);
+      white-space: nowrap;
+    }
+
+    .config-value-bool {
+      font-weight: 600;
+    }
+
+    .config-value-bool.is-true { color: var(--color-success); }
+    .config-value-bool.is-false { color: var(--color-text-muted); }
+
+    .config-value-null {
+      color: var(--color-text-muted);
+      font-style: italic;
+    }
+
+    .config-value-path {
+      direction: rtl;
+      text-align: right;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      max-width: 220px;
+    }
+
+    /* ── Responsive ── */
+    @media (max-width: 960px) {
+      .chart-row-3 { grid-template-columns: 1fr 1fr; }
+    }
+
+    @media (max-width: 768px) {
+      .summary-cards { grid-template-columns: 1fr; }
+      .contracts-grid { grid-template-columns: 1fr; }
+    }
+
+    @media (max-width: 640px) {
+      .chart-row, .chart-row-3 { grid-template-columns: 1fr; }
+      .content { padding: 16px; }
+      .header { padding: 14px 16px; }
+    }
+  </style>
+</head>
+<body>
+
+<div class="header">
+  <div class="header-top">
+    <h1 class="header-title">Benchmark Report</h1>
+    <span class="header-subtitle" id="reportTimestamp"></span>
+  </div>
+
+  <div class="filters hidden" id="filtersRow">
+    <div class="filter-group">
+      <label class="filter-label" for="filterWorkload">Workload</label>
+      <select class="filter-select" id="filterWorkload"></select>
+    </div>
+    <div class="filter-group">
+      <label class="filter-label" for="filterCase">Case</label>
+      <select class="filter-select" id="filterCase"></select>
+    </div>
+    <div class="filter-group">
+      <label class="filter-label" for="filterMode">Mode</label>
+      <select class="filter-select" id="filterMode"></select>
+    </div>
+  </div>
+
+  <div class="active-selection hidden" id="activeSelection"></div>
+  <div class="case-comment hidden" id="caseComment"></div>
+</div>
+
+<div class="content">
+  <div class="loading" id="loadingIndicator" role="status" aria-live="polite">
+    <div class="loading-spinner" aria-hidden="true"></div>
+    Loading report&hellip;
+  </div>
+  <div class="placeholder hidden" id="contentPlaceholder">
+    <svg class="placeholder-icon" width="48" height="48" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <rect x="4" y="28" width="8" height="16" rx="2" fill="currentColor" opacity="0.15"/>
+      <rect x="16" y="20" width="8" height="24" rx="2" fill="currentColor" opacity="0.2"/>
+      <rect x="28" y="12" width="8" height="32" rx="2" fill="currentColor" opacity="0.25"/>
+      <rect x="40" y="4" width="4" height="40" rx="2" fill="currentColor" opacity="0.3"/>
+    </svg>
+    <div class="placeholder-title" id="placeholderTitle">No Data Selected</div>
+    <div class="placeholder-hint" id="placeholderHint">Select a workload, case, and mode above to view benchmark data.</div>
+  </div>
+  <div class="summary-cards hidden" id="summaryCards">
+    <div class="summary-card" id="summaryTps"></div>
+    <div class="summary-card" id="summaryUtil"></div>
+    <div class="summary-card" id="summaryTime"></div>
+  </div>
+  <div class="charts-area hidden" id="chartsArea">
+    <div class="chart-group">
+      <div class="chart-group-header">
+        <span class="chart-group-label">Throughput</span>
+        <span class="chart-sync-badge">synced axes</span>
+        <button class="collapsible-toggle" aria-expanded="true" aria-controls="throughputContent" aria-label="Toggle Throughput section">
+          <svg class="collapsible-chevron" width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M3 5l3 3 3-3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+      </div>
+      <div class="collapsible-content" id="throughputContent">
+        <div class="chart-card">
+          <div class="chart-card-title" id="tpsChartTitle">Transactions Per Second</div>
+          <div class="chart-echart" id="tpsChart" role="img" aria-labelledby="tpsChartTitle"></div>
+        </div>
+        <div class="chart-card">
+          <div class="chart-card-title" id="gpsChartTitle">Gas Per Second</div>
+          <div class="chart-echart" id="gpsChart" role="img" aria-labelledby="gpsChartTitle"></div>
+        </div>
+        <div class="chart-row">
+          <div class="chart-card">
+            <div class="chart-card-title" id="refTimeChartTitle">Ref Time Per Second</div>
+            <div class="chart-echart" id="refTimeChart" role="img" aria-labelledby="refTimeChartTitle"></div>
+          </div>
+          <div class="chart-card">
+            <div class="chart-card-title" id="proofSizeChartTitle">Proof Size Per Second</div>
+            <div class="chart-echart" id="proofSizeChart" role="img" aria-labelledby="proofSizeChartTitle"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="chart-group">
+      <div class="chart-group-header">
+        <span class="chart-group-label">Utilization</span>
+        <button class="collapsible-toggle" aria-expanded="true" aria-controls="utilizationContent" aria-label="Toggle Utilization section">
+          <svg class="collapsible-chevron" width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M3 5l3 3 3-3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+      </div>
+      <div class="collapsible-content" id="utilizationContent">
+        <div class="chart-row-3">
+          <div class="chart-card">
+            <div class="chart-card-title" id="gasFullnessChartTitle">Gas Fullness</div>
+            <div class="chart-echart" id="gasFullnessChart" role="img" aria-labelledby="gasFullnessChartTitle"></div>
+          </div>
+          <div class="chart-card">
+            <div class="chart-card-title" id="refTimeFullnessChartTitle">Ref Time Fullness</div>
+            <div class="chart-echart" id="refTimeFullnessChart" role="img" aria-labelledby="refTimeFullnessChartTitle"></div>
+          </div>
+          <div class="chart-card">
+            <div class="chart-card-title" id="proofSizeFullnessChartTitle">Proof Size Fullness</div>
+            <div class="chart-echart" id="proofSizeFullnessChart" role="img" aria-labelledby="proofSizeFullnessChartTitle"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="chart-group">
+      <div class="chart-group-header">
+        <span class="chart-group-label">Block Transactions</span>
+        <span class="chart-sync-badge">synced axes</span>
+        <button class="collapsible-toggle" aria-expanded="true" aria-controls="blockTxContent" aria-label="Toggle Block Transactions section">
+          <svg class="collapsible-chevron" width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M3 5l3 3 3-3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+      </div>
+      <div class="collapsible-content" id="blockTxContent">
+        <div class="chart-card">
+          <div class="chart-card-title" id="cumulativeTxChartTitle">Cumulative Transactions</div>
+          <div class="chart-echart" id="cumulativeTxChart" role="img" aria-labelledby="cumulativeTxChartTitle"></div>
+        </div>
+        <div class="chart-card">
+          <div class="chart-card-title" id="blockTxChartTitle">Transactions per Block &mdash; by Platform &amp; Step</div>
+          <div class="chart-echart" id="blockTxChart" role="img" aria-labelledby="blockTxChartTitle"></div>
+        </div>
+      </div>
+    </div>
+    <div class="chart-group" id="stepsGroup">
+      <div class="chart-group-header">
+        <span class="chart-group-label">Step Details</span>
+        <button class="collapsible-toggle" aria-expanded="true" aria-controls="stepsContent" aria-label="Toggle Step Details section">
+          <svg class="collapsible-chevron" width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M3 5l3 3 3-3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+      </div>
+      <div class="collapsible-content" id="stepsContent">
+        <div class="steps-list" id="stepsList"></div>
+      </div>
+    </div>
+    <div class="chart-group" id="contractsGroup">
+      <div class="chart-group-header">
+        <span class="chart-group-label">Contracts</span>
+        <button class="collapsible-toggle" aria-expanded="true" aria-controls="contractsContent" aria-label="Toggle Contracts section">
+          <svg class="collapsible-chevron" width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M3 5l3 3 3-3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+      </div>
+      <div class="collapsible-content" id="contractsContent">
+        <div class="contracts-grid" id="contractsGrid"></div>
+      </div>
+    </div>
+    <div class="chart-group" id="rawDataGroup">
+      <div class="chart-group-header">
+        <span class="chart-group-label">Raw Data</span>
+        <button class="collapsible-toggle" aria-expanded="true" aria-controls="rawDataContent" aria-label="Toggle Raw Data section">
+          <svg class="collapsible-chevron" width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M3 5l3 3 3-3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+      </div>
+      <div class="collapsible-content" id="rawDataContent">
+        <div class="chart-card">
+          <div class="raw-data-header">
+            <span class="chart-card-title no-margin">Block Metrics</span>
+            <button class="copy-csv-btn" id="copyCsvBtn">
+              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <rect x="3.5" y="3.5" width="7" height="7" rx="1" stroke="currentColor" stroke-width="1.2"/>
+                <path d="M1.5 8.5H1a.5.5 0 01-.5-.5V1A.5.5 0 011 .5h7a.5.5 0 01.5.5v.5" stroke="currentColor" stroke-width="1.2"/>
+              </svg>
+              Copy as CSV
+            </button>
+          </div>
+          <div class="raw-data-table-outer">
+            <div class="raw-data-table-wrap" id="rawDataTableWrap"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="config-section hidden" id="configSection">
+    <div class="chart-group">
+      <div class="chart-group-header">
+        <span class="chart-group-label">Framework Configuration</span>
+        <button class="collapsible-toggle" aria-expanded="false" aria-controls="configContent" aria-label="Toggle Configuration section">
+          <svg class="collapsible-chevron" width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M3 5l3 3 3-3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+      </div>
+      <div class="collapsible-content collapsed" id="configContent">
+        <div class="chart-card">
+          <div id="configBody"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="sr-only" id="ariaAnnouncer" role="status" aria-live="polite"></div>
+
+<script>
+// ═══════════════════════════════════════════════════════════════════════════
+// Constants
+// ═══════════════════════════════════════════════════════════════════════════
+
+// EMBEDDED_REPORT and EMBEDDED_METADATA are injected at build time by
+// report-processor generate-benchmarks-html-report. They contain base64-
+// encoded gzip-compressed JSON strings of the benchmark report and test
+// metadata respectively.
+
+const FONT_MONO = "'JetBrains Mono', monospace";
+const FONT_SANS = "'Inter', sans-serif";
+
+const LINE_SMOOTH_TENSION = 0.3;
+const LINE_WIDTH_DEFAULT = 2.5;
+const LINE_WIDTH_EMPHASIS = 3.5;
+const SYMBOL_SIZE_DEFAULT = 5;
+const SYMBOL_SIZE_EMPHASIS = 7;
+const BAR_MAX_WIDTH = 52;
+const CAPACITY_LINE_VALUE = 100;
+
+/** Distinct symbols per platform for color-blind accessibility. */
+const PLATFORM_SYMBOLS = ['circle', 'rect', 'triangle', 'diamond', 'pin', 'arrow', 'roundRect', 'emptyCircle'];
+
+const PLATFORM_COLORS = [
+  '#2563eb', // blue
+  '#dc2626', // red
+  '#16a34a', // green
+  '#d97706', // amber
+  '#7c3aed', // purple
+  '#0891b2', // cyan
+  '#e11d48', // rose
+  '#65a30d', // lime
+];
+
+// ═══════════════════════════════════════════════════════════════════════════
+// State
+// ═══════════════════════════════════════════════════════════════════════════
+
+let reportData = null;
+let reportIndex = null;
+let metadataData = null;
+
+const state = {
+  workload: null,
+  caseIdx: null,
+  mode: null,
+  enabledPlatforms: new Set(),
+};
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Utility Helpers
+// ═══════════════════════════════════════════════════════════════════════════
+
+/** Parse a hex color string (#rrggbb) into [r, g, b] components. */
+function parseHex(hex) {
+  return [
+    parseInt(hex.slice(1, 3), 16),
+    parseInt(hex.slice(3, 5), 16),
+    parseInt(hex.slice(5, 7), 16),
+  ];
+}
+
+/** Convert a hex color to an rgba() string. */
+function hexToRgba(hex, alpha) {
+  const [r, g, b] = parseHex(hex);
+  return `rgba(${r},${g},${b},${alpha})`;
+}
+
+/** Escape HTML special characters to prevent XSS in generated markup. */
+function escapeHtml(str) {
+  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+/**
+ * Create an SI-prefix number formatter from a list of threshold tiers.
+ * Each tier is [threshold, suffix, decimalPrecision].
+ * Falls back to integer formatting for values below all thresholds.
+ */
+function fmtSI(tiers) {
+  return v => {
+    for (const [threshold, suffix, precision] of tiers) {
+      if (v >= threshold) return (v / threshold).toFixed(precision) + suffix;
+    }
+    return v.toFixed(0);
+  };
+}
+
+const fmtGas = fmtSI([[1e9, 'G', 2], [1e6, 'M', 1], [1e3, 'K', 0]]);
+const fmtRefTime = fmtSI([[1e12, 'T', 2], [1e9, 'G', 2], [1e6, 'M', 1], [1e3, 'K', 0]]);
+const fmtProofSize = fmtSI([[1e9, 'G', 2], [1e6, 'M', 1], [1e3, 'K', 0]]);
+const fmtCount = fmtSI([[1e6, 'M', 2], [1e3, 'K', 0]]);
+const fmtTpsAxis = fmtSI([[1e3, 'K', 1]]);
+
+/** Get blocks array for a platform from mode data. */
+function getBlocksForPlatform(modeData, platform) {
+  return (modeData.execReport.metrics_information || {})[platform] || [];
+}
+
+/**
+ * Build a map of relative_block_number → { platform → MetricsInformation }
+ * for all enabled platforms.
+ */
+function buildBlockMap(modeData, enabledPlatforms) {
+  const blockMap = new Map();
+  enabledPlatforms.forEach(platform => {
+    getBlocksForPlatform(modeData, platform).forEach(b => {
+      const key = b.relative_block_number;
+      if (!blockMap.has(key)) blockMap.set(key, {});
+      blockMap.get(key)[platform] = b;
+    });
+  });
+  return blockMap;
+}
+
+/** Create an ECharts 'no data' graphic element. */
+function noDataGraphic(msg = 'No data') {
+  return [{
+    type: 'text',
+    left: 'center',
+    top: 'middle',
+    style: { text: msg, fill: '#c4bfba', fontSize: 13, fontFamily: FONT_SANS },
+  }];
+}
+
+/** Announce a message to screen readers via the live region. */
+function announce(message) {
+  const el = document.getElementById('ariaAnnouncer');
+  if (el) {
+    el.textContent = '';
+    requestAnimationFrame(() => { el.textContent = message; });
+  }
+}
+
+/** Return the platform color for a given index. */
+function getColor(idx) {
+  return PLATFORM_COLORS[idx % PLATFORM_COLORS.length];
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Data Indexing
+// ═══════════════════════════════════════════════════════════════════════════
+
+/** Build a lookup index from the raw report for fast workload/case/mode access. */
+function buildIndex(report) {
+  const index = {};
+  for (const [filePath, fileReport] of Object.entries(report.execution_information)) {
+    const parts = filePath.replace(/\\/g, '/').split('/');
+    const jsonIdx = parts.findIndex(p => p.endsWith('.json'));
+    const name = jsonIdx > 0 ? parts[jsonIdx - 1] : parts[parts.length - 1];
+
+    const cases = {};
+    for (const [caseIdx, caseReport] of Object.entries(fileReport.case_reports)) {
+      const modes = {};
+      for (const [mode, execReport] of Object.entries(caseReport.mode_execution_reports)) {
+        const platforms = Object.keys(execReport.metrics_information || {});
+        modes[mode] = { platforms, execReport };
+      }
+      cases[caseIdx] = modes;
+    }
+    index[name] = { fullPath: filePath, cases };
+  }
+  return index;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// DOM References
+// ═══════════════════════════════════════════════════════════════════════════
+
+const workloadSelect = document.getElementById('filterWorkload');
+const caseSelect = document.getElementById('filterCase');
+const modeSelect = document.getElementById('filterMode');
+const filtersRow = document.getElementById('filtersRow');
+const loadingIndicator = document.getElementById('loadingIndicator');
+const contentPlaceholder = document.getElementById('contentPlaceholder');
+const placeholderTitle = document.getElementById('placeholderTitle');
+const placeholderHint = document.getElementById('placeholderHint');
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Filter Population
+// ═══════════════════════════════════════════════════════════════════════════
+
+function populateWorkloads() {
+  const names = Object.keys(reportIndex);
+  if (names.length === 0) { workloadSelect.innerHTML = ''; return; }
+
+  workloadSelect.innerHTML = names.map(n =>
+    `<option value="${escapeHtml(n)}">${escapeHtml(n)}</option>`
+  ).join('');
+  state.workload = names[0];
+  populateCases();
+}
+
+function populateCases() {
+  const workload = reportIndex[state.workload];
+  if (!workload) { caseSelect.innerHTML = ''; return; }
+
+  const caseIdxs = Object.keys(workload.cases).sort((a, b) => Number(a) - Number(b));
+  caseSelect.innerHTML = caseIdxs.map(idx =>
+    `<option value="${idx}">Case ${idx}</option>`
+  ).join('');
+  state.caseIdx = caseIdxs[0] ?? null;
+  populateModes();
+}
+
+function populateModes() {
+  const workload = reportIndex[state.workload];
+  if (!workload || state.caseIdx == null) { modeSelect.innerHTML = ''; return; }
+
+  const modes = Object.keys(workload.cases[state.caseIdx] || {});
+  modeSelect.innerHTML = modes.map(m =>
+    `<option value="${escapeHtml(m)}">${escapeHtml(m)}</option>`
+  ).join('');
+  state.mode = modes[0] ?? null;
+  onSelectionChanged();
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Event Handlers
+// ═══════════════════════════════════════════════════════════════════════════
+
+workloadSelect.addEventListener('change', (e) => {
+  state.workload = e.target.value;
+  populateCases();
+});
+
+caseSelect.addEventListener('change', (e) => {
+  state.caseIdx = e.target.value;
+  populateModes();
+});
+
+modeSelect.addEventListener('change', (e) => {
+  state.mode = e.target.value;
+  onSelectionChanged();
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Selection Changed
+// ═══════════════════════════════════════════════════════════════════════════
+
+function onSelectionChanged() {
+  const selEl = document.getElementById('activeSelection');
+
+  if (!state.workload || state.caseIdx == null || !state.mode) {
+    selEl.classList.add('hidden');
+    contentPlaceholder.classList.remove('hidden');
+    document.getElementById('chartsArea').classList.add('hidden');
+    document.getElementById('summaryCards').classList.add('hidden');
+    placeholderTitle.textContent = 'No Data Selected';
+    placeholderHint.textContent = 'Select a workload, case, and mode above to view benchmark data.';
+    return;
+  }
+
+  const workload = reportIndex[state.workload];
+  const modeData = workload?.cases[state.caseIdx]?.[state.mode];
+
+  if (!modeData) {
+    selEl.classList.add('hidden');
+    contentPlaceholder.classList.remove('hidden');
+    document.getElementById('chartsArea').classList.add('hidden');
+    document.getElementById('summaryCards').classList.add('hidden');
+    placeholderTitle.textContent = 'No Data Available';
+    placeholderHint.textContent = 'There is no benchmark data for this workload, case, and mode combination.';
+    return;
+  }
+
+  const platforms = modeData.platforms;
+  state.enabledPlatforms = new Set(platforms);
+
+  selEl.classList.remove('hidden');
+  renderSelectionBar(selEl, platforms);
+
+  contentPlaceholder.classList.add('hidden');
+  renderCharts();
+
+  announce(`Showing benchmark data for ${state.workload}, case ${state.caseIdx}, mode ${state.mode} with ${platforms.length} platform${platforms.length !== 1 ? 's' : ''}.`);
+}
+
+function renderSelectionBar(selEl, platforms) {
+  selEl.innerHTML = `
+    <span class="active-selection-item">
+      <span class="active-selection-key">Workload</span>
+      <span class="active-selection-value">${escapeHtml(state.workload)}</span>
+    </span>
+    <span class="active-selection-sep">/</span>
+    <span class="active-selection-item">
+      <span class="active-selection-key">Case</span>
+      <span class="active-selection-value">${state.caseIdx}</span>
+    </span>
+    <span class="active-selection-sep">/</span>
+    <span class="active-selection-item">
+      <span class="active-selection-key">Mode</span>
+      <span class="active-selection-value">${escapeHtml(state.mode)}</span>
+    </span>
+    <span class="active-selection-sep">|</span>
+    <span class="active-selection-item">
+      <span class="active-selection-key">Platforms</span>
+      <span class="platforms-list" id="platformsList"></span>
+    </span>
+  `;
+
+  const listEl = document.getElementById('platformsList');
+  platforms.forEach((p, i) => {
+    const badge = document.createElement('span');
+    const color = getColor(i);
+    const active = state.enabledPlatforms.has(p);
+
+    badge.className = `platform-badge ${active ? 'active' : 'inactive'}`;
+    badge.textContent = p;
+    badge.setAttribute('tabindex', '0');
+    badge.setAttribute('role', 'switch');
+    badge.setAttribute('aria-checked', active ? 'true' : 'false');
+    badge.setAttribute('aria-label', `Toggle ${p} platform`);
+
+    if (active) {
+      badge.style.background = color;
+      badge.style.borderColor = color;
+    } else {
+      badge.style.borderColor = color;
+    }
+
+    const togglePlatform = () => {
+      if (state.enabledPlatforms.has(p)) {
+        if (state.enabledPlatforms.size <= 1) return;
+        state.enabledPlatforms.delete(p);
+      } else {
+        state.enabledPlatforms.add(p);
+      }
+      renderSelectionBar(selEl, platforms);
+      renderCharts();
+    };
+
+    badge.addEventListener('click', togglePlatform);
+    badge.addEventListener('keydown', e => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        togglePlatform();
+      }
+    });
+
+    listEl.appendChild(badge);
+  });
+
+  const commentEl = document.getElementById('caseComment');
+  const workload = reportIndex[state.workload];
+  const comment = metadataData?.[workload?.fullPath]?.cases?.[parseInt(state.caseIdx)]?.comment;
+  if (comment) {
+    commentEl.textContent = comment;
+    commentEl.classList.remove('hidden');
+  } else {
+    commentEl.classList.add('hidden');
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ECharts Infrastructure
+// ═══════════════════════════════════════════════════════════════════════════
+
+const echartsInstances = {};
+const SYNC_GROUP = 'benchmark';
+
+/** Get or initialize an ECharts instance by DOM element ID. */
+function getOrInitChart(id, joinSync = true) {
+  const el = document.getElementById(id);
+  if (!echartsInstances[id]) {
+    const instance = echarts.init(el, null, { renderer: 'canvas' });
+    if (joinSync) instance.group = SYNC_GROUP;
+    echartsInstances[id] = instance;
+    new ResizeObserver(() => instance.resize()).observe(el);
+  }
+  return echartsInstances[id];
+}
+
+/** Shared tooltip configuration. */
+function baseTooltip() {
+  return {
+    trigger: 'axis',
+    axisPointer: {
+      type: 'cross',
+      crossStyle: { color: 'rgba(100,100,100,0.18)', width: 1, type: 'dashed' },
+      lineStyle: { color: 'rgba(100,100,100,0.18)', width: 1, type: 'dashed' },
+    },
+    backgroundColor: 'rgba(255,255,255,0.98)',
+    borderColor: '#e3e2df',
+    borderWidth: 1,
+    textStyle: { fontFamily: FONT_MONO, fontSize: 12, color: '#1c1917' },
+    extraCssText: 'box-shadow: 0 4px 20px rgba(0,0,0,0.1); border-radius: 8px; padding: 10px 14px;',
+  };
+}
+
+/** Base ECharts option for time-series charts with a value x-axis. */
+function baseChartOption({ yFormatter, legendData }) {
+  return {
+    animation: false,
+    tooltip: baseTooltip(),
+    legend: {
+      type: 'scroll',
+      data: legendData,
+      top: 4,
+      textStyle: { fontFamily: FONT_MONO, fontSize: 11, color: '#78716c' },
+      icon: 'circle',
+      itemWidth: 8,
+      itemHeight: 8,
+      pageIconSize: 10,
+      pageTextStyle: { fontFamily: FONT_MONO, fontSize: 10, color: '#78716c' },
+    },
+    dataZoom: [
+      {
+        type: 'inside',
+        xAxisIndex: 0,
+        filterMode: 'filter',
+        zoomOnMouseWheel: true,
+        moveOnMouseMove: true,
+        moveOnMouseWheel: false,
+      },
+      {
+        type: 'slider',
+        xAxisIndex: 0,
+        height: 20,
+        bottom: 8,
+        borderColor: 'transparent',
+        backgroundColor: '#f5f5f4',
+        fillerColor: 'rgba(99,102,241,0.1)',
+        handleStyle: { color: '#6366f1', borderColor: '#6366f1' },
+        moveHandleStyle: { color: '#6366f1' },
+        selectedDataBackground: {
+          lineStyle: { color: '#6366f1', width: 1 },
+          areaStyle: { color: 'rgba(99,102,241,0.06)' },
+        },
+        dataBackground: {
+          lineStyle: { color: '#e3e2df', width: 1 },
+          areaStyle: { color: '#f5f5f4' },
+        },
+        textStyle: { fontFamily: FONT_MONO, fontSize: 10, color: '#78716c' },
+        showDetail: true,
+        labelFormatter: v => `${Number(v).toFixed(1)}s`,
+      },
+    ],
+    grid: { left: 16, right: 16, top: 30, bottom: 62, containLabel: true },
+    xAxis: {
+      type: 'value',
+      name: 'Relative Time (s)',
+      nameLocation: 'middle',
+      nameGap: 28,
+      nameTextStyle: { fontFamily: FONT_SANS, fontSize: 11, color: '#a8a29e' },
+      axisLabel: { fontFamily: FONT_MONO, fontSize: 11, color: '#78716c' },
+      splitLine: { lineStyle: { color: '#f0efed', width: 1 } },
+      axisLine: { lineStyle: { color: '#e3e2df' } },
+      axisTick: { lineStyle: { color: '#e3e2df' } },
+    },
+    yAxis: {
+      type: 'value',
+      axisLabel: { fontFamily: FONT_MONO, fontSize: 11, color: '#78716c', formatter: yFormatter },
+      splitLine: { lineStyle: { color: '#f0efed', width: 1 } },
+      axisLine: { show: false },
+      axisTick: { show: false },
+      min: 0,
+    },
+  };
+}
+
+/** Create a line series for a platform with distinct symbol and dash pattern. */
+function makeLineSeries(platform, data, colorIdx) {
+  const color = getColor(colorIdx);
+  const symbol = PLATFORM_SYMBOLS[colorIdx % PLATFORM_SYMBOLS.length];
+  return {
+    type: 'line',
+    name: platform,
+    data,
+    smooth: LINE_SMOOTH_TENSION,
+    symbol,
+    symbolSize: SYMBOL_SIZE_DEFAULT,
+    showSymbol: false,
+    emphasis: { scale: true, focus: 'series', symbolSize: SYMBOL_SIZE_EMPHASIS, lineStyle: { width: LINE_WIDTH_EMPHASIS } },
+    lineStyle: { color, width: LINE_WIDTH_DEFAULT },
+    itemStyle: { color, borderWidth: 2, borderColor: '#fff' },
+  };
+}
+
+/**
+ * Create a shared tooltip formatter for time-series charts.
+ * @param {string} unitSuffix - Unit label appended after the value (e.g. 'tx/s').
+ * @param {function} valueFmt - Formats the numeric value for display.
+ */
+function makeTooltipFormatter(unitSuffix, valueFmt) {
+  return params => {
+    if (!params.length) return '';
+    const t = params[0].axisValue;
+    const rows = params.map(p =>
+      `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${p.color};margin-right:5px"></span>`
+      + `<span style="color:#78716c">${escapeHtml(p.seriesName)}:</span> `
+      + `<strong>${valueFmt(Number(p.value[1]))} ${unitSuffix}</strong>`
+    ).join('<br>');
+    return `<div style="font-family:${FONT_SANS};font-size:11px;margin-bottom:4px;color:#a8a29e">t = ${Number(t).toFixed(1)}s</div>${rows}`;
+  };
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Chart Renderers
+// ═══════════════════════════════════════════════════════════════════════════
+
+/** Orchestrate rendering of all charts and sections. */
+function renderCharts() {
+  const chartsArea = document.getElementById('chartsArea');
+  const workload = reportIndex[state.workload];
+  const modeData = workload?.cases[state.caseIdx]?.[state.mode];
+
+  if (!modeData || modeData.platforms.length === 0) {
+    chartsArea.classList.add('hidden');
+    document.getElementById('summaryCards').classList.add('hidden');
+    return;
+  }
+
+  chartsArea.classList.remove('hidden');
+  const enabledPlatforms = modeData.platforms.filter(p => state.enabledPlatforms.has(p));
+
+  // Summary & metadata sections
+  renderSummaryCards(modeData, enabledPlatforms);
+  renderContractsSection(modeData, enabledPlatforms);
+  renderStepsDetails();
+
+  // Throughput charts
+  renderTpsChart(modeData, enabledPlatforms);
+  renderGpsChart(modeData, enabledPlatforms);
+  renderRefTimeChart(modeData, enabledPlatforms);
+  renderProofSizeChart(modeData, enabledPlatforms);
+
+  // Utilization charts
+  renderGasFullnessChart(modeData, enabledPlatforms);
+  renderRefTimeFullnessChart(modeData, enabledPlatforms);
+  renderProofSizeFullnessChart(modeData, enabledPlatforms);
+
+  // Block transaction charts
+  renderCumulativeTxChart(modeData, enabledPlatforms);
+  renderBlockTransactionsChart(modeData, enabledPlatforms);
+
+  // Raw data
+  renderRawDataTable(modeData, enabledPlatforms);
+
+  echarts.connect(SYNC_GROUP);
+}
+
+function renderTpsChart(modeData, enabledPlatforms) {
+  const chart = getOrInitChart('tpsChart');
+  const series = [];
+  const legendData = [];
+
+  modeData.platforms.forEach((platform, i) => {
+    if (!enabledPlatforms.includes(platform)) return;
+
+    const blocks = getBlocksForPlatform(modeData, platform);
+    const tpsBlocks = blocks.filter(b => b.transactions_per_second != null);
+    const minT = tpsBlocks.length > 0 ? tpsBlocks[0].relative_observation_time_seconds : 0;
+    const data = tpsBlocks.map(b => [
+      b.relative_observation_time_seconds - minT,
+      b.transactions_per_second,
+    ]);
+
+    series.push(makeLineSeries(platform, data, i));
+    legendData.push({ name: platform, itemStyle: { color: getColor(i) } });
+  });
+
+  chart.setOption({
+    ...baseChartOption({ yFormatter: fmtTpsAxis, legendData }),
+    tooltip: {
+      ...baseTooltip(),
+      formatter: makeTooltipFormatter('tx/s', v => v.toFixed(1)),
+    },
+    series,
+  }, true);
+}
+
+function renderGpsChart(modeData, enabledPlatforms) {
+  const chart = getOrInitChart('gpsChart');
+  const series = [];
+  const legendData = [];
+
+  modeData.platforms.forEach((platform, i) => {
+    if (!enabledPlatforms.includes(platform)) return;
+
+    const blocks = getBlocksForPlatform(modeData, platform);
+    const gpsBlocks = blocks.filter(b => b.gas_per_second != null);
+    const minT = gpsBlocks.length > 0 ? gpsBlocks[0].relative_observation_time_seconds : 0;
+    const data = gpsBlocks.map(b => [
+      b.relative_observation_time_seconds - minT,
+      b.gas_per_second,
+    ]);
+
+    series.push(makeLineSeries(platform, data, i));
+    legendData.push({ name: platform, itemStyle: { color: getColor(i) } });
+  });
+
+  chart.setOption({
+    ...baseChartOption({ yFormatter: fmtGas, legendData }),
+    tooltip: {
+      ...baseTooltip(),
+      formatter: makeTooltipFormatter('gas/s', fmtGas),
+    },
+    series,
+  }, true);
+}
+
+function renderSubstrateChart(modeData, enabledPlatforms, chartId, field, unitSuffix, fmtFn) {
+  const chart = getOrInitChart(chartId);
+  const series = [];
+  const legendData = [];
+
+  modeData.platforms.forEach((platform, i) => {
+    if (!enabledPlatforms.includes(platform)) return;
+
+    const blocks = getBlocksForPlatform(modeData, platform);
+    const filtered = blocks.filter(b => b[field] != null);
+    if (filtered.length === 0) return;
+    const minT = filtered[0].relative_observation_time_seconds;
+    const data = filtered.map(b => [
+      b.relative_observation_time_seconds - minT,
+      b[field],
+    ]);
+
+    series.push(makeLineSeries(platform, data, i));
+    legendData.push({ name: platform, itemStyle: { color: getColor(i) } });
+  });
+
+  chart.setOption({
+    ...baseChartOption({ yFormatter: fmtFn, legendData }),
+    tooltip: {
+      ...baseTooltip(),
+      formatter: makeTooltipFormatter(unitSuffix, fmtFn),
+    },
+    graphic: series.length === 0 ? noDataGraphic('No substrate data for this selection') : [],
+    series,
+  }, true);
+}
+
+function renderRefTimeChart(modeData, enabledPlatforms) {
+  renderSubstrateChart(modeData, enabledPlatforms, 'refTimeChart', 'ref_time_per_second', 'ref/s', fmtRefTime);
+}
+
+function renderProofSizeChart(modeData, enabledPlatforms) {
+  renderSubstrateChart(modeData, enabledPlatforms, 'proofSizeChart', 'proof_size_per_second', 'bytes/s', fmtProofSize);
+}
+
+function renderFullnessChart(modeData, enabledPlatforms, chartId, field, noDataMsg) {
+  const chart = getOrInitChart(chartId);
+  const series = [];
+  const legendData = [];
+
+  modeData.platforms.forEach((platform, i) => {
+    if (!enabledPlatforms.includes(platform)) return;
+
+    const blocks = getBlocksForPlatform(modeData, platform);
+    const filtered = blocks.filter(b => b[field] != null);
+    if (filtered.length === 0) return;
+    const minT = filtered[0].relative_observation_time_seconds;
+    const data = filtered.map(b => [
+      b.relative_observation_time_seconds - minT,
+      b[field],
+    ]);
+
+    const color = getColor(i);
+    series.push({
+      ...makeLineSeries(platform, data, i),
+      areaStyle: {
+        color: {
+          type: 'linear', x: 0, y: 0, x2: 0, y2: 1,
+          colorStops: [
+            { offset: 0, color: hexToRgba(color, 0.3) },
+            { offset: 1, color: hexToRgba(color, 0.02) },
+          ],
+        },
+      },
+      markLine: {
+        silent: true,
+        symbol: 'none',
+        lineStyle: { color: '#dc2626', width: 1, type: 'dashed', opacity: 0.35 },
+        data: [{ yAxis: CAPACITY_LINE_VALUE, name: '100%' }],
+        label: {
+          fontFamily: FONT_MONO,
+          fontSize: 10,
+          color: '#dc2626',
+          formatter: 'capacity',
+          position: 'end',
+        },
+      },
+    });
+    legendData.push({ name: platform, itemStyle: { color } });
+  });
+
+  const base = baseChartOption({ yFormatter: v => v + '%', legendData });
+
+  chart.setOption({
+    ...base,
+    yAxis: { ...base.yAxis, min: 0, max: CAPACITY_LINE_VALUE },
+    tooltip: {
+      ...baseTooltip(),
+      formatter: makeTooltipFormatter('%', v => v.toFixed(1)),
+    },
+    graphic: series.length === 0 ? noDataGraphic(noDataMsg) : [],
+    series,
+  }, true);
+}
+
+function renderGasFullnessChart(modeData, enabledPlatforms) {
+  renderFullnessChart(modeData, enabledPlatforms, 'gasFullnessChart', 'block_gas_fullness', 'No gas data');
+}
+
+function renderRefTimeFullnessChart(modeData, enabledPlatforms) {
+  renderFullnessChart(modeData, enabledPlatforms, 'refTimeFullnessChart', 'block_ref_time_fullness', 'No substrate data');
+}
+
+function renderProofSizeFullnessChart(modeData, enabledPlatforms) {
+  renderFullnessChart(modeData, enabledPlatforms, 'proofSizeFullnessChart', 'block_proof_size_fullness', 'No substrate data');
+}
+
+function renderCumulativeTxChart(modeData, enabledPlatforms) {
+  const chart = getOrInitChart('cumulativeTxChart');
+  const series = [];
+  const legendData = [];
+
+  modeData.platforms.forEach((platform, i) => {
+    if (!enabledPlatforms.includes(platform)) return;
+
+    const blocks = getBlocksForPlatform(modeData, platform);
+    const sorted = [...blocks].sort((a, b) =>
+      a.relative_observation_time_seconds - b.relative_observation_time_seconds
+    );
+    if (sorted.length === 0) return;
+
+    const minT = sorted[0].relative_observation_time_seconds;
+    let cumulative = 0;
+    const data = sorted.map(b => {
+      cumulative += b.transaction_count || 0;
+      return [b.relative_observation_time_seconds - minT, cumulative];
+    });
+
+    const color = getColor(i);
+    series.push({
+      ...makeLineSeries(platform, data, i),
+      areaStyle: {
+        color: {
+          type: 'linear', x: 0, y: 0, x2: 0, y2: 1,
+          colorStops: [
+            { offset: 0, color: hexToRgba(color, 0.28) },
+            { offset: 1, color: hexToRgba(color, 0.02) },
+          ],
+        },
+      },
+    });
+    legendData.push({ name: platform, itemStyle: { color } });
+  });
+
+  chart.setOption({
+    ...baseChartOption({ yFormatter: fmtCount, legendData }),
+    tooltip: {
+      ...baseTooltip(),
+      formatter: makeTooltipFormatter('txs', v => fmtCount(v)),
+    },
+    graphic: series.length === 0 ? noDataGraphic() : [],
+    series,
+  }, true);
+}
+
+function renderBlockTransactionsChart(modeData, enabledPlatforms) {
+  const chart = getOrInitChart('blockTxChart', false);
+
+  if (enabledPlatforms.length === 0) {
+    chart.setOption({ series: [], graphic: noDataGraphic() }, true);
+    return;
+  }
+
+  const blockMap = buildBlockMap(modeData, enabledPlatforms);
+  const sortedBlockNums = [...blockMap.keys()].sort((a, b) => a - b);
+
+  // Collect all unique step paths across all platforms and blocks
+  const allSteps = new Set();
+  enabledPlatforms.forEach(platform => {
+    getBlocksForPlatform(modeData, platform).forEach(b => {
+      if (b.step_count) Object.keys(b.step_count).forEach(s => allSteps.add(s));
+    });
+  });
+  const sortedSteps = [...allSteps].sort();
+
+  // Returns a tinted shade of the platform color for each step level
+  function stepTint(platformIdx, stepIdx, totalSteps) {
+    const [r, g, b] = parseHex(getColor(platformIdx));
+    const segments = totalSteps + 1;
+    const mix = segments <= 1 ? 0 : (stepIdx / segments) * 0.65;
+    return `rgb(${Math.round(r + (255 - r) * mix)},${Math.round(g + (255 - g) * mix)},${Math.round(b + (255 - b) * mix)})`;
+  }
+
+  const series = [];
+  const seriesMeta = [];
+
+  if (sortedSteps.length > 0) {
+    sortedSteps.forEach((step, si) => {
+      enabledPlatforms.forEach((platform, pi) => {
+        series.push({
+          type: 'bar',
+          name: `step ${step}`,
+          stack: platform,
+          data: sortedBlockNums.map(blockNum => {
+            const b = (blockMap.get(blockNum) || {})[platform];
+            return b?.step_count?.[step] || 0;
+          }),
+          itemStyle: { color: stepTint(pi, si, sortedSteps.length) },
+          emphasis: { focus: 'series', itemStyle: { opacity: 0.8 } },
+          barMaxWidth: BAR_MAX_WIDTH,
+        });
+        seriesMeta.push({ platform, step: `step ${step}`, platformIdx: pi });
+      });
+    });
+
+    // Uncategorized: transaction_count minus sum of all step_counts
+    enabledPlatforms.forEach((platform, pi) => {
+      series.push({
+        type: 'bar',
+        name: 'uncategorized',
+        stack: platform,
+        data: sortedBlockNums.map(blockNum => {
+          const b = (blockMap.get(blockNum) || {})[platform];
+          if (!b) return 0;
+          const stepTotal = Object.values(b.step_count || {}).reduce((s, v) => s + v, 0);
+          return Math.max(0, (b.transaction_count || 0) - stepTotal);
+        }),
+        itemStyle: { color: stepTint(pi, sortedSteps.length, sortedSteps.length) },
+        emphasis: { focus: 'series', itemStyle: { opacity: 0.8 } },
+        barMaxWidth: BAR_MAX_WIDTH,
+      });
+      seriesMeta.push({ platform, step: 'uncategorized', platformIdx: pi });
+    });
+  } else {
+    enabledPlatforms.forEach((platform, pi) => {
+      series.push({
+        type: 'bar',
+        name: platform,
+        data: sortedBlockNums.map(blockNum => {
+          const b = (blockMap.get(blockNum) || {})[platform];
+          return b?.transaction_count || 0;
+        }),
+        itemStyle: { color: getColor(pi) },
+        emphasis: { focus: 'series' },
+        barMaxWidth: BAR_MAX_WIDTH,
+      });
+      seriesMeta.push({ platform, step: 'total', platformIdx: pi });
+    });
+  }
+
+  const legendNames = sortedSteps.length > 0
+    ? [...sortedSteps.map(s => `step ${s}`), 'uncategorized']
+    : enabledPlatforms;
+  const legendData = legendNames.map(name => ({
+    name,
+    itemStyle: { color: name === 'uncategorized' ? '#d4d0cb' : '#94a3b8' },
+  }));
+
+  chart.setOption({
+    animation: false,
+    backgroundColor: 'transparent',
+    legend: {
+      type: 'scroll',
+      data: legendData,
+      top: 4,
+      textStyle: { fontFamily: FONT_MONO, fontSize: 11, color: '#78716c' },
+      icon: 'circle',
+      itemWidth: 8,
+      itemHeight: 8,
+      pageIconSize: 10,
+      pageTextStyle: { fontFamily: FONT_MONO, fontSize: 10, color: '#78716c' },
+    },
+    tooltip: {
+      trigger: 'axis',
+      axisPointer: { type: 'shadow', shadowStyle: { color: 'rgba(0,0,0,0.03)' } },
+      backgroundColor: 'rgba(255,255,255,0.98)',
+      borderColor: '#e3e2df',
+      borderWidth: 1,
+      textStyle: { fontFamily: FONT_MONO, fontSize: 12, color: '#1c1917' },
+      extraCssText: 'box-shadow: 0 4px 20px rgba(0,0,0,0.1); border-radius: 8px; padding: 10px 14px; max-width: 340px;',
+      formatter: params => {
+        if (!params.length) return '';
+        const blockNum = params[0].axisValue;
+
+        const byPlatform = {};
+        params.forEach(p => {
+          const meta = seriesMeta[p.seriesIndex];
+          if (!meta) return;
+          const { platform, step, platformIdx } = meta;
+          if (!byPlatform[platform]) byPlatform[platform] = { platformIdx, segments: [] };
+          byPlatform[platform].segments.push({ step, value: p.value || 0 });
+        });
+
+        let html = `<div style="font-family:${FONT_SANS};font-size:11px;margin-bottom:8px;color:#a8a29e;letter-spacing:0.03em">Block #${blockNum}</div>`;
+
+        enabledPlatforms.forEach(platform => {
+          const info = byPlatform[platform];
+          if (!info) return;
+          const color = getColor(info.platformIdx);
+          const total = info.segments.reduce((s, x) => s + x.value, 0);
+          if (total === 0) return;
+
+          html += `<div style="margin-bottom:6px;padding-left:8px;border-left:2px solid ${color}">`;
+          html += `<div style="font-weight:600;color:${color};font-size:11px;margin-bottom:3px;font-family:${FONT_SANS}">${escapeHtml(platform)}</div>`;
+          info.segments.filter(s => s.value > 0).forEach(seg => {
+            html += `<div style="display:flex;justify-content:space-between;gap:20px;color:#78716c">`;
+            html += `<span>${escapeHtml(seg.step)}</span><strong style="color:#1c1917">${seg.value.toLocaleString()}</strong>`;
+            html += `</div>`;
+          });
+          html += `<div style="margin-top:3px;padding-top:3px;border-top:1px solid #f0efed;display:flex;justify-content:space-between;gap:20px;color:#a8a29e;font-size:10px">`;
+          html += `<span>total</span><span style="font-weight:600;color:#78716c">${total.toLocaleString()}</span>`;
+          html += `</div></div>`;
+        });
+
+        return html;
+      },
+    },
+    dataZoom: [
+      {
+        type: 'inside',
+        xAxisIndex: 0,
+        filterMode: 'filter',
+        zoomOnMouseWheel: true,
+        moveOnMouseMove: true,
+        moveOnMouseWheel: false,
+      },
+      {
+        type: 'slider',
+        xAxisIndex: 0,
+        height: 20,
+        bottom: 8,
+        borderColor: 'transparent',
+        backgroundColor: '#f5f5f4',
+        fillerColor: 'rgba(99,102,241,0.1)',
+        handleStyle: { color: '#6366f1', borderColor: '#6366f1' },
+        moveHandleStyle: { color: '#6366f1' },
+        selectedDataBackground: {
+          lineStyle: { color: '#6366f1', width: 1 },
+          areaStyle: { color: 'rgba(99,102,241,0.06)' },
+        },
+        dataBackground: {
+          lineStyle: { color: '#e3e2df', width: 1 },
+          areaStyle: { color: '#f5f5f4' },
+        },
+        textStyle: { fontFamily: FONT_MONO, fontSize: 10, color: '#78716c' },
+        showDetail: true,
+        labelFormatter: v => `#${v}`,
+      },
+    ],
+    grid: { left: 16, right: 16, top: 30, bottom: 62, containLabel: true },
+    xAxis: {
+      type: 'category',
+      data: sortedBlockNums.map(String),
+      name: 'Relative Block',
+      nameLocation: 'middle',
+      nameGap: 32,
+      nameTextStyle: { fontFamily: FONT_SANS, fontSize: 11, color: '#a8a29e' },
+      axisLabel: { fontFamily: FONT_MONO, fontSize: 11, color: '#78716c' },
+      axisLine: { lineStyle: { color: '#e3e2df' } },
+      axisTick: { lineStyle: { color: '#e3e2df' } },
+      splitLine: { show: false },
+    },
+    yAxis: {
+      type: 'value',
+      axisLabel: { fontFamily: FONT_MONO, fontSize: 11, color: '#78716c' },
+      splitLine: { lineStyle: { color: '#f0efed' } },
+      axisLine: { show: false },
+      axisTick: { show: false },
+      min: 0,
+    },
+    series,
+  }, true);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Contracts Section
+// ═══════════════════════════════════════════════════════════════════════════
+
+function renderContractsSection(modeData, enabledPlatforms) {
+  const grid = document.getElementById('contractsGrid');
+  const group = document.getElementById('contractsGroup');
+
+  const contractAddresses = modeData.execReport.contract_addresses || {};
+  const compiledContracts = modeData.execReport.compiled_contracts || {};
+  const platformExecution = modeData.execReport.platform_execution || {};
+
+  const instanceNames = Object.keys(contractAddresses).sort();
+
+  const compiledMap = {};
+  for (const [filePath, byName] of Object.entries(compiledContracts)) {
+    for (const [contractName, info] of Object.entries(byName)) {
+      const key = `${filePath}::${contractName}`;
+      if (!compiledMap[key]) compiledMap[key] = { filePath, contractName, sizeByPlatform: {}, hashByPlatform: {} };
+      for (const [platform, size] of Object.entries(info.contract_size || {})) {
+        if (enabledPlatforms.includes(platform)) compiledMap[key].sizeByPlatform[platform] = size;
+      }
+    }
+  }
+  enabledPlatforms.forEach(platform => {
+    const execInfo = platformExecution[platform];
+    if (!execInfo) return;
+    const compStatus = execInfo.post_link_compilation_status || execInfo.pre_link_compilation_status;
+    if (!compStatus || compStatus.status !== 'Success') return;
+    for (const [filePath, byName] of Object.entries(compStatus.compiled_contracts_info || {})) {
+      for (const [contractName, info] of Object.entries(byName)) {
+        const key = `${filePath}::${contractName}`;
+        if (!compiledMap[key]) compiledMap[key] = { filePath, contractName, sizeByPlatform: {}, hashByPlatform: {} };
+        if (info.bytecode_hash) compiledMap[key].hashByPlatform[platform] = info.bytecode_hash;
+      }
+    }
+  });
+  const compiledEntries = Object.values(compiledMap);
+
+  if (instanceNames.length === 0 && compiledEntries.length === 0) {
+    group.classList.add('hidden');
+    return;
+  }
+  group.classList.remove('hidden');
+
+  function truncHex(s, prefix = 8, suffix = 6) {
+    if (!s) return null;
+    const str = s.startsWith('0x') ? s : '0x' + s;
+    if (str.length <= prefix + suffix + 2) return str;
+    return `${str.slice(0, prefix + 2)}\u2026${str.slice(-suffix)}`;
+  }
+
+  function fmtSize(bytes) {
+    if (bytes == null) return null;
+    if (bytes >= 1024) return (bytes / 1024).toFixed(2) + '\u202fKB';
+    return bytes + '\u202fB';
+  }
+
+  const copyIcon = `<svg class="contract-hex-copy" width="11" height="11" viewBox="0 0 11 11" fill="none" aria-hidden="true">
+    <rect x="3.5" y="3.5" width="6" height="6" rx="1" stroke="currentColor" stroke-width="1.2"/>
+    <path d="M1.5 7.5H1a.5.5 0 01-.5-.5V1A.5.5 0 011 .5h6a.5.5 0 01.5.5v.5" stroke="currentColor" stroke-width="1.2"/>
+  </svg>`;
+
+  function hexCell(val) {
+    const t = truncHex(val);
+    return t
+      ? `<div class="contract-hex-cell" data-copy="${escapeHtml(val)}" title="${escapeHtml(val)}">${t}${copyIcon}</div>`
+      : `<span class="contract-none">\u2014</span>`;
+  }
+
+  const instanceHtml = instanceNames.map(instanceName => {
+    const platformAddresses = contractAddresses[instanceName] || {};
+    const rows = enabledPlatforms.map(platform => {
+      const color = getColor(modeData.platforms.indexOf(platform));
+      const addresses = platformAddresses[platform] || [];
+      const cells = addresses.length > 0
+        ? addresses.map(addr => hexCell(addr)).join('')
+        : `<span class="contract-none">\u2014</span>`;
+      return `<tr>
+        <td><div class="contract-platform-cell"><span class="contract-platform-dot" style="background:${color}"></span>${escapeHtml(platform)}</div></td>
+        <td>${cells}</td>
+      </tr>`;
+    }).join('');
+    return `<div class="contract-card contract-instance-card">
+      <div class="contract-card-header">
+        <span class="contract-name">${escapeHtml(instanceName)}</span>
+        <span class="contract-type-badge contract-type-instance">instance</span>
+      </div>
+      <table class="contract-table">
+        <thead><tr><th scope="col" style="width:220px">Platform</th><th scope="col">Address</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>`;
+  }).join('');
+
+  const compiledHtml = compiledEntries.map(({ filePath, contractName, sizeByPlatform, hashByPlatform }) => {
+    const shortPath = filePath.split(/[/\\]/).slice(-3).join('/');
+    const rows = enabledPlatforms.map(platform => {
+      const color = getColor(modeData.platforms.indexOf(platform));
+      const sizeStr = fmtSize(sizeByPlatform[platform]);
+      return `<tr>
+        <td><div class="contract-platform-cell"><span class="contract-platform-dot" style="background:${color}"></span>${escapeHtml(platform)}</div></td>
+        <td>${hexCell(hashByPlatform[platform])}</td>
+        <td class="contract-size-cell">${sizeStr ?? '<span class="contract-none">\u2014</span>'}</td>
+      </tr>`;
+    }).join('');
+    return `<div class="contract-card">
+      <div class="contract-card-header">
+        <span class="contract-name">${escapeHtml(contractName)}</span>
+        <span class="contract-type-badge contract-type-compiled">compiled</span>
+        <span class="contract-path">${escapeHtml(shortPath)}</span>
+      </div>
+      <table class="contract-table">
+        <thead><tr>
+          <th scope="col" style="width:220px">Platform</th>
+          <th scope="col">Bytecode Hash</th>
+          <th scope="col">Code Size</th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>`;
+  }).join('');
+
+  grid.innerHTML =
+    (instanceNames.length > 0
+      ? `<div class="contracts-col"><div class="contract-subsection-label">Deployed Instances</div>${instanceHtml}</div>`
+      : '') +
+    (compiledEntries.length > 0
+      ? `<div class="contracts-col"><div class="contract-subsection-label">Compiled Contracts</div>${compiledHtml}</div>`
+      : '');
+
+  // Event delegation for copy-on-click
+  grid.onclick = e => {
+    const cell = e.target.closest('.contract-hex-cell[data-copy]');
+    if (!cell) return;
+    navigator.clipboard.writeText(cell.dataset.copy).then(() => {
+      cell.style.color = '#10b981';
+      setTimeout(() => { cell.style.color = ''; }, 1200);
+    }).catch(() => {});
+  };
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Summary Cards
+// ═══════════════════════════════════════════════════════════════════════════
+
+function renderSummaryCards(modeData, enabledPlatforms) {
+  const stats = {};
+  enabledPlatforms.forEach(platform => {
+    const blocks = getBlocksForPlatform(modeData, platform);
+    const totalTx = blocks.reduce((s, b) => s + (b.transaction_count || 0), 0);
+    const times = blocks
+      .map(b => b.relative_observation_time_seconds)
+      .filter(t => t != null)
+      .sort((a, b) => a - b);
+    const minT = times[0] ?? 0;
+    const maxT = times[times.length - 1] ?? 0;
+    const totalTime = maxT - minT;
+
+    let maxUtil = null;
+    blocks.forEach(b => {
+      ['block_gas_fullness', 'block_ref_time_fullness', 'block_proof_size_fullness'].forEach(field => {
+        if (b[field] != null && (maxUtil === null || b[field] > maxUtil)) maxUtil = b[field];
+      });
+    });
+
+    stats[platform] = {
+      effectiveTps: totalTime > 0 ? totalTx / totalTime : null,
+      maxUtil,
+      runningTime: totalTime > 0 ? totalTime : null,
+    };
+  });
+
+  function findBest(getValue, higherIsBetter) {
+    return enabledPlatforms.reduce((best, p) => {
+      const v = getValue(p);
+      if (v == null) return best;
+      if (best == null) return p;
+      const bv = getValue(best);
+      if (bv == null) return p;
+      return (higherIsBetter ? v > bv : v < bv) ? p : best;
+    }, null);
+  }
+
+  const bestTps  = findBest(p => stats[p]?.effectiveTps, true);
+  const bestUtil = findBest(p => stats[p]?.maxUtil,       true);
+  const bestTime = findBest(p => stats[p]?.runningTime,   false);
+
+  const fmtTps  = v => v >= 1000 ? (v / 1000).toFixed(2) + 'K' : v.toFixed(1);
+  const fmtUtil = v => v.toFixed(1) + '%';
+  const fmtTime = v => {
+    if (v >= 3600) return (v / 3600).toFixed(2) + 'h';
+    if (v >= 60)   return (v / 60).toFixed(1) + 'm';
+    return v.toFixed(1) + 's';
+  };
+
+  function buildCard(id, label, accentColor, getValue, bestPlatform, fmt) {
+    const el = document.getElementById(id);
+    el.style.borderTopColor = accentColor;
+    const rows = enabledPlatforms.map(p => {
+      const v = getValue(p);
+      const isBest = p === bestPlatform && v != null;
+      const color = getColor(modeData.platforms.indexOf(p));
+      return `
+        <div class="summary-platform-row${isBest ? ' is-best' : ''}">
+          <span class="summary-platform-name">
+            <span class="summary-platform-dot" style="background:${color}"></span>
+            <span class="summary-platform-name-text">${escapeHtml(p)}</span>
+          </span>
+          <span class="summary-platform-value">${v != null ? fmt(v) : '\u2014'}</span>
+        </div>`;
+    }).join('');
+    el.innerHTML = `
+      <div class="summary-card-label" style="color:${accentColor}">${label}</div>
+      <div class="summary-platform-list">${rows}</div>`;
+  }
+
+  buildCard('summaryTps',  'Effective TPS',    '#6366f1', p => stats[p]?.effectiveTps, bestTps,  fmtTps);
+  buildCard('summaryUtil', 'Peak Utilization', '#10b981', p => stats[p]?.maxUtil,       bestUtil, fmtUtil);
+  buildCard('summaryTime', 'Running Time',     '#f59e0b', p => stats[p]?.runningTime,   bestTime, fmtTime);
+
+  document.getElementById('summaryCards').classList.remove('hidden');
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Steps Details & JSON Highlighting
+// ═══════════════════════════════════════════════════════════════════════════
+
+/** Syntax-highlight a JSON string for display in step details. */
+function highlightJson(json) {
+  const escaped = json
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+  return escaped.replace(
+    /("(?:\\.|[^"\\])*"(\s*:)?|true|false|null|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)/g,
+    match => {
+      if (match.endsWith(':')) return `<span class="json-key">${match}</span>`;
+      if (match.startsWith('"'))  return `<span class="json-string">${match}</span>`;
+      if (match === 'true' || match === 'false') return `<span class="json-bool">${match}</span>`;
+      if (match === 'null')       return `<span class="json-null">${match}</span>`;
+      return `<span class="json-number">${match}</span>`;
+    }
+  );
+}
+
+/**
+ * Resolve a dot-separated step path (e.g. "1.1") into the nested metadata
+ * step object. The first index addresses the top-level inputs array; each
+ * subsequent index descends into the .steps array of the enclosing repeat block.
+ */
+function resolveStepPath(inputs, pathStr) {
+  const indices = pathStr.split('.').map(Number);
+  let node = (inputs || [])[indices[0]];
+  for (let i = 1; i < indices.length; i++) {
+    if (!node || !Array.isArray(node.steps)) return null;
+    node = node.steps[indices[i]];
+  }
+  return node || null;
+}
+
+function renderStepsDetails() {
+  const stepsGroup = document.getElementById('stepsGroup');
+  const stepsList  = document.getElementById('stepsList');
+
+  const workload  = reportIndex[state.workload];
+  const modeData  = workload?.cases[state.caseIdx]?.[state.mode];
+  const inputs    = metadataData?.[workload?.fullPath]?.cases?.[parseInt(state.caseIdx)]?.inputs;
+  const stepPaths = Object.keys(modeData?.execReport?.steps || {}).sort();
+
+  if (!inputs || stepPaths.length === 0) {
+    stepsGroup.classList.add('hidden');
+    return;
+  }
+
+  stepsGroup.classList.remove('hidden');
+  stepsList.innerHTML = stepPaths.map(pathStr => {
+    const step = resolveStepPath(inputs, pathStr);
+    if (!step) return '';
+    const comment = step.comment || '';
+    return `
+      <div class="step-card">
+        <div class="step-header">
+          <span class="step-index">Step ${pathStr}</span>
+          ${comment ? `<span class="step-comment">${escapeHtml(comment)}</span>` : ''}
+        </div>
+        <pre class="step-json">${highlightJson(JSON.stringify(step, null, 2))}</pre>
+      </div>`;
+  }).join('');
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Raw Data Table
+// ═══════════════════════════════════════════════════════════════════════════
+
+function renderRawDataTable(modeData, enabledPlatforms) {
+  const wrap = document.getElementById('rawDataTableWrap');
+  const blockMap = buildBlockMap(modeData, enabledPlatforms);
+  const sortedBlockNums = [...blockMap.keys()].sort((a, b) => a - b);
+
+  const metrics = [
+    { field: 'block_number',              label: 'Blk #',   fmt: v => v,                  csvFmt: v => String(v) },
+    { field: 'transaction_count',         label: 'Txs',     fmt: v => v,                  csvFmt: v => String(v) },
+    { field: 'transactions_per_second',   label: 'TPS',     fmt: v => v.toFixed(1),       csvFmt: v => v.toFixed(4) },
+    { field: 'gas_per_second',            label: 'Gas/s',   fmt: fmtGas,                  csvFmt: v => v.toFixed(0) },
+    { field: 'ref_time_per_second',       label: 'Ref/s',   fmt: fmtRefTime,              csvFmt: v => v.toFixed(0) },
+    { field: 'proof_size_per_second',     label: 'Proof/s', fmt: fmtProofSize,            csvFmt: v => v.toFixed(0) },
+    { field: 'block_gas_fullness',        label: 'Gas%',    fmt: v => v.toFixed(1)+'%',   csvFmt: v => v.toFixed(4) },
+    { field: 'block_ref_time_fullness',   label: 'RefT%',   fmt: v => v.toFixed(1)+'%',   csvFmt: v => v.toFixed(4) },
+    { field: 'block_proof_size_fullness', label: 'Proof%',  fmt: v => v.toFixed(1)+'%',   csvFmt: v => v.toFixed(4) },
+  ];
+
+  let html = '<table class="raw-data-table">';
+  html += '<thead><tr>';
+  html += `<th scope="col" class="raw-data-th-block" rowspan="2">Rel.<br>Block</th>`;
+  enabledPlatforms.forEach((platform, i) => {
+    const color = getColor(i);
+    html += `<th scope="colgroup" colspan="${metrics.length}" class="raw-data-th-platform" style="color:${color};border-top:3px solid ${color}">${escapeHtml(platform)}</th>`;
+  });
+  html += '</tr><tr>';
+  enabledPlatforms.forEach(() => {
+    metrics.forEach((m, mi) => {
+      const cls = mi === 0 ? 'raw-data-th-metric raw-data-th-metric-first' : 'raw-data-th-metric';
+      html += `<th scope="col" class="${cls}">${m.label}</th>`;
+    });
+  });
+  html += '</tr></thead><tbody>';
+
+  sortedBlockNums.forEach((blockNum, rowIdx) => {
+    html += `<tr class="${rowIdx % 2 === 0 ? 'raw-row-even' : 'raw-row-odd'}">`;
+    html += `<td class="raw-data-td-block">${blockNum}</td>`;
+    enabledPlatforms.forEach((platform) => {
+      const b = (blockMap.get(blockNum) || {})[platform];
+      metrics.forEach((m, mi) => {
+        const val = b != null ? b[m.field] : undefined;
+        const hasValue = val != null;
+        const display = hasValue ? m.fmt(val) : '\u2014';
+        const cls = ['raw-data-td', hasValue ? 'has-value' : '', mi === 0 ? 'platform-first' : ''].filter(Boolean).join(' ');
+        html += `<td class="${cls}">${display}</td>`;
+      });
+    });
+    html += '</tr>';
+  });
+  html += '</tbody></table>';
+
+  wrap.innerHTML = html;
+
+  // Scroll indicator
+  const outer = wrap.closest('.raw-data-table-outer');
+  if (outer) {
+    const checkScroll = () => {
+      outer.classList.toggle('has-scroll',
+        wrap.scrollWidth > wrap.clientWidth &&
+        wrap.scrollLeft + wrap.clientWidth < wrap.scrollWidth - 4
+      );
+    };
+    wrap.addEventListener('scroll', checkScroll);
+    checkScroll();
+  }
+
+  // CSV copy
+  const btn = document.getElementById('copyCsvBtn');
+  btn.onclick = () => {
+    const rows = [];
+    const header = ['relative_block_number'];
+    enabledPlatforms.forEach(platform => {
+      metrics.forEach(m => header.push(`${platform}:${m.field}`));
+    });
+    rows.push(header.join(','));
+
+    sortedBlockNums.forEach(blockNum => {
+      const row = [blockNum];
+      enabledPlatforms.forEach(platform => {
+        const b = (blockMap.get(blockNum) || {})[platform];
+        metrics.forEach(m => {
+          const val = b != null ? b[m.field] : undefined;
+          row.push(val != null ? m.csvFmt(val) : '');
+        });
+      });
+      rows.push(row.join(','));
+    });
+
+    const csv = rows.join('\n');
+    const originalHtml = btn.innerHTML;
+
+    navigator.clipboard.writeText(csv).then(() => {
+      btn.classList.add('copied');
+      btn.innerHTML = `<svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M2 6l3 3 5-5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg> Copied!`;
+      setTimeout(() => { btn.classList.remove('copied'); btn.innerHTML = originalHtml; }, 2000);
+    }).catch(() => {
+      const blob = new Blob([csv], { type: 'text/csv' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'benchmark-metrics.csv';
+      a.click();
+    });
+  };
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Collapsible Sections
+// ═══════════════════════════════════════════════════════════════════════════
+
+function initCollapsibleSections() {
+  document.querySelectorAll('.collapsible-toggle').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const expanded = btn.getAttribute('aria-expanded') === 'true';
+      btn.setAttribute('aria-expanded', String(!expanded));
+      const content = document.getElementById(btn.getAttribute('aria-controls'));
+      if (content) {
+        content.classList.toggle('collapsed', expanded);
+        // Resize ECharts instances when expanding
+        if (!expanded) {
+          content.querySelectorAll('.chart-echart').forEach(el => {
+            if (echartsInstances[el.id]) echartsInstances[el.id].resize();
+          });
+        }
+      }
+    });
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Configuration Section
+// ═══════════════════════════════════════════════════════════════════════════
+
+/** Render the framework configuration from reportData.context. */
+function renderConfigSection() {
+  const section = document.getElementById('configSection');
+  const body = document.getElementById('configBody');
+  if (!reportData?.context) { section.classList.add('hidden'); return; }
+
+  const ctx = reportData.context;
+  // Context is serialized as { "VariantName": { ...fields } }
+  const variantName = Object.keys(ctx)[0];
+  const config = ctx[variantName];
+
+  let html = `<span class="config-variant-tag">${escapeHtml(variantName)}</span>`;
+  html += `<div class="config-groups">`;
+
+  for (const [groupKey, groupValue] of Object.entries(config)) {
+    const groupLabel = formatGroupLabel(groupKey);
+
+    if (groupValue && typeof groupValue === 'object' && !Array.isArray(groupValue)) {
+      const entries = Object.entries(groupValue);
+      if (entries.length === 0) continue;
+      html += `<div class="config-group">`;
+      html += `<div class="config-group-header">${escapeHtml(groupLabel)}</div>`;
+      html += `<div class="config-group-rows">`;
+      for (const [key, value] of entries) {
+        html += renderConfigRow(key, value);
+      }
+      html += `</div></div>`;
+    } else {
+      // Top-level scalar or array — render as a single-row group
+      html += `<div class="config-group">`;
+      html += `<div class="config-group-header">${escapeHtml(groupLabel)}</div>`;
+      html += `<div class="config-group-rows">`;
+      html += renderConfigRow(groupKey, groupValue);
+      html += `</div></div>`;
+    }
+  }
+
+  html += `</div>`;
+  body.innerHTML = html;
+  section.classList.remove('hidden');
+}
+
+/** Convert a snake_case key like "working_directory" to "Working Directory". */
+function formatGroupLabel(key) {
+  return key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+}
+
+/** Convert a snake_case key to a short display label. */
+function formatKeyLabel(key) {
+  return key.replace(/_/g, '_');
+}
+
+/** Render a single config key-value row. */
+function renderConfigRow(key, value) {
+  return `<div class="config-row">` +
+    `<span class="config-row-key">${escapeHtml(formatKeyLabel(key))}</span>` +
+    `<span class="config-row-value">${renderConfigValue(value)}</span>` +
+    `</div>`;
+}
+
+/** Render a config value with appropriate formatting. */
+function renderConfigValue(value) {
+  if (value === null || value === undefined) {
+    return `<span class="config-value-null">—</span>`;
+  }
+  if (typeof value === 'boolean') {
+    return `<span class="config-value-bool ${value ? 'is-true' : 'is-false'}">${value}</span>`;
+  }
+  if (typeof value === 'number') {
+    return escapeHtml(value.toLocaleString());
+  }
+  if (Array.isArray(value)) {
+    if (value.length === 0) return `<span class="config-value-null">—</span>`;
+    return `<span class="config-value-list">${value.map(v =>
+      `<span class="config-value-pill">${escapeHtml(String(v))}</span>`
+    ).join('')}</span>`;
+  }
+  if (typeof value === 'object') {
+    // Nested object that wasn't a top-level group — show as compact JSON
+    return escapeHtml(JSON.stringify(value));
+  }
+  const str = String(value);
+  // Heuristic: looks like a file path
+  if (str.includes('/') || str.includes('\\')) {
+    return `<span class="config-value-path" title="${escapeHtml(str)}">${escapeHtml(str)}</span>`;
+  }
+  return escapeHtml(str);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Decompression & Initialization
+// ═══════════════════════════════════════════════════════════════════════════
+
+/** Decompress a base64-encoded gzip string. */
+async function decompressBase64Gzip(b64) {
+  const bytes = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+  const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'));
+  const buf = await new Response(stream).arrayBuffer();
+  return new TextDecoder().decode(buf);
+}
+
+async function init() {
+  try {
+    const text = await decompressBase64Gzip(EMBEDDED_REPORT);
+
+    await new Promise(r => setTimeout(r, 0));
+    reportData = JSON.parse(text);
+    reportIndex = buildIndex(reportData);
+
+    metadataData = JSON.parse(await decompressBase64Gzip(EMBEDDED_METADATA));
+
+    loadingIndicator.classList.add('hidden');
+    filtersRow.classList.remove('hidden');
+    contentPlaceholder.classList.remove('hidden');
+
+    populateWorkloads();
+    renderConfigSection();
+    initCollapsibleSections();
+
+    announce('Benchmark report loaded successfully.');
+  } catch (err) {
+    loadingIndicator.innerHTML = `
+      <div class="error">
+        Failed to load report: ${escapeHtml(err.message)}
+        <br><br>
+        <span style="color:var(--color-text-secondary);font-size:13px">
+          The embedded report data may be corrupt. Re-generate with <code>report-processor generate-benchmarks-html-report</code>.
+        </span>
+      </div>`;
+  }
+}
+
+init();
+</script>
+
+</body>
+</html>

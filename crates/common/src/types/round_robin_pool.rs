@@ -1,4 +1,4 @@
-use std::sync::atomic::{AtomicUsize, Ordering};
+use crate::internal_prelude::*;
 
 pub struct RoundRobinPool<T> {
     next_index: AtomicUsize,

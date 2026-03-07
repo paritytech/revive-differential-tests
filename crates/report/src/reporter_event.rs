@@ -1,11 +1,6 @@
 //! A reporter event sent by the report aggregator to the various listeners.
 
-use std::collections::BTreeMap;
-
-use revive_dt_compiler::Mode;
-use revive_dt_format::case::CaseIdx;
-
-use crate::{CompilationStatus, MetadataFilePath, TestCaseStatus};
+use crate::internal_prelude::*;
 
 #[derive(Clone, Debug)]
 pub enum ReporterEvent {

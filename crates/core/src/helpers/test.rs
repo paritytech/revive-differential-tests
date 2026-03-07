@@ -1,29 +1,4 @@
-use std::collections::BTreeMap;
-use std::sync::Arc;
-use std::{borrow::Cow, path::Path};
-
-use anyhow::Context as _;
-use futures::{Stream, StreamExt, stream};
-use indexmap::{IndexMap, indexmap};
-use revive_dt_common::cached_fs::read_to_string;
-use revive_dt_common::types::PlatformIdentifier;
-use revive_dt_config::{Context, IgnoreCasesConfiguration};
-use revive_dt_format::corpus::Corpus;
-use serde_json::{Value, json};
-
-use revive_dt_compiler::Mode;
-use revive_dt_compiler::SolidityCompiler;
-use revive_dt_format::{
-    case::{Case, CaseIdx},
-    metadata::MetadataFile,
-};
-use revive_dt_node_interaction::EthereumNode;
-use revive_dt_report::{ExecutionSpecificReporter, Report, Reporter, TestCaseStatus};
-use revive_dt_report::{TestSpecificReporter, TestSpecifier};
-use tracing::{debug, error, info};
-
-use crate::Platform;
-use crate::helpers::NodePool;
+use crate::internal_prelude::*;
 
 pub async fn create_test_definitions_stream<'a>(
     // This is only required for creating the compiler objects and is not used anywhere else in the
@@ -428,7 +403,7 @@ impl<'a> TestDefinition<'a> {
 
 pub struct TestPlatformInformation<'a> {
     pub platform: &'a dyn Platform,
-    pub node: &'a dyn EthereumNode,
+    pub node: &'a dyn NodeApi,
     pub compiler: Box<dyn SolidityCompiler>,
     pub reporter: ExecutionSpecificReporter,
 }

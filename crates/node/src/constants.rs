@@ -1,4 +1,4 @@
-use alloy::primitives::ChainId;
+use crate::internal_prelude::*;
 
 /// This constant defines how much Wei accounts are pre-seeded with in genesis.
 ///

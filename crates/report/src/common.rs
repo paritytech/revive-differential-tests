@@ -1,17 +1,18 @@
 //! Common types and functions used throughout the crate.
 
-use std::{path::PathBuf, sync::Arc};
-
-use revive_dt_common::{define_wrapper_type, types::PlatformIdentifier};
-use revive_dt_compiler::Mode;
-use revive_dt_format::{case::CaseIdx, steps::StepPath};
-use serde::{Deserialize, Serialize};
+use crate::internal_prelude::*;
 
 define_wrapper_type!(
     #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
     #[serde(transparent)]
     pub struct MetadataFilePath(PathBuf);
 );
+
+impl AsRef<Path> for MetadataFilePath {
+    fn as_ref(&self) -> &Path {
+        self.as_path()
+    }
+}
 
 /// An absolute specifier for a test.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
