@@ -420,6 +420,7 @@ where
 
                             *AWAITING_RECEIPTS_COUNT.lock().await -= 1;
                         }
+                        .instrument(tracing::Span::current())
                         .instrument(info_span!("Awaiting receipt", %tx_hash)),
                     );
                 };
