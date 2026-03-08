@@ -255,16 +255,14 @@ jobs:
       - name: Set artifact name
         id: names
         run: |
-          RAW="${{ matrix.platform }}--${{ matrix.test }}"
-          NAME="${RAW//\//-}"
+          NAME="${{ matrix.platform }}--${{ matrix.test }}"
+          NAME="${NAME//\//-}"
           NAME="${NAME// /-}"
           NAME="${NAME//+/plus}"
           NAME="${NAME//::/--}"
           NAME="${NAME//./-}"
           [[ "$NAME" == *- ]] && NAME="${NAME%-}minus"
-          HASH=$(echo -n "$RAW" | sha256sum | cut -c1-12)
           echo "artifact=$NAME" >> "$GITHUB_OUTPUT"
-          echo "hash=$HASH" >> "$GITHUB_OUTPUT"
 
       # ── PATH setup (no Rust toolchain on benchmark runners) ──────────
 
@@ -293,14 +291,6 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y kurtosis-cli
           kurtosis engine start
-
-      - name: Setup Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: stable
-
-      - name: Install Axiom CLI
-        run: go install github.com/axiomhq/cli/cmd/axiom@latest
 
       # ── Checkout repositories ──────────────────────────────────────────
 
@@ -359,19 +349,9 @@ jobs:
       - name: Create working directory
         run: mkdir -p ./workdir
 
-      - name: Create Axiom dataset
-        env:
-          AXIOM_TOKEN: ${{ secrets.AXIOM_PAT }}
-          AXIOM_ORG_ID: ${{ secrets.AXIOM_ORG_ID }}
-        run: |
-          DATASET="benchmark-${{ steps.names.outputs.hash }}"
-          axiom dataset create --name "$DATASET" --description "${{ matrix.platform }} / ${{ matrix.test }}" || true
-          echo "AXIOM_DATASET=$DATASET" >> "$GITHUB_ENV"
-
       - name: Run benchmarks
         env:
           RUST_LOG: info,revive_dt_node::provider_utils::batching_layer=debug,revive_dt_core::differential_benchmarks::driver=debug,alloy=off
-          AXIOM_TOKEN: ${{ secrets.AXIOM_API_KEY }}
         run: |
           retester benchmark \
             --log-format json \
@@ -384,12 +364,7 @@ jobs:
             --zombienet.config-path ./assets/polkadot-assethub-zombienet.toml \
             --wallet.additional-keys ${{ env.ADDITIONAL_KEYS }} \
             --report.file-name report.json \
-            > ./workdir/retester.log 2>&1 &
-          RETESTER_PID=$!
-          tail -f --pid=$RETESTER_PID ./workdir/retester.log | (axiom ingest --continue-on-error "$AXIOM_DATASET" || true) &
-          TAIL_PID=$!
-          wait $RETESTER_PID
-          wait $TAIL_PID
+            > ./workdir/retester.log 2>&1
 
       - name: Upload workdir
         if: always()
