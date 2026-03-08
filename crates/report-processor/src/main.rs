@@ -3,6 +3,7 @@ use std::{
     collections::{BTreeMap, BTreeSet, HashSet},
     fmt::Display,
     fs::{File, OpenOptions, read_to_string},
+    io::BufReader,
     ops::{Deref, DerefMut},
     path::{Path, PathBuf},
     str::FromStr,
@@ -208,17 +209,20 @@ fn main() -> Result<()> {
                 }
             }
 
-            let output_file = OpenOptions::new()
-                .truncate(true)
-                .create(true)
-                .write(true)
-                .open(&output_path)
-                .context("Failed to create the output file")?;
-            serde_json::to_writer_pretty(output_file, &merged)
+            let output_file = std::io::BufWriter::new(
+                OpenOptions::new()
+                    .truncate(true)
+                    .create(true)
+                    .write(true)
+                    .open(&output_path)
+                    .context("Failed to create the output file")?,
+            );
+            serde_json::to_writer(output_file, &merged)
                 .context("Failed to write the merged report to file")?;
         }
         Cli::GenerateBenchmarksHtmlReport {
-            report: report_path,
+            report,
+            report_url,
             output_path,
         } => {
             const TEMPLATE: &str = include_str!("../../../assets/benchmark-report.html");
@@ -232,31 +236,42 @@ fn main() -> Result<()> {
                 );
             }
 
-            let report_base64 = gzip_base64(&*report_path).context("Failed to embed report")?;
+            let mut injections = Vec::new();
+
+            if let Some(url) = &report_url {
+                injections.push(format!("const REPORT_URL=\"{url}\";"));
+            } else {
+                let report_base64 =
+                    gzip_base64(&*report).context("Failed to embed report")?;
+                injections.push(format!("const EMBEDDED_REPORT=\"{report_base64}\";"));
+            }
 
             let metadata_base64 = gzip_base64(
-                &report_path
+                &report
                     .metadata_files
                     .iter()
                     .map(|path| {
                         let path_ref: &Path = path.as_ref();
                         let key = path_ref.display().to_string();
                         let value: serde_json::Value = serde_json::from_str(
-                            &read_to_string(path_ref)
-                                .with_context(|| format!("Failed to read metadata file: {key}"))?,
+                            &read_to_string(path_ref).with_context(|| {
+                                format!("Failed to read metadata file: {key}")
+                            })?,
                         )
-                        .with_context(|| format!("Failed to parse metadata file as JSON: {key}"))?;
+                        .with_context(|| {
+                            format!("Failed to parse metadata file as JSON: {key}")
+                        })?;
                         Ok((key, value))
                     })
                     .collect::<Result<serde_json::Map<String, serde_json::Value>>>()?,
             )
             .context("Failed to embed metadata")?;
+            injections.push(format!("const EMBEDDED_METADATA=\"{metadata_base64}\";"));
 
+            let injection = injections.join("");
             let html = TEMPLATE.replacen(
                 INJECT_BEFORE,
-                &format!(
-                    "<script>const EMBEDDED_REPORT=\"{report_base64}\";const EMBEDDED_METADATA=\"{metadata_base64}\";</script>\n{INJECT_BEFORE}"
-                ),
+                &format!("<script>{injection}</script>\n{INJECT_BEFORE}"),
                 1,
             );
 
@@ -323,9 +338,18 @@ pub enum Cli {
 
     /// Generates an HTML report for the provided benchmark report.
     GenerateBenchmarksHtmlReport {
-        /// The path of the report's JSON file to generate the HTML report for.
+        /// The path of the report's JSON file. Metadata is always extracted
+        /// from this file. The report data itself is embedded inline unless
+        /// --report-url is also provided, in which case the HTML fetches the
+        /// report from the URL at runtime instead.
         #[clap(long = "report-path")]
         report: JsonFile<Report>,
+
+        /// Optional URL to the gzip-compressed JSON report. When provided,
+        /// the HTML fetches the report from this URL at runtime instead of
+        /// embedding it inline. Metadata is still embedded from --report-path.
+        #[clap(long)]
+        report_url: Option<String>,
 
         /// The path of the output file to output the HTML report to.
         #[clap(long)]
@@ -417,8 +441,8 @@ where
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let path = PathBuf::from(s);
-        let file = File::open(&path).context("Failed to open the file")?;
-        serde_json::from_reader(&file)
+        let file = BufReader::new(File::open(&path).context("Failed to open the file")?);
+        serde_json::from_reader(file)
             .map(|content| Self { path, content })
             .context(format!(
                 "Failed to deserialize file's content as {}",

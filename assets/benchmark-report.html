@@ -1333,10 +1333,12 @@
 // Constants
 // ═══════════════════════════════════════════════════════════════════════════
 
-// EMBEDDED_REPORT and EMBEDDED_METADATA are injected at build time by
-// report-processor generate-benchmarks-html-report. They contain base64-
-// encoded gzip-compressed JSON strings of the benchmark report and test
-// metadata respectively.
+// REPORT_URL or EMBEDDED_REPORT, and EMBEDDED_METADATA are injected at build
+// time by report-processor generate-benchmarks-html-report.
+// When REPORT_URL is set, the report is fetched from that URL (gzip-compressed JSON).
+// When EMBEDDED_REPORT is set, it contains a base64-encoded gzip-compressed JSON string.
+// EMBEDDED_METADATA always contains a base64-encoded gzip-compressed JSON string of
+// the test metadata.
 
 const FONT_MONO = "'JetBrains Mono', monospace";
 const FONT_SANS = "'Inter', sans-serif";
@@ -2826,15 +2828,28 @@ async function decompressBase64Gzip(b64) {
   return new TextDecoder().decode(buf);
 }
 
+/** Fetch a gzip-compressed JSON file from a URL. */
+async function fetchGzipJson(url) {
+  const resp = await fetch(url);
+  if (!resp.ok) throw new Error(`Failed to fetch report: ${resp.status} ${resp.statusText}`);
+  const stream = resp.body.pipeThrough(new DecompressionStream('gzip'));
+  const buf = await new Response(stream).arrayBuffer();
+  return new TextDecoder().decode(buf);
+}
+
 async function init() {
   try {
-    const text = await decompressBase64Gzip(EMBEDDED_REPORT);
+    const text = typeof REPORT_URL !== 'undefined'
+      ? await fetchGzipJson(REPORT_URL)
+      : await decompressBase64Gzip(EMBEDDED_REPORT);
 
     await new Promise(r => setTimeout(r, 0));
     reportData = JSON.parse(text);
     reportIndex = buildIndex(reportData);
 
-    metadataData = JSON.parse(await decompressBase64Gzip(EMBEDDED_METADATA));
+    if (typeof EMBEDDED_METADATA !== 'undefined') {
+      metadataData = JSON.parse(await decompressBase64Gzip(EMBEDDED_METADATA));
+    }
 
     loadingIndicator.classList.add('hidden');
     filtersRow.classList.remove('hidden');
@@ -2851,7 +2866,9 @@ async function init() {
         Failed to load report: ${escapeHtml(err.message)}
         <br><br>
         <span style="color:var(--color-text-secondary);font-size:13px">
-          The embedded report data may be corrupt. Re-generate with <code>report-processor generate-benchmarks-html-report</code>.
+          ${typeof REPORT_URL !== 'undefined'
+            ? 'The report could not be fetched. The URL may be incorrect or the file may not have been uploaded yet.'
+            : 'The embedded report data may be corrupt. Re-generate with <code>report-processor generate-benchmarks-html-report</code>.'}
         </span>
       </div>`;
   }
