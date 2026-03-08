@@ -115,6 +115,10 @@ pub async fn handle_differential_benchmarks(
         let span = info_span!("Benchmarking for the platform", %platform_identifier);
         let _guard = span.enter();
 
+        let private_key_allocator = Arc::new(Mutex::new(PrivateKeyAllocator::new(
+            context.wallet.highest_private_key_exclusive(),
+        )));
+
         for test_definition in test_definitions.iter() {
             let platform_information = &test_definition.platforms[&platform_identifier];
 
@@ -127,9 +131,7 @@ pub async fn handle_differential_benchmarks(
             let _guard = span.enter();
 
             // Initializing all of the components requires to execute this particular workload.
-            let private_key_allocator = Arc::new(Mutex::new(PrivateKeyAllocator::new(
-                context.wallet.highest_private_key_exclusive(),
-            )));
+            let private_key_allocator = private_key_allocator.clone();
             let (watcher, watcher_tx) = Watcher::new(
                 platform_information
                     .node

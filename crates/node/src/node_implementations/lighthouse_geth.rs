@@ -395,7 +395,7 @@ impl NodeApi for LighthouseGethNode {
         &self,
         mut transaction: TransactionRequest,
     ) -> FrameworkFuture<Result<alloy::primitives::TxHash>> {
-        transaction.set_gas_price(10_000 * GWEI_TO_WEI as u128);
+        transaction.set_gas_price(20_000 * GWEI_TO_WEI as u128);
         let provider = self.provider();
         Box::pin(async move {
             provider

@@ -403,7 +403,9 @@ jobs:
       contents: write
     steps:
       - name: Add cargo bin to PATH
-        run: echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+        run: |
+          mkdir -p "$HOME/.cargo/bin"
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
 
       - name: Checkout This Repository
         uses: actions/checkout@v4
