@@ -35,15 +35,62 @@ permissions:
   contents: write
 
 jobs:
-  benchmark:
-    name: Run Benchmarks
+  # ── Build jobs (run in parallel) ─────────────────────────────────────
+
+  build-retester:
+    name: Build retester
     runs-on: parity-large
     env:
       SCCACHE_GHA_ENABLED: "true"
       RUSTC_WRAPPER: "sccache"
     steps:
-      # ── Toolchain ──────────────────────────────────────────────────────
+      - name: Setup Rust toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@v1
 
+      - name: Setup sccache
+        uses: mozilla-actions/sccache-action@v0.0.9
+
+      - name: Install system packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential pkg-config libssl-dev protobuf-compiler
+
+      - name: Checkout This Repository
+        uses: actions/checkout@v4
+
+      - name: Restore retester cache
+        id: cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/.cargo/bin/retester
+            ~/.cargo/bin/report-processor
+          key: retester-${{ hashFiles('crates/**', 'assets/**') }}
+
+      - name: Build retester and report-processor
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          cargo build --profile production -p revive-dt-core -p revive-dt-report-processor
+          cp -t ~/.cargo/bin \
+            target/production/retester \
+            target/production/report-processor
+
+      - name: Save retester cache
+        if: always() && steps.cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/.cargo/bin/retester
+            ~/.cargo/bin/report-processor
+          key: retester-${{ hashFiles('crates/**', 'assets/**') }}
+
+  build-chainspec-generator:
+    name: Build chainspec-generator
+    runs-on: parity-large
+    env:
+      SCCACHE_GHA_ENABLED: "true"
+      RUSTC_WRAPPER: "sccache"
+    steps:
       - name: Setup Rust toolchain
         uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
@@ -52,6 +99,144 @@ jobs:
 
       - name: Setup sccache
         uses: mozilla-actions/sccache-action@v0.0.9
+
+      - name: Install system packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential pkg-config libssl-dev protobuf-compiler
+
+      - name: Checkout runtimes
+        uses: actions/checkout@v4
+        with:
+          repository: polkadot-fellows/runtimes
+          ref: ${{ env.RUNTIMES_VERSION }}
+
+      - name: Restore chainspec-generator cache
+        id: cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.cargo/bin/chain-spec-generator
+          key: chainspec-generator-${{ env.RUNTIMES_VERSION }}
+
+      - name: Build chainspec-generator
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          cargo build --locked --profile production \
+            --manifest-path chain-spec-generator/Cargo.toml \
+            --no-default-features \
+            --features polkadot,asset-hub-polkadot,fast-runtime
+          cp -t ~/.cargo/bin \
+            target/production/chain-spec-generator
+
+      - name: Save chainspec-generator cache
+        if: always() && steps.cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.cargo/bin/chain-spec-generator
+          key: chainspec-generator-${{ env.RUNTIMES_VERSION }}
+
+  build-polkadot-sdk:
+    name: Build polkadot-sdk
+    runs-on: parity-large
+    env:
+      SCCACHE_GHA_ENABLED: "true"
+      RUSTC_WRAPPER: "sccache"
+    steps:
+      - name: Setup Rust toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          target: wasm32-unknown-unknown
+          components: rust-src
+
+      - name: Setup sccache
+        uses: mozilla-actions/sccache-action@v0.0.9
+
+      - name: Install system packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential pkg-config libssl-dev protobuf-compiler llvm clang libclang-dev
+
+      - name: Checkout polkadot-sdk
+        uses: actions/checkout@v4
+        with:
+          repository: paritytech/polkadot-sdk
+          ref: ${{ env.POLKADOT_VERSION }}
+
+      - name: Restore polkadot-sdk cache
+        id: cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/.cargo/bin/polkadot
+            ~/.cargo/bin/polkadot-prepare-worker
+            ~/.cargo/bin/polkadot-execute-worker
+            ~/.cargo/bin/polkadot-parachain
+            ~/.cargo/bin/eth-rpc
+          key: polkadot-sdk-${{ env.POLKADOT_VERSION }}
+
+      - name: Build polkadot-sdk binaries
+        if: steps.cache.outputs.cache-hit != 'true'
+        env:
+          RUSTFLAGS: "-Awarnings"
+        run: |
+          cargo build --locked --profile production \
+            -p polkadot -p polkadot-parachain-bin -p pallet-revive-eth-rpc \
+            --features polkadot/fast-runtime \
+            --bin polkadot \
+            --bin polkadot-prepare-worker \
+            --bin polkadot-execute-worker \
+            --bin polkadot-parachain \
+            --bin eth-rpc
+          cp -t ~/.cargo/bin \
+            target/production/polkadot \
+            target/production/polkadot-prepare-worker \
+            target/production/polkadot-execute-worker \
+            target/production/polkadot-parachain \
+            target/production/eth-rpc
+
+      - name: Save polkadot-sdk cache
+        if: always() && steps.cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/.cargo/bin/polkadot
+            ~/.cargo/bin/polkadot-prepare-worker
+            ~/.cargo/bin/polkadot-execute-worker
+            ~/.cargo/bin/polkadot-parachain
+            ~/.cargo/bin/eth-rpc
+          key: polkadot-sdk-${{ env.POLKADOT_VERSION }}
+
+  # ── Run benchmarks (one job per test x platform) ─────────────────────
+  benchmark:
+    name: "${{ matrix.platform }} / ${{ matrix.test }}"
+    needs: [build-retester, build-chainspec-generator, build-polkadot-sdk]
+    runs-on: parity-large
+    strategy:
+      fail-fast: false
+      matrix:
+        test:
+          - "call-depth-proof-size/test.json::Y Mz S+"
+          - "call-depth-proof-size/test.json::Y Ms S+"
+          - "call-depth-proof-size/test.json::Y Mz S-"
+          - "call-depth-proof-size/test.json::Y Ms S-"
+          - "erc20-transfers/test.json::Y Mz S+"
+          - "erc20-transfers/test.json::Y Ms S+"
+          - "erc20-transfers/test.json::Y Mz S-"
+          - "erc20-transfers/test.json::Y Ms S-"
+        platform:
+          - lighthouse-geth-evm-solc
+          - zombienet-revm-solc
+          - zombienet-polkavm-resolc
+    steps:
+      - name: Set artifact name
+        id: names
+        run: |
+          NAME="${{ matrix.platform }}--${{ matrix.test }}"
+          NAME="${NAME//\//-}"
+          NAME="${NAME// /-}"
+          NAME="${NAME//+/plus}"
+          NAME="${NAME//::/--}"
+          echo "artifact=$NAME" >> "$GITHUB_OUTPUT"
 
       # ── External dependencies ─────────────────────────────────────────
 
@@ -93,20 +278,6 @@ jobs:
           repository: paritytech/resolc-compiler-tests
           path: compiler-tests
 
-      - name: Checkout runtimes
-        uses: actions/checkout@v4
-        with:
-          repository: polkadot-fellows/runtimes
-          ref: ${{ env.RUNTIMES_VERSION }}
-          path: runtimes
-
-      - name: Checkout polkadot-sdk
-        uses: actions/checkout@v4
-        with:
-          repository: paritytech/polkadot-sdk
-          ref: ${{ env.POLKADOT_VERSION }}
-          path: polkadot-sdk
-
       # ── Install compilers ───────────────────────────────────────────────
 
       - name: Install solc
@@ -121,98 +292,24 @@ jobs:
             "https://github.com/paritytech/revive/releases/download/${{ env.RESOLC_VERSION }}/resolc-x86_64-unknown-linux-musl"
           chmod +x ~/.cargo/bin/resolc
 
-      # ── Install retester tooling ────────────────────────────────────────
+      # ── Restore cached binaries ─────────────────────────────────────────
 
       - name: Restore retester cache
-        id: cache-retester
         uses: actions/cache/restore@v4
         with:
           path: |
             ~/.cargo/bin/retester
             ~/.cargo/bin/report-processor
           key: retester-${{ hashFiles('crates/**', 'assets/**') }}
-
-      - name: Install retester and report-processor
-        if: steps.cache-retester.outputs.cache-hit != 'true'
-        run: |
-          cargo build --profile production -p revive-dt-core -p revive-dt-report-processor
-          cp -t ~/.cargo/bin \
-            target/production/retester \
-            target/production/report-processor
-
-      - name: Save retester cache
-        if: always() && steps.cache-retester.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
-        with:
-          path: |
-            ~/.cargo/bin/retester
-            ~/.cargo/bin/report-processor
-          key: retester-${{ hashFiles('crates/**', 'assets/**') }}
-
-      # ── Install chainspec-generator (cached by runtimes commit) ────────
 
       - name: Restore chainspec-generator cache
-        id: cache-chainspec-generator
         uses: actions/cache/restore@v4
         with:
           path: ~/.cargo/bin/chain-spec-generator
           key: chainspec-generator-${{ env.RUNTIMES_VERSION }}
-
-      - name: Install chainspec-generator
-        if: steps.cache-chainspec-generator.outputs.cache-hit != 'true'
-        run: |
-          cargo build --locked --profile production \
-            --manifest-path runtimes/chain-spec-generator/Cargo.toml \
-            --no-default-features \
-            --features polkadot,asset-hub-polkadot,fast-runtime
-          cp -t ~/.cargo/bin \
-            runtimes/target/production/chain-spec-generator
-
-      - name: Save chainspec-generator cache
-        if: always() && steps.cache-chainspec-generator.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
-        with:
-          path: ~/.cargo/bin/chain-spec-generator
-          key: chainspec-generator-${{ env.RUNTIMES_VERSION }}
-
-      # ── Install polkadot-sdk binaries (cached by pinned tag) ───────────
 
       - name: Restore polkadot-sdk cache
-        id: cache-polkadot-sdk
         uses: actions/cache/restore@v4
-        with:
-          path: |
-            ~/.cargo/bin/polkadot
-            ~/.cargo/bin/polkadot-prepare-worker
-            ~/.cargo/bin/polkadot-execute-worker
-            ~/.cargo/bin/polkadot-parachain
-            ~/.cargo/bin/eth-rpc
-          key: polkadot-sdk-${{ env.POLKADOT_VERSION }}
-
-      - name: Install polkadot-sdk binaries
-        if: steps.cache-polkadot-sdk.outputs.cache-hit != 'true'
-        working-directory: polkadot-sdk
-        env:
-          RUSTFLAGS: "-Awarnings"
-        run: |
-          cargo build --locked --profile production \
-            -p polkadot -p polkadot-parachain-bin -p pallet-revive-eth-rpc \
-            --features polkadot/fast-runtime \
-            --bin polkadot \
-            --bin polkadot-prepare-worker \
-            --bin polkadot-execute-worker \
-            --bin polkadot-parachain \
-            --bin eth-rpc
-          cp -t ~/.cargo/bin \
-            target/production/polkadot \
-            target/production/polkadot-prepare-worker \
-            target/production/polkadot-execute-worker \
-            target/production/polkadot-parachain \
-            target/production/eth-rpc
-
-      - name: Save polkadot-sdk cache
-        if: always() && steps.cache-polkadot-sdk.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
         with:
           path: |
             ~/.cargo/bin/polkadot
@@ -227,6 +324,14 @@ jobs:
       - name: Create working directory
         run: mkdir -p ./workdir
 
+      - name: Create Axiom dataset
+        env:
+          AXIOM_TOKEN: ${{ secrets.AXIOM_API_KEY }}
+        run: |
+          DATASET="benchmark-${{ steps.names.outputs.artifact }}"
+          axiom dataset create --name "$DATASET" --description "${{ matrix.platform }} / ${{ matrix.test }}" 2>/dev/null || true
+          echo "AXIOM_DATASET=$DATASET" >> "$GITHUB_ENV"
+
       - name: Run benchmarks
         env:
           RUST_LOG: info,revive_dt_node::provider_utils::batching_layer=debug,revive_dt_core::differential_benchmarks::driver=debug,alloy=off
@@ -234,10 +339,8 @@ jobs:
         run: |
           retester benchmark \
             --log-format json \
-            --test ./compiler-tests/fixtures/solidity/workloads \
-            --platform lighthouse-geth-evm-solc \
-            --platform zombienet-revm-solc \
-            --platform zombienet-polkavm-resolc \
+            --test "./compiler-tests/fixtures/solidity/workloads/${{ matrix.test }}" \
+            --platform ${{ matrix.platform }} \
             --working-directory ./workdir \
             --concurrency.number-of-nodes 1 \
             --concurrency.number-of-threads 12 \
@@ -245,22 +348,70 @@ jobs:
             --zombienet.config-path ./assets/polkadot-assethub-zombienet.toml \
             --wallet.additional-keys ${{ env.ADDITIONAL_KEYS }} \
             --report.file-name report.json \
-            2>&1 | tee ./workdir/retester.log | (axiom ingest --continue-on-error benchmark-logs || true)
+            2>&1 | tee ./workdir/retester.log | (axiom ingest --continue-on-error "$AXIOM_DATASET" || true)
 
       - name: Upload workdir
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: benchmark-workdir
+          name: workdir-${{ steps.names.outputs.artifact }}
           path: ./workdir
+
+  # ── Merge reports and publish to GitHub Pages ────────────────────────
+  publish:
+    name: Publish Report
+    needs: benchmark
+    if: always()
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout This Repository
+        uses: actions/checkout@v4
+
+      - name: Checkout resolc-compiler-tests
+        uses: actions/checkout@v4
+        with:
+          repository: paritytech/resolc-compiler-tests
+          path: compiler-tests
+
+      - name: Restore retester cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/.cargo/bin/retester
+            ~/.cargo/bin/report-processor
+          key: retester-${{ hashFiles('crates/**', 'assets/**') }}
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: workdir-*
+          path: ./results
+
+      - name: Merge reports
+        run: |
+          REPORT_ARGS=""
+          for dir in ./results/workdir-*/; do
+            if [ -f "$dir/report.json" ]; then
+              REPORT_ARGS="$REPORT_ARGS --report-path $dir/report.json"
+            fi
+          done
+
+          if [ -z "$REPORT_ARGS" ]; then
+            echo "No reports found to merge"
+            exit 1
+          fi
+
+          report-processor merge-reports \
+            $REPORT_ARGS \
+            --output-path ./merged-report.json
 
       - name: Generate HTML report
         run: |
           report-processor generate-benchmarks-html-report \
-            --report-path ./workdir/report.json \
-            --output-path ./workdir/benchmark-report.html
-
-      # ── Publish to GitHub Pages ────────────────────────────────────────
+            --report-path ./merged-report.json \
+            --output-path ./benchmark-report.html
 
       - name: Checkout gh-pages
         uses: actions/checkout@v4
@@ -273,7 +424,7 @@ jobs:
           REPORT_NAME="benchmark-$(date -u +%Y-%m-%d-%H%M%S).html"
           echo "REPORT_NAME=${REPORT_NAME}" >> "$GITHUB_ENV"
           mkdir -p gh-pages-dir/reports
-          cp ./workdir/benchmark-report.html "gh-pages-dir/reports/${REPORT_NAME}"
+          cp ./benchmark-report.html "gh-pages-dir/reports/${REPORT_NAME}"
 
       - name: Update redirect
         run: |

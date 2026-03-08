@@ -127,6 +127,96 @@ fn main() -> Result<()> {
                 }
             }
         }
+        Cli::MergeReports {
+            reports,
+            output_path,
+        } => {
+            let mut reports = reports.into_iter();
+            let first = reports.next().context("At least one report is required")?;
+            let mut merged = Report {
+                context: first.content.context.clone(),
+                metadata_files: first.content.metadata_files.clone(),
+                execution_information: first.content.execution_information.clone(),
+            };
+
+            for report in reports {
+                merged.metadata_files.extend(report.metadata_files.iter().cloned());
+
+                for (metadata_path, file_report) in &report.execution_information {
+                    let merged_file_report = merged
+                        .execution_information
+                        .entry(metadata_path.clone())
+                        .or_default();
+
+                    for (mode, compilation_report) in &file_report.compilation_reports {
+                        merged_file_report
+                            .compilation_reports
+                            .entry(mode.clone())
+                            .or_insert_with(|| compilation_report.clone());
+                    }
+
+                    for (case_idx, case_report) in &file_report.case_reports {
+                        let merged_case = merged_file_report
+                            .case_reports
+                            .entry(*case_idx)
+                            .or_default();
+
+                        for (mode, exec_report) in &case_report.mode_execution_reports {
+                            let merged_exec = merged_case
+                                .mode_execution_reports
+                                .entry(mode.clone())
+                                .or_default();
+
+                            if merged_exec.status.is_none() {
+                                merged_exec.status.clone_from(&exec_report.status);
+                            }
+
+                            merged_exec
+                                .metrics_information
+                                .extend(exec_report.metrics_information.clone());
+                            merged_exec
+                                .platform_execution
+                                .extend(exec_report.platform_execution.clone());
+                            merged_exec
+                                .mined_block_information
+                                .extend(exec_report.mined_block_information.clone());
+
+                            for (path, contracts) in &exec_report.compiled_contracts {
+                                merged_exec
+                                    .compiled_contracts
+                                    .entry(path.clone())
+                                    .or_default()
+                                    .extend(contracts.clone());
+                            }
+
+                            for (instance, platforms) in &exec_report.contract_addresses {
+                                merged_exec
+                                    .contract_addresses
+                                    .entry(instance.clone())
+                                    .or_default()
+                                    .extend(platforms.clone());
+                            }
+
+                            for (step_path, step_report) in &exec_report.steps {
+                                merged_exec
+                                    .steps
+                                    .entry(step_path.clone())
+                                    .or_insert_with(|| step_report.clone());
+                            }
+                        }
+                    }
+                }
+            }
+
+            let output_file = OpenOptions::new()
+                .truncate(true)
+                .create(true)
+                .write(true)
+                .open(&output_path)
+                .context("Failed to create the output file")?;
+            serde_json::to_writer_pretty(output_file, &merged)
+                .context("Failed to write the merged report to file")?;
+        }
         Cli::GenerateBenchmarksHtmlReport {
             report: report_path,
             output_path,
@@ -238,6 +328,21 @@ pub enum Cli {
         report: JsonFile<Report>,
 
         /// The path of the output file to output the HTML report to.
+        #[clap(long)]
+        output_path: PathBuf,
+    },
+
+    /// Merges multiple report JSON files into a single combined report.
+    ///
+    /// The context is taken from the first report. Execution information from all reports is
+    /// merged together: for the same metadata file and case, platform-keyed data from later
+    /// reports is added alongside data from earlier reports.
+    MergeReports {
+        /// The paths of the report JSON files to merge.
+        #[clap(long = "report-path", required = true)]
+        reports: Vec<JsonFile<Report>>,
+
+        /// The path of the merged output report JSON file.
         #[clap(long)]
         output_path: PathBuf,
     },
