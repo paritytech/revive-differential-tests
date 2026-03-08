@@ -239,6 +239,13 @@ jobs:
           NAME="${NAME//./-}"
           echo "artifact=$NAME" >> "$GITHUB_OUTPUT"
 
+      # ── PATH setup (no Rust toolchain on benchmark runners) ──────────
+
+      - name: Add cargo bin to PATH
+        run: |
+          mkdir -p "$HOME/.cargo/bin"
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+
       # ── External dependencies ─────────────────────────────────────────
 
       - name: Install system packages
@@ -283,7 +290,6 @@ jobs:
 
       - name: Install solc
         run: |
-          mkdir -p ~/.cargo/bin
           curl -sSLo ~/.cargo/bin/solc \
             "https://github.com/ethereum/solidity/releases/download/${{ env.SOLC_VERSION }}/solc-static-linux"
           chmod +x ~/.cargo/bin/solc
@@ -369,6 +375,9 @@ jobs:
     permissions:
       contents: write
     steps:
+      - name: Add cargo bin to PATH
+        run: echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+
       - name: Checkout This Repository
         uses: actions/checkout@v4
 
