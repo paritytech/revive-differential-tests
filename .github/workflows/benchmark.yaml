@@ -255,14 +255,16 @@ jobs:
       - name: Set artifact name
         id: names
         run: |
-          NAME="${{ matrix.platform }}--${{ matrix.test }}"
-          NAME="${NAME//\//-}"
+          RAW="${{ matrix.platform }}--${{ matrix.test }}"
+          NAME="${RAW//\//-}"
           NAME="${NAME// /-}"
           NAME="${NAME//+/plus}"
           NAME="${NAME//::/--}"
           NAME="${NAME//./-}"
           [[ "$NAME" == *- ]] && NAME="${NAME%-}minus"
+          HASH=$(echo -n "$RAW" | sha256sum | cut -c1-12)
           echo "artifact=$NAME" >> "$GITHUB_OUTPUT"
+          echo "hash=$HASH" >> "$GITHUB_OUTPUT"
 
       # ── PATH setup (no Rust toolchain on benchmark runners) ──────────
 
@@ -362,7 +364,7 @@ jobs:
           AXIOM_TOKEN: ${{ secrets.AXIOM_PAT }}
           AXIOM_ORG_ID: ${{ secrets.AXIOM_ORG_ID }}
         run: |
-          DATASET="benchmark-${{ steps.names.outputs.artifact }}"
+          DATASET="benchmark-${{ steps.names.outputs.hash }}"
           axiom dataset create --name "$DATASET" --description "${{ matrix.platform }} / ${{ matrix.test }}" || true
           echo "AXIOM_DATASET=$DATASET" >> "$GITHUB_ENV"
 
