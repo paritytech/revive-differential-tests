@@ -1,0 +1,2 @@
+reports/*.json.gz filter=lfs diff=lfs merge=lfs -text
+latest.json.gz filter=lfs diff=lfs merge=lfs -text
