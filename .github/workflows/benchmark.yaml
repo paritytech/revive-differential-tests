@@ -236,6 +236,7 @@ jobs:
           NAME="${NAME// /-}"
           NAME="${NAME//+/plus}"
           NAME="${NAME//::/--}"
+          NAME="${NAME//./-}"
           echo "artifact=$NAME" >> "$GITHUB_OUTPUT"
 
       # ── External dependencies ─────────────────────────────────────────
@@ -330,7 +331,7 @@ jobs:
           AXIOM_TOKEN: ${{ secrets.AXIOM_API_KEY }}
         run: |
           DATASET="benchmark-${{ steps.names.outputs.artifact }}"
-          axiom dataset create --name "$DATASET" --description "${{ matrix.platform }} / ${{ matrix.test }}" 2>/dev/null || true
+          axiom dataset create --name "$DATASET" --description "${{ matrix.platform }} / ${{ matrix.test }}"
           echo "AXIOM_DATASET=$DATASET" >> "$GITHUB_ENV"
 
       - name: Run benchmarks
