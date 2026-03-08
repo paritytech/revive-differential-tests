@@ -378,7 +378,7 @@ jobs:
     name: Publish Report
     needs: benchmark
     if: always()
-    runs-on: ubuntu-latest
+    runs-on: parity-large
     permissions:
       contents: write
     steps:
