@@ -363,7 +363,7 @@ jobs:
           AXIOM_ORG_ID: ${{ secrets.AXIOM_ORG_ID }}
         run: |
           DATASET="benchmark-${{ steps.names.outputs.artifact }}"
-          axiom dataset create --name "$DATASET" --description "${{ matrix.platform }} / ${{ matrix.test }}"
+          axiom dataset create --name "$DATASET" --description "${{ matrix.platform }} / ${{ matrix.test }}" || true
           echo "AXIOM_DATASET=$DATASET" >> "$GITHUB_ENV"
 
       - name: Run benchmarks
