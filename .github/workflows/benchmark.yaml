@@ -329,6 +329,7 @@ jobs:
       - name: Create Axiom dataset
         env:
           AXIOM_TOKEN: ${{ secrets.AXIOM_API_KEY }}
+          AXIOM_ORG_ID: ${{ secrets.AXIOM_ORG_ID }}
         run: |
           DATASET="benchmark-${{ steps.names.outputs.artifact }}"
           axiom dataset create --name "$DATASET" --description "${{ matrix.platform }} / ${{ matrix.test }}"
