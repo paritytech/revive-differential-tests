@@ -384,7 +384,12 @@ jobs:
             --zombienet.config-path ./assets/polkadot-assethub-zombienet.toml \
             --wallet.additional-keys ${{ env.ADDITIONAL_KEYS }} \
             --report.file-name report.json \
-            2>&1 | tee ./workdir/retester.log | (axiom ingest --continue-on-error "$AXIOM_DATASET" || true)
+            > ./workdir/retester.log 2>&1 &
+          RETESTER_PID=$!
+          tail -f --pid=$RETESTER_PID ./workdir/retester.log | (axiom ingest --continue-on-error "$AXIOM_DATASET" || true) &
+          TAIL_PID=$!
+          wait $RETESTER_PID
+          wait $TAIL_PID
 
       - name: Upload workdir
         if: always()
