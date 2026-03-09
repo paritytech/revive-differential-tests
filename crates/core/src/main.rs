@@ -229,5 +229,22 @@ fn main() -> anyhow::Result<()> {
 
                 Ok(())
             }),
+        Context::ExportTestSpecifiers(context) => {
+            context
+                .corpus
+                .test_specifiers
+                .into_iter()
+                .try_fold(Corpus::new(), Corpus::with_test_specifier)?
+                .cases_iterator()
+                .for_each(|(metadata, case_idx, _, mode)| {
+                    println!(
+                        "{}::{}::{}",
+                        metadata.metadata_file_path.display(),
+                        case_idx,
+                        mode
+                    )
+                });
+            Ok(())
+        }
     }
 }

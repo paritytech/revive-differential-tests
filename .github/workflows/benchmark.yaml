@@ -206,47 +206,53 @@ jobs:
             ~/.cargo/bin/eth-rpc
           key: polkadot-sdk-${{ env.POLKADOT_VERSION }}
 
+  # ── Generate test matrix dynamically ─────────────────────────────────
+  generate-matrix:
+    name: Generate test matrix
+    needs: build-retester
+    runs-on: parity-large
+    outputs:
+      tests: ${{ steps.matrix.outputs.tests }}
+    steps:
+      - name: Add cargo bin to PATH
+        run: |
+          mkdir -p "$HOME/.cargo/bin"
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+
+      - name: Checkout This Repository
+        uses: actions/checkout@v4
+
+      - name: Checkout resolc-compiler-tests
+        uses: actions/checkout@v4
+        with:
+          repository: paritytech/resolc-compiler-tests
+          path: compiler-tests
+
+      - name: Restore retester cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/.cargo/bin/retester
+            ~/.cargo/bin/report-processor
+          key: retester-${{ hashFiles('crates/**', 'assets/**') }}
+
+      - name: Export test specifiers
+        id: matrix
+        run: |
+          TESTS=$(retester export-test-specifiers \
+            --test ./compiler-tests/fixtures/solidity/workloads \
+            | jq -R . | jq -sc .)
+          echo "tests=${TESTS}" >> "$GITHUB_OUTPUT"
+
   # ── Run benchmarks (one job per test x platform) ─────────────────────
   benchmark:
     name: "${{ matrix.platform }} / ${{ matrix.test }}"
-    needs: [build-retester, build-chainspec-generator, build-polkadot-sdk]
+    needs: [generate-matrix, build-chainspec-generator, build-polkadot-sdk]
     runs-on: parity-large
     strategy:
       fail-fast: false
       matrix:
-        test:
-          - "call-depth-proof-size/test.json::0::Y Mz S+"
-          - "call-depth-proof-size/test.json::1::Y Mz S+"
-          - "call-depth-proof-size/test.json::2::Y Mz S+"
-          - "call-depth-proof-size/test.json::3::Y Mz S+"
-          - "call-depth-proof-size/test.json::4::Y Mz S+"
-          - "call-depth-proof-size/test.json::5::Y Mz S+"
-          - "call-depth-proof-size/test.json::6::Y Mz S+"
-          - "call-depth-proof-size/test.json::0::Y Ms S+"
-          - "call-depth-proof-size/test.json::1::Y Ms S+"
-          - "call-depth-proof-size/test.json::2::Y Ms S+"
-          - "call-depth-proof-size/test.json::3::Y Ms S+"
-          - "call-depth-proof-size/test.json::4::Y Ms S+"
-          - "call-depth-proof-size/test.json::5::Y Ms S+"
-          - "call-depth-proof-size/test.json::6::Y Ms S+"
-          - "call-depth-proof-size/test.json::0::Y Mz S-"
-          - "call-depth-proof-size/test.json::1::Y Mz S-"
-          - "call-depth-proof-size/test.json::2::Y Mz S-"
-          - "call-depth-proof-size/test.json::3::Y Mz S-"
-          - "call-depth-proof-size/test.json::4::Y Mz S-"
-          - "call-depth-proof-size/test.json::5::Y Mz S-"
-          - "call-depth-proof-size/test.json::6::Y Mz S-"
-          - "call-depth-proof-size/test.json::0::Y Ms S-"
-          - "call-depth-proof-size/test.json::1::Y Ms S-"
-          - "call-depth-proof-size/test.json::2::Y Ms S-"
-          - "call-depth-proof-size/test.json::3::Y Ms S-"
-          - "call-depth-proof-size/test.json::4::Y Ms S-"
-          - "call-depth-proof-size/test.json::5::Y Ms S-"
-          - "call-depth-proof-size/test.json::6::Y Ms S-"
-          - "erc20-transfers/test.json::0::Y Mz S+"
-          - "erc20-transfers/test.json::0::Y Ms S+"
-          - "erc20-transfers/test.json::0::Y Mz S-"
-          - "erc20-transfers/test.json::0::Y Ms S-"
+        test: ${{ fromJSON(needs.generate-matrix.outputs.tests) }}
         platform:
           - lighthouse-geth-evm-solc
           - zombienet-revm-solc
@@ -355,7 +361,7 @@ jobs:
         run: |
           retester benchmark \
             --log-format json \
-            --test "./compiler-tests/fixtures/solidity/workloads/${{ matrix.test }}" \
+            --test "${{ matrix.test }}" \
             --platform ${{ matrix.platform }} \
             --working-directory ./workdir \
             --concurrency.number-of-nodes 1 \
