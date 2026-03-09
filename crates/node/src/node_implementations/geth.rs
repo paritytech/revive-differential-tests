@@ -1,53 +1,6 @@
 //! The go-ethereum node implementation.
 
-use std::{
-    fs::{File, create_dir_all, remove_dir_all},
-    io::Read,
-    path::PathBuf,
-    pin::Pin,
-    process::{Command, Stdio},
-    sync::{
-        Arc,
-        atomic::{AtomicU32, Ordering},
-    },
-    time::Duration,
-};
-
-use alloy::{
-    eips::BlockNumberOrTag,
-    genesis::{Genesis, GenesisAccount},
-    network::{Ethereum, EthereumWallet, NetworkWallet},
-    primitives::{Address, BlockHash, BlockNumber, BlockTimestamp, StorageKey, TxHash, U256},
-    providers::{
-        Provider,
-        ext::DebugApi,
-        fillers::{CachedNonceManager, ChainIdFiller, NonceFiller},
-    },
-    rpc::types::{
-        EIP1186AccountProofResponse, TransactionReceipt, TransactionRequest,
-        trace::geth::{
-            DiffMode, GethDebugTracingOptions, GethTrace, PreStateConfig, PreStateFrame,
-        },
-    },
-};
-use anyhow::Context as _;
-use futures::{FutureExt, Stream, StreamExt};
-use revive_common::EVMVersion;
-use tokio::sync::OnceCell;
-use tracing::{error, instrument};
-
-use revive_dt_common::fs::clear_directory;
-use revive_dt_config::*;
-use revive_dt_format::traits::ResolverApi;
-use revive_dt_node_interaction::EthereumNode;
-use revive_dt_report::{EthereumMinedBlockInformation, MinedBlockInformation};
-
-use crate::{
-    Node,
-    constants::{CHAIN_ID, INITIAL_BALANCE},
-    helpers::{Process, ProcessReadinessWaitBehavior},
-    provider_utils::{ConcreteProvider, FallbackGasFiller, construct_concurrency_limited_provider},
-};
+use crate::internal_prelude::*;
 
 static NODE_COUNT: AtomicU32 = AtomicU32::new(0);
 
@@ -71,7 +24,7 @@ pub struct GethNode {
     start_timeout: Duration,
     wallet: Arc<EthereumWallet>,
     nonce_manager: CachedNonceManager,
-    provider: OnceCell<ConcreteProvider<Ethereum, Arc<EthereumWallet>>>,
+    provider: Arc<OnceCell<ConcreteProvider<Ethereum, Arc<EthereumWallet>>>>,
     use_fallback_gas_filler: bool,
     node_logging_level: String,
 }
@@ -205,6 +158,8 @@ impl GethNode {
                     .arg("archive")
                     .arg("--verbosity")
                     .arg(self.node_logging_level.as_str())
+                    .arg("--rpc.batch-request-limit")
+                    .arg("0")
                     .stderr(stderr_file)
                     .stdout(stdout_file);
             },
@@ -238,24 +193,6 @@ impl GethNode {
         Ok(self)
     }
 
-    async fn provider(&self) -> anyhow::Result<ConcreteProvider<Ethereum, Arc<EthereumWallet>>> {
-        self.provider
-            .get_or_try_init(|| async move {
-                construct_concurrency_limited_provider::<Ethereum, _>(
-                    self.connection_string.as_str(),
-                    FallbackGasFiller::default()
-                        .with_fallback_mechanism(self.use_fallback_gas_filler),
-                    ChainIdFiller::new(Some(CHAIN_ID)),
-                    NonceFiller::new(self.nonce_manager.clone()),
-                    self.wallet.clone(),
-                )
-                .await
-                .context("Failed to construct the provider")
-            })
-            .await
-            .cloned()
-    }
-
     pub fn node_genesis(mut genesis: Genesis, wallet: &EthereumWallet) -> Genesis {
         for signer_address in NetworkWallet::<Ethereum>::signer_addresses(&wallet) {
             genesis
@@ -267,11 +204,7 @@ impl GethNode {
     }
 }
 
-impl EthereumNode for GethNode {
-    fn pre_transactions(&mut self) -> Pin<Box<dyn Future<Output = anyhow::Result<()>> + '_>> {
-        Box::pin(async move { Ok(()) })
-    }
-
+impl NodeApi for GethNode {
     fn id(&self) -> usize {
         self.id as _
     }
@@ -280,340 +213,34 @@ impl EthereumNode for GethNode {
         &self.connection_string
     }
 
-    #[instrument(
-        level = "info",
-        skip_all,
-        fields(geth_node_id = self.id, connection_string = self.connection_string),
-        err,
-    )]
-    fn submit_transaction(
-        &self,
-        transaction: TransactionRequest,
-    ) -> Pin<Box<dyn Future<Output = anyhow::Result<TxHash>> + '_>> {
-        Box::pin(async move {
-            let provider = self
-                .provider()
-                .await
-                .context("Failed to create the provider for transaction submission")?;
-            let pending_transaction = provider
-                .send_transaction(transaction)
-                .await
-                .context("Failed to submit the transaction through the provider")?;
-            Ok(*pending_transaction.tx_hash())
-        })
-    }
-
-    #[instrument(
-        level = "info",
-        skip_all,
-        fields(geth_node_id = self.id, connection_string = self.connection_string),
-        err,
-    )]
-    fn get_receipt(
-        &self,
-        tx_hash: TxHash,
-    ) -> Pin<Box<dyn Future<Output = anyhow::Result<TransactionReceipt>> + '_>> {
-        Box::pin(async move {
-            self.provider()
-                .await
-                .context("Failed to create provider for getting the receipt")?
-                .get_transaction_receipt(tx_hash)
-                .await
-                .context("Failed to get the receipt of the transaction")?
-                .context("Failed to get the receipt of the transaction")
-        })
-    }
-
-    #[instrument(
-        level = "info",
-        skip_all,
-        fields(geth_node_id = self.id, connection_string = self.connection_string),
-        err,
-    )]
-    fn execute_transaction(
-        &self,
-        transaction: TransactionRequest,
-    ) -> Pin<Box<dyn Future<Output = anyhow::Result<TransactionReceipt>> + '_>> {
-        Box::pin(async move {
-            self.provider()
-                .await
-                .context("Failed to create provider for transaction submission")?
-                .send_transaction(transaction)
-                .await
-                .context("Encountered an error when submitting a transaction")?
-                .get_receipt()
-                .await
-                .context("Failed to get the receipt for the transaction")
-        })
-    }
-
-    #[instrument(level = "info", skip_all, fields(geth_node_id = self.id))]
-    fn trace_transaction(
-        &self,
-        tx_hash: TxHash,
-        trace_options: GethDebugTracingOptions,
-    ) -> Pin<Box<dyn Future<Output = anyhow::Result<GethTrace>> + '_>> {
-        Box::pin(async move {
-            self.provider()
-                .await
-                .context("Failed to create provider for tracing")?
-                .debug_trace_transaction(tx_hash, trace_options)
-                .await
-                .context("Failed to get the transaction trace")
-        })
-    }
-
-    #[instrument(level = "info", skip_all, fields(geth_node_id = self.id))]
-    fn state_diff(
-        &self,
-        tx_hash: TxHash,
-    ) -> Pin<Box<dyn Future<Output = anyhow::Result<DiffMode>> + '_>> {
-        Box::pin(async move {
-            let trace_options = GethDebugTracingOptions::prestate_tracer(PreStateConfig {
-                diff_mode: Some(true),
-                disable_code: None,
-                disable_storage: None,
-            });
-            match self
-                .trace_transaction(tx_hash, trace_options)
-                .await
-                .context("Failed to trace transaction for prestate diff")?
-                .try_into_pre_state_frame()
-                .context("Failed to convert trace into pre-state frame")?
-            {
-                PreStateFrame::Diff(diff) => Ok(diff),
-                _ => anyhow::bail!("expected a diff mode trace"),
-            }
-        })
-    }
-
-    #[instrument(level = "info", skip_all, fields(geth_node_id = self.id))]
-    fn balance_of(
-        &self,
-        address: Address,
-    ) -> Pin<Box<dyn Future<Output = anyhow::Result<U256>> + '_>> {
-        Box::pin(async move {
-            self.provider()
-                .await
-                .context("Failed to get the Geth provider")?
-                .get_balance(address)
-                .await
-                .map_err(Into::into)
-        })
-    }
-
-    #[instrument(level = "info", skip_all, fields(geth_node_id = self.id))]
-    fn latest_state_proof(
-        &self,
-        address: Address,
-        keys: Vec<StorageKey>,
-    ) -> Pin<Box<dyn Future<Output = anyhow::Result<EIP1186AccountProofResponse>> + '_>> {
-        Box::pin(async move {
-            self.provider()
-                .await
-                .context("Failed to get the Geth provider")?
-                .get_proof(address, keys)
-                .latest()
-                .await
-                .map_err(Into::into)
-        })
-    }
-
-    // #[instrument(level = "info", skip_all, fields(geth_node_id = self.id))]
-    fn resolver(
-        &self,
-    ) -> Pin<Box<dyn Future<Output = anyhow::Result<Arc<dyn ResolverApi + '_>>> + '_>> {
-        Box::pin(async move {
-            let id = self.id;
-            let provider = self.provider().await?;
-            Ok(Arc::new(GethNodeResolver { id, provider }) as Arc<dyn ResolverApi>)
-        })
-    }
-
     fn evm_version(&self) -> EVMVersion {
         EVMVersion::Cancun
     }
 
-    fn subscribe_to_full_blocks_information(
-        &self,
-    ) -> Pin<
-        Box<
-            dyn Future<Output = anyhow::Result<Pin<Box<dyn Stream<Item = MinedBlockInformation>>>>>
-                + '_,
-        >,
-    > {
-        Box::pin(async move {
-            let provider = self
-                .provider()
-                .await
-                .context("Failed to create the provider for block subscription")?;
-            let block_subscription = provider.subscribe_full_blocks();
-            let block_stream = block_subscription
-                .into_stream()
-                .await
-                .context("Failed to create the block stream")?;
+    fn provider(&self) -> revive_dt_common::futures::FrameworkFuture<anyhow::Result<DynProvider>> {
+        let provider = self.provider.clone();
+        let connection_string = self.connection_string.clone();
+        let gas_filler =
+            FallbackGasFiller::default().with_fallback_mechanism(self.use_fallback_gas_filler);
+        let nonce_filler = NonceFiller::new(self.nonce_manager.clone());
+        let wallet = self.wallet.clone();
 
-            let mined_block_information_stream = block_stream.filter_map(|block| async {
-                let block = block.ok()?;
-                Some(MinedBlockInformation {
-                    ethereum_block_information: EthereumMinedBlockInformation {
-                        block_number: block.number(),
-                        block_timestamp: block.header.timestamp,
-                        mined_gas: block.header.gas_used as _,
-                        block_gas_limit: block.header.gas_limit as _,
-                        transaction_hashes: block
-                            .transactions
-                            .into_hashes()
-                            .as_hashes()
-                            .expect("Must be hashes")
-                            .to_vec(),
-                    },
-                    substrate_block_information: None,
-                    tx_counts: Default::default(),
+        Box::pin(async move {
+            provider
+                .get_or_try_init(|| async move {
+                    construct_concurrency_limited_provider::<Ethereum, _>(
+                        &connection_string,
+                        gas_filler,
+                        ChainIdFiller::default(),
+                        nonce_filler,
+                        wallet,
+                    )
+                    .await
+                    .context("Failed to construct the provider")
                 })
-            });
-
-            Ok(Box::pin(mined_block_information_stream)
-                as Pin<Box<dyn Stream<Item = MinedBlockInformation>>>)
-        })
-    }
-
-    fn provider(
-        &self,
-    ) -> Pin<Box<dyn Future<Output = anyhow::Result<alloy::providers::DynProvider<Ethereum>>> + '_>>
-    {
-        Box::pin(
-            self.provider()
-                .map(|provider| provider.map(|provider| provider.erased())),
-        )
-    }
-}
-
-pub struct GethNodeResolver {
-    id: u32,
-    provider: ConcreteProvider<Ethereum, Arc<EthereumWallet>>,
-}
-
-impl ResolverApi for GethNodeResolver {
-    #[instrument(level = "info", skip_all, fields(geth_node_id = self.id))]
-    fn chain_id(
-        &self,
-    ) -> Pin<Box<dyn Future<Output = anyhow::Result<alloy::primitives::ChainId>> + '_>> {
-        Box::pin(async move { self.provider.get_chain_id().await.map_err(Into::into) })
-    }
-
-    #[instrument(level = "info", skip_all, fields(geth_node_id = self.id))]
-    fn transaction_gas_price(
-        &self,
-        tx_hash: TxHash,
-    ) -> Pin<Box<dyn Future<Output = anyhow::Result<u128>> + '_>> {
-        Box::pin(async move {
-            self.provider
-                .get_transaction_receipt(tx_hash)
-                .await?
-                .context("Failed to get the transaction receipt")
-                .map(|receipt| receipt.effective_gas_price)
-        })
-    }
-
-    #[instrument(level = "info", skip_all, fields(geth_node_id = self.id))]
-    fn block_gas_limit(
-        &self,
-        number: BlockNumberOrTag,
-    ) -> Pin<Box<dyn Future<Output = anyhow::Result<u128>> + '_>> {
-        Box::pin(async move {
-            self.provider
-                .get_block_by_number(number)
                 .await
-                .context("Failed to get the geth block")?
-                .context("Failed to get the Geth block, perhaps there are no blocks?")
-                .map(|block| block.header.gas_limit as _)
+                .map(|provider| provider.clone().erased())
         })
-    }
-
-    #[instrument(level = "info", skip_all, fields(geth_node_id = self.id))]
-    fn block_coinbase(
-        &self,
-        number: BlockNumberOrTag,
-    ) -> Pin<Box<dyn Future<Output = anyhow::Result<Address>> + '_>> {
-        Box::pin(async move {
-            self.provider
-                .get_block_by_number(number)
-                .await
-                .context("Failed to get the geth block")?
-                .context("Failed to get the Geth block, perhaps there are no blocks?")
-                .map(|block| block.header.beneficiary)
-        })
-    }
-
-    #[instrument(level = "info", skip_all, fields(geth_node_id = self.id))]
-    fn block_difficulty(
-        &self,
-        number: BlockNumberOrTag,
-    ) -> Pin<Box<dyn Future<Output = anyhow::Result<U256>> + '_>> {
-        Box::pin(async move {
-            self.provider
-                .get_block_by_number(number)
-                .await
-                .context("Failed to get the geth block")?
-                .context("Failed to get the Geth block, perhaps there are no blocks?")
-                .map(|block| U256::from_be_bytes(block.header.mix_hash.0))
-        })
-    }
-
-    #[instrument(level = "info", skip_all, fields(geth_node_id = self.id))]
-    fn block_base_fee(
-        &self,
-        number: BlockNumberOrTag,
-    ) -> Pin<Box<dyn Future<Output = anyhow::Result<u64>> + '_>> {
-        Box::pin(async move {
-            self.provider
-                .get_block_by_number(number)
-                .await
-                .context("Failed to get the geth block")?
-                .context("Failed to get the Geth block, perhaps there are no blocks?")
-                .and_then(|block| {
-                    block
-                        .header
-                        .base_fee_per_gas
-                        .context("Failed to get the base fee per gas")
-                })
-        })
-    }
-
-    #[instrument(level = "info", skip_all, fields(geth_node_id = self.id))]
-    fn block_hash(
-        &self,
-        number: BlockNumberOrTag,
-    ) -> Pin<Box<dyn Future<Output = anyhow::Result<BlockHash>> + '_>> {
-        Box::pin(async move {
-            self.provider
-                .get_block_by_number(number)
-                .await
-                .context("Failed to get the geth block")?
-                .context("Failed to get the Geth block, perhaps there are no blocks?")
-                .map(|block| block.header.hash)
-        })
-    }
-
-    #[instrument(level = "info", skip_all, fields(geth_node_id = self.id))]
-    fn block_timestamp(
-        &self,
-        number: BlockNumberOrTag,
-    ) -> Pin<Box<dyn Future<Output = anyhow::Result<BlockTimestamp>> + '_>> {
-        Box::pin(async move {
-            self.provider
-                .get_block_by_number(number)
-                .await
-                .context("Failed to get the geth block")?
-                .context("Failed to get the Geth block, perhaps there are no blocks?")
-                .map(|block| block.header.timestamp)
-        })
-    }
-
-    #[instrument(level = "info", skip_all, fields(geth_node_id = self.id))]
-    fn last_block_number(&self) -> Pin<Box<dyn Future<Output = anyhow::Result<BlockNumber>> + '_>> {
-        Box::pin(async move { self.provider.get_block_number().await.map_err(Into::into) })
     }
 }
 
@@ -662,6 +289,8 @@ impl Drop for GethNode {
 #[cfg(test)]
 mod tests {
     use std::sync::LazyLock;
+
+    use alloy::rpc::types::TransactionRequest;
 
     use super::*;
 
@@ -720,122 +349,5 @@ mod tests {
             version.starts_with("geth version"),
             "expected version string, got: '{version}'"
         );
-    }
-
-    #[tokio::test]
-    #[ignore = "Ignored since they take a long time to run"]
-    async fn can_get_chain_id_from_node() {
-        // Arrange
-        let node = shared_node();
-
-        // Act
-        let chain_id = node.resolver().await.unwrap().chain_id().await;
-
-        // Assert
-        let chain_id = chain_id.expect("Failed to get the chain id");
-        assert_eq!(chain_id, 420_420_420);
-    }
-
-    #[tokio::test]
-    #[ignore = "Ignored since they take a long time to run"]
-    async fn can_get_gas_limit_from_node() {
-        // Arrange
-        let node = shared_node();
-
-        // Act
-        let gas_limit = node
-            .resolver()
-            .await
-            .unwrap()
-            .block_gas_limit(BlockNumberOrTag::Latest)
-            .await;
-
-        // Assert
-        let _ = gas_limit.expect("Failed to get the gas limit");
-    }
-
-    #[tokio::test]
-    #[ignore = "Ignored since they take a long time to run"]
-    async fn can_get_coinbase_from_node() {
-        // Arrange
-        let node = shared_node();
-
-        // Act
-        let coinbase = node
-            .resolver()
-            .await
-            .unwrap()
-            .block_coinbase(BlockNumberOrTag::Latest)
-            .await;
-
-        // Assert
-        let _ = coinbase.expect("Failed to get the coinbase");
-    }
-
-    #[tokio::test]
-    #[ignore = "Ignored since they take a long time to run"]
-    async fn can_get_block_difficulty_from_node() {
-        // Arrange
-        let node = shared_node();
-
-        // Act
-        let block_difficulty = node
-            .resolver()
-            .await
-            .unwrap()
-            .block_difficulty(BlockNumberOrTag::Latest)
-            .await;
-
-        // Assert
-        let _ = block_difficulty.expect("Failed to get the block difficulty");
-    }
-
-    #[tokio::test]
-    #[ignore = "Ignored since they take a long time to run"]
-    async fn can_get_block_hash_from_node() {
-        // Arrange
-        let node = shared_node();
-
-        // Act
-        let block_hash = node
-            .resolver()
-            .await
-            .unwrap()
-            .block_hash(BlockNumberOrTag::Latest)
-            .await;
-
-        // Assert
-        let _ = block_hash.expect("Failed to get the block hash");
-    }
-
-    #[tokio::test]
-    #[ignore = "Ignored since they take a long time to run"]
-    async fn can_get_block_timestamp_from_node() {
-        // Arrange
-        let node = shared_node();
-
-        // Act
-        let block_timestamp = node
-            .resolver()
-            .await
-            .unwrap()
-            .block_timestamp(BlockNumberOrTag::Latest)
-            .await;
-
-        // Assert
-        let _ = block_timestamp.expect("Failed to get the block timestamp");
-    }
-
-    #[tokio::test]
-    #[ignore = "Ignored since they take a long time to run"]
-    async fn can_get_block_number_from_node() {
-        // Arrange
-        let node = shared_node();
-
-        // Act
-        let block_number = node.resolver().await.unwrap().last_block_number().await;
-
-        // Assert
-        let _ = block_number.expect("Failed to get the block number");
     }
 }

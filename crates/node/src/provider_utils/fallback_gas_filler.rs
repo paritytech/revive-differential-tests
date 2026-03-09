@@ -1,17 +1,4 @@
-use alloy::{
-    eips::BlockNumberOrTag,
-    network::{Network, TransactionBuilder},
-    providers::{
-        Provider, SendableTx,
-        ext::DebugApi,
-        fillers::{GasFillable, GasFiller, TxFiller},
-    },
-    rpc::types::trace::geth::{
-        GethDebugBuiltInTracerType, GethDebugTracerType, GethDebugTracingCallOptions,
-        GethDebugTracingOptions,
-    },
-    transports::{RpcError, TransportResult},
-};
+use crate::internal_prelude::*;
 
 /// An implementation of [`GasFiller`] with a fallback mechanism for reverting  transactions.
 ///
@@ -125,7 +112,13 @@ where
                         "Transaction trace returned a value of gas used that exceeds u64",
                     )
                 })?;
-                let gas_limit = gas_used.saturating_mul(2);
+                let block_gas_limit = provider
+                    .get_block_by_number(BlockNumberOrTag::Latest)
+                    .await?
+                    .ok_or(RpcError::local_usage_str("No latest block"))?
+                    .header()
+                    .gas_limit();
+                let gas_limit = gas_used.saturating_mul(2).min(block_gas_limit / 5 * 4);
 
                 if let Some(gas_price) = tx.gas_price() {
                     return Ok(GasFillable::Legacy {

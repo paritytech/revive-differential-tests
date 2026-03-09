@@ -8,59 +8,9 @@
 //! used. Additionally, the Kurtosis tool uses Docker and therefore docker is a another dependency
 //! that the tool has.
 
-use std::{
-    collections::{BTreeMap, HashSet},
-    fs::{File, create_dir_all},
-    io::Read,
-    path::PathBuf,
-    pin::Pin,
-    process::{Command, Stdio},
-    sync::{
-        Arc,
-        atomic::{AtomicU32, Ordering},
-    },
-    time::{Duration, SystemTime, UNIX_EPOCH},
-};
+#![allow(dead_code)]
 
-use alloy::{
-    eips::BlockNumberOrTag,
-    genesis::{Genesis, GenesisAccount},
-    network::{Ethereum, EthereumWallet, NetworkWallet},
-    primitives::{
-        Address, BlockHash, BlockNumber, BlockTimestamp, StorageKey, TxHash, U256, address,
-    },
-    providers::{
-        Provider,
-        ext::DebugApi,
-        fillers::{CachedNonceManager, ChainIdFiller, FillProvider, NonceFiller, TxFiller},
-    },
-    rpc::types::{
-        EIP1186AccountProofResponse, TransactionReceipt, TransactionRequest,
-        trace::geth::{
-            DiffMode, GethDebugTracingOptions, GethTrace, PreStateConfig, PreStateFrame,
-        },
-    },
-};
-use anyhow::Context as _;
-use futures::{FutureExt, Stream, StreamExt};
-use revive_common::EVMVersion;
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
-use serde_with::serde_as;
-use tokio::sync::OnceCell;
-use tracing::{info, instrument};
-
-use revive_dt_common::fs::clear_directory;
-use revive_dt_config::*;
-use revive_dt_format::traits::ResolverApi;
-use revive_dt_node_interaction::EthereumNode;
-use revive_dt_report::{EthereumMinedBlockInformation, MinedBlockInformation};
-
-use crate::{
-    Node,
-    constants::{CHAIN_ID, INITIAL_BALANCE},
-    helpers::{Process, ProcessReadinessWaitBehavior},
-    provider_utils::{ConcreteProvider, FallbackGasFiller, construct_concurrency_limited_provider},
-};
+use crate::internal_prelude::*;
 
 static NODE_COUNT: AtomicU32 = AtomicU32::new(0);
 
@@ -83,6 +33,7 @@ pub struct LighthouseGethNode {
     /* Directory Paths */
     base_directory: PathBuf,
     logs_directory: PathBuf,
+    wrapper_directory: PathBuf,
 
     /* File Paths */
     config_file_path: PathBuf,
@@ -93,15 +44,13 @@ pub struct LighthouseGethNode {
     /* Spawned Processes */
     process: Option<Process>,
 
-    /* Prefunded Account Information */
-    prefunded_account_address: Address,
-
     /* Provider Related Fields */
     wallet: Arc<EthereumWallet>,
     nonce_manager: CachedNonceManager,
 
-    persistent_http_provider: OnceCell<ConcreteProvider<Ethereum, Arc<EthereumWallet>>>,
-    persistent_ws_provider: OnceCell<ConcreteProvider<Ethereum, Arc<EthereumWallet>>>,
+    persistent_ws_provider: Arc<OnceCell<ConcreteProvider<Ethereum, Arc<EthereumWallet>>>>,
+    persistent_ws_subscriptions_provider:
+        Arc<OnceCell<ConcreteProvider<Ethereum, Arc<EthereumWallet>>>>,
 
     use_fallback_gas_filler: bool,
 }
@@ -153,6 +102,7 @@ impl LighthouseGethNode {
 
             /* Directory Paths */
             logs_directory: base_directory.join(Self::LOGS_DIRECTORY),
+            wrapper_directory: base_directory.join("wrapper"),
             base_directory,
 
             /* Binary Paths & Timeouts */
@@ -161,14 +111,11 @@ impl LighthouseGethNode {
             /* Spawned Processes */
             process: None,
 
-            /* Prefunded Account Information */
-            prefunded_account_address: wallet.default_signer().address(),
-
             /* Provider Related Fields */
             wallet: wallet.clone(),
             nonce_manager: Default::default(),
-            persistent_http_provider: OnceCell::const_new(),
-            persistent_ws_provider: OnceCell::const_new(),
+            persistent_ws_provider: Default::default(),
+            persistent_ws_subscriptions_provider: Default::default(),
             use_fallback_gas_filler,
         }
     }
@@ -192,6 +139,8 @@ impl LighthouseGethNode {
             .context("Failed to create base directory for geth node")?;
         create_dir_all(&self.logs_directory)
             .context("Failed to create logs directory for geth node")?;
+        create_dir_all(&self.wrapper_directory)
+            .context("Failed to create wrapper directory for geth node")?;
 
         Ok(())
     }
@@ -202,6 +151,7 @@ impl LighthouseGethNode {
                 execution_layer_type: ExecutionLayerType::Geth,
                 consensus_layer_type: ConsensusLayerType::Lighthouse,
                 execution_layer_extra_parameters: vec![
+                    "--syncmode=full".to_string(),
                     "--nodiscover".to_string(),
                     "--cache=4096".to_string(),
                     "--txlookuplimit=0".to_string(),
@@ -217,12 +167,11 @@ impl LighthouseGethNode {
                     "--ws.port=8546".to_string(),
                     "--ws.api=eth,net,web3,txpool,engine".to_string(),
                     "--ws.origins=*".to_string(),
-                    "--miner.gaslimit=30000000".to_string(),
+                    "--miner.gaslimit=60000000".to_string(),
+                    "--rpc.txfeecap=0".to_string(),
+                    "--rpc.batch-request-limit=0".to_string(),
                 ],
-                consensus_layer_extra_parameters: vec![
-                    "--disable-quic".to_string(),
-                    "--disable-deposit-contract-sync".to_string(),
-                ],
+                consensus_layer_extra_parameters: vec!["--disable-quic".to_string()],
             }],
             network_parameters: NetworkParameters {
                 preset: NetworkPreset::Mainnet,
@@ -234,17 +183,13 @@ impl LighthouseGethNode {
                 capella_fork_epoch: 0,
                 deneb_fork_epoch: 0,
                 electra_fork_epoch: 0,
+                fulu_fork_epoch: u64::MAX,
                 preregistered_validator_keys_mnemonic: Self::VALIDATOR_MNEMONIC.to_string(),
                 num_validator_keys_per_node: 64,
                 genesis_delay: 10,
-                prefunded_accounts: {
-                    let map = std::iter::once(self.prefunded_account_address)
-                        .map(|address| (address, GenesisAccount::default().with_balance(U256::MAX)))
-                        .collect::<BTreeMap<_, _>>();
-                    serde_json::to_string(&map).unwrap()
-                },
-                gas_limit: 30_000_000,
-                genesis_gaslimit: 30_000_000,
+                prefunded_accounts: "{}".to_string(),
+                gas_limit: 60_000_000,
+                genesis_gaslimit: 60_000_000,
             },
             wait_for_finalization: false,
             port_publisher: Some(PortPublisherParameters {
@@ -263,10 +208,51 @@ impl LighthouseGethNode {
             }),
         };
 
+        // Write the kurtosis args config file.
         let file = File::create(self.config_file_path.as_path())
             .context("Failed to open the config yaml file")?;
         serde_yaml_ng::to_writer(file, &config)
             .context("Failed to write the config to the yaml file")?;
+
+        // Write the prefunded accounts JSON into the wrapper package. This is
+        // read server-side by Starlark's `read_file` and injected into the
+        // ethereum-package via `additional_preloaded_contracts`, bypassing the
+        // 4 MB gRPC arg size limit that `prefunded_accounts` is subject to.
+        let prefunded_accounts = {
+            let map = NetworkWallet::<Ethereum>::signer_addresses(self.wallet.as_ref())
+                .map(|address| (address, GenesisAccount::default().with_balance(U256::MAX)))
+                .collect::<BTreeMap<_, _>>();
+            serde_json::to_string(&map).context("Failed to serialize prefunded accounts")?
+        };
+        std::fs::write(
+            self.wrapper_directory.join("prefunded_accounts.json"),
+            &prefunded_accounts,
+        )
+        .context("Failed to write prefunded_accounts.json")?;
+
+        // Write the Kurtosis package manifest for the wrapper.
+        std::fs::write(
+            self.wrapper_directory.join("kurtosis.yml"),
+            "name: github.com/local/ethereum-wrapper\nreplace:\n  {}\n",
+        )
+        .context("Failed to write kurtosis.yml")?;
+
+        // Write the Starlark entrypoint that reads the prefunded accounts from
+        // the package files and passes them to the upstream ethereum-package.
+        std::fs::write(
+            self.wrapper_directory.join("main.star"),
+            r#"ethereum_package = import_module("github.com/ethpandaops/ethereum-package/main.star")
+
+def run(plan, args={}):
+    accounts_json = read_file("./prefunded_accounts.json")
+    accounts = json.decode(accounts_json)
+    if "network_params" not in args:
+        args["network_params"] = {}
+    args["network_params"]["additional_preloaded_contracts"] = accounts
+    return ethereum_package.run(plan, args)
+"#,
+        )
+        .context("Failed to write main.star")?;
 
         Ok(())
     }
@@ -283,7 +269,7 @@ impl LighthouseGethNode {
                     .arg("run")
                     .arg("--enclave")
                     .arg(self.enclave_name.as_str())
-                    .arg("github.com/ethpandaops/ethereum-package")
+                    .arg(self.wrapper_directory.as_path())
                     .arg("--args-file")
                     .arg(self.config_file_path.as_path())
                     .stdout(stdout)
@@ -381,96 +367,6 @@ impl LighthouseGethNode {
             .cloned()
     }
 
-    #[instrument(
-        level = "info",
-        skip_all,
-        fields(lighthouse_node_id = self.id, connection_string = self.ws_connection_string),
-        err(Debug),
-    )]
-    #[allow(clippy::type_complexity)]
-    async fn http_provider(
-        &self,
-    ) -> anyhow::Result<ConcreteProvider<Ethereum, Arc<EthereumWallet>>> {
-        self.persistent_http_provider
-            .get_or_try_init(|| async move {
-                construct_concurrency_limited_provider::<Ethereum, _>(
-                    self.http_connection_string.as_str(),
-                    FallbackGasFiller::default(),
-                    ChainIdFiller::new(Some(CHAIN_ID)),
-                    NonceFiller::new(self.nonce_manager.clone()),
-                    self.wallet.clone(),
-                )
-                .await
-                .context("Failed to construct the provider")
-            })
-            .await
-            .cloned()
-    }
-
-    /// Funds all of the accounts in the Ethereum wallet from the initially funded account.
-    #[instrument(
-        level = "info",
-        skip_all,
-        fields(lighthouse_node_id = self.id, connection_string = self.ws_connection_string),
-        err(Debug),
-    )]
-    async fn fund_all_accounts(&self) -> anyhow::Result<()> {
-        let mut full_block_subscriber = self
-            .ws_provider()
-            .await
-            .context("Failed to create the WS provider")?
-            .subscribe_full_blocks()
-            .into_stream()
-            .await
-            .context("Full block subscriber")?;
-
-        let mut tx_hashes = futures::future::try_join_all(
-            NetworkWallet::<Ethereum>::signer_addresses(self.wallet.as_ref())
-                .enumerate()
-                .map(|(nonce, address)| async move {
-                    let mut transaction = TransactionRequest::default()
-                        .from(self.prefunded_account_address)
-                        .to(address)
-                        .nonce(nonce as _)
-                        .value(INITIAL_BALANCE.try_into().unwrap());
-                    transaction.chain_id = Some(CHAIN_ID);
-                    self.submit_transaction(transaction).await
-                }),
-        )
-        .await
-        .context("Failed to submit all transactions")?
-        .into_iter()
-        .collect::<HashSet<_>>();
-
-        while let Some(block) = full_block_subscriber.next().await {
-            let Ok(block) = block else {
-                continue;
-            };
-
-            let block_number = block.number();
-            let block_timestamp = block.header.timestamp;
-            let block_transaction_count = block.transactions.len();
-
-            for hash in block.transactions.into_hashes().as_hashes().unwrap() {
-                tx_hashes.remove(hash);
-            }
-
-            info!(
-                block.number = block_number,
-                block.timestamp = block_timestamp,
-                block.transaction_count = block_transaction_count,
-                remaining_transactions = tx_hashes.len(),
-                "Discovered new block when funding accounts"
-            );
-
-            if tx_hashes.is_empty() {
-                break;
-            }
-        }
-
-        Ok(())
-    }
-
     pub fn node_genesis(mut genesis: Genesis, wallet: &EthereumWallet) -> Genesis {
         for signer_address in NetworkWallet::<Ethereum>::signer_addresses(&wallet) {
             genesis
@@ -482,11 +378,7 @@ impl LighthouseGethNode {
     }
 }
 
-impl EthereumNode for LighthouseGethNode {
-    fn pre_transactions(&mut self) -> Pin<Box<dyn Future<Output = anyhow::Result<()>> + '_>> {
-        Box::pin(async move { self.fund_all_accounts().await })
-    }
-
+impl NodeApi for LighthouseGethNode {
     fn id(&self) -> usize {
         self.id as _
     }
@@ -495,338 +387,77 @@ impl EthereumNode for LighthouseGethNode {
         &self.ws_connection_string
     }
 
-    #[instrument(
-        level = "info",
-        skip_all,
-        fields(lighthouse_node_id = self.id, connection_string = self.ws_connection_string),
-        err,
-    )]
-    fn submit_transaction(
-        &self,
-        transaction: TransactionRequest,
-    ) -> Pin<Box<dyn Future<Output = anyhow::Result<TxHash>> + '_>> {
-        Box::pin(async move {
-            let provider = self
-                .http_provider()
-                .await
-                .context("Failed to create the provider for transaction submission")?;
-            let pending_transaction = provider
-                .send_transaction(transaction)
-                .await
-                .context("Failed to submit the transaction through the provider")?;
-            Ok(*pending_transaction.tx_hash())
-        })
-    }
-
-    #[instrument(
-        level = "info",
-        skip_all,
-        fields(lighthouse_node_id = self.id, connection_string = self.ws_connection_string),
-    )]
-    fn get_receipt(
-        &self,
-        tx_hash: TxHash,
-    ) -> Pin<Box<dyn Future<Output = anyhow::Result<TransactionReceipt>> + '_>> {
-        Box::pin(async move {
-            self.ws_provider()
-                .await
-                .context("Failed to create provider for getting the receipt")?
-                .get_transaction_receipt(tx_hash)
-                .await
-                .context("Failed to get the receipt of the transaction")?
-                .context("Failed to get the receipt of the transaction")
-        })
-    }
-
-    #[instrument(
-        level = "info",
-        skip_all,
-        fields(lighthouse_node_id = self.id, connection_string = self.ws_connection_string),
-        err,
-    )]
-    fn execute_transaction(
-        &self,
-        transaction: TransactionRequest,
-    ) -> Pin<Box<dyn Future<Output = anyhow::Result<TransactionReceipt>> + '_>> {
-        Box::pin(async move {
-            self.provider()
-                .await
-                .context("Failed to create provider for transaction submission")?
-                .send_transaction(transaction)
-                .await
-                .context("Encountered an error when submitting a transaction")?
-                .get_receipt()
-                .await
-                .context("Failed to get the receipt for the transaction")
-        })
-    }
-
-    #[instrument(level = "info", skip_all, fields(lighthouse_node_id = self.id))]
-    fn trace_transaction(
-        &self,
-        tx_hash: TxHash,
-        trace_options: GethDebugTracingOptions,
-    ) -> Pin<Box<dyn Future<Output = anyhow::Result<GethTrace>> + '_>> {
-        Box::pin(async move {
-            self.provider()
-                .await
-                .context("Failed to create provider for tracing")?
-                .debug_trace_transaction(tx_hash, trace_options)
-                .await
-                .context("Failed to get the transaction trace")
-        })
-    }
-
-    #[instrument(level = "info", skip_all, fields(lighthouse_node_id = self.id))]
-    fn state_diff(
-        &self,
-        tx_hash: TxHash,
-    ) -> Pin<Box<dyn Future<Output = anyhow::Result<DiffMode>> + '_>> {
-        Box::pin(async move {
-            let trace_options = GethDebugTracingOptions::prestate_tracer(PreStateConfig {
-                diff_mode: Some(true),
-                disable_code: None,
-                disable_storage: None,
-            });
-            match self
-                .trace_transaction(tx_hash, trace_options)
-                .await
-                .context("Failed to trace transaction for prestate diff")?
-                .try_into_pre_state_frame()
-                .context("Failed to convert trace into pre-state frame")?
-            {
-                PreStateFrame::Diff(diff) => Ok(diff),
-                _ => anyhow::bail!("expected a diff mode trace"),
-            }
-        })
-    }
-
-    #[instrument(level = "info", skip_all, fields(lighthouse_node_id = self.id))]
-    fn balance_of(
-        &self,
-        address: Address,
-    ) -> Pin<Box<dyn Future<Output = anyhow::Result<U256>> + '_>> {
-        Box::pin(async move {
-            self.ws_provider()
-                .await
-                .context("Failed to get the Geth provider")?
-                .get_balance(address)
-                .await
-                .map_err(Into::into)
-        })
-    }
-
-    #[instrument(level = "info", skip_all, fields(lighthouse_node_id = self.id))]
-    fn latest_state_proof(
-        &self,
-        address: Address,
-        keys: Vec<StorageKey>,
-    ) -> Pin<Box<dyn Future<Output = anyhow::Result<EIP1186AccountProofResponse>> + '_>> {
-        Box::pin(async move {
-            self.ws_provider()
-                .await
-                .context("Failed to get the Geth provider")?
-                .get_proof(address, keys)
-                .latest()
-                .await
-                .map_err(Into::into)
-        })
-    }
-
-    #[instrument(level = "info", skip_all, fields(lighthouse_node_id = self.id))]
-    fn resolver(
-        &self,
-    ) -> Pin<Box<dyn Future<Output = anyhow::Result<Arc<dyn ResolverApi + '_>>> + '_>> {
-        Box::pin(async move {
-            let id = self.id;
-            let provider = self.ws_provider().await?;
-            Ok(Arc::new(LighthouseGethNodeResolver { id, provider }) as Arc<dyn ResolverApi>)
-        })
-    }
-
     fn evm_version(&self) -> EVMVersion {
         EVMVersion::Cancun
     }
 
-    fn subscribe_to_full_blocks_information(
+    fn submit_transaction(
         &self,
-    ) -> Pin<
-        Box<
-            dyn Future<Output = anyhow::Result<Pin<Box<dyn Stream<Item = MinedBlockInformation>>>>>
-                + '_,
-        >,
-    > {
+        mut transaction: TransactionRequest,
+    ) -> FrameworkFuture<Result<alloy::primitives::TxHash>> {
+        transaction.set_gas_price(20_000 * GWEI_TO_WEI as u128);
+        let provider = self.provider();
         Box::pin(async move {
-            let provider = self.ws_provider().await?;
-            let block_subscription = provider.subscribe_full_blocks().channel_size(1024);
-            let block_stream = block_subscription
-                .into_stream()
+            provider
                 .await
-                .context("Failed to create the block stream")?;
+                .context("Failed to get the provider")?
+                .send_transaction(transaction)
+                .await
+                .context("Failed to submit transaction")
+                .map(|pending_transaction| *pending_transaction.tx_hash())
+        })
+    }
 
-            let mined_block_information_stream = block_stream.filter_map(|block| async {
-                let block = block.ok()?;
-                Some(MinedBlockInformation {
-                    ethereum_block_information: EthereumMinedBlockInformation {
-                        block_number: block.number(),
-                        block_timestamp: block.header.timestamp,
-                        mined_gas: block.header.gas_used as _,
-                        block_gas_limit: block.header.gas_limit as _,
-                        transaction_hashes: block
-                            .transactions
-                            .into_hashes()
-                            .as_hashes()
-                            .expect("Must be hashes")
-                            .to_vec(),
-                    },
-                    substrate_block_information: None,
-                    tx_counts: Default::default(),
+    fn provider(&self) -> FrameworkFuture<anyhow::Result<DynProvider>> {
+        let provider = self.persistent_ws_provider.clone();
+        let connection_string = self.ws_connection_string.clone();
+        let gas_filler =
+            FallbackGasFiller::default().with_fallback_mechanism(self.use_fallback_gas_filler);
+        let nonce_filler = NonceFiller::new(self.nonce_manager.clone());
+        let wallet = self.wallet.clone();
+
+        Box::pin(async move {
+            provider
+                .get_or_try_init(|| async move {
+                    construct_concurrency_limited_provider::<Ethereum, _>(
+                        &connection_string,
+                        gas_filler,
+                        ChainIdFiller::default(),
+                        nonce_filler,
+                        wallet,
+                    )
+                    .await
+                    .context("Failed to construct the provider")
                 })
-            });
-
-            Ok(Box::pin(mined_block_information_stream)
-                as Pin<Box<dyn Stream<Item = MinedBlockInformation>>>)
-        })
-    }
-
-    fn provider(
-        &self,
-    ) -> Pin<Box<dyn Future<Output = anyhow::Result<alloy::providers::DynProvider<Ethereum>>> + '_>>
-    {
-        Box::pin(
-            self.http_provider()
-                .map(|provider| provider.map(|provider| provider.erased())),
-        )
-    }
-}
-
-pub struct LighthouseGethNodeResolver<F: TxFiller<Ethereum>, P: Provider<Ethereum>> {
-    id: u32,
-    provider: FillProvider<F, P, Ethereum>,
-}
-
-impl<F: TxFiller<Ethereum>, P: Provider<Ethereum>> ResolverApi
-    for LighthouseGethNodeResolver<F, P>
-{
-    #[instrument(level = "info", skip_all, fields(lighthouse_node_id = self.id))]
-    fn chain_id(
-        &self,
-    ) -> Pin<Box<dyn Future<Output = anyhow::Result<alloy::primitives::ChainId>> + '_>> {
-        Box::pin(async move { self.provider.get_chain_id().await.map_err(Into::into) })
-    }
-
-    #[instrument(level = "info", skip_all, fields(lighthouse_node_id = self.id))]
-    fn transaction_gas_price(
-        &self,
-        tx_hash: TxHash,
-    ) -> Pin<Box<dyn Future<Output = anyhow::Result<u128>> + '_>> {
-        Box::pin(async move {
-            self.provider
-                .get_transaction_receipt(tx_hash)
-                .await?
-                .context("Failed to get the transaction receipt")
-                .map(|receipt| receipt.effective_gas_price)
-        })
-    }
-
-    #[instrument(level = "info", skip_all, fields(lighthouse_node_id = self.id))]
-    fn block_gas_limit(
-        &self,
-        number: BlockNumberOrTag,
-    ) -> Pin<Box<dyn Future<Output = anyhow::Result<u128>> + '_>> {
-        Box::pin(async move {
-            self.provider
-                .get_block_by_number(number)
                 .await
-                .context("Failed to get the geth block")?
-                .context("Failed to get the Geth block, perhaps there are no blocks?")
-                .map(|block| block.header.gas_limit as _)
+                .map(|provider| provider.clone().erased())
         })
     }
 
-    #[instrument(level = "info", skip_all, fields(lighthouse_node_id = self.id))]
-    fn block_coinbase(
-        &self,
-        number: BlockNumberOrTag,
-    ) -> Pin<Box<dyn Future<Output = anyhow::Result<Address>> + '_>> {
-        Box::pin(async move {
-            self.provider
-                .get_block_by_number(number)
-                .await
-                .context("Failed to get the geth block")?
-                .context("Failed to get the Geth block, perhaps there are no blocks?")
-                .map(|block| block.header.beneficiary)
-        })
-    }
+    fn subscriptions_provider(&self) -> FrameworkFuture<anyhow::Result<DynProvider>> {
+        let provider = self.persistent_ws_subscriptions_provider.clone();
+        let connection_string = self.ws_connection_string.clone();
+        let gas_filler =
+            FallbackGasFiller::default().with_fallback_mechanism(self.use_fallback_gas_filler);
+        let nonce_filler = NonceFiller::new(self.nonce_manager.clone());
+        let wallet = self.wallet.clone();
 
-    #[instrument(level = "info", skip_all, fields(lighthouse_node_id = self.id))]
-    fn block_difficulty(
-        &self,
-        number: BlockNumberOrTag,
-    ) -> Pin<Box<dyn Future<Output = anyhow::Result<U256>> + '_>> {
         Box::pin(async move {
-            self.provider
-                .get_block_by_number(number)
-                .await
-                .context("Failed to get the geth block")?
-                .context("Failed to get the Geth block, perhaps there are no blocks?")
-                .map(|block| U256::from_be_bytes(block.header.mix_hash.0))
-        })
-    }
-
-    #[instrument(level = "info", skip_all, fields(lighthouse_node_id = self.id))]
-    fn block_base_fee(
-        &self,
-        number: BlockNumberOrTag,
-    ) -> Pin<Box<dyn Future<Output = anyhow::Result<u64>> + '_>> {
-        Box::pin(async move {
-            self.provider
-                .get_block_by_number(number)
-                .await
-                .context("Failed to get the geth block")?
-                .context("Failed to get the Geth block, perhaps there are no blocks?")
-                .and_then(|block| {
-                    block
-                        .header
-                        .base_fee_per_gas
-                        .context("Failed to get the base fee per gas")
+            provider
+                .get_or_try_init(|| async move {
+                    construct_concurrency_limited_provider::<Ethereum, _>(
+                        &connection_string,
+                        gas_filler,
+                        ChainIdFiller::default(),
+                        nonce_filler,
+                        wallet,
+                    )
+                    .await
+                    .context("Failed to construct the provider")
                 })
-        })
-    }
-
-    #[instrument(level = "info", skip_all, fields(lighthouse_node_id = self.id))]
-    fn block_hash(
-        &self,
-        number: BlockNumberOrTag,
-    ) -> Pin<Box<dyn Future<Output = anyhow::Result<BlockHash>> + '_>> {
-        Box::pin(async move {
-            self.provider
-                .get_block_by_number(number)
                 .await
-                .context("Failed to get the geth block")?
-                .context("Failed to get the Geth block, perhaps there are no blocks?")
-                .map(|block| block.header.hash)
+                .map(|provider| provider.clone().erased())
         })
-    }
-
-    #[instrument(level = "info", skip_all, fields(lighthouse_node_id = self.id))]
-    fn block_timestamp(
-        &self,
-        number: BlockNumberOrTag,
-    ) -> Pin<Box<dyn Future<Output = anyhow::Result<BlockTimestamp>> + '_>> {
-        Box::pin(async move {
-            self.provider
-                .get_block_by_number(number)
-                .await
-                .context("Failed to get the geth block")?
-                .context("Failed to get the Geth block, perhaps there are no blocks?")
-                .map(|block| block.header.timestamp)
-        })
-    }
-
-    #[instrument(level = "info", skip_all, fields(lighthouse_node_id = self.id))]
-    fn last_block_number(&self) -> Pin<Box<dyn Future<Output = anyhow::Result<BlockNumber>> + '_>> {
-        Box::pin(async move { self.provider.get_block_number().await.map_err(Into::into) })
     }
 }
 
@@ -876,6 +507,8 @@ impl Node for LighthouseGethNode {
         }
 
         drop(self.process.take());
+
+        let _ = remove_dir_all(self.wrapper_directory.as_path());
 
         Ok(())
     }
@@ -966,6 +599,7 @@ struct NetworkParameters {
     pub capella_fork_epoch: u64,
     pub deneb_fork_epoch: u64,
     pub electra_fork_epoch: u64,
+    pub fulu_fork_epoch: u64,
 
     pub preregistered_validator_keys_mnemonic: String,
 
@@ -1074,7 +708,6 @@ mod tests {
     async fn node_mines_simple_transfer_transaction_and_returns_receipt() {
         // Arrange
         let (context, node) = new_node();
-        node.fund_all_accounts().await.expect("Failed");
 
         let account_address = context.wallet.wallet().default_signer().address();
         let transaction = TransactionRequest::default()
@@ -1103,122 +736,5 @@ mod tests {
             version.starts_with("CLI Version"),
             "expected version string, got: '{version}'"
         );
-    }
-
-    #[tokio::test]
-    #[ignore = "Ignored since they take a long time to run"]
-    async fn can_get_chain_id_from_node() {
-        // Arrange
-        let (_context, node) = new_node();
-
-        // Act
-        let chain_id = node.resolver().await.unwrap().chain_id().await;
-
-        // Assert
-        let chain_id = chain_id.expect("Failed to get the chain id");
-        assert_eq!(chain_id, 420_420_420);
-    }
-
-    #[tokio::test]
-    #[ignore = "Ignored since they take a long time to run"]
-    async fn can_get_gas_limit_from_node() {
-        // Arrange
-        let (_context, node) = new_node();
-
-        // Act
-        let gas_limit = node
-            .resolver()
-            .await
-            .unwrap()
-            .block_gas_limit(BlockNumberOrTag::Latest)
-            .await;
-
-        // Assert
-        let _ = gas_limit.expect("Failed to get the gas limit");
-    }
-
-    #[tokio::test]
-    #[ignore = "Ignored since they take a long time to run"]
-    async fn can_get_coinbase_from_node() {
-        // Arrange
-        let (_context, node) = new_node();
-
-        // Act
-        let coinbase = node
-            .resolver()
-            .await
-            .unwrap()
-            .block_coinbase(BlockNumberOrTag::Latest)
-            .await;
-
-        // Assert
-        let _ = coinbase.expect("Failed to get the coinbase");
-    }
-
-    #[tokio::test]
-    #[ignore = "Ignored since they take a long time to run"]
-    async fn can_get_block_difficulty_from_node() {
-        // Arrange
-        let (_context, node) = new_node();
-
-        // Act
-        let block_difficulty = node
-            .resolver()
-            .await
-            .unwrap()
-            .block_difficulty(BlockNumberOrTag::Latest)
-            .await;
-
-        // Assert
-        let _ = block_difficulty.expect("Failed to get the block difficulty");
-    }
-
-    #[tokio::test]
-    #[ignore = "Ignored since they take a long time to run"]
-    async fn can_get_block_hash_from_node() {
-        // Arrange
-        let (_context, node) = new_node();
-
-        // Act
-        let block_hash = node
-            .resolver()
-            .await
-            .unwrap()
-            .block_hash(BlockNumberOrTag::Latest)
-            .await;
-
-        // Assert
-        let _ = block_hash.expect("Failed to get the block hash");
-    }
-
-    #[tokio::test]
-    #[ignore = "Ignored since they take a long time to run"]
-    async fn can_get_block_timestamp_from_node() {
-        // Arrange
-        let (_context, node) = new_node();
-
-        // Act
-        let block_timestamp = node
-            .resolver()
-            .await
-            .unwrap()
-            .block_timestamp(BlockNumberOrTag::Latest)
-            .await;
-
-        // Assert
-        let _ = block_timestamp.expect("Failed to get the block timestamp");
-    }
-
-    #[tokio::test]
-    #[ignore = "Ignored since they take a long time to run"]
-    async fn can_get_block_number_from_node() {
-        // Arrange
-        let (_context, node) = new_node();
-
-        // Act
-        let block_number = node.resolver().await.unwrap().last_block_number().await;
-
-        // Assert
-        let _ = block_number.expect("Failed to get the block number");
     }
 }

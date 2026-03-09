@@ -1,9 +1,4 @@
-use std::{
-    fs::{read_dir, remove_dir_all, remove_file},
-    path::Path,
-};
-
-use anyhow::{Context, Result};
+use crate::internal_prelude::*;
 
 /// This method clears the passed directory of all of the files and directories contained within
 /// without deleting the directory.

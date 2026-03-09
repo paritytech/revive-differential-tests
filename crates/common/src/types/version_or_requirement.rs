@@ -1,4 +1,4 @@
-use semver::{Version, VersionReq};
+use crate::internal_prelude::*;
 
 #[derive(Clone, Debug)]
 pub enum VersionOrRequirement {

@@ -1,25 +1,8 @@
 //! The main entry point for differential benchmarking.
 
-use std::{collections::BTreeMap, sync::Arc};
+use crate::internal_prelude::*;
 
-use anyhow::Context as _;
-use futures::{FutureExt, StreamExt};
-use revive_dt_common::types::PrivateKeyAllocator;
-use revive_dt_core::Platform;
-use revive_dt_format::{
-    corpus::Corpus,
-    steps::{Step, StepIdx, StepPath},
-};
-use tokio::sync::Mutex;
-use tracing::{Instrument, error, info, info_span, instrument, warn};
-
-use revive_dt_config::{Benchmark, Context};
-use revive_dt_report::Reporter;
-
-use crate::{
-    differential_benchmarks::{Driver, InclusionWatcher, Watcher, WatcherEvent},
-    helpers::{CachedCompiler, NodePool, create_test_definitions_stream},
-};
+use crate::differential_benchmarks::Driver;
 
 /// Handles the differential testing executing it according to the information defined in the
 /// context
@@ -132,6 +115,10 @@ pub async fn handle_differential_benchmarks(
         let span = info_span!("Benchmarking for the platform", %platform_identifier);
         let _guard = span.enter();
 
+        let private_key_allocator = Arc::new(Mutex::new(PrivateKeyAllocator::new(
+            context.wallet.highest_private_key_exclusive(),
+        )));
+
         for test_definition in test_definitions.iter() {
             let platform_information = &test_definition.platforms[&platform_identifier];
 
@@ -144,9 +131,7 @@ pub async fn handle_differential_benchmarks(
             let _guard = span.enter();
 
             // Initializing all of the components requires to execute this particular workload.
-            let private_key_allocator = Arc::new(Mutex::new(PrivateKeyAllocator::new(
-                context.wallet.highest_private_key_exclusive(),
-            )));
+            let private_key_allocator = private_key_allocator.clone();
             let (watcher, watcher_tx) = Watcher::new(
                 platform_information
                     .node
@@ -163,8 +148,19 @@ pub async fn handle_differential_benchmarks(
                 private_key_allocator,
                 cached_compiler.as_ref(),
                 watcher_tx.clone(),
-                context.benchmark_run.await_transaction_inclusion,
+                false,
                 &inclusion_watcher,
+                match platform_information
+                    .platform
+                    .benchmarking_submissions_behavior()
+                {
+                    revive_dt_core::BenchmarksSubmissionsBehavior::Stream => Arc::new(None),
+                    revive_dt_core::BenchmarksSubmissionsBehavior::Bursts {
+                        submissions_per_seconds,
+                    } => Arc::new(Some(DefaultDirectRateLimiter::direct(Quota::per_second(
+                        submissions_per_seconds.try_into().unwrap(),
+                    )))),
+                },
                 test_definition
                     .case
                     .steps_iterator_for_benchmarks(context.benchmark_run.default_repetition_count)
@@ -176,34 +172,46 @@ pub async fn handle_differential_benchmarks(
             .await
             .context("Failed to create the benchmarks driver")?;
 
-            futures::future::try_join3(
-                watcher.run(),
-                driver
-                    .execute_all()
-                    .instrument(info_span!("Executing Benchmarks", %platform_identifier))
-                    .inspect(|_| {
-                        info!("All transactions submitted - driver completed execution");
-                        watcher_tx
-                            .send(WatcherEvent::AllTransactionsSubmitted)
-                            .unwrap();
-                        inclusion_watcher.stop();
-                    }),
-                inclusion_watcher
-                    .run(
-                        platform_information
-                            .node
-                            .subscribe_to_full_blocks_information()
-                            .await
-                            .context(
-                                "Failed to subscribe to full blocks information from the node",
-                            )?,
-                    )
-                    .map(|_| anyhow::Result::Ok(())),
-            )
-            .await
-            .context("Failed to run the driver and executor")
-            .inspect(|(_, steps_executed, _)| info!(steps_executed, "Workload Execution Succeeded"))
-            .inspect_err(|err| error!(?err, "Workload Execution Failed"))?;
+            // Running the auxiliary tasks
+            let watcher_task = tokio::spawn(watcher.run().instrument(info_span!(
+                "Running Watcher",
+                %platform_identifier,
+                case_name = %test_definition.case.name.clone().unwrap_or_default()
+            )));
+            let inclusion_watcher_task = tokio::spawn(
+                inclusion_watcher.run(
+                    platform_information
+                        .node
+                        .subscribe_to_transaction_inclusions()
+                        .await
+                        .context("Failed to subscribe to full blocks information from the node")?,
+                ),
+            );
+
+            // Running the driver.
+            driver
+                .execute_all()
+                .instrument(info_span!(
+                    "Executing Benchmarks",
+                    %platform_identifier,
+                    case_name = %test_definition.case.name.clone().unwrap_or_default()
+                ))
+                .inspect(|_| {
+                    info!("All transactions submitted - driver completed execution");
+                })
+                .await
+                .context("Failed to run the driver and executor")
+                .inspect(|steps_executed| info!(steps_executed, "Workload Execution Succeeded"))
+                .inspect_err(|err| error!(?err, "Workload Execution Failed"))?;
+
+            // Stopping auxiliary tasks.
+            watcher_tx
+                .send(WatcherEvent::AllTransactionsSubmitted)
+                .unwrap();
+            inclusion_watcher.stop();
+
+            let _ = watcher_task.await;
+            let _ = inclusion_watcher_task.await;
         }
     }
 

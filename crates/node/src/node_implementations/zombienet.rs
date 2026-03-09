@@ -26,58 +26,9 @@
 //! Make sure to add the build output directories to your PATH or provide
 //! the full paths in your configuration.
 
-use std::{
-    fs::{create_dir_all, remove_dir_all},
-    path::{Path, PathBuf},
-    pin::Pin,
-    process::{Command, Stdio},
-    sync::{
-        Arc,
-        atomic::{AtomicU32, Ordering},
-    },
-    time::Duration,
-};
+#![allow(dead_code)]
 
-use alloy::{
-    eips::BlockNumberOrTag,
-    genesis::Genesis,
-    network::{Ethereum, EthereumWallet, NetworkWallet},
-    primitives::{Address, BlockHash, BlockNumber, BlockTimestamp, StorageKey, TxHash, U256},
-    providers::{
-        Provider,
-        ext::DebugApi,
-        fillers::{CachedNonceManager, ChainIdFiller, FillProvider, NonceFiller, TxFiller},
-    },
-    rpc::types::{
-        EIP1186AccountProofResponse, TransactionReceipt, TransactionRequest,
-        trace::geth::{DiffMode, GethDebugTracingOptions, PreStateConfig, PreStateFrame},
-    },
-};
-
-use anyhow::Context as _;
-use futures::{FutureExt, Stream, StreamExt};
-use revive_common::EVMVersion;
-use revive_dt_common::fs::clear_directory;
-use revive_dt_config::*;
-use revive_dt_format::traits::ResolverApi;
-use revive_dt_node_interaction::*;
-use revive_dt_report::{
-    EthereumMinedBlockInformation, MinedBlockInformation, SubstrateMinedBlockInformation,
-};
-use serde_json::json;
-use sp_core::crypto::Ss58Codec;
-use sp_runtime::AccountId32;
-use subxt::{OnlineClient, SubstrateConfig};
-use tokio::sync::OnceCell;
-use tracing::instrument;
-use zombienet_sdk::{LocalFileSystem, NetworkConfig, NetworkConfigExt};
-
-use crate::{
-    Node,
-    constants::INITIAL_BALANCE,
-    helpers::{Process, ProcessReadinessWaitBehavior},
-    provider_utils::{ConcreteProvider, FallbackGasFiller, construct_concurrency_limited_provider},
-};
+use crate::internal_prelude::*;
 
 static NODE_COUNT: AtomicU32 = AtomicU32::new(0);
 
@@ -111,7 +62,8 @@ pub struct ZombienetNode {
     wallet: Arc<EthereumWallet>,
     nonce_manager: CachedNonceManager,
 
-    provider: OnceCell<ConcreteProvider<Ethereum, Arc<EthereumWallet>>>,
+    provider: Arc<OnceCell<ConcreteProvider<Ethereum, Arc<EthereumWallet>>>>,
+    substrate_provider: Arc<OnceCell<OnlineClient<SubstrateConfig>>>,
 
     use_fallback_gas_filler: bool,
 
@@ -125,7 +77,6 @@ pub struct ZombienetNode {
 
 impl ZombienetNode {
     const BASE_DIRECTORY: &str = "zombienet";
-    const DATA_DIRECTORY: &str = "data";
     const LOGS_DIRECTORY: &str = "logs";
 
     const ETH_RPC_BASE_PORT: u16 = 8545;
@@ -169,6 +120,7 @@ impl ZombienetNode {
             connection_string: String::new(),
             collator_ws_uri: None,
             provider: Default::default(),
+            substrate_provider: Default::default(),
             use_fallback_gas_filler,
             eth_rpc_logging_level: context.as_eth_rpc_configuration().logging_level.clone(),
             zombienet_runtime: None,
@@ -193,7 +145,12 @@ impl ZombienetNode {
         let mut toml_value: toml::Value =
             toml::from_str(&toml_content).context("Failed to parse zombienet TOML")?;
 
+        super::zombienet_core_assignment::inject_core_assignments(
+            &mut toml_value,
+            &self.base_directory,
+        )?;
         self.inject_prefunded_chainspec(&mut toml_value)?;
+        self.make_node_names_unique(&mut toml_value);
 
         let modified_toml_path = self.base_directory.join("zombienet.toml");
         std::fs::write(
@@ -212,6 +169,50 @@ impl ZombienetNode {
         self.network_config = Some(network_config);
 
         Ok(self)
+    }
+
+    /// Appends the node's numeric ID to every node name in the TOML config so that each
+    /// Zombienet instance gets unique libp2p peer identities. Without this, two instances
+    /// spawned from the same TOML would have identical node keys (derived from
+    /// `SHA256(node_name)`) and discover/interfere with each other.
+    fn make_node_names_unique(&self, toml_value: &mut toml::Value) {
+        let suffix = format!("-{}", self.id);
+
+        let append_suffix = |nodes: &mut Vec<toml::Value>| {
+            for node in nodes.iter_mut() {
+                if let Some(name) = node
+                    .get_mut("name")
+                    .and_then(|v| v.as_str().map(String::from))
+                {
+                    node.as_table_mut().unwrap().insert(
+                        "name".into(),
+                        toml::Value::String(format!("{name}{suffix}")),
+                    );
+                }
+            }
+        };
+
+        if let Some(nodes) = toml_value
+            .get_mut("relaychain")
+            .and_then(|r| r.get_mut("nodes"))
+            .and_then(|n| n.as_array_mut())
+        {
+            append_suffix(nodes);
+        }
+
+        if let Some(parachains) = toml_value
+            .get_mut("parachains")
+            .and_then(|p| p.as_array_mut())
+        {
+            for parachain in parachains.iter_mut() {
+                if let Some(collators) = parachain
+                    .get_mut("collators")
+                    .and_then(|c| c.as_array_mut())
+                {
+                    append_suffix(collators);
+                }
+            }
+        }
     }
 
     /// Runs the parachain's `chain_spec_command`, appends wallet balances to the generated
@@ -256,14 +257,7 @@ impl ZombienetNode {
             .context("Failed to parse chainspec JSON")?;
 
         // Append wallet balances to the existing balances array.
-        let balances = chainspec["genesis"]["runtimeGenesis"]["patch"]["balances"]["balances"]
-            .as_array_mut()
-            .context("Failed to find balances array in chainspec")?;
-
-        for address in NetworkWallet::<Ethereum>::signer_addresses(&self.wallet) {
-            let substrate_address = Self::eth_to_polkadot_address(&address);
-            balances.push(json!((substrate_address, INITIAL_BALANCE)));
-        }
+        inject_wallet_balances(&mut chainspec, &self.wallet)?;
 
         // Write the pre-funded chainspec to a file.
         let chainspec_path = self.base_directory.join("chainspec.json");
@@ -347,6 +341,8 @@ impl ZombienetNode {
                     .arg(100_000u32.to_string())
                     .arg("--cache-size")
                     .arg(100_000u32.to_string())
+                    .arg("--rpc-max-batch-request-len")
+                    .arg(u32::MAX.to_string())
                     .env("RUST_LOG", self.eth_rpc_logging_level.as_str())
                     .stdout(stdout_file)
                     .stderr(stderr_file);
@@ -389,7 +385,10 @@ impl ZombienetNode {
         tracing::info!("Waiting for parachain to produce first block...");
 
         let connection_string = self.connection_string.clone();
-        let rt = tokio::runtime::Runtime::new().context("Failed to create runtime")?;
+        let rt = self
+            .zombienet_runtime
+            .as_ref()
+            .context("Zombienet runtime not available")?;
         rt.block_on(async {
             let provider = alloy::providers::ProviderBuilder::new().connect_http(
                 connection_string
@@ -424,16 +423,6 @@ impl ZombienetNode {
                 }
             }
         })
-    }
-
-    fn eth_to_polkadot_address(address: &Address) -> String {
-        let eth_bytes = address.0.0;
-
-        let mut padded = [0xEEu8; 32];
-        padded[..20].copy_from_slice(&eth_bytes);
-
-        let account_id = AccountId32::from(padded);
-        account_id.to_ss58check()
     }
 
     pub fn eth_rpc_version(&self) -> anyhow::Result<String> {
@@ -491,26 +480,13 @@ impl ZombienetNode {
         let mut chainspec_json = serde_json::from_str::<serde_json::Value>(&content)
             .context("Failed to parse Substrate chain spec JSON")?;
 
-        let existing_chainspec_balances =
-            chainspec_json["genesis"]["runtimeGenesis"]["patch"]["balances"]["balances"]
-                .as_array_mut()
-                .expect("Can't fail");
-
-        for address in NetworkWallet::<Ethereum>::signer_addresses(wallet) {
-            let substrate_address = Self::eth_to_polkadot_address(&address);
-            let balance = INITIAL_BALANCE;
-            existing_chainspec_balances.push(json!((substrate_address, balance)));
-        }
+        inject_wallet_balances(&mut chainspec_json, wallet)?;
 
         Ok(chainspec_json)
     }
 }
 
-impl EthereumNode for ZombienetNode {
-    fn pre_transactions(&mut self) -> Pin<Box<dyn Future<Output = anyhow::Result<()>> + '_>> {
-        Box::pin(async move { Ok(()) })
-    }
-
+impl NodeApi for ZombienetNode {
     fn id(&self) -> usize {
         self.id as _
     }
@@ -519,366 +495,53 @@ impl EthereumNode for ZombienetNode {
         &self.connection_string
     }
 
-    fn submit_transaction(
-        &self,
-        transaction: TransactionRequest,
-    ) -> Pin<Box<dyn Future<Output = anyhow::Result<TxHash>> + '_>> {
-        Box::pin(async move {
-            let provider = self
-                .provider()
-                .await
-                .context("Failed to create the provider for transaction submission")?;
-            let pending_transaction = provider
-                .send_transaction(transaction)
-                .await
-                .context("Failed to submit the transaction through the provider")?;
-            Ok(*pending_transaction.tx_hash())
-        })
-    }
-
-    fn get_receipt(
-        &self,
-        tx_hash: TxHash,
-    ) -> Pin<Box<dyn Future<Output = anyhow::Result<TransactionReceipt>> + '_>> {
-        Box::pin(async move {
-            self.provider()
-                .await
-                .context("Failed to create provider for getting the receipt")?
-                .get_transaction_receipt(tx_hash)
-                .await
-                .context("Failed to get the receipt of the transaction")?
-                .context("Failed to get the receipt of the transaction")
-        })
-    }
-
-    fn execute_transaction(
-        &self,
-        transaction: TransactionRequest,
-    ) -> Pin<Box<dyn Future<Output = anyhow::Result<TransactionReceipt>> + '_>> {
-        Box::pin(async move {
-            self.provider()
-                .await
-                .context("Failed to create provider for transaction submission")?
-                .send_transaction(transaction)
-                .await
-                .context("Encountered an error when submitting a transaction")?
-                .get_receipt()
-                .await
-                .context("Failed to get the receipt for the transaction")
-        })
-    }
-
-    fn trace_transaction(
-        &self,
-        tx_hash: TxHash,
-        trace_options: GethDebugTracingOptions,
-    ) -> Pin<Box<dyn Future<Output = anyhow::Result<alloy::rpc::types::trace::geth::GethTrace>> + '_>>
-    {
-        Box::pin(async move {
-            self.provider()
-                .await
-                .context("Failed to create provider for debug tracing")?
-                .debug_trace_transaction(tx_hash, trace_options)
-                .await
-                .context("Failed to obtain debug trace from proxy")
-        })
-    }
-
-    fn state_diff(
-        &self,
-        tx_hash: TxHash,
-    ) -> Pin<Box<dyn Future<Output = anyhow::Result<DiffMode>> + '_>> {
-        Box::pin(async move {
-            let trace_options = GethDebugTracingOptions::prestate_tracer(PreStateConfig {
-                diff_mode: Some(true),
-                disable_code: None,
-                disable_storage: None,
-            });
-            match self
-                .trace_transaction(tx_hash, trace_options)
-                .await?
-                .try_into_pre_state_frame()?
-            {
-                PreStateFrame::Diff(diff) => Ok(diff),
-                _ => anyhow::bail!("expected a diff mode trace"),
-            }
-        })
-    }
-
-    fn balance_of(
-        &self,
-        address: Address,
-    ) -> Pin<Box<dyn Future<Output = anyhow::Result<U256>> + '_>> {
-        Box::pin(async move {
-            self.provider()
-                .await
-                .context("Failed to get the zombie provider")?
-                .get_balance(address)
-                .await
-                .map_err(Into::into)
-        })
-    }
-
-    fn latest_state_proof(
-        &self,
-        address: Address,
-        keys: Vec<StorageKey>,
-    ) -> Pin<Box<dyn Future<Output = anyhow::Result<EIP1186AccountProofResponse>> + '_>> {
-        Box::pin(async move {
-            self.provider()
-                .await
-                .context("Failed to get the zombie provider")?
-                .get_proof(address, keys)
-                .latest()
-                .await
-                .map_err(Into::into)
-        })
-    }
-
-    fn resolver(
-        &self,
-    ) -> Pin<Box<dyn Future<Output = anyhow::Result<Arc<dyn ResolverApi + '_>>> + '_>> {
-        Box::pin(async move {
-            let id = self.id;
-            let provider = self.provider().await?;
-
-            Ok(Arc::new(ZombieNodeResolver { id, provider }) as Arc<dyn ResolverApi>)
-        })
-    }
-
     fn evm_version(&self) -> EVMVersion {
         EVMVersion::Cancun
     }
 
-    fn subscribe_to_full_blocks_information(
-        &self,
-    ) -> Pin<
-        Box<
-            dyn Future<Output = anyhow::Result<Pin<Box<dyn Stream<Item = MinedBlockInformation>>>>>
-                + '_,
-        >,
-    > {
-        #[subxt::subxt(runtime_metadata_path = "../../assets/revive_metadata.scale")]
-        pub mod revive {}
+    fn provider(&self) -> revive_dt_common::futures::FrameworkFuture<anyhow::Result<DynProvider>> {
+        let provider = self.provider.clone();
+        let connection_string = self.connection_string.clone();
+        let gas_filler =
+            FallbackGasFiller::default().with_fallback_mechanism(self.use_fallback_gas_filler);
+        let nonce_filler = NonceFiller::new(self.nonce_manager.clone());
+        let wallet = self.wallet.clone();
 
         Box::pin(async move {
-            let substrate_rpc_url = self
-                .collator_ws_uri
-                .as_ref()
-                .context("Collator WebSocket URI not available — node not spawned yet")?
-                .clone();
-            let api = OnlineClient::<SubstrateConfig>::from_url(substrate_rpc_url)
-                .await
-                .context("Failed to create subxt rpc client")?;
-            let provider = self.provider().await.context("Failed to create provider")?;
-
-            let block_stream = api
-                .blocks()
-                .subscribe_best()
-                .await
-                .context("Failed to subscribe to blocks")?;
-
-            let mined_block_information_stream = block_stream.filter_map(move |block| {
-                let api = api.clone();
-                let provider = provider.clone();
-
-                async move {
-                    let substrate_block = block.ok()?;
-                    let revive_block = provider
-                        .get_block_by_number(
-                            BlockNumberOrTag::Number(substrate_block.number() as _),
-                        )
-                        .await
-                        .expect("TODO: Remove")
-                        .expect("TODO: Remove");
-
-                    let used = api
-                        .storage()
-                        .at(substrate_block.reference())
-                        .fetch_or_default(&revive::storage().system().block_weight())
-                        .await
-                        .expect("TODO: Remove");
-
-                    let block_ref_time = (used.normal.ref_time as u128)
-                        + (used.operational.ref_time as u128)
-                        + (used.mandatory.ref_time as u128);
-                    let block_proof_size = (used.normal.proof_size as u128)
-                        + (used.operational.proof_size as u128)
-                        + (used.mandatory.proof_size as u128);
-
-                    let limits = api
-                        .constants()
-                        .at(&revive::constants().system().block_weights())
-                        .expect("TODO: Remove");
-
-                    let max_ref_time = limits.max_block.ref_time;
-                    let max_proof_size = limits.max_block.proof_size;
-
-                    Some(MinedBlockInformation {
-                        ethereum_block_information: EthereumMinedBlockInformation {
-                            block_number: revive_block.number(),
-                            block_timestamp: revive_block.header.timestamp,
-                            mined_gas: revive_block.header.gas_used as _,
-                            block_gas_limit: revive_block.header.gas_limit as _,
-                            transaction_hashes: revive_block
-                                .transactions
-                                .into_hashes()
-                                .as_hashes()
-                                .expect("Must be hashes")
-                                .to_vec(),
-                        },
-                        substrate_block_information: Some(SubstrateMinedBlockInformation {
-                            ref_time: block_ref_time,
-                            max_ref_time,
-                            proof_size: block_proof_size,
-                            max_proof_size,
-                        }),
-                        tx_counts: Default::default(),
-                    })
-                }
-            });
-
-            Ok(Box::pin(mined_block_information_stream)
-                as Pin<Box<dyn Stream<Item = MinedBlockInformation>>>)
-        })
-    }
-
-    fn provider(
-        &self,
-    ) -> Pin<Box<dyn Future<Output = anyhow::Result<alloy::providers::DynProvider<Ethereum>>> + '_>>
-    {
-        Box::pin(
-            self.provider()
-                .map(|provider| provider.map(|provider| provider.erased())),
-        )
-    }
-}
-
-pub struct ZombieNodeResolver<F: TxFiller<Ethereum>, P: Provider<Ethereum>> {
-    id: u32,
-    provider: FillProvider<F, P, Ethereum>,
-}
-
-impl<F: TxFiller<Ethereum>, P: Provider<Ethereum>> ResolverApi for ZombieNodeResolver<F, P> {
-    #[instrument(level = "info", skip_all, fields(zombie_node_id = self.id))]
-    fn chain_id(
-        &self,
-    ) -> Pin<Box<dyn Future<Output = anyhow::Result<alloy::primitives::ChainId>> + '_>> {
-        Box::pin(async move { self.provider.get_chain_id().await.map_err(Into::into) })
-    }
-
-    #[instrument(level = "info", skip_all, fields(zombie_node_id = self.id))]
-    fn transaction_gas_price(
-        &self,
-        tx_hash: TxHash,
-    ) -> Pin<Box<dyn Future<Output = anyhow::Result<u128>> + '_>> {
-        Box::pin(async move {
-            self.provider
-                .get_transaction_receipt(tx_hash)
-                .await?
-                .context("Failed to get the transaction receipt")
-                .map(|receipt| receipt.effective_gas_price)
-        })
-    }
-
-    #[instrument(level = "info", skip_all, fields(zombie_node_id = self.id))]
-    fn block_gas_limit(
-        &self,
-        number: BlockNumberOrTag,
-    ) -> Pin<Box<dyn Future<Output = anyhow::Result<u128>> + '_>> {
-        Box::pin(async move {
-            self.provider
-                .get_block_by_number(number)
-                .await
-                .context("Failed to get the block")?
-                .context("Failed to get the block, perhaps the chain has no blocks?")
-                .map(|block| block.header.gas_limit as _)
-        })
-    }
-
-    #[instrument(level = "info", skip_all, fields(zombie_node_id = self.id))]
-    fn block_coinbase(
-        &self,
-        number: BlockNumberOrTag,
-    ) -> Pin<Box<dyn Future<Output = anyhow::Result<Address>> + '_>> {
-        Box::pin(async move {
-            self.provider
-                .get_block_by_number(number)
-                .await
-                .context("Failed to get the zombie block")?
-                .context("Failed to get the zombie block, perhaps the chain has no blocks?")
-                .map(|block| block.header.beneficiary)
-        })
-    }
-
-    #[instrument(level = "info", skip_all, fields(zombie_node_id = self.id))]
-    fn block_difficulty(
-        &self,
-        number: BlockNumberOrTag,
-    ) -> Pin<Box<dyn Future<Output = anyhow::Result<U256>> + '_>> {
-        Box::pin(async move {
-            self.provider
-                .get_block_by_number(number)
-                .await
-                .context("Failed to get the zombie block")?
-                .context("Failed to get the zombie block, perhaps the chain has no blocks?")
-                .map(|block| U256::from_be_bytes(block.header.mix_hash.0))
-        })
-    }
-
-    #[instrument(level = "info", skip_all, fields(zombie_node_id = self.id))]
-    fn block_base_fee(
-        &self,
-        number: BlockNumberOrTag,
-    ) -> Pin<Box<dyn Future<Output = anyhow::Result<u64>> + '_>> {
-        Box::pin(async move {
-            self.provider
-                .get_block_by_number(number)
-                .await
-                .context("Failed to get the zombie block")?
-                .context("Failed to get the zombie block, perhaps the chain has no blocks?")
-                .and_then(|block| {
-                    block
-                        .header
-                        .base_fee_per_gas
-                        .context("Failed to get the base fee per gas")
+            provider
+                .get_or_try_init(|| async move {
+                    construct_concurrency_limited_provider::<Ethereum, _>(
+                        &connection_string,
+                        gas_filler,
+                        ChainIdFiller::default(),
+                        nonce_filler,
+                        wallet,
+                    )
+                    .await
+                    .context("Failed to construct the provider")
                 })
-        })
-    }
-
-    #[instrument(level = "info", skip_all, fields(zombie_node_id = self.id))]
-    fn block_hash(
-        &self,
-        number: BlockNumberOrTag,
-    ) -> Pin<Box<dyn Future<Output = anyhow::Result<BlockHash>> + '_>> {
-        Box::pin(async move {
-            self.provider
-                .get_block_by_number(number)
                 .await
-                .context("Failed to get the zombie block")?
-                .context("Failed to get the zombie block, perhaps the chain has no blocks?")
-                .map(|block| block.header.hash)
+                .map(|provider| provider.clone().erased())
         })
     }
 
-    #[instrument(level = "info", skip_all, fields(zombie_node_id = self.id))]
-    fn block_timestamp(
+    fn substrate_provider(
         &self,
-        number: BlockNumberOrTag,
-    ) -> Pin<Box<dyn Future<Output = anyhow::Result<BlockTimestamp>> + '_>> {
-        Box::pin(async move {
-            self.provider
-                .get_block_by_number(number)
+    ) -> Option<
+        revive_dt_common::futures::FrameworkFuture<anyhow::Result<OnlineClient<SubstrateConfig>>>,
+    > {
+        let provider = self.substrate_provider.clone();
+        let connection_string = self.collator_ws_uri.clone().unwrap_or_default();
+        Some(Box::pin(async move {
+            provider
+                .get_or_try_init(|| async move {
+                    OnlineClient::from_url(connection_string)
+                        .await
+                        .context("Failed to create a new online client")
+                })
                 .await
-                .context("Failed to get the zombie block")?
-                .context("Failed to get the zombie block, perhaps the chain has no blocks?")
-                .map(|block| block.header.timestamp)
-        })
-    }
-
-    #[instrument(level = "info", skip_all, fields(zombie_node_id = self.id))]
-    fn last_block_number(&self) -> Pin<Box<dyn Future<Output = anyhow::Result<BlockNumber>> + '_>> {
-        Box::pin(async move { self.provider.get_block_number().await.map_err(Into::into) })
+                .cloned()
+        }))
     }
 }
 
@@ -887,23 +550,22 @@ impl Node for ZombienetNode {
         // Kill the eth_rpc process
         drop(self.eth_rpc_process.take());
 
-        // Destroy the network
-        if let Some(network) = self.network.take() {
-            // Handle network cleanup here
-            tokio::task::spawn_blocking(move || {
-                let rt = tokio::runtime::Runtime::new().unwrap();
-                rt.block_on(async {
-                    if let Err(e) = network.destroy().await {
-                        tracing::warn!("Failed to destroy zombienet network: {e:?}");
-                    }
-                })
+        // Destroy the network on a dedicated thread to avoid "Cannot start a runtime from
+        // within a runtime" panics when drop is called from a tokio async context.
+        let _ = self
+            .zombienet_runtime
+            .take()
+            .zip(self.network.take())
+            .map(|(runtime, network)| {
+                let jh = std::thread::spawn(move || {
+                    runtime.block_on(async {
+                        if let Err(e) = network.destroy().await {
+                            tracing::warn!("Failed to destroy zombienet network: {e:?}");
+                        }
+                    })
+                });
+                let _ = jh.join();
             });
-        }
-
-        // Remove the database directory
-        if let Err(e) = remove_dir_all(self.base_directory.join(Self::DATA_DIRECTORY)) {
-            tracing::warn!("Failed to remove database directory: {e:?}");
-        }
 
         Ok(())
     }
@@ -935,9 +597,7 @@ impl Drop for ZombienetNode {
 
 #[cfg(test)]
 mod tests {
-    use alloy::rpc::types::TransactionRequest;
-
-    use crate::node_implementations::zombienet::tests::utils::shared_node;
+    use alloy::{primitives::U256, rpc::types::TransactionRequest};
 
     use super::*;
 
@@ -1013,53 +673,6 @@ mod tests {
 
     #[test]
     #[ignore = "Ignored since CI doesn't have zombienet installed"]
-    fn print_eth_to_polkadot_mappings() {
-        let eth_addresses = vec![
-            "0x90F8bf6A479f320ead074411a4B0e7944Ea8c9C1",
-            "0xffffffffffffffffffffffffffffffffffffffff",
-            "90F8bf6A479f320ead074411a4B0e7944Ea8c9C1",
-        ];
-
-        for eth_addr in eth_addresses {
-            let ss58 = ZombienetNode::eth_to_polkadot_address(&eth_addr.parse().unwrap());
-
-            println!("Ethereum: {eth_addr} -> Polkadot SS58: {ss58}");
-        }
-    }
-
-    #[test]
-    #[ignore = "Ignored since CI doesn't have zombienet installed"]
-    fn test_eth_to_polkadot_address() {
-        let cases = vec![
-            (
-                "0x90F8bf6A479f320ead074411a4B0e7944Ea8c9C1",
-                "5FLneRcWAfk3X3tg6PuGyLNGAquPAZez5gpqvyuf3yUK8VaV",
-            ),
-            (
-                "90F8bf6A479f320ead074411a4B0e7944Ea8c9C1",
-                "5FLneRcWAfk3X3tg6PuGyLNGAquPAZez5gpqvyuf3yUK8VaV",
-            ),
-            (
-                "0x0000000000000000000000000000000000000000",
-                "5C4hrfjw9DjXZTzV3MwzrrAr9P1MLDHajjSidz9bR544LEq1",
-            ),
-            (
-                "0xffffffffffffffffffffffffffffffffffffffff",
-                "5HrN7fHLXWcFiXPwwtq2EkSGns9eMmoUQnbVKweNz3VVr6N4",
-            ),
-        ];
-
-        for (eth_addr, expected_ss58) in cases {
-            let result = ZombienetNode::eth_to_polkadot_address(&eth_addr.parse().unwrap());
-            assert_eq!(
-                result, expected_ss58,
-                "Mismatch for Ethereum address {eth_addr}"
-            );
-        }
-    }
-
-    #[test]
-    #[ignore = "Ignored since CI doesn't have zombienet installed"]
     fn eth_rpc_version_works() {
         // Arrange
         let context = test_config();
@@ -1090,127 +703,5 @@ mod tests {
             version.starts_with("polkadot-parachain"),
             "Expected Polkadot-parachain version string, got: {version}"
         );
-    }
-
-    #[tokio::test]
-    #[ignore = "Ignored since CI doesn't have zombienet installed"]
-    async fn get_chain_id_from_node_should_succeed() {
-        // Arrange
-        let node = shared_node().await;
-
-        // Act
-        let chain_id = node
-            .resolver()
-            .await
-            .expect("Failed to create resolver")
-            .chain_id()
-            .await
-            .expect("Failed to get chain id");
-
-        // Assert
-        assert!(chain_id > 0, "Chain ID should be greater than zero");
-    }
-
-    #[tokio::test]
-    #[ignore = "Ignored since CI doesn't have zombienet installed"]
-    async fn can_get_gas_limit_from_node() {
-        // Arrange
-        let node = shared_node().await;
-
-        // Act
-        let gas_limit = node
-            .resolver()
-            .await
-            .unwrap()
-            .block_gas_limit(BlockNumberOrTag::Latest)
-            .await;
-
-        // Assert
-        let _ = gas_limit.expect("Failed to get the gas limit");
-    }
-
-    #[tokio::test]
-    #[ignore = "Ignored since CI doesn't have zombienet installed"]
-    async fn can_get_coinbase_from_node() {
-        // Arrange
-        let node = shared_node().await;
-
-        // Act
-        let coinbase = node
-            .resolver()
-            .await
-            .unwrap()
-            .block_coinbase(BlockNumberOrTag::Latest)
-            .await;
-
-        // Assert
-        let _ = coinbase.expect("Failed to get the coinbase");
-    }
-
-    #[tokio::test]
-    #[ignore = "Ignored since CI doesn't have zombienet installed"]
-    async fn can_get_block_difficulty_from_node() {
-        // Arrange
-        let node = shared_node().await;
-
-        // Act
-        let block_difficulty = node
-            .resolver()
-            .await
-            .unwrap()
-            .block_difficulty(BlockNumberOrTag::Latest)
-            .await;
-
-        // Assert
-        let _ = block_difficulty.expect("Failed to get the block difficulty");
-    }
-
-    #[tokio::test]
-    #[ignore = "Ignored since CI doesn't have zombienet installed"]
-    async fn can_get_block_hash_from_node() {
-        // Arrange
-        let node = shared_node().await;
-
-        // Act
-        let block_hash = node
-            .resolver()
-            .await
-            .unwrap()
-            .block_hash(BlockNumberOrTag::Latest)
-            .await;
-
-        // Assert
-        let _ = block_hash.expect("Failed to get the block hash");
-    }
-
-    #[tokio::test]
-    #[ignore = "Ignored since CI doesn't have zombienet installed"]
-    async fn can_get_block_timestamp_from_node() {
-        // Arrange
-        let node = shared_node().await;
-
-        // Act
-        let block_timestamp = node
-            .resolver()
-            .await
-            .unwrap()
-            .block_timestamp(BlockNumberOrTag::Latest)
-            .await;
-
-        // Assert
-        let _ = block_timestamp.expect("Failed to get the block timestamp");
-    }
-
-    #[tokio::test]
-    #[ignore = "Ignored since CI doesn't have zombienet installed"]
-    async fn can_get_block_number_from_node() {
-        // Arrange
-        let node = shared_node().await;
-
-        // Act
-        let block_number = node.resolver().await.unwrap().last_block_number().await;
-
-        // Assert
-        let _ = block_number.expect("Failed to get the block number");
     }
 }

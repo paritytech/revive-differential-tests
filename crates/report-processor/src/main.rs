@@ -2,11 +2,16 @@ use std::{
     borrow::Cow,
     collections::{BTreeMap, BTreeSet, HashSet},
     fmt::Display,
-    fs::{File, OpenOptions},
+    fs::{File, OpenOptions, read_to_string},
+    io::BufReader,
     ops::{Deref, DerefMut},
     path::{Path, PathBuf},
     str::FromStr,
 };
+
+use base64::Engine as _;
+use base64::engine::general_purpose::STANDARD;
+use flate2::{Compression, write::GzEncoder};
 
 use anyhow::{Context as _, Error, Result, bail};
 use clap::{Parser, ValueEnum};
@@ -21,7 +26,7 @@ fn main() -> Result<()> {
 
     match cli {
         Cli::GenerateExpectationsFile {
-            report_path,
+            report: report_path,
             output_path: output_file,
             remove_prefix,
             include_status,
@@ -95,8 +100,8 @@ fn main() -> Result<()> {
                 .context("Failed to write the expectations to file")?;
         }
         Cli::CompareExpectationFiles {
-            base_expectation_path,
-            other_expectation_path,
+            base_expectations: base_expectation_path,
+            other_expectations: other_expectation_path,
         } => {
             let keys = base_expectation_path
                 .keys()
@@ -123,9 +128,168 @@ fn main() -> Result<()> {
                 }
             }
         }
+        Cli::MergeReports {
+            reports,
+            output_path,
+        } => {
+            let mut reports = reports.into_iter();
+            let first = reports.next().context("At least one report is required")?;
+            let mut merged = Report {
+                context: first.content.context.clone(),
+                metadata_files: first.content.metadata_files.clone(),
+                execution_information: first.content.execution_information.clone(),
+            };
+
+            for report in reports {
+                merged
+                    .metadata_files
+                    .extend(report.metadata_files.iter().cloned());
+
+                for (metadata_path, file_report) in &report.execution_information {
+                    let merged_file_report = merged
+                        .execution_information
+                        .entry(metadata_path.clone())
+                        .or_default();
+
+                    for (mode, compilation_report) in &file_report.compilation_reports {
+                        merged_file_report
+                            .compilation_reports
+                            .entry(mode.clone())
+                            .or_insert_with(|| compilation_report.clone());
+                    }
+
+                    for (case_idx, case_report) in &file_report.case_reports {
+                        let merged_case = merged_file_report
+                            .case_reports
+                            .entry(*case_idx)
+                            .or_default();
+
+                        for (mode, exec_report) in &case_report.mode_execution_reports {
+                            let merged_exec = merged_case
+                                .mode_execution_reports
+                                .entry(mode.clone())
+                                .or_default();
+
+                            if merged_exec.status.is_none() {
+                                merged_exec.status.clone_from(&exec_report.status);
+                            }
+
+                            merged_exec
+                                .metrics_information
+                                .extend(exec_report.metrics_information.clone());
+                            merged_exec
+                                .platform_execution
+                                .extend(exec_report.platform_execution.clone());
+                            merged_exec
+                                .mined_block_information
+                                .extend(exec_report.mined_block_information.clone());
+
+                            for (path, contracts) in &exec_report.compiled_contracts {
+                                merged_exec
+                                    .compiled_contracts
+                                    .entry(path.clone())
+                                    .or_default()
+                                    .extend(contracts.clone());
+                            }
+
+                            for (instance, platforms) in &exec_report.contract_addresses {
+                                merged_exec
+                                    .contract_addresses
+                                    .entry(instance.clone())
+                                    .or_default()
+                                    .extend(platforms.clone());
+                            }
+
+                            for (step_path, step_report) in &exec_report.steps {
+                                merged_exec
+                                    .steps
+                                    .entry(step_path.clone())
+                                    .or_insert_with(|| step_report.clone());
+                            }
+                        }
+                    }
+                }
+            }
+
+            let output_file = std::io::BufWriter::new(
+                OpenOptions::new()
+                    .truncate(true)
+                    .create(true)
+                    .write(true)
+                    .open(&output_path)
+                    .context("Failed to create the output file")?,
+            );
+            serde_json::to_writer(output_file, &merged)
+                .context("Failed to write the merged report to file")?;
+        }
+        Cli::GenerateBenchmarksHtmlReport {
+            report,
+            report_url,
+            output_path,
+        } => {
+            const TEMPLATE: &str = include_str!("../../../assets/benchmark-report.html");
+            const INJECT_BEFORE: &str = "<script>\n// ═══════════════════════════════════════════════════════════════════════════\n// Constants";
+
+            if !TEMPLATE.contains(INJECT_BEFORE) {
+                anyhow::bail!(
+                    "Injection marker not found in HTML template. \
+                     Expected to find: {:?}",
+                    INJECT_BEFORE
+                );
+            }
+
+            let mut injections = Vec::new();
+
+            if let Some(url) = &report_url {
+                injections.push(format!("const REPORT_URL=\"{url}\";"));
+            } else {
+                let report_base64 = gzip_base64(&*report).context("Failed to embed report")?;
+                injections.push(format!("const EMBEDDED_REPORT=\"{report_base64}\";"));
+            }
+
+            let metadata_base64 = gzip_base64(
+                &report
+                    .metadata_files
+                    .iter()
+                    .map(|path| {
+                        let path_ref: &Path = path.as_ref();
+                        let key = path_ref.display().to_string();
+                        let value: serde_json::Value = serde_json::from_str(
+                            &read_to_string(path_ref)
+                                .with_context(|| format!("Failed to read metadata file: {key}"))?,
+                        )
+                        .with_context(|| format!("Failed to parse metadata file as JSON: {key}"))?;
+                        Ok((key, value))
+                    })
+                    .collect::<Result<serde_json::Map<String, serde_json::Value>>>()?,
+            )
+            .context("Failed to embed metadata")?;
+            injections.push(format!("const EMBEDDED_METADATA=\"{metadata_base64}\";"));
+
+            let injection = injections.join("");
+            let html = TEMPLATE.replacen(
+                INJECT_BEFORE,
+                &format!("<script>{injection}</script>\n{INJECT_BEFORE}"),
+                1,
+            );
+
+            std::fs::write(&output_path, &html).with_context(|| {
+                format!("Failed to write HTML report to {}", output_path.display())
+            })?;
+        }
     };
 
     Ok(())
+}
+
+/// Serialize `value` as JSON, gzip-compress it at maximum compression, and return a standard
+/// base64-encoded string. The browser decompresses this with the native
+/// `DecompressionStream('gzip')` API.
+fn gzip_base64(value: &impl Serialize) -> Result<String> {
+    let mut encoder = GzEncoder::new(Vec::new(), Compression::best());
+    serde_json::to_writer(&mut encoder, value).context("Failed to serialize into gzip encoder")?;
+    let compressed = encoder.finish().context("Failed to finalize gzip stream")?;
+    Ok(STANDARD.encode(compressed))
 }
 
 type Expectations<'a> = BTreeMap<TestSpecifier<'a>, Status>;
@@ -137,8 +301,8 @@ pub enum Cli {
     /// Generates an expectation file out of a given report.
     GenerateExpectationsFile {
         /// The path of the report's JSON file to generate the expectation's file for.
-        #[clap(long)]
-        report_path: JsonFile<Report>,
+        #[clap(long = "report-path")]
+        report: JsonFile<Report>,
 
         /// The path of the output file to generate.
         ///
@@ -162,12 +326,47 @@ pub enum Cli {
     /// Compares two expectation files to ensure that they match each other.
     CompareExpectationFiles {
         /// The path of the base expectation file.
-        #[clap(long)]
-        base_expectation_path: JsonFile<Expectations<'static>>,
+        #[clap(long = "base-expectation-path")]
+        base_expectations: JsonFile<Expectations<'static>>,
 
         /// The path of the other expectation file.
+        #[clap(long = "other-expectation-path")]
+        other_expectations: JsonFile<Expectations<'static>>,
+    },
+
+    /// Generates an HTML report for the provided benchmark report.
+    GenerateBenchmarksHtmlReport {
+        /// The path of the report's JSON file. Metadata is always extracted
+        /// from this file. The report data itself is embedded inline unless
+        /// --report-url is also provided, in which case the HTML fetches the
+        /// report from the URL at runtime instead.
+        #[clap(long = "report-path")]
+        report: JsonFile<Report>,
+
+        /// Optional URL to the gzip-compressed JSON report. When provided,
+        /// the HTML fetches the report from this URL at runtime instead of
+        /// embedding it inline. Metadata is still embedded from --report-path.
         #[clap(long)]
-        other_expectation_path: JsonFile<Expectations<'static>>,
+        report_url: Option<String>,
+
+        /// The path of the output file to output the HTML report to.
+        #[clap(long)]
+        output_path: PathBuf,
+    },
+
+    /// Merges multiple report JSON files into a single combined report.
+    ///
+    /// The context is taken from the first report. Execution information from all reports is
+    /// merged together: for the same metadata file and case, platform-keyed data from later
+    /// reports is added alongside data from earlier reports.
+    MergeReports {
+        /// The paths of the report JSON files to merge.
+        #[clap(long = "report-path", required = true)]
+        reports: Vec<JsonFile<Report>>,
+
+        /// The path of the merged output report JSON file.
+        #[clap(long)]
+        output_path: PathBuf,
     },
 }
 
@@ -240,8 +439,8 @@ where
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let path = PathBuf::from(s);
-        let file = File::open(&path).context("Failed to open the file")?;
-        serde_json::from_reader(&file)
+        let file = BufReader::new(File::open(&path).context("Failed to open the file")?);
+        serde_json::from_reader(file)
             .map(|content| Self { path, content })
             .context(format!(
                 "Failed to deserialize file's content as {}",

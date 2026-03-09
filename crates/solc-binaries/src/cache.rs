@@ -1,22 +1,13 @@
 //! Helper for caching the solc binaries.
 
-use std::{
-    collections::HashSet,
-    fs::{File, create_dir_all},
-    io::{BufWriter, Write},
-    os::unix::fs::PermissionsExt,
-    path::{Path, PathBuf},
-    sync::LazyLock,
-};
+use crate::internal_prelude::*;
 
-use semver::Version;
-use tokio::sync::Mutex;
-
-use crate::download::SolcDownloader;
-use anyhow::Context as _;
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
 
 pub const SOLC_CACHE_DIRECTORY: &str = "solc";
-pub(crate) static SOLC_CACHER: LazyLock<Mutex<HashSet<PathBuf>>> = LazyLock::new(Default::default);
+pub(crate) static SOLC_CACHER: LazyLock<TokioMutex<HashSet<PathBuf>>> =
+    LazyLock::new(Default::default);
 
 pub(crate) async fn get_or_download(
     working_directory: &Path,

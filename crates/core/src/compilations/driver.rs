@@ -1,8 +1,4 @@
-use anyhow::{Context as _, Result};
-use revive_dt_report::CompilationReporter;
-use tracing::error;
-
-use crate::helpers::{CachedCompiler, CompilationDefinition};
+use crate::internal_prelude::*;
 
 /// The compilation driver.
 pub struct Driver<'a> {

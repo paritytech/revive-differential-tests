@@ -1,56 +1,44 @@
-use std::pin::Pin;
-
-use alloy::primitives::TxHash;
-use dashmap::DashMap;
-use futures::{Stream, StreamExt};
-use revive_dt_report::MinedBlockInformation;
-use tokio::{
-    select,
-    sync::{
-        Notify,
-        oneshot::{Sender, channel},
-    },
-};
+use crate::internal_prelude::*;
 
 pub struct InclusionWatcher {
-    channels: DashMap<TxHash, Sender<()>>,
-    stop_notifier: Notify,
+    transactions_map: AsyncHashMap<TxHash, ()>,
+    stop_notifier: Arc<Notify>,
 }
 
 impl InclusionWatcher {
     pub fn new() -> Self {
         Self {
-            channels: Default::default(),
-            stop_notifier: Notify::new(),
+            transactions_map: Default::default(),
+            stop_notifier: Arc::new(Notify::new()),
         }
     }
 
-    pub fn await_transaction(&self, tx_hash: TxHash) -> impl Future<Output = ()> {
-        let (tx, rx) = channel::<()>();
-        self.channels.insert(tx_hash, tx);
-        async move {
-            rx.await
-                .expect("Can't fail since we don't drop the sender side");
-        }
+    pub fn await_transaction(&self, tx_hash: TxHash) -> FrameworkFuture<()> {
+        info!(%tx_hash, "Awaiting transaction inclusion");
+        self.transactions_map
+            .get(tx_hash)
+            .inspect(move |_| info!(%tx_hash, "Transaction has been included"))
+            .boxed()
     }
 
-    pub async fn run(&self, mut blocks_stream: Pin<Box<dyn Stream<Item = MinedBlockInformation>>>) {
-        let task = async move {
-            while let Some(mined_block) = blocks_stream.next().await {
-                mined_block
-                    .ethereum_block_information
-                    .transaction_hashes
-                    .iter()
-                    .filter_map(|tx_hash| self.channels.remove(tx_hash))
-                    .for_each(|(_, channel)| {
-                        let _ = channel.send(());
-                    });
-            }
-        };
-        select! {
-            _ = self.stop_notifier.notified() => {},
-            _ = task => {}
-        };
+    pub fn run(
+        &self,
+        mut transaction_inclusion_stream: FrameworkStream<TxHash>,
+    ) -> FrameworkFuture<()> {
+        let transactions_map = self.transactions_map.clone();
+        let notify = self.stop_notifier.clone();
+
+        Box::pin(async move {
+            let task = async move {
+                while let Some(transaction_hash) = transaction_inclusion_stream.next().await {
+                    transactions_map.insert(transaction_hash, ()).await;
+                }
+            };
+            select! {
+                _ = notify.notified() => {},
+                _ = task => {}
+            };
+        })
     }
 
     pub fn stop(&self) {
