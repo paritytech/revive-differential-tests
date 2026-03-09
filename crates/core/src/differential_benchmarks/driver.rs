@@ -538,6 +538,19 @@ where
                     })
                     .map(|driver| driver.execute_all());
 
+                // We run just one of the drivers first before all of the other drivers to allow it to cache
+                // the gas limits for all of the subsequent runs.
+                let Some(first_task) = tasks.next() else {
+                    return Ok(0);
+                };
+                let first_res = Box::pin(first_task)
+                    .await
+                    .context("Running the first initialization driver failed")?;
+
+                // Send the start event to the watcher after the first (warm-up) driver has
+                // completed. This ensures that blocks produced during the warm-up phase
+                // (contract deployment, gas estimation, receipt confirmations) are excluded
+                // from the benchmark metrics.
                 self.watcher_tx
                     .send(WatcherEvent::StartEvent {
                         ignore_block_before: self
@@ -551,15 +564,6 @@ where
                             .context("Failed to get the block number of the latest block")?,
                     })
                     .context("Failed to send message on the watcher's tx")?;
-
-                // We run just one of the drivers first before all of the other drivers to allow it to cache
-                // the gas limits for all of the subsequent runs.
-                let Some(first_task) = tasks.next() else {
-                    return Ok(0);
-                };
-                let first_res = Box::pin(first_task)
-                    .await
-                    .context("Running the first initialization driver failed")?;
 
                 let res = futures::future::try_join_all(tasks)
                     .await
