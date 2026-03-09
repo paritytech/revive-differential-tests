@@ -105,6 +105,11 @@ mod context {
     #[subcommand]
     pub struct ExportJsonSchema;
 
+    #[subcommand]
+    pub struct ExportTestSpecifiers {
+        pub corpus: CorpusExecutionConfiguration,
+    }
+
     /// Compiles contracts for pre-link compilations only without executing any tests.
     #[subcommand]
     pub struct Compile {
@@ -592,7 +597,10 @@ mod context {
             match self {
                 Self::Test(ctx) => ctx.update_for_profile(),
                 Self::Benchmark(ctx) => ctx.update_for_profile(),
-                Self::ExportJsonSchema(_) | Self::ExportGenesis(..) | Self::Compile(..) => {}
+                Self::ExportJsonSchema(_)
+                | Self::ExportGenesis(..)
+                | Self::Compile(..)
+                | Self::ExportTestSpecifiers(..) => {}
             }
         }
     }
