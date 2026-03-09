@@ -93,13 +93,13 @@ impl SolidityCompiler for Resolc {
         &self.0.resolc_path
     }
 
-    #[tracing::instrument(level = "debug", ret)]
+    #[tracing::instrument(level = "debug", skip_all, ret)]
     #[tracing::instrument(
         level = "error",
         skip_all,
         fields(
-            resolc_version = %self.version(),
-            solc_version = %self.0.solc.version(),
+            resolc_version = %this.version(),
+            solc_version = %this.0.solc.version(),
             json_in = tracing::field::Empty
         ),
         err(Debug)
@@ -118,7 +118,8 @@ impl SolidityCompiler for Resolc {
             // resolc. So, we need to go back to this later once it's supported.
             revert_string_handling: _,
         }: CompilerInput,
-    ) -> Pin<Box<dyn Future<Output = Result<CompilerOutput>> + '_>> {
+    ) -> FrameworkFuture<Result<CompilerOutput>> {
+        let this = self.clone();
         Box::pin(async move {
             if !matches!(pipeline, None | Some(ModePipeline::ViaYulIR)) {
                 anyhow::bail!(
@@ -161,27 +162,27 @@ impl SolidityCompiler for Resolc {
                         optimize_setting.level.to_mode_char(),
                         ResolcOptimizerDetails::disabled(&Version::new(0, 0, 0)),
                     ),
-                    polkavm: self.polkavm_settings(),
+                    polkavm: this.polkavm_settings(),
                     metadata: SolcStandardJsonInputSettingsMetadata::default(),
                     detect_missing_libraries: false,
                 },
             };
             // Manually inject polkavm settings since it's marked skip_serializing in the upstream crate
-            let std_input_json = self.inject_polkavm_settings(&input)?;
+            let std_input_json = this.inject_polkavm_settings(&input)?;
 
             Span::current().record(
                 "json_in",
                 display(serde_json::to_string(&std_input_json).unwrap()),
             );
 
-            let path = &self.0.resolc_path;
+            let path = &this.0.resolc_path;
             let mut command = AsyncCommand::new(path);
             command
                 .stdin(Stdio::piped())
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped())
                 .arg("--solc")
-                .arg(self.0.solc.path())
+                .arg(this.0.solc.path())
                 .arg("--standard-json");
 
             if let Some(ref base_path) = base_path {

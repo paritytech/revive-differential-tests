@@ -24,7 +24,6 @@ pub(crate) mod internal_prelude {
     pub use std::collections::{BTreeSet, HashMap};
     pub use std::hash::Hash;
     pub use std::path::{Path, PathBuf};
-    pub use std::pin::Pin;
     pub use std::process::Stdio;
     pub use std::sync::{Arc, LazyLock};
 
@@ -77,10 +76,7 @@ pub trait SolidityCompiler {
     fn path(&self) -> &Path;
 
     /// The low-level compiler interface.
-    fn build(
-        &self,
-        input: CompilerInput,
-    ) -> Pin<Box<dyn Future<Output = Result<CompilerOutput>> + '_>>;
+    fn build(&self, input: CompilerInput) -> FrameworkFuture<Result<CompilerOutput>>;
 
     /// Does the compiler support the provided mode and version settings.
     fn supports_mode(&self, mode: &Mode) -> bool;
