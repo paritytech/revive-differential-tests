@@ -141,7 +141,9 @@ fn main() -> Result<()> {
             };
 
             for report in reports {
-                merged.metadata_files.extend(report.metadata_files.iter().cloned());
+                merged
+                    .metadata_files
+                    .extend(report.metadata_files.iter().cloned());
 
                 for (metadata_path, file_report) in &report.execution_information {
                     let merged_file_report = merged
@@ -241,8 +243,7 @@ fn main() -> Result<()> {
             if let Some(url) = &report_url {
                 injections.push(format!("const REPORT_URL=\"{url}\";"));
             } else {
-                let report_base64 =
-                    gzip_base64(&*report).context("Failed to embed report")?;
+                let report_base64 = gzip_base64(&*report).context("Failed to embed report")?;
                 injections.push(format!("const EMBEDDED_REPORT=\"{report_base64}\";"));
             }
 
@@ -254,13 +255,10 @@ fn main() -> Result<()> {
                         let path_ref: &Path = path.as_ref();
                         let key = path_ref.display().to_string();
                         let value: serde_json::Value = serde_json::from_str(
-                            &read_to_string(path_ref).with_context(|| {
-                                format!("Failed to read metadata file: {key}")
-                            })?,
+                            &read_to_string(path_ref)
+                                .with_context(|| format!("Failed to read metadata file: {key}"))?,
                         )
-                        .with_context(|| {
-                            format!("Failed to parse metadata file as JSON: {key}")
-                        })?;
+                        .with_context(|| format!("Failed to parse metadata file as JSON: {key}"))?;
                         Ok((key, value))
                     })
                     .collect::<Result<serde_json::Map<String, serde_json::Value>>>()?,

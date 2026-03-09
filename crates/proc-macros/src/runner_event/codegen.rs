@@ -57,10 +57,7 @@ fn reporter_type_name(key: &Ident) -> Ident {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Event structs
-// ---------------------------------------------------------------------------
-
+/// Generate the per-event structs (e.g. `FooEvent`).
 fn gen_event_structs(vis: &Visibility, groups: &[EventGroup]) -> TokenStream {
     let structs: Vec<TokenStream> = groups
         .iter()
@@ -115,10 +112,7 @@ fn gen_field_definitions(vis: &Visibility, fields: &[super::types::EventField]) 
     quote! { #(#tokens)* }
 }
 
-// ---------------------------------------------------------------------------
-// Enum definition + variant_name()
-// ---------------------------------------------------------------------------
-
+/// Generate the main event enum and its `variant_name()` method.
 fn gen_enum(
     enum_attrs: &[syn::Attribute],
     vis: &Visibility,
@@ -152,10 +146,7 @@ fn gen_enum(
     }
 }
 
-// ---------------------------------------------------------------------------
-// From impls
-// ---------------------------------------------------------------------------
-
+/// Generate `From<FooEvent> for RunnerEvent` impls for each variant.
 fn gen_from_impls(enum_ident: &Ident, all_events: &[(&EventGroup, &EventDef)]) -> TokenStream {
     let impls: Vec<TokenStream> = all_events
         .iter()
@@ -176,10 +167,7 @@ fn gen_from_impls(enum_ident: &Ident, all_events: &[(&EventGroup, &EventDef)]) -
     quote! { #(#impls)* }
 }
 
-// ---------------------------------------------------------------------------
-// Reporter structs + methods
-// ---------------------------------------------------------------------------
-
+/// Generate reporter structs and their `report_*_event` helper methods.
 fn gen_reporters(vis: &Visibility, enum_ident: &Ident, groups: &[EventGroup]) -> TokenStream {
     let base_reporter_name = format_ident!("Reporter");
 
