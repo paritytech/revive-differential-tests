@@ -40,7 +40,6 @@ mod internal_prelude {
     pub use clap::Parser;
     pub use futures::future::try_join_all;
     pub use futures::{FutureExt, Stream, StreamExt, TryFutureExt, TryStreamExt, stream};
-    pub use governor::{DefaultDirectRateLimiter, Quota};
     pub use indexmap::{IndexMap, indexmap};
     pub use regex::Regex;
     pub use schemars::schema_for;

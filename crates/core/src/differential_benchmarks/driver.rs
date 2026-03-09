@@ -35,10 +35,6 @@ pub struct Driver<'a, I> {
     /// A map of the gas limit for all of the transactions we have.
     gas_limits: Arc<RwLock<HashMap<StepPath, u64>>>,
 
-    /// A limiter on the submissions, we await for the limiter to be ready before submitting any
-    /// transaction and its shared between the various drivers.
-    limiter: Arc<Option<DefaultDirectRateLimiter>>,
-
     /// This field controls if the driver should wait for transactions to be included in a block or
     /// not before proceeding forward.
     await_transaction_inclusion: bool,
@@ -66,7 +62,6 @@ where
         watcher_tx: UnboundedSender<WatcherEvent>,
         await_transaction_inclusion: bool,
         inclusion_watcher: &'a InclusionWatcher,
-        limiter: Arc<Option<DefaultDirectRateLimiter>>,
         steps: I,
     ) -> Result<Self> {
         let mut this = Driver {
@@ -81,7 +76,6 @@ where
             await_transaction_inclusion,
             await_transaction_receipts: true,
             watcher_tx,
-            limiter,
             gas_limits: Arc::new(Default::default()),
         };
         this.init_execution_state(cached_compiler)
@@ -539,7 +533,6 @@ where
                         await_transaction_inclusion: step.await_transaction_inclusion,
                         await_transaction_receipts: i == 0,
                         inclusion_watcher: self.inclusion_watcher,
-                        limiter: self.limiter.clone(),
                         watcher_tx: self.watcher_tx.clone(),
                         gas_limits: self.gas_limits.clone(),
                     })
@@ -839,10 +832,6 @@ where
                 }
             };
             transaction.set_gas_limit(gas_limit * 110 / 100);
-        }
-
-        if let Some(limiter) = &*self.limiter {
-            limiter.until_ready().await
         }
 
         let transaction_hash = self

@@ -97,10 +97,6 @@ pub trait Platform {
         true
     }
 
-    /// Describes the behavior of how transactions are submitted when benchmarking.
-    fn benchmarking_submissions_behavior(&self) -> BenchmarksSubmissionsBehavior {
-        BenchmarksSubmissionsBehavior::Stream
-    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Default, Hash)]
@@ -475,13 +471,4 @@ fn spawn_node<T: Node + NodeApi + Send + Sync>(mut node: T, genesis: Genesis) ->
         "Spawned node"
     );
     Ok(node)
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum BenchmarksSubmissionsBehavior {
-    /// Submits all of the benchmarks as a stream of transactions, which means that there's no limit
-    /// on how many are submitted.
-    Stream,
-    /// Submits transactions in bursts as controlled by a limiter.
-    Bursts { submissions_per_seconds: u32 },
 }
