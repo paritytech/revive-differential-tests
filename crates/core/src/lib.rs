@@ -19,11 +19,10 @@ pub(crate) mod internal_prelude {
     pub use revive_dt_node::prelude::*;
     pub use revive_dt_node_interaction::prelude::*;
 
-    pub use std::pin::Pin;
     pub use std::thread::{self, JoinHandle};
 
     pub use alloy::genesis::Genesis;
-    pub use anyhow::Context as _;
+    pub use anyhow::{Context as _, Result};
     pub use serde_json;
     pub use tracing::info;
 }
@@ -60,17 +59,17 @@ pub trait Platform {
     fn new_node(
         &self,
         context: Context,
-    ) -> anyhow::Result<JoinHandle<anyhow::Result<Box<dyn NodeApi + Send + Sync>>>>;
+    ) -> Result<JoinHandle<Result<Box<dyn NodeApi + Send + Sync>>>>;
 
     /// Creates a new compiler for the provided platform
     fn new_compiler(
         &self,
         context: Context,
         version: Option<VersionOrRequirement>,
-    ) -> Pin<Box<dyn Future<Output = anyhow::Result<Box<dyn SolidityCompiler>>>>>;
+    ) -> FrameworkFuture<Result<Box<dyn SolidityCompiler + Send + Sync>>>;
 
     /// Exports the genesis/chainspec for the node.
-    fn export_genesis(&self, context: Context) -> anyhow::Result<serde_json::Value>;
+    fn export_genesis(&self, context: Context) -> Result<serde_json::Value>;
 
     /// Describes if the platform allows for the gas fees to be cached.
     fn allow_caching_gas_limit(&self) -> bool {
@@ -106,14 +105,14 @@ impl Platform for GethEvmSolcPlatform {
     fn new_node(
         &self,
         context: Context,
-    ) -> anyhow::Result<JoinHandle<anyhow::Result<Box<dyn NodeApi + Send + Sync>>>> {
+    ) -> Result<JoinHandle<Result<Box<dyn NodeApi + Send + Sync>>>> {
         let genesis_configuration = context.as_genesis_configuration();
         let genesis = genesis_configuration.genesis()?.clone();
         Ok(thread::spawn(move || {
             let use_fallback_gas_filler = matches!(context, Context::Test(..));
             let node = GethNode::new(context, use_fallback_gas_filler);
             let node = spawn_node::<GethNode>(node, genesis)?;
-            Ok(Box::new(node) as Box<_>)
+            Ok(Box::new(node) as _)
         }))
     }
 
@@ -121,14 +120,14 @@ impl Platform for GethEvmSolcPlatform {
         &self,
         context: Context,
         version: Option<VersionOrRequirement>,
-    ) -> Pin<Box<dyn Future<Output = anyhow::Result<Box<dyn SolidityCompiler>>>>> {
+    ) -> FrameworkFuture<Result<Box<dyn SolidityCompiler + Send + Sync>>> {
         Box::pin(async move {
             let compiler = Solc::new(context, version).await;
-            compiler.map(|compiler| Box::new(compiler) as Box<dyn SolidityCompiler>)
+            compiler.map(|compiler| Box::new(compiler) as _)
         })
     }
 
-    fn export_genesis(&self, context: Context) -> anyhow::Result<serde_json::Value> {
+    fn export_genesis(&self, context: Context) -> Result<serde_json::Value> {
         let genesis = context.as_genesis_configuration().genesis()?;
         let wallet = context.as_wallet_configuration().wallet();
 
@@ -161,14 +160,14 @@ impl Platform for LighthouseGethEvmSolcPlatform {
     fn new_node(
         &self,
         context: Context,
-    ) -> anyhow::Result<JoinHandle<anyhow::Result<Box<dyn NodeApi + Send + Sync>>>> {
+    ) -> Result<JoinHandle<Result<Box<dyn NodeApi + Send + Sync>>>> {
         let genesis_configuration = context.as_genesis_configuration();
         let genesis = genesis_configuration.genesis()?.clone();
         Ok(thread::spawn(move || {
             let use_fallback_gas_filler = matches!(context, Context::Test(..));
             let node = LighthouseGethNode::new(context, use_fallback_gas_filler);
             let node = spawn_node::<LighthouseGethNode>(node, genesis)?;
-            Ok(Box::new(node) as Box<_>)
+            Ok(Box::new(node) as _)
         }))
     }
 
@@ -176,14 +175,14 @@ impl Platform for LighthouseGethEvmSolcPlatform {
         &self,
         context: Context,
         version: Option<VersionOrRequirement>,
-    ) -> Pin<Box<dyn Future<Output = anyhow::Result<Box<dyn SolidityCompiler>>>>> {
+    ) -> FrameworkFuture<Result<Box<dyn SolidityCompiler + Send + Sync>>> {
         Box::pin(async move {
             let compiler = Solc::new(context, version).await;
-            compiler.map(|compiler| Box::new(compiler) as Box<dyn SolidityCompiler>)
+            compiler.map(|compiler| Box::new(compiler) as _)
         })
     }
 
-    fn export_genesis(&self, context: Context) -> anyhow::Result<serde_json::Value> {
+    fn export_genesis(&self, context: Context) -> Result<serde_json::Value> {
         let genesis = context.as_genesis_configuration().genesis()?;
         let wallet = context.as_wallet_configuration().wallet();
 
@@ -216,7 +215,7 @@ impl Platform for ReviveDevNodePolkavmResolcPlatform {
     fn new_node(
         &self,
         context: Context,
-    ) -> anyhow::Result<JoinHandle<anyhow::Result<Box<dyn NodeApi + Send + Sync>>>> {
+    ) -> Result<JoinHandle<Result<Box<dyn NodeApi + Send + Sync>>>> {
         let genesis_configuration = context.as_genesis_configuration();
         let revive_dev_node_configuration = context.as_revive_dev_node_configuration();
         let eth_rpc_configuration = context.as_eth_rpc_configuration();
@@ -243,7 +242,7 @@ impl Platform for ReviveDevNodePolkavmResolcPlatform {
                 eth_rpc_logging_level,
             );
             let node = spawn_node(node, genesis)?;
-            Ok(Box::new(node) as Box<_>)
+            Ok(Box::new(node) as _)
         }))
     }
 
@@ -251,14 +250,14 @@ impl Platform for ReviveDevNodePolkavmResolcPlatform {
         &self,
         context: Context,
         version: Option<VersionOrRequirement>,
-    ) -> Pin<Box<dyn Future<Output = anyhow::Result<Box<dyn SolidityCompiler>>>>> {
+    ) -> FrameworkFuture<Result<Box<dyn SolidityCompiler + Send + Sync>>> {
         Box::pin(async move {
             let compiler = Resolc::new(context, version).await;
-            compiler.map(|compiler| Box::new(compiler) as Box<dyn SolidityCompiler>)
+            compiler.map(|compiler| Box::new(compiler) as _)
         })
     }
 
-    fn export_genesis(&self, context: Context) -> anyhow::Result<serde_json::Value> {
+    fn export_genesis(&self, context: Context) -> Result<serde_json::Value> {
         let revive_dev_node_path = context.as_revive_dev_node_configuration().path.as_path();
         let wallet = context.as_wallet_configuration().wallet();
         let export_chainspec_command = SubstrateNode::REVIVE_DEV_NODE_EXPORT_CHAINSPEC_COMMAND;
@@ -290,7 +289,7 @@ impl Platform for ReviveDevNodeRevmSolcPlatform {
     fn new_node(
         &self,
         context: Context,
-    ) -> anyhow::Result<JoinHandle<anyhow::Result<Box<dyn NodeApi + Send + Sync>>>> {
+    ) -> Result<JoinHandle<Result<Box<dyn NodeApi + Send + Sync>>>> {
         let genesis_configuration = context.as_genesis_configuration();
         let revive_dev_node_configuration = context.as_revive_dev_node_configuration();
         let eth_rpc_configuration = context.as_eth_rpc_configuration();
@@ -317,7 +316,7 @@ impl Platform for ReviveDevNodeRevmSolcPlatform {
                 eth_rpc_logging_level,
             );
             let node = spawn_node(node, genesis)?;
-            Ok(Box::new(node) as Box<_>)
+            Ok(Box::new(node) as _)
         }))
     }
 
@@ -325,14 +324,14 @@ impl Platform for ReviveDevNodeRevmSolcPlatform {
         &self,
         context: Context,
         version: Option<VersionOrRequirement>,
-    ) -> Pin<Box<dyn Future<Output = anyhow::Result<Box<dyn SolidityCompiler>>>>> {
+    ) -> FrameworkFuture<Result<Box<dyn SolidityCompiler + Send + Sync>>> {
         Box::pin(async move {
             let compiler = Solc::new(context, version).await;
-            compiler.map(|compiler| Box::new(compiler) as Box<dyn SolidityCompiler>)
+            compiler.map(|compiler| Box::new(compiler) as _)
         })
     }
 
-    fn export_genesis(&self, context: Context) -> anyhow::Result<serde_json::Value> {
+    fn export_genesis(&self, context: Context) -> Result<serde_json::Value> {
         let revive_dev_node_path = context.as_revive_dev_node_configuration().path.as_path();
         let wallet = context.as_wallet_configuration().wallet();
         let export_chainspec_command = SubstrateNode::REVIVE_DEV_NODE_EXPORT_CHAINSPEC_COMMAND;
@@ -364,7 +363,7 @@ impl Platform for ZombienetPolkavmResolcPlatform {
     fn new_node(
         &self,
         context: Context,
-    ) -> anyhow::Result<JoinHandle<anyhow::Result<Box<dyn NodeApi + Send + Sync>>>> {
+    ) -> Result<JoinHandle<Result<Box<dyn NodeApi + Send + Sync>>>> {
         let genesis_configuration = context.as_genesis_configuration();
         let polkadot_parachain_path = context.as_polkadot_parachain_configuration().path.clone();
         let genesis = genesis_configuration.genesis()?.clone();
@@ -373,7 +372,7 @@ impl Platform for ZombienetPolkavmResolcPlatform {
             let node =
                 ZombienetNode::new(polkadot_parachain_path, context, use_fallback_gas_filler);
             let node = spawn_node(node, genesis)?;
-            Ok(Box::new(node) as Box<_>)
+            Ok(Box::new(node) as _)
         }))
     }
 
@@ -381,14 +380,14 @@ impl Platform for ZombienetPolkavmResolcPlatform {
         &self,
         context: Context,
         version: Option<VersionOrRequirement>,
-    ) -> Pin<Box<dyn Future<Output = anyhow::Result<Box<dyn SolidityCompiler>>>>> {
+    ) -> FrameworkFuture<Result<Box<dyn SolidityCompiler + Send + Sync>>> {
         Box::pin(async move {
             let compiler = Resolc::new(context, version).await;
-            compiler.map(|compiler| Box::new(compiler) as Box<dyn SolidityCompiler>)
+            compiler.map(|compiler| Box::new(compiler) as _)
         })
     }
 
-    fn export_genesis(&self, context: Context) -> anyhow::Result<serde_json::Value> {
+    fn export_genesis(&self, context: Context) -> Result<serde_json::Value> {
         let polkadot_parachain_path = context.as_polkadot_parachain_configuration().path.as_path();
         let wallet = context.as_wallet_configuration().wallet();
 
@@ -419,7 +418,7 @@ impl Platform for ZombienetRevmSolcPlatform {
     fn new_node(
         &self,
         context: Context,
-    ) -> anyhow::Result<JoinHandle<anyhow::Result<Box<dyn NodeApi + Send + Sync>>>> {
+    ) -> Result<JoinHandle<Result<Box<dyn NodeApi + Send + Sync>>>> {
         let genesis_configuration = context.as_genesis_configuration();
         let polkadot_parachain_path = context.as_polkadot_parachain_configuration().path.clone();
         let genesis = genesis_configuration.genesis()?.clone();
@@ -428,7 +427,7 @@ impl Platform for ZombienetRevmSolcPlatform {
             let node =
                 ZombienetNode::new(polkadot_parachain_path, context, use_fallback_gas_filler);
             let node = spawn_node(node, genesis)?;
-            Ok(Box::new(node) as Box<_>)
+            Ok(Box::new(node) as _)
         }))
     }
 
@@ -436,14 +435,14 @@ impl Platform for ZombienetRevmSolcPlatform {
         &self,
         context: Context,
         version: Option<VersionOrRequirement>,
-    ) -> Pin<Box<dyn Future<Output = anyhow::Result<Box<dyn SolidityCompiler>>>>> {
+    ) -> FrameworkFuture<Result<Box<dyn SolidityCompiler + Send + Sync>>> {
         Box::pin(async move {
             let compiler = Solc::new(context, version).await;
-            compiler.map(|compiler| Box::new(compiler) as Box<dyn SolidityCompiler>)
+            compiler.map(|compiler| Box::new(compiler) as _)
         })
     }
 
-    fn export_genesis(&self, context: Context) -> anyhow::Result<serde_json::Value> {
+    fn export_genesis(&self, context: Context) -> Result<serde_json::Value> {
         let polkadot_parachain_path = context.as_polkadot_parachain_configuration().path.as_path();
         let wallet = context.as_wallet_configuration().wallet();
 
@@ -474,14 +473,14 @@ impl Platform for PolkadotOmniNodePolkavmResolcPlatform {
     fn new_node(
         &self,
         context: Context,
-    ) -> anyhow::Result<JoinHandle<anyhow::Result<Box<dyn NodeApi + Send + Sync>>>> {
+    ) -> Result<JoinHandle<Result<Box<dyn NodeApi + Send + Sync>>>> {
         let genesis_configuration = context.as_genesis_configuration();
         let genesis = genesis_configuration.genesis()?.clone();
         Ok(thread::spawn(move || {
             let use_fallback_gas_filler = matches!(context, Context::Test(..));
             let node = PolkadotOmnichainNode::new(context, use_fallback_gas_filler);
             let node = spawn_node(node, genesis)?;
-            Ok(Box::new(node) as Box<_>)
+            Ok(Box::new(node) as _)
         }))
     }
 
@@ -489,14 +488,14 @@ impl Platform for PolkadotOmniNodePolkavmResolcPlatform {
         &self,
         context: Context,
         version: Option<VersionOrRequirement>,
-    ) -> Pin<Box<dyn Future<Output = anyhow::Result<Box<dyn SolidityCompiler>>>>> {
+    ) -> FrameworkFuture<Result<Box<dyn SolidityCompiler + Send + Sync>>> {
         Box::pin(async move {
             let compiler = Resolc::new(context, version).await;
-            compiler.map(|compiler| Box::new(compiler) as Box<dyn SolidityCompiler>)
+            compiler.map(|compiler| Box::new(compiler) as _)
         })
     }
 
-    fn export_genesis(&self, context: Context) -> anyhow::Result<serde_json::Value> {
+    fn export_genesis(&self, context: Context) -> Result<serde_json::Value> {
         let polkadot_omnichain_node_configuration =
             context.as_polkadot_omnichain_node_configuration();
         let wallet = context.as_wallet_configuration().wallet();
@@ -534,14 +533,14 @@ impl Platform for PolkadotOmniNodeRevmSolcPlatform {
     fn new_node(
         &self,
         context: Context,
-    ) -> anyhow::Result<JoinHandle<anyhow::Result<Box<dyn NodeApi + Send + Sync>>>> {
+    ) -> Result<JoinHandle<Result<Box<dyn NodeApi + Send + Sync>>>> {
         let genesis_configuration = context.as_genesis_configuration();
         let genesis = genesis_configuration.genesis()?.clone();
         Ok(thread::spawn(move || {
             let use_fallback_gas_filler = matches!(context, Context::Test(..));
             let node = PolkadotOmnichainNode::new(context, use_fallback_gas_filler);
             let node = spawn_node(node, genesis)?;
-            Ok(Box::new(node) as Box<_>)
+            Ok(Box::new(node) as _)
         }))
     }
 
@@ -549,14 +548,14 @@ impl Platform for PolkadotOmniNodeRevmSolcPlatform {
         &self,
         context: Context,
         version: Option<VersionOrRequirement>,
-    ) -> Pin<Box<dyn Future<Output = anyhow::Result<Box<dyn SolidityCompiler>>>>> {
+    ) -> FrameworkFuture<Result<Box<dyn SolidityCompiler + Send + Sync>>> {
         Box::pin(async move {
             let compiler = Solc::new(context, version).await;
-            compiler.map(|compiler| Box::new(compiler) as Box<dyn SolidityCompiler>)
+            compiler.map(|compiler| Box::new(compiler) as _)
         })
     }
 
-    fn export_genesis(&self, context: Context) -> anyhow::Result<serde_json::Value> {
+    fn export_genesis(&self, context: Context) -> Result<serde_json::Value> {
         let polkadot_omnichain_node_configuration =
             context.as_polkadot_omnichain_node_configuration();
         let wallet = context.as_wallet_configuration().wallet();
@@ -574,25 +573,25 @@ impl Platform for PolkadotOmniNodeRevmSolcPlatform {
 impl From<PlatformIdentifier> for Box<dyn Platform> {
     fn from(value: PlatformIdentifier) -> Self {
         match value {
-            PlatformIdentifier::GethEvmSolc => Box::new(GethEvmSolcPlatform) as Box<_>,
+            PlatformIdentifier::GethEvmSolc => Box::new(GethEvmSolcPlatform) as _,
             PlatformIdentifier::LighthouseGethEvmSolc => {
-                Box::new(LighthouseGethEvmSolcPlatform) as Box<_>
+                Box::new(LighthouseGethEvmSolcPlatform) as _
             }
             PlatformIdentifier::ReviveDevNodePolkavmResolc => {
-                Box::new(ReviveDevNodePolkavmResolcPlatform) as Box<_>
+                Box::new(ReviveDevNodePolkavmResolcPlatform) as _
             }
             PlatformIdentifier::ReviveDevNodeRevmSolc => {
-                Box::new(ReviveDevNodeRevmSolcPlatform) as Box<_>
+                Box::new(ReviveDevNodeRevmSolcPlatform) as _
             }
             PlatformIdentifier::ZombienetPolkavmResolc => {
-                Box::new(ZombienetPolkavmResolcPlatform) as Box<_>
+                Box::new(ZombienetPolkavmResolcPlatform) as _
             }
-            PlatformIdentifier::ZombienetRevmSolc => Box::new(ZombienetRevmSolcPlatform) as Box<_>,
+            PlatformIdentifier::ZombienetRevmSolc => Box::new(ZombienetRevmSolcPlatform) as _,
             PlatformIdentifier::PolkadotOmniNodePolkavmResolc => {
-                Box::new(PolkadotOmniNodePolkavmResolcPlatform) as Box<_>
+                Box::new(PolkadotOmniNodePolkavmResolcPlatform) as _
             }
             PlatformIdentifier::PolkadotOmniNodeRevmSolc => {
-                Box::new(PolkadotOmniNodeRevmSolcPlatform) as Box<_>
+                Box::new(PolkadotOmniNodeRevmSolcPlatform) as _
             }
         }
     }
@@ -625,7 +624,7 @@ impl From<PlatformIdentifier> for &dyn Platform {
     }
 }
 
-fn spawn_node<T: Node + NodeApi + Send + Sync>(mut node: T, genesis: Genesis) -> anyhow::Result<T> {
+fn spawn_node<T: Node + NodeApi + Send + Sync>(mut node: T, genesis: Genesis) -> Result<T> {
     info!(
         id = node.id(),
         connection_string = node.connection_string(),

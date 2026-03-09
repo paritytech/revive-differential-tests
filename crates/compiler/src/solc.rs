@@ -71,7 +71,7 @@ impl SolidityCompiler for Solc {
         &self.0.solc_path
     }
 
-    #[tracing::instrument(level = "debug", ret)]
+    #[tracing::instrument(level = "debug", skip_all, ret)]
     #[tracing::instrument(
         level = "error",
         skip_all,
@@ -90,13 +90,14 @@ impl SolidityCompiler for Solc {
             libraries,
             revert_string_handling,
         }: CompilerInput,
-    ) -> Pin<Box<dyn Future<Output = Result<CompilerOutput>> + '_>> {
+    ) -> FrameworkFuture<Result<CompilerOutput>> {
+        let this = self.clone();
         Box::pin(async move {
             // Be careful to entirely omit the viaIR field if the compiler does not support it,
             // as it will error if you provide fields it does not know about. Because
             // `supports_mode` is called prior to instantiating a compiler, we should never
             // ask for something which is invalid.
-            let via_ir = match (pipeline, self.compiler_supports_yul()) {
+            let via_ir = match (pipeline, this.compiler_supports_yul()) {
                 (pipeline, true) => pipeline.map(|p| p.via_yul_ir()),
                 (_pipeline, false) => None,
             };
@@ -158,7 +159,7 @@ impl SolidityCompiler for Solc {
 
             Span::current().record("json_in", display(serde_json::to_string(&input).unwrap()));
 
-            let path = &self.0.solc_path;
+            let path = &this.0.solc_path;
             let mut command = AsyncCommand::new(path);
             command
                 .stdin(Stdio::piped())
