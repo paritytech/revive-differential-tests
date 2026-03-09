@@ -96,7 +96,6 @@ pub trait Platform {
     fn allow_caching_gas_limit(&self) -> bool {
         true
     }
-
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Default, Hash)]
