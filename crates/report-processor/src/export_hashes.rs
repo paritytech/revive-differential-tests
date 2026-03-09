@@ -94,9 +94,9 @@ fn normalize_path(path: &Path, base_dir: &Path) -> String {
     // (on Unix, backslashes are not treated as separators).
 
     let path_string = path.to_string_lossy().replace('\\', "/");
-    // Ensure base ends with `/` so only complete directory components are matched.
-    // E.g. '/home/runner/fixtures' is not seen as a base dir of '/home/runner/fixturesABC/file.sol'.
     let base_string = format!(
+        // Ensure base ends with `/` so only complete directory components are matched.
+        // E.g. '/home/runner/fixtures' is not seen as a base dir of '/home/runner/fixturesABC/file.sol'.
         "{}/",
         base_dir
             .to_string_lossy()

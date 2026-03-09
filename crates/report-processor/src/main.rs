@@ -17,7 +17,7 @@ use revive_dt_report::{Report, TestCaseStatus};
 use strum::EnumString;
 
 use crate::{
-    compare_hashes::compare_hashes,
+    compare_hashes::{build_comparison_report, compare_hashes},
     export_hashes::{HashData, extract_hashes},
 };
 
@@ -162,10 +162,13 @@ fn main() -> Result<()> {
                     .collect()
             });
 
-            compare_hashes(&hashes, explicit_modes.as_deref())?;
+            let result = compare_hashes(&hashes, explicit_modes.as_deref())?;
+            let report = build_comparison_report(&result);
+            println!("{report}");
 
-            // TODO.
-            println!("Comparing {} files", hashes.len());
+            if result.count_mismatches() > 0 {
+                std::process::exit(1);
+            }
         }
     };
 
