@@ -132,7 +132,7 @@ fn main() -> Result<()> {
             remove_prefix,
             platform_label,
         } => {
-            let platform_hash_data = extract_hashes(&report_path, &remove_prefix, &platform_label);
+            let platform_hash_data = extract_hashes(&report_path, &remove_prefix, &platform_label)?;
             let output_file = write_or_overwrite_file(&output_path)?;
             serde_json::to_writer_pretty(&output_file, &platform_hash_data)
                 .context("Failed to write the hashes to file")?;
