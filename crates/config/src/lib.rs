@@ -198,7 +198,7 @@ mod context {
     /// Configuration for fail-fast behavior.
     #[configuration]
     pub struct FailFastConfiguration {
-        /// Abort test execution after the first failure. Remaining tests are marked as ignored in
+        /// Abort executing the tasks after the first failure. Remaining tasks are marked as ignored in
         /// the report.
         #[arg(long = "fail-fast")]
         pub fail_fast: bool,
