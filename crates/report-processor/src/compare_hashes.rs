@@ -3,11 +3,12 @@ use std::collections::{BTreeMap, BTreeSet};
 use anyhow::{Result, bail};
 #[allow(unused_imports, reason = "only used in documentation")]
 use revive_dt_common::types::Mode;
+use serde::Serialize;
 
 use crate::export_hashes::HashData;
 
 /// A mismatch between the reference platform's hash and the other platform's hash.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize)]
 pub(crate) struct Mismatch {
     /// The normalized source path.
     path: String,
@@ -27,7 +28,7 @@ impl Mismatch {
 }
 
 /// The result of the hash comparison.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize)]
 pub struct ComparisonResult {
     /// All platforms compared, listed in the deterministic order of comparison.
     pub platforms: Vec<String>,
@@ -229,8 +230,8 @@ fn validate_explicit_modes(hashes: &[HashData], modes: &[String]) -> Result<()> 
     Ok(())
 }
 
-/// Builds a human-readable comparison report from the [`ComparisonResult`].
-pub fn build_comparison_report(result: &ComparisonResult) -> String {
+/// Builds a human-readable comparison summary from the [`ComparisonResult`].
+pub fn build_comparison_summary(result: &ComparisonResult) -> String {
     let reference_platform = &result.reference_platform;
     let mut mode_reports: Vec<String> = vec![];
 

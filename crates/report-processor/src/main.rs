@@ -17,7 +17,7 @@ use revive_dt_report::{Report, TestCaseStatus};
 use strum::EnumString;
 
 use crate::{
-    compare_hashes::{build_comparison_report, compare_hashes},
+    compare_hashes::{build_comparison_summary, compare_hashes},
     export_hashes::{HashData, extract_hashes},
 };
 
@@ -93,9 +93,7 @@ fn main() -> Result<()> {
                 })
                 .collect::<Expectations>();
 
-            let output_file = write_or_overwrite_file(&output_file)?;
-            serde_json::to_writer_pretty(output_file, &expectations)
-                .context("Failed to write the expectations to file")?;
+            write_or_overwrite_json(&output_file, &expectations)?;
         }
         Cli::CompareExpectationFiles {
             base_expectation_path,
@@ -133,9 +131,7 @@ fn main() -> Result<()> {
             platform_label,
         } => {
             let platform_hash_data = extract_hashes(&report_path, &remove_prefix, &platform_label)?;
-            let output_file = write_or_overwrite_file(&output_path)?;
-            serde_json::to_writer_pretty(&output_file, &platform_hash_data)
-                .context("Failed to write the hashes to file")?;
+            write_or_overwrite_json(&output_path, &platform_hash_data)?;
 
             println!(
                 "Exported {} hashes across {} modes ({}) to {}",
@@ -150,7 +146,11 @@ fn main() -> Result<()> {
                 output_path.display()
             );
         }
-        Cli::CompareHashes { hash_paths, modes } => {
+        Cli::CompareHashes {
+            hash_paths,
+            modes,
+            output_path,
+        } => {
             let hashes: Vec<HashData> = hash_paths
                 .into_iter()
                 .map(|json_file| json_file.into_inner())
@@ -163,8 +163,9 @@ fn main() -> Result<()> {
             });
 
             let result = compare_hashes(&hashes, explicit_modes.as_deref())?;
-            let report = build_comparison_report(&result);
-            println!("{report}");
+            let summary = build_comparison_summary(&result);
+            println!("{summary}");
+            write_or_overwrite_json(&output_path, &result)?;
 
             if result.count_mismatches() > 0 {
                 std::process::exit(1);
@@ -175,13 +176,14 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-fn write_or_overwrite_file(output_path: &Path) -> Result<File, Error> {
-    OpenOptions::new()
+fn write_or_overwrite_json(output_path: &Path, value: &impl Serialize) -> Result<()> {
+    let output_file = OpenOptions::new()
         .create(true)
         .write(true)
         .truncate(true)
         .open(output_path)
-        .context("Failed to create output file")
+        .context("Failed to create output file")?;
+    serde_json::to_writer_pretty(output_file, value).context("Failed to write JSON to output file")
 }
 
 type Expectations<'a> = BTreeMap<TestSpecifier<'a>, Status>;
@@ -232,13 +234,8 @@ pub enum Cli {
         #[clap(long)]
         report_path: JsonFile<Report>,
 
-        /// The path of the output file to generate.
-        ///
-        /// Note the following expectations:
-        /// 1. The provided path points to a JSON file.
-        /// 2. The ancestors of the provided path already exist such that no directory creations
-        ///    are required.
-        #[clap(long, verbatim_doc_comment)]
+        /// The path of the output JSON file to generate.
+        #[clap(long)]
         output_path: PathBuf,
 
         /// The absolute prefix path to remove from each source path found in the [`Report`]
@@ -267,6 +264,10 @@ pub enum Cli {
         /// If omitted, the union of all modes found in the files will be compared.
         #[clap(short = 'm', long = "mode")]
         modes: Option<Vec<ParsedMode>>,
+
+        /// The path of the output JSON file to write the comparison result.
+        #[clap(long)]
+        output_path: PathBuf,
     },
 }
 
