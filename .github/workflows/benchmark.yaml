@@ -439,18 +439,29 @@ jobs:
             $REPORT_ARGS \
             --output-path ./merged-report.json
 
+      - name: Strip raw data from report for web publishing
+        run: |
+          jq '
+            .execution_information |= map_values(
+              .case_reports |= map_values(
+                .mode_execution_reports |= map_values(
+                  del(.mined_block_information)
+                  | .steps |= (if . then map_values(del(.transactions)) else . end)
+                )
+              )
+            )
+          ' ./merged-report.json > ./web-report.json
+
       - name: Generate HTML report
         run: |
           REPORT_NAME="benchmark-$(date -u +%Y-%m-%d-%H%M%S)"
           echo "REPORT_NAME=${REPORT_NAME}" >> "$GITHUB_ENV"
-          REPORT_URL="https://media.githubusercontent.com/media/${{ github.repository }}/gh-pages/latest.json.gz"
           report-processor generate-benchmarks-html-report \
-            --report-path ./merged-report.json \
-            --report-url "${REPORT_URL}" \
+            --report-path ./web-report.json \
             --output-path ./benchmark-report.html
 
-      - name: Compress merged report
-        run: gzip -9 -k ./merged-report.json
+      - name: Compress web report
+        run: gzip -9 -k ./web-report.json
 
       - name: Checkout gh-pages
         uses: actions/checkout@v4
@@ -470,8 +481,8 @@ jobs:
         run: |
           mkdir -p gh-pages-dir/reports
           cp ./benchmark-report.html "gh-pages-dir/index.html"
-          cp ./merged-report.json.gz "gh-pages-dir/reports/${REPORT_NAME}.json.gz"
-          cp ./merged-report.json.gz "gh-pages-dir/latest.json.gz"
+          cp ./web-report.json.gz "gh-pages-dir/reports/${REPORT_NAME}.json.gz"
+          cp ./web-report.json.gz "gh-pages-dir/latest.json.gz"
 
       - name: Push to gh-pages
         working-directory: gh-pages-dir
