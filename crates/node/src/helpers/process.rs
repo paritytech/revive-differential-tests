@@ -1,12 +1,4 @@
-use std::{
-    fs::{File, OpenOptions},
-    io::{BufRead, BufReader, Write},
-    path::Path,
-    process::{Child, Command},
-    time::{Duration, Instant},
-};
-
-use anyhow::{Context, Result, bail};
+use crate::internal_prelude::*;
 
 /// A wrapper around processes which allows for their stdout and stderr to be logged and flushed
 /// when the process is dropped.
@@ -109,12 +101,13 @@ impl Process {
                         stderr.push('\n');
                     }
 
-                    let check_result =
-                        check_function(stdout_line.as_deref(), stderr_line.as_deref()).context(
-                            format!(
-                                "Failed to wait for the process to be ready - {stdout} - {stderr}"
-                            ),
-                        )?;
+                    let check_result = check_function(
+                        stdout_line.as_deref(),
+                        stderr_line.as_deref(),
+                    )
+                    .with_context(|| {
+                        format!("Failed to wait for the process to be ready - {stdout} - {stderr}")
+                    })?;
 
                     if check_result {
                         break;

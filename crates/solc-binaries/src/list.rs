@@ -1,9 +1,6 @@
 //! Rust type definitions for the solc binary lists.
 
-use std::{collections::HashMap, path::PathBuf};
-
-use semver::Version;
-use serde::Deserialize;
+use crate::internal_prelude::*;
 
 #[derive(Debug, Deserialize, Clone, Eq, PartialEq)]
 pub struct List {

@@ -1,35 +1,7 @@
 //! Implements the [SolidityCompiler] trait with `resolc` for
 //! compiling contracts to PolkaVM (PVM) bytecode.
 
-use std::{
-    path::PathBuf,
-    pin::Pin,
-    process::Stdio,
-    sync::{Arc, LazyLock},
-};
-
-use dashmap::DashMap;
-use revive_dt_common::types::{Mode, VersionOrRequirement};
-use revive_dt_config::{
-    HasResolcConfiguration, HasSolcConfiguration, HasWorkingDirectoryConfiguration,
-};
-use revive_solc_json_interface::{
-    PolkaVMDefaultHeapMemorySize, PolkaVMDefaultStackMemorySize, SolcStandardJsonInput,
-    SolcStandardJsonInputLanguage, SolcStandardJsonInputSettings,
-    SolcStandardJsonInputSettingsLibraries, SolcStandardJsonInputSettingsMetadata,
-    SolcStandardJsonInputSettingsOptimizer, SolcStandardJsonInputSettingsPolkaVM,
-    SolcStandardJsonInputSettingsPolkaVMMemory, SolcStandardJsonInputSettingsSelection,
-    SolcStandardJsonOutput, standard_json::input::settings::optimizer::details::Details,
-};
-use tracing::{Span, field::display};
-
-use crate::{CompilerInput, CompilerOutput, ModePipeline, SolidityCompiler, solc::Solc};
-
-use alloy::json_abi::JsonAbi;
-use anyhow::{Context as _, Result};
-use semver::Version;
-use std::collections::BTreeSet;
-use tokio::{io::AsyncWriteExt, process::Command as AsyncCommand};
+use crate::internal_prelude::*;
 
 /// A wrapper around the `resolc` binary, emitting PVM-compatible bytecode.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -48,39 +20,46 @@ struct ResolcInner {
 }
 
 impl Resolc {
-    pub async fn new(
-        context: impl HasSolcConfiguration + HasResolcConfiguration + HasWorkingDirectoryConfiguration,
-        version: impl Into<Option<VersionOrRequirement>>,
-    ) -> Result<Self> {
-        /// This is a cache of all of the resolc compiler objects. Since we do not currently support
-        /// multiple resolc compiler versions, so our cache is just keyed by the solc compiler and
-        /// its version to the resolc compiler.
-        static COMPILERS_CACHE: LazyLock<DashMap<Solc, Resolc>> = LazyLock::new(Default::default);
+    pub fn new(
+        context: impl HasSolcConfiguration
+        + HasResolcConfiguration
+        + HasWorkingDirectoryConfiguration
+        + Send
+        + 'static,
+        version: impl Into<Option<VersionOrRequirement>> + Send + 'static,
+    ) -> FrameworkFuture<Result<Self>> {
+        Box::pin(async move {
+            /// This is a cache of all of the resolc compiler objects. Since we do not currently support
+            /// multiple resolc compiler versions, so our cache is just keyed by the solc compiler and
+            /// its version to the resolc compiler.
+            static COMPILERS_CACHE: LazyLock<DashMap<Solc, Resolc>> =
+                LazyLock::new(Default::default);
 
-        let resolc_configuration = context.as_resolc_configuration();
-        let resolc_path = resolc_configuration.path.clone();
-        let pvm_heap_size = resolc_configuration
-            .heap_size
-            .unwrap_or(PolkaVMDefaultHeapMemorySize);
-        let pvm_stack_size = resolc_configuration
-            .stack_size
-            .unwrap_or(PolkaVMDefaultStackMemorySize);
+            let resolc_configuration = context.as_resolc_configuration();
+            let resolc_path = resolc_configuration.path.clone();
+            let pvm_heap_size = resolc_configuration
+                .heap_size
+                .unwrap_or(PolkaVMDefaultHeapMemorySize);
+            let pvm_stack_size = resolc_configuration
+                .stack_size
+                .unwrap_or(PolkaVMDefaultStackMemorySize);
 
-        let solc = Solc::new(context, version)
-            .await
-            .context("Failed to create the solc compiler frontend for resolc")?;
+            let solc = Solc::new(context, version)
+                .await
+                .context("Failed to create the solc compiler frontend for resolc")?;
 
-        Ok(COMPILERS_CACHE
-            .entry(solc.clone())
-            .or_insert_with(|| {
-                Self(Arc::new(ResolcInner {
-                    solc,
-                    resolc_path,
-                    pvm_heap_size,
-                    pvm_stack_size,
-                }))
-            })
-            .clone())
+            Ok(COMPILERS_CACHE
+                .entry(solc.clone())
+                .or_insert_with(|| {
+                    Self(Arc::new(ResolcInner {
+                        solc,
+                        resolc_path,
+                        pvm_heap_size,
+                        pvm_stack_size,
+                    }))
+                })
+                .clone())
+        })
     }
 
     fn polkavm_settings(&self) -> SolcStandardJsonInputSettingsPolkaVM {
@@ -114,13 +93,13 @@ impl SolidityCompiler for Resolc {
         &self.0.resolc_path
     }
 
-    #[tracing::instrument(level = "debug", ret)]
+    #[tracing::instrument(level = "debug", skip_all, ret)]
     #[tracing::instrument(
         level = "error",
         skip_all,
         fields(
-            resolc_version = %self.version(),
-            solc_version = %self.0.solc.version(),
+            resolc_version = %this.version(),
+            solc_version = %this.0.solc.version(),
             json_in = tracing::field::Empty
         ),
         err(Debug)
@@ -139,7 +118,8 @@ impl SolidityCompiler for Resolc {
             // resolc. So, we need to go back to this later once it's supported.
             revert_string_handling: _,
         }: CompilerInput,
-    ) -> Pin<Box<dyn Future<Output = Result<CompilerOutput>> + '_>> {
+    ) -> FrameworkFuture<Result<CompilerOutput>> {
+        let this = self.clone();
         Box::pin(async move {
             if !matches!(pipeline, None | Some(ModePipeline::ViaYulIR)) {
                 anyhow::bail!(
@@ -180,29 +160,29 @@ impl SolidityCompiler for Resolc {
                     optimizer: SolcStandardJsonInputSettingsOptimizer::new(
                         optimize_setting.solc_optimizer_enabled,
                         optimize_setting.level.to_mode_char(),
-                        Details::disabled(&Version::new(0, 0, 0)),
+                        ResolcOptimizerDetails::disabled(&Version::new(0, 0, 0)),
                     ),
-                    polkavm: self.polkavm_settings(),
+                    polkavm: this.polkavm_settings(),
                     metadata: SolcStandardJsonInputSettingsMetadata::default(),
                     detect_missing_libraries: false,
                 },
             };
             // Manually inject polkavm settings since it's marked skip_serializing in the upstream crate
-            let std_input_json = self.inject_polkavm_settings(&input)?;
+            let std_input_json = this.inject_polkavm_settings(&input)?;
 
             Span::current().record(
                 "json_in",
                 display(serde_json::to_string(&std_input_json).unwrap()),
             );
 
-            let path = &self.0.resolc_path;
+            let path = &this.0.resolc_path;
             let mut command = AsyncCommand::new(path);
             command
                 .stdin(Stdio::piped())
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped())
                 .arg("--solc")
-                .arg(self.0.solc.path())
+                .arg(this.0.solc.path())
                 .arg("--standard-json");
 
             if let Some(ref base_path) = base_path {

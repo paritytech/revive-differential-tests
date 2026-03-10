@@ -1,28 +1,7 @@
 //! A wrapper around the compiler which allows for caching of compilation artifacts so that they can
 //! be reused between runs.
 
-use std::{
-    borrow::Cow,
-    collections::HashMap,
-    path::{Path, PathBuf},
-    sync::{Arc, LazyLock},
-};
-
-use futures::FutureExt;
-use revive_dt_common::{
-    iterators::FilesWithExtensionIterator,
-    types::{CompilerIdentifier, PlatformIdentifier},
-};
-use revive_dt_compiler::{Compiler, CompilerOutput, Mode, SolidityCompiler};
-use revive_dt_format::metadata::{ContractIdent, ContractInstance, Metadata};
-
-use alloy::{hex::ToHexExt, json_abi::JsonAbi, primitives::Address};
-use anyhow::{Context as _, Error, Result};
-use revive_dt_report::CompilationReporter;
-use semver::Version;
-use serde::{Deserialize, Serialize};
-use tokio::sync::{Mutex, RwLock, Semaphore};
-use tracing::{Instrument, debug, debug_span, instrument};
+use crate::internal_prelude::*;
 
 pub struct CachedCompiler<'a> {
     /// The cache that stores the compiled contracts.
@@ -145,30 +124,15 @@ impl<'a> CachedCompiler<'a> {
 
                 match self.artifacts_cache.get(&cache_key).await {
                     Some(cache_value) => {
-                        match reporter {
-                            CompilationReporter::PreLink(reporter) => {
-                                reporter
-                                    .report_pre_link_contracts_compilation_succeeded_event(
-                                        compiler.version().clone(),
-                                        compiler.path(),
-                                        true,
-                                        None,
-                                        cache_value.compiler_output.clone(),
-                                    )
-                                    .expect("Can't happen");
-                            }
-                            CompilationReporter::Execution(reporter) => {
-                                reporter
-                                    .report_pre_link_contracts_compilation_succeeded_event(
-                                        compiler.version().clone(),
-                                        compiler.path(),
-                                        true,
-                                        None,
-                                        cache_value.compiler_output.clone(),
-                                    )
-                                    .expect("Can't happen");
-                            }
-                        }
+                        reporter
+                            .report_pre_link_contracts_compilation_succeeded_event(
+                                compiler.version().clone(),
+                                compiler.path(),
+                                true,
+                                None,
+                                cache_value.compiler_output.clone(),
+                            )
+                            .expect("Can't happen");
                         cache_value.compiler_output
                     }
                     None => {
@@ -245,83 +209,54 @@ async fn compile_contracts(
     let output = compilation.try_build(compiler).await;
 
     match (output.as_ref(), deployed_libraries.is_some()) {
-        (Ok(output), true) => match reporter {
-            CompilationReporter::Execution(reporter) => {
-                reporter
-                    .report_post_link_contracts_compilation_succeeded_event(
-                        compiler.version().clone(),
-                        compiler.path(),
-                        false,
-                        input,
-                        output.clone(),
-                    )
-                    .expect("Can't happen");
-            }
-            CompilationReporter::PreLink(_) => {
+        (Ok(output), true) => {
+            let CompilationReporter::Execution(exec_reporter) = reporter else {
                 unreachable!();
-            }
-        },
-        (Ok(output), false) => match reporter {
-            CompilationReporter::Execution(reporter) => {
-                reporter
-                    .report_pre_link_contracts_compilation_succeeded_event(
-                        compiler.version().clone(),
-                        compiler.path(),
-                        false,
-                        input,
-                        output.clone(),
-                    )
-                    .expect("Can't happen");
-            }
-            CompilationReporter::PreLink(reporter) => {
-                reporter
-                    .report_pre_link_contracts_compilation_succeeded_event(
-                        compiler.version().clone(),
-                        compiler.path(),
-                        false,
-                        input,
-                        output.clone(),
-                    )
-                    .expect("Can't happen");
-            }
-        },
-        (Err(err), true) => match reporter {
-            CompilationReporter::Execution(reporter) => {
-                reporter
-                    .report_post_link_contracts_compilation_failed_event(
-                        compiler.version().clone(),
-                        compiler.path().to_path_buf(),
-                        input,
-                        format!("{err:#}"),
-                    )
-                    .expect("Can't happen");
-            }
-            CompilationReporter::PreLink(_) => {
+            };
+            exec_reporter
+                .report_post_link_contracts_compilation_succeeded_event(
+                    compiler.version().clone(),
+                    compiler.path(),
+                    false,
+                    input,
+                    output.clone(),
+                )
+                .expect("Can't happen");
+        }
+        (Ok(output), false) => {
+            reporter
+                .report_pre_link_contracts_compilation_succeeded_event(
+                    compiler.version().clone(),
+                    compiler.path(),
+                    false,
+                    input,
+                    output.clone(),
+                )
+                .expect("Can't happen");
+        }
+        (Err(err), true) => {
+            let CompilationReporter::Execution(exec_reporter) = reporter else {
                 unreachable!();
-            }
-        },
-        (Err(err), false) => match reporter {
-            CompilationReporter::Execution(reporter) => {
-                reporter
-                    .report_pre_link_contracts_compilation_failed_event(
-                        compiler.version().clone(),
-                        compiler.path().to_path_buf(),
-                        input,
-                        format!("{err:#}"),
-                    )
-                    .expect("Can't happen");
-            }
-            CompilationReporter::PreLink(reporter) => {
-                reporter
-                    .report_pre_link_contracts_compilation_failed_event(
-                        compiler.version().clone(),
-                        compiler.path().to_path_buf(),
-                        input,
-                        format!("{err:#}"),
-                    )
-                    .expect("Can't happen");
-            }
-        },
+            };
+            exec_reporter
+                .report_post_link_contracts_compilation_failed_event(
+                    compiler.version().clone(),
+                    compiler.path().to_path_buf(),
+                    input,
+                    format!("{err:#}"),
+                )
+                .expect("Can't happen");
+        }
+        (Err(err), false) => {
+            reporter
+                .report_pre_link_contracts_compilation_failed_event(
+                    compiler.version().clone(),
+                    compiler.path().to_path_buf(),
+                    input,
+                    format!("{err:#}"),
+                )
+                .expect("Can't happen");
+        }
     }
 
     output
@@ -338,16 +273,19 @@ impl ArtifactsCache {
         }
     }
 
-    #[instrument(level = "debug", skip_all, err)]
-    pub async fn with_invalidated_cache(self) -> Result<Self> {
-        match cacache::clear(self.path.as_path()).await {
-            Ok(()) => Ok(self),
-            Err(cacache::Error::IoError(err, _)) if err.kind() == std::io::ErrorKind::NotFound => {
-                Ok(self)
+    pub fn with_invalidated_cache(self) -> FrameworkFuture<Result<Self>> {
+        Box::pin(async move {
+            match cacache::clear(self.path.as_path()).await {
+                Ok(()) => Ok(self),
+                Err(cacache::Error::IoError(err, _))
+                    if err.kind() == std::io::ErrorKind::NotFound =>
+                {
+                    Ok(self)
+                }
+                Err(err) => Err(Into::<Error>::into(err))
+                    .with_context(|| format!("Failed to clear cache at {}", self.path.display())),
             }
-            Err(err) => Err(Into::<Error>::into(err))
-                .with_context(|| format!("Failed to clear cache at {}", self.path.display())),
-        }
+        })
     }
 
     #[instrument(level = "debug", skip_all, err)]

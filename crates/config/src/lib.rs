@@ -1,5 +1,9 @@
 //! The global configuration used across all revive differential testing crates.
 
+pub mod prelude {
+    pub use crate::*;
+}
+
 use std::{
     fmt::Display,
     ops::Deref,
@@ -38,6 +42,7 @@ mod context {
     #[subcommand]
     pub struct Test {
         pub profile: ProfileConfiguration,
+        pub log: LogConfiguration,
         pub output_format: OutputFormatConfiguration,
         pub platforms: PlatformConfiguration,
         pub working_directory: WorkingDirectoryConfiguration,
@@ -64,6 +69,7 @@ mod context {
     #[subcommand]
     pub struct Benchmark {
         pub profile: ProfileConfiguration,
+        pub log: LogConfiguration,
         pub platforms: PlatformConfiguration,
         pub working_directory: WorkingDirectoryConfiguration,
         pub benchmark_run: BenchmarkRunConfiguration,
@@ -99,9 +105,15 @@ mod context {
     #[subcommand]
     pub struct ExportJsonSchema;
 
+    #[subcommand]
+    pub struct ExportTestSpecifiers {
+        pub corpus: CorpusExecutionConfiguration,
+    }
+
     /// Compiles contracts for pre-link compilations only without executing any tests.
     #[subcommand]
     pub struct Compile {
+        pub log: LogConfiguration,
         pub output_format: OutputFormatConfiguration,
         pub working_directory: WorkingDirectoryConfiguration,
         pub corpus: CorpusCompilationConfiguration,
@@ -120,6 +132,14 @@ mod context {
         /// cli arguments.
         #[arg(long = "profile", default_value_t = Profile::Default)]
         pub profile: Profile,
+    }
+
+    /// Configuration for the log format used by the tracing subscriber.
+    #[configuration]
+    pub struct LogConfiguration {
+        /// The log output format.
+        #[arg(long = "log-format", default_value_t = LogFormat::Pretty)]
+        pub log_format: LogFormat,
     }
 
     /// Configuration for the output format.
@@ -165,11 +185,6 @@ mod context {
         /// repeat step.
         #[arg(short = 'r', default_value_t = 1000)]
         pub default_repetition_count: usize,
-
-        /// This transaction controls whether the benchmarking driver should await for
-        /// transactions to be included in a block before moving on to the next transaction in
-        /// the sequence or not.
-        pub await_transaction_inclusion: bool,
     }
 
     /// Configuration for the export-genesis target platform.
@@ -582,7 +597,10 @@ mod context {
             match self {
                 Self::Test(ctx) => ctx.update_for_profile(),
                 Self::Benchmark(ctx) => ctx.update_for_profile(),
-                Self::ExportJsonSchema(_) | Self::ExportGenesis(..) | Self::Compile(..) => {}
+                Self::ExportJsonSchema(_)
+                | Self::ExportGenesis(..)
+                | Self::Compile(..)
+                | Self::ExportTestSpecifiers(..) => {}
             }
         }
     }
@@ -820,6 +838,35 @@ pub enum Profile {
     /// * `concurrency.number-of-threads` set to 5.
     /// * `working-directory` set to ~/.retester-workdir
     Debug,
+}
+
+/// The log output format used by the tracing subscriber.
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    Default,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    Serialize,
+    Deserialize,
+    ValueEnum,
+    EnumString,
+    Display,
+    AsRefStr,
+    IntoStaticStr,
+)]
+#[strum(serialize_all = "kebab-case")]
+pub enum LogFormat {
+    /// Human-readable pretty-printed log output.
+    #[default]
+    Pretty,
+
+    /// Machine-readable JSON log output (NDJSON). Each log line is a JSON object.
+    Json,
 }
 
 fn parse_duration(s: &str) -> anyhow::Result<Duration> {

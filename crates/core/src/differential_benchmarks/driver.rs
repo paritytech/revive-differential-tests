@@ -1,49 +1,6 @@
-use std::{
-    collections::HashMap,
-    sync::{
-        Arc,
-        atomic::{AtomicUsize, Ordering},
-    },
-    time::Duration,
-};
+use crate::internal_prelude::*;
 
-use alloy::{
-    hex,
-    json_abi::JsonAbi,
-    network::{Ethereum, TransactionBuilder},
-    primitives::{Address, TxHash, U256},
-    providers::Provider,
-    rpc::types::{
-        TransactionReceipt, TransactionRequest,
-        trace::geth::{
-            CallFrame, GethDebugBuiltInTracerType, GethDebugTracerConfig, GethDebugTracerType,
-            GethDebugTracingOptions,
-        },
-    },
-};
-use anyhow::{Context as _, Result, bail};
-use futures::{FutureExt as _, TryFutureExt};
-use indexmap::IndexMap;
-use revive_dt_common::types::PrivateKeyAllocator;
-use revive_dt_format::{
-    metadata::{ContractInstance, ContractPathAndIdent},
-    steps::{
-        AllocateAccountStep, Calldata, EtherValue, FunctionCallStep, Method, RepeatStep, Step,
-        StepIdx, StepPath,
-    },
-    traits::{ResolutionContext, ResolverApi},
-};
-use revive_dt_report::CompilationReporter;
-use tokio::{
-    sync::{Mutex, OnceCell, RwLock, mpsc::UnboundedSender},
-    time::{interval, timeout},
-};
-use tracing::{Span, debug, error, field::display, info, instrument, warn};
-
-use crate::{
-    differential_benchmarks::{ExecutionState, InclusionWatcher, WatcherEvent},
-    helpers::{CachedCompiler, TestDefinition, TestPlatformInformation},
-};
+use crate::differential_benchmarks::ExecutionState;
 
 static DRIVER_COUNT: AtomicUsize = AtomicUsize::new(0);
 
@@ -54,9 +11,6 @@ pub struct Driver<'a, I> {
 
     /// The information of the platform that this driver is for.
     platform_information: &'a TestPlatformInformation<'a>,
-
-    /// The resolver of the platform.
-    resolver: Arc<dyn ResolverApi + 'a>,
 
     /// The definition of the test that the driver is instructed to execute.
     test_definition: &'a TestDefinition<'a>,
@@ -81,9 +35,13 @@ pub struct Driver<'a, I> {
     /// A map of the gas limit for all of the transactions we have.
     gas_limits: Arc<RwLock<HashMap<StepPath, u64>>>,
 
-    /// This function controls if the driver should wait for transactions to be included in a block
-    /// or not before proceeding forward.
+    /// This field controls if the driver should wait for transactions to be included in a block or
+    /// not before proceeding forward.
     await_transaction_inclusion: bool,
+
+    /// This field controls if the driver should wait for transaction receipts or not before
+    /// proceeding forward.
+    await_transaction_receipts: bool,
 
     /// This is the queue of steps that are to be executed by the driver for this test case. Each
     /// time `execute_step` is called one of the steps is executed.
@@ -109,11 +67,6 @@ where
         let mut this = Driver {
             driver_id: DRIVER_COUNT.fetch_add(1, Ordering::SeqCst),
             platform_information,
-            resolver: platform_information
-                .node
-                .resolver()
-                .await
-                .context("Failed to create resolver")?,
             test_definition,
             private_key_allocator,
             execution_state: ExecutionState::empty(),
@@ -121,6 +74,7 @@ where
             steps_iterator: steps,
             inclusion_watcher,
             await_transaction_inclusion,
+            await_transaction_receipts: true,
             watcher_tx,
             gas_limits: Arc::new(Default::default()),
         };
@@ -359,7 +313,7 @@ where
             let caller = {
                 let context = self.default_resolution_context();
                 step.caller
-                    .resolve_address(self.resolver.as_ref(), context)
+                    .resolve_address(self.platform_information.node, context)
                     .await?
             };
             if let (_, _, Some(receipt)) = self
@@ -395,15 +349,84 @@ where
                 .map(|receipt| receipt.transaction_hash),
             Method::Fallback | Method::FunctionName(_) => {
                 let tx = step
-                    .as_transaction(self.resolver.as_ref(), self.default_resolution_context())
+                    .as_transaction(
+                        self.platform_information.node,
+                        self.default_resolution_context(),
+                    )
                     .await?;
 
-                let (tx_hash, _, inclusion_future) = self
+                let (tx_hash, receipt_future, inclusion_future) = self
                     .execute_transaction(tx.clone(), Some(step_path), Duration::from_secs(30 * 60))
                     .await?;
-                if self.await_transaction_inclusion {
+                if self.await_transaction_receipts {
+                    let receipt = receipt_future.await?;
+                    if !receipt.status() {
+                        bail!("Transaction failed {receipt:?}");
+                    }
+                } else if self.await_transaction_inclusion {
                     inclusion_future.await;
-                }
+                } else {
+                    // We've not been configured to await for inclusion or await for the receipt but
+                    // we still want to get insight on how long it takes for us to observe the txs
+                    // and also their status and add it to our logs and perhaps make use of it later
+                    // on if we need to debug them.
+                    tokio::spawn(
+                        async move {
+                            static AWAITING_RECEIPTS_COUNT: Mutex<usize> = Mutex::const_new(0);
+                            static SEMAPHORE: Semaphore = Semaphore::const_new(1000);
+
+                            let _guard = SEMAPHORE.acquire().await.expect("Poisoned");
+
+                            let elapsed_seconds = {
+                                let now = SystemTime::now();
+                                move || now.elapsed().unwrap().as_secs()
+                            };
+                            debug!("Starting the process");
+
+                            // Increment the static counter since we're about to await a new receipt
+                            // to arrive.
+                            {
+                                let mut guard = AWAITING_RECEIPTS_COUNT.lock().await;
+                                *guard += 1;
+                                debug!(awaiting = *guard, "Incremented the receipt await counter");
+                            }
+
+                            // Await for the transaction to be included in a block.
+                            debug!("Starting to await for inclusion");
+                            inclusion_future.await;
+                            debug!("Transaction included in a block");
+
+                            // Await for the receipt and log information
+                            debug!("Starting to await for receipt");
+                            match receipt_future.await {
+                                Ok(receipt) if receipt.status() => {
+                                    debug!(
+                                        elapsed_seconds = elapsed_seconds(),
+                                        "Got the transaction receipt"
+                                    );
+                                }
+                                Ok(receipt) => {
+                                    warn!(
+                                        elapsed_seconds = elapsed_seconds(),
+                                        ?receipt,
+                                        "Got the transaction receipt, but the transaction failed"
+                                    )
+                                }
+                                Err(error) => {
+                                    warn!(
+                                        elapsed_seconds = elapsed_seconds(),
+                                        ?error,
+                                        "Failed to get receipt"
+                                    )
+                                }
+                            };
+
+                            *AWAITING_RECEIPTS_COUNT.lock().await -= 1;
+                        }
+                        .instrument(tracing::Span::current())
+                        .instrument(info_span!("Awaiting receipt", %tx_hash)),
+                    );
+                };
 
                 Ok(tx_hash)
             }
@@ -477,55 +500,78 @@ where
         Ok(())
     }
 
-    #[instrument(level = "info", skip_all, fields(driver_id = self.driver_id), err(Debug))]
-    async fn execute_repeat_step(
-        &mut self,
-        step_path: &StepPath,
-        step: &RepeatStep,
-    ) -> Result<usize> {
-        let tasks = (0..step.repeat)
-            .map(|_| Driver {
-                driver_id: DRIVER_COUNT.fetch_add(1, Ordering::SeqCst),
-                platform_information: self.platform_information,
-                resolver: self.resolver.clone(),
-                test_definition: self.test_definition,
-                private_key_allocator: self.private_key_allocator.clone(),
-                execution_state: self.execution_state.clone(),
-                steps_executed: 0,
-                steps_iterator: {
-                    let steps = step
-                        .steps
-                        .iter()
-                        .cloned()
-                        .enumerate()
-                        .map(|(step_idx, step)| {
-                            let step_idx = StepIdx::new(step_idx);
-                            let step_path = step_path.append(step_idx);
-                            (step_path, step)
-                        })
-                        .collect::<Vec<_>>();
-                    steps.into_iter()
-                },
-                await_transaction_inclusion: self.await_transaction_inclusion,
-                inclusion_watcher: self.inclusion_watcher,
-                watcher_tx: self.watcher_tx.clone(),
-                gas_limits: self.gas_limits.clone(),
-            })
-            .map(|driver| driver.execute_all());
+    fn execute_repeat_step<'b>(
+        &'b mut self,
+        step_path: &'b StepPath,
+        step: &'b RepeatStep,
+    ) -> Pin<Box<dyn Future<Output = Result<usize>> + 'b>> {
+        let driver_id = self.driver_id;
+        Box::pin(
+            async move {
+                let mut tasks = (0..step.repeat)
+                    .map(|i| Driver {
+                        driver_id: DRIVER_COUNT.fetch_add(1, Ordering::SeqCst),
+                        platform_information: self.platform_information,
+                        test_definition: self.test_definition,
+                        private_key_allocator: self.private_key_allocator.clone(),
+                        execution_state: self.execution_state.clone(),
+                        steps_executed: 0,
+                        steps_iterator: {
+                            let steps = step
+                                .steps
+                                .iter()
+                                .cloned()
+                                .enumerate()
+                                .map(|(step_idx, step)| {
+                                    let step_idx = StepIdx::new(step_idx);
+                                    let step_path = step_path.append(step_idx);
+                                    (step_path, step)
+                                })
+                                .collect::<Vec<_>>();
+                            steps.into_iter()
+                        },
+                        await_transaction_inclusion: step.await_transaction_inclusion,
+                        await_transaction_receipts: i == 0,
+                        inclusion_watcher: self.inclusion_watcher,
+                        watcher_tx: self.watcher_tx.clone(),
+                        gas_limits: self.gas_limits.clone(),
+                    })
+                    .map(|driver| driver.execute_all());
 
-        // TODO: Determine how we want to know the `ignore_block_before` and if it's through the
-        // receipt and how this would impact the architecture and the possibility of us not waiting
-        // for receipts in the future.
-        self.watcher_tx
-            .send(WatcherEvent::RepetitionStartEvent {
-                ignore_block_before: 0,
-            })
-            .context("Failed to send message on the watcher's tx")?;
+                // We run just one of the drivers first before all of the other drivers to allow it to cache
+                // the gas limits for all of the subsequent runs.
+                let Some(first_task) = tasks.next() else {
+                    return Ok(0);
+                };
+                let first_res = Box::pin(first_task)
+                    .await
+                    .context("Running the first initialization driver failed")?;
 
-        let res = futures::future::try_join_all(tasks)
-            .await
-            .context("Repetition execution failed")?;
-        Ok(res.into_iter().sum())
+                // Send the start event to the watcher after the first (warm-up) driver has
+                // completed. This ensures that blocks produced during the warm-up phase
+                // (contract deployment, gas estimation, receipt confirmations) are excluded
+                // from the benchmark metrics.
+                self.watcher_tx
+                    .send(WatcherEvent::StartEvent {
+                        ignore_block_before: self
+                            .platform_information
+                            .node
+                            .provider()
+                            .await
+                            .context("Failed to get the provider")?
+                            .get_block_number()
+                            .await
+                            .context("Failed to get the block number of the latest block")?,
+                    })
+                    .context("Failed to send message on the watcher's tx")?;
+
+                let res = futures::future::try_join_all(tasks)
+                    .await
+                    .context("Repetition execution failed")?;
+                Ok(res.into_iter().sum::<usize>() + first_res)
+            }
+            .instrument(info_span!("execute_repeat_step", driver_id,)),
+        )
     }
 
     #[instrument(level = "info", fields(driver_id = self.driver_id), skip_all, err(Debug))]
@@ -660,7 +706,10 @@ where
 
         if let Some(calldata) = calldata {
             let calldata = calldata
-                .calldata(self.resolver.as_ref(), self.default_resolution_context())
+                .calldata(
+                    self.platform_information.node,
+                    self.default_resolution_context(),
+                )
                 .await?;
             code.extend(calldata);
         }
@@ -733,13 +782,15 @@ where
         receipt_wait_duration: Duration,
     ) -> anyhow::Result<(
         TxHash,
-        impl Future<Output = Result<TransactionReceipt>>,
-        impl Future<Output = ()>,
+        impl Future<Output = Result<TransactionReceipt>> + Send + 'static,
+        impl Future<Output = ()> + Send + 'static,
     )> {
         let node = self.platform_information.node;
         let provider = node.provider().await.context("Creating provider failed")?;
 
-        if let Some(step_path) = step_path {
+        if let Some(step_path) = step_path
+            && self.platform_information.platform.allow_caching_gas_limit()
+        {
             let read_guard = self.gas_limits.read().await;
             let gas_limit = match read_guard.get(step_path) {
                 Some(gas_estimate) => {
@@ -784,23 +835,26 @@ where
                     }
                 }
             };
-            transaction.set_gas_limit(gas_limit * 120 / 100);
+            transaction.set_gas_limit(gas_limit * 110 / 100);
         }
 
-        let pending_transaction_builder = provider
-            .send_transaction(transaction)
+        let transaction_hash = self
+            .platform_information
+            .node
+            .submit_transaction(transaction)
             .await
             .context("Failed to submit transaction")?;
-
-        let transaction_hash = *pending_transaction_builder.tx_hash();
+        let pending_transaction_builder =
+            PendingTransactionBuilder::new(provider.root().clone(), transaction_hash);
         Span::current().record("transaction_hash", display(transaction_hash));
 
-        info!("Submitted transaction");
+        info!(%transaction_hash, "Submitted transaction");
         if let Some(step_path) = step_path {
             self.watcher_tx
                 .send(WatcherEvent::SubmittedTransaction {
                     transaction_hash,
                     step_path: step_path.clone(),
+                    submission_time: SystemTime::now(),
                 })
                 .context("Failed to send the transaction hash to the watcher")?;
         };
@@ -811,6 +865,7 @@ where
                 .with_timeout(Some(receipt_wait_duration))
                 .with_required_confirmations(2)
                 .get_receipt()
+                .inspect_ok(|receipt| info!(transaction_hash = %receipt.transaction_hash, "Obtained receipt"))
                 .map(|res| res.context("Failed to get the receipt of the transaction")),
             self.inclusion_watcher.await_transaction(transaction_hash),
         ))

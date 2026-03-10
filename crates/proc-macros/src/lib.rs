@@ -1,4 +1,5 @@
 mod context;
+mod runner_event;
 
 /// Generates a CLI-integrated configuration system from a declarative module definition.
 ///
@@ -198,6 +199,17 @@ pub fn context(
 ) -> proc_macro::TokenStream {
     let item = syn::parse_macro_input!(item as syn::ItemMod);
     match context::handler(attr.into(), item) {
+        Ok(tokens) => tokens.into(),
+        Err(err) => err.to_compile_error().into(),
+    }
+}
+
+/// Generates the runner-event reporting infrastructure from a grouped enum definition.
+///
+/// See `crates/report/src/runner_event.rs` for usage.
+#[proc_macro]
+pub fn define_runner_event(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    match runner_event::handler(input.into()) {
         Ok(tokens) => tokens.into(),
         Err(err) => err.to_compile_error().into(),
     }

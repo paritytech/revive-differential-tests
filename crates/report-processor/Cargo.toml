@@ -18,7 +18,9 @@ revive-dt-common = { workspace = true }
 revive-dt-config = { workspace = true }
 
 anyhow = { workspace = true }
+base64 = { workspace = true }
 clap = { workspace = true }
+flate2 = { workspace = true }
 strum = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

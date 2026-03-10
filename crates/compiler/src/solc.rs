@@ -1,31 +1,7 @@
 //! Implements the [SolidityCompiler] trait with solc for
 //! compiling contracts to EVM bytecode.
 
-use std::{
-    path::PathBuf,
-    pin::Pin,
-    process::Stdio,
-    sync::{Arc, LazyLock},
-};
-
-use dashmap::DashMap;
-use revive_dt_common::types::{Mode, VersionOrRequirement};
-use revive_dt_config::{HasSolcConfiguration, HasWorkingDirectoryConfiguration};
-use revive_dt_solc_binaries::download_solc;
-use tracing::{Span, field::display, info};
-
-use crate::{CompilerInput, CompilerOutput, ModePipeline, SolidityCompiler};
-
-use anyhow::{Context as _, Result};
-use foundry_compilers_artifacts::{
-    output_selection::{
-        BytecodeOutputSelection, ContractOutputSelection, EvmOutputSelection, OutputSelection,
-    },
-    solc::CompilerOutput as SolcOutput,
-    solc::*,
-};
-use semver::Version;
-use tokio::{io::AsyncWriteExt, process::Command as AsyncCommand};
+use crate::internal_prelude::*;
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Solc(Arc<SolcInner>);
@@ -39,48 +15,50 @@ struct SolcInner {
 }
 
 impl Solc {
-    pub async fn new(
-        context: impl HasSolcConfiguration + HasWorkingDirectoryConfiguration,
-        version: impl Into<Option<VersionOrRequirement>>,
-    ) -> Result<Self> {
-        // This is a cache for the compiler objects so that whenever the same compiler version is
-        // requested the same object is returned. We do this as we do not want to keep cloning the
-        // compiler around.
-        static COMPILERS_CACHE: LazyLock<DashMap<(PathBuf, Version), Solc>> =
-            LazyLock::new(Default::default);
+    pub fn new(
+        context: impl HasSolcConfiguration + HasWorkingDirectoryConfiguration + Send + 'static,
+        version: impl Into<Option<VersionOrRequirement>> + Send + 'static,
+    ) -> FrameworkFuture<Result<Self>> {
+        Box::pin(async move {
+            // This is a cache for the compiler objects so that whenever the same compiler version is
+            // requested the same object is returned. We do this as we do not want to keep cloning the
+            // compiler around.
+            static COMPILERS_CACHE: LazyLock<DashMap<(PathBuf, Version), Solc>> =
+                LazyLock::new(Default::default);
 
-        let working_directory_configuration = context.as_working_directory_configuration();
-        let solc_configuration = context.as_solc_configuration();
+            let working_directory_configuration = context.as_working_directory_configuration();
+            let solc_configuration = context.as_solc_configuration();
 
-        // We attempt to download the solc binary. Note the following: this call does the version
-        // resolution for us. Therefore, even if the download didn't proceed, this function will
-        // resolve the version requirement into a canonical version of the compiler. It's then up
-        // to us to either use the provided path or not.
-        let version = version
-            .into()
-            .unwrap_or_else(|| solc_configuration.version.clone().into());
-        let (version, path) = download_solc(
-            working_directory_configuration.working_directory.as_path(),
-            version,
-            false,
-        )
-        .await
-        .context("Failed to download/get path to solc binary")?;
+            // We attempt to download the solc binary. Note the following: this call does the version
+            // resolution for us. Therefore, even if the download didn't proceed, this function will
+            // resolve the version requirement into a canonical version of the compiler. It's then up
+            // to us to either use the provided path or not.
+            let version = version
+                .into()
+                .unwrap_or_else(|| solc_configuration.version.clone().into());
+            let (version, path) = download_solc(
+                working_directory_configuration.working_directory.as_path(),
+                version,
+                false,
+            )
+            .await
+            .context("Failed to download/get path to solc binary")?;
 
-        Ok(COMPILERS_CACHE
-            .entry((path.clone(), version.clone()))
-            .or_insert_with(|| {
-                info!(
-                    solc_path = %path.display(),
-                    solc_version = %version,
-                    "Created a new solc compiler object"
-                );
-                Self(Arc::new(SolcInner {
-                    solc_path: path,
-                    solc_version: version,
-                }))
-            })
-            .clone())
+            Ok(COMPILERS_CACHE
+                .entry((path.clone(), version.clone()))
+                .or_insert_with(|| {
+                    info!(
+                        solc_path = %path.display(),
+                        solc_version = %version,
+                        "Created a new solc compiler object"
+                    );
+                    Self(Arc::new(SolcInner {
+                        solc_path: path,
+                        solc_version: version,
+                    }))
+                })
+                .clone())
+        })
     }
 }
 
@@ -93,7 +71,7 @@ impl SolidityCompiler for Solc {
         &self.0.solc_path
     }
 
-    #[tracing::instrument(level = "debug", ret)]
+    #[tracing::instrument(level = "debug", skip_all, ret)]
     #[tracing::instrument(
         level = "error",
         skip_all,
@@ -112,13 +90,14 @@ impl SolidityCompiler for Solc {
             libraries,
             revert_string_handling,
         }: CompilerInput,
-    ) -> Pin<Box<dyn Future<Output = Result<CompilerOutput>> + '_>> {
+    ) -> FrameworkFuture<Result<CompilerOutput>> {
+        let this = self.clone();
         Box::pin(async move {
             // Be careful to entirely omit the viaIR field if the compiler does not support it,
             // as it will error if you provide fields it does not know about. Because
             // `supports_mode` is called prior to instantiating a compiler, we should never
             // ask for something which is invalid.
-            let via_ir = match (pipeline, self.compiler_supports_yul()) {
+            let via_ir = match (pipeline, this.compiler_supports_yul()) {
                 (pipeline, true) => pipeline.map(|p| p.via_yul_ir()),
                 (_pipeline, false) => None,
             };
@@ -180,7 +159,7 @@ impl SolidityCompiler for Solc {
 
             Span::current().record("json_in", display(serde_json::to_string(&input).unwrap()));
 
-            let path = &self.0.solc_path;
+            let path = &this.0.solc_path;
             let mut command = AsyncCommand::new(path);
             command
                 .stdin(Stdio::piped())
