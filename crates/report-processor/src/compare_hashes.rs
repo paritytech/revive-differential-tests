@@ -32,9 +32,10 @@ impl Mismatch {
 pub struct ComparisonResult {
     /// All platforms compared, listed in the deterministic order of comparison.
     pub platforms: Vec<String>,
-    /// The reference platform used.
+    /// The platform used as the reference.
     pub reference_platform: String,
-    /// The number of hashes per platform per [`Mode`] display string.
+    /// The number of hashes for each platform, keyed by the
+    /// [`Mode`] display string and the platform.
     pub hash_counts: BTreeMap<String, BTreeMap<String, usize>>,
     /// The mismatches found in each compared platform, keyed by the
     /// [`Mode`] display string and the other/compared platform.
@@ -130,7 +131,6 @@ fn compare(
     other_hashes: Option<&BTreeMap<String, BTreeMap<String, String>>>,
 ) -> Vec<Mismatch> {
     let mut mismatches = Vec::new();
-
     let empty_map = BTreeMap::new();
     let reference_hashes = reference_hashes.unwrap_or(&empty_map);
     let other_hashes = other_hashes.unwrap_or(&empty_map);
@@ -233,10 +233,10 @@ fn validate_explicit_modes(hashes: &[HashData], modes: &[String]) -> Result<()> 
 /// Builds a human-readable comparison summary from the [`ComparisonResult`].
 pub fn build_comparison_summary(result: &ComparisonResult) -> String {
     let reference_platform = &result.reference_platform;
-    let mut mode_reports: Vec<String> = vec![];
+    let mut summaries_per_mode: Vec<String> = vec![];
 
     for (mode, mismatches_at_mode) in &result.mismatches {
-        let mut mode_report = format!(
+        let mut mode_summary = format!(
             "\n-------------------------------------------\
              \nMode {mode}:\
              \n-------------------------------------------"
@@ -265,14 +265,14 @@ pub fn build_comparison_summary(result: &ComparisonResult) -> String {
             };
             let status_symbol = if mismatch_count == 0 { "✅" } else { "❌" };
 
-            mode_report.push_str(&format!(
+            mode_summary.push_str(&format!(
                 "\n\
                  \n    {reference_platform} ({reference_hash_count} hashes) vs. {other_platform} ({other_hash_count} hashes):\
                  \n        Mismatches: {status_symbol} {mismatch_count} {missing_info}",
             ));
 
             for mismatch in mismatches {
-                mode_report.push_str(&format!(
+                mode_summary.push_str(&format!(
                     "\n\
                      \n        - path: {}\
                      \n          contract: {}\
@@ -286,11 +286,11 @@ pub fn build_comparison_summary(result: &ComparisonResult) -> String {
             }
         }
 
-        mode_reports.push(mode_report);
+        summaries_per_mode.push(mode_summary);
     }
 
     let platforms = format!("\n    - {}", result.platforms.join("\n    - "));
-    let mode_reports = mode_reports.join("\n");
+    let mode_reports = summaries_per_mode.join("\n");
     let modes_compared = format!(
         "\n    - {}",
         result
@@ -655,8 +655,8 @@ mod tests {
         assert!(windows_mismatches.is_empty());
 
         // Mode: Y M3 S+
-        // Linux (the reference platform) has no data for this mode, so each compared
-        // platform should report it as a mismatch.
+        // Linux (the reference platform) has no data for this mode,
+        // so each compared platform should report it as a mismatch.
         let macos_mismatches = &result.mismatches["Y M3 S+"]["macos"];
         assert_eq!(macos_mismatches.len(), 2);
         assert_has_mismatch(

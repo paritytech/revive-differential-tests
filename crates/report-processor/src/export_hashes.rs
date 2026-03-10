@@ -55,9 +55,9 @@ pub fn extract_hashes(
                         ..
                     }) = &compilation_report.status
                     {
-                        insert_hashes(
+                        populate_hashes(
                             &mut hashes,
-                            &mode.to_string(),
+                            mode.to_string(),
                             compiled_contracts_info,
                             contracts_base_dir,
                         )?;
@@ -76,9 +76,9 @@ pub fn extract_hashes(
                                 ..
                             }) = &execution_info.pre_link_compilation_status
                             {
-                                insert_hashes(
+                                populate_hashes(
                                     &mut hashes,
-                                    &mode.to_string(),
+                                    mode.to_string(),
                                     compiled_contracts_info,
                                     contracts_base_dir,
                                 )?;
@@ -99,10 +99,10 @@ pub fn extract_hashes(
     })
 }
 
-/// Inserts hashes from `compiled_contracts_info` into `hashes`.
-fn insert_hashes(
+/// Populates `hashes` with hashes found in `compiled_contracts_info`.
+fn populate_hashes(
     hashes: &mut BTreeMap<String, BTreeMap<String, BTreeMap<String, String>>>,
-    mode_string: &str,
+    mode_string: String,
     compiled_contracts_info: &HashMap<PathBuf, HashMap<String, CompiledContractInformation>>,
     contracts_base_dir: &Path,
 ) -> Result<()> {
@@ -111,7 +111,7 @@ fn insert_hashes(
 
         for (contract_name, contract_info) in contracts_info_at_path {
             hashes
-                .entry(mode_string.to_string())
+                .entry(mode_string.clone())
                 .or_default()
                 .entry(normalized_path.clone())
                 .or_default()

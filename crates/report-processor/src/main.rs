@@ -288,16 +288,16 @@ fn main() -> Result<()> {
             write_or_overwrite_json(&output_path, &platform_hash_data)?;
 
             println!(
-                "Exported {} hashes across {} modes ({}) to {}",
+                "Exported {} hashes across {} modes to {}.\nModes:\n- {}",
                 platform_hash_data.count_hashes(),
                 platform_hash_data.hashes.len(),
+                output_path.display(),
                 platform_hash_data
                     .hashes
                     .keys()
                     .cloned()
                     .collect::<Vec<_>>()
-                    .join(", "),
-                output_path.display()
+                    .join("\n- ")
             );
         }
         Cli::CompareHashes {
@@ -450,7 +450,9 @@ pub enum Cli {
         #[clap(long)]
         remove_prefix: PathBuf,
 
-        /// The platform to be associated with the hashes (e.g. "linux" or "macos").
+        /// The platform to be associated with the hashes (e.g. "linux" or "macos"),
+        /// indicating which platform the hashes were generated on. This is included
+        /// in the exported file.
         #[clap(long)]
         platform_label: String,
     },
