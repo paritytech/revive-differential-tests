@@ -445,8 +445,8 @@ jobs:
             .execution_information |= map_values(
               .case_reports |= map_values(
                 .mode_execution_reports |= map_values(
-                  del(.mined_block_information)
-                  | .steps |= (if . then map_values(del(.transactions)) else . end)
+                  .mined_block_information = {}
+                  | .steps |= (if . then map_values(.transactions = {}) else . end)
                 )
               )
             )
