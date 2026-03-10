@@ -8,7 +8,7 @@ use crate::export_hashes::HashData;
 
 /// A mismatch between the reference platform's hash and the other platform's hash.
 #[derive(Clone, Debug)]
-struct Mismatch {
+pub(crate) struct Mismatch {
     /// The normalized source path.
     path: String,
     /// The contract name.
@@ -19,6 +19,13 @@ struct Mismatch {
     other_hash: Option<String>,
 }
 
+impl Mismatch {
+    /// Whether the mismatch is due to a missing reference hash or other hash.
+    fn is_missing_hash(&self) -> bool {
+        self.reference_hash.is_none() || self.other_hash.is_none()
+    }
+}
+
 /// The result of the hash comparison.
 #[derive(Clone, Debug)]
 pub struct ComparisonResult {
@@ -26,6 +33,8 @@ pub struct ComparisonResult {
     pub platforms: Vec<String>,
     /// The reference platform used.
     pub reference_platform: String,
+    /// The number of hashes per platform per [`Mode`] display string.
+    pub hash_counts: BTreeMap<String, BTreeMap<String, usize>>,
     /// The mismatches found in each compared platform, keyed by the
     /// [`Mode`] display string and the other/compared platform.
     pub mismatches: BTreeMap<String, BTreeMap<String, Vec<Mismatch>>>,
@@ -39,6 +48,16 @@ impl ComparisonResult {
             .flat_map(|mismatches_at_mode| mismatches_at_mode.values())
             .map(|mismatches_at_platform| mismatches_at_platform.len())
             .sum()
+    }
+
+    /// Counts the total number of mismatches where either the reference or other hash is missing.
+    pub fn count_mismatches_with_missing_hash(&self) -> usize {
+        self.mismatches
+            .values()
+            .flat_map(|mismatches_at_mode| mismatches_at_mode.values())
+            .flatten()
+            .filter(|mismatch| mismatch.is_missing_hash())
+            .count()
     }
 }
 
@@ -69,12 +88,20 @@ pub fn compare_hashes(
     all_hashes.sort_by_key(|hash_data| &hash_data.platform);
 
     let reference = all_hashes[0];
+    let mut all_hash_counts: BTreeMap<String, BTreeMap<String, usize>> = BTreeMap::new();
     let mut all_mismatches: BTreeMap<String, BTreeMap<String, Vec<Mismatch>>> = BTreeMap::new();
 
     for mode in &modes {
-        let reference_hashes = reference.hashes.get(mode);
+        let hash_counts = all_hash_counts.entry(mode.clone()).or_default();
+        hash_counts.insert(
+            reference.platform.clone(),
+            reference.count_hashes_at_mode(mode),
+        );
 
+        let reference_hashes = reference.hashes.get(mode);
         for other in &all_hashes[1..] {
+            hash_counts.insert(other.platform.clone(), other.count_hashes_at_mode(mode));
+
             let other_hashes = other.hashes.get(mode);
             let mismatches = compare(reference_hashes, other_hashes);
 
@@ -91,6 +118,7 @@ pub fn compare_hashes(
             .map(|hash_data| hash_data.platform.clone())
             .collect(),
         reference_platform: reference.platform.clone(),
+        hash_counts: all_hash_counts,
         mismatches: all_mismatches,
     })
 }
@@ -203,12 +231,109 @@ fn validate_explicit_modes(hashes: &[HashData], modes: &[String]) -> Result<()> 
 
 /// Builds a human-readable comparison report from the [`ComparisonResult`].
 pub fn build_comparison_report(result: &ComparisonResult) -> String {
-    // TODO.
+    let reference_platform = &result.reference_platform;
+    let mut mode_reports: Vec<String> = vec![];
+
+    for (mode, mismatches_at_mode) in &result.mismatches {
+        let mut mode_report = format!(
+            "\n-------------------------------------------\
+             \nMode {mode}:\
+             \n-------------------------------------------"
+        );
+
+        let hash_counts_at_mode = result.hash_counts.get(mode);
+        let reference_hash_count = hash_counts_at_mode
+            .and_then(|counts| counts.get(&result.reference_platform))
+            .copied()
+            .unwrap_or(0);
+
+        for (other_platform, mismatches) in mismatches_at_mode {
+            let other_hash_count = hash_counts_at_mode
+                .and_then(|counts| counts.get(other_platform))
+                .copied()
+                .unwrap_or(0);
+            let mismatch_count = mismatches.len();
+            let missing_count = mismatches
+                .iter()
+                .filter(|mismatch| mismatch.is_missing_hash())
+                .count();
+            let missing_info = if missing_count > 0 {
+                format!("(including {missing_count} missing hashes)")
+            } else {
+                String::new()
+            };
+            let status_symbol = if mismatch_count == 0 { "✅" } else { "❌" };
+
+            mode_report.push_str(&format!(
+                "\n\
+                 \n    {reference_platform} ({reference_hash_count} hashes) vs. {other_platform} ({other_hash_count} hashes):\
+                 \n        Mismatches: {status_symbol} {mismatch_count} {missing_info}",
+            ));
+
+            for mismatch in mismatches {
+                mode_report.push_str(&format!(
+                    "\n\
+                     \n        - path: {}\
+                     \n          contract: {}\
+                     \n          {reference_platform}: {}\
+                     \n          {other_platform}: {}",
+                    mismatch.path,
+                    mismatch.contract_name,
+                    mismatch.reference_hash.as_deref().unwrap_or("MISSING"),
+                    mismatch.other_hash.as_deref().unwrap_or("MISSING"),
+                ));
+            }
+        }
+
+        mode_reports.push(mode_report);
+    }
+
+    let platforms = format!("\n    - {}", result.platforms.join("\n    - "));
+    let mode_reports = mode_reports.join("\n");
+    let modes_compared = format!(
+        "\n    - {}",
+        result
+            .mismatches
+            .keys()
+            .cloned()
+            .collect::<Vec<_>>()
+            .join("\n    - ")
+    );
+    let total_mismatch_count = result.count_mismatches();
+    let total_missing_count = result.count_mismatches_with_missing_hash();
+    let missing_info = if total_missing_count > 0 {
+        format!("(including {total_missing_count} missing hashes)")
+    } else {
+        String::new()
+    };
+    let status_message = if total_mismatch_count == 0 {
+        "✅ SUCCESS: All hashes match across the compared platforms."
+    } else {
+        "❌ FAILURE: Mismatches found among the compared platforms!"
+    };
+
     format!(
-        "Compared {} platforms ({}), {} total mismatches",
-        result.platforms.len(),
-        result.platforms.join(", "),
-        result.count_mismatches()
+        "\n\
+         ===========================================\n\
+         COMPARISONS\n\
+         ===========================================\n\
+         {mode_reports}\n\
+         \n\
+         ===========================================\n\
+         SUMMARY\n\
+         ===========================================\n\
+         \n\
+         * Reference platform used: {reference_platform}\n\
+         \n\
+         * Platforms compared: {platforms}\n\
+         \n\
+         * Modes compared: {modes_compared}\n\
+         \n\
+         Total mismatches for all modes: {total_mismatch_count} {missing_info}\n\
+         \n\
+         {status_message}\n\
+         \n\
+         ==========================================="
     )
 }
 
@@ -304,10 +429,17 @@ mod tests {
         let result = compare_hashes(&[hashes_a, hashes_b, hashes_c], None).unwrap();
         assert_eq!(result.platforms, vec!["linux", "macos", "windows"]);
         assert_eq!(result.count_mismatches(), 0);
+        let expected_modes = vec!["Y M0 S+", "Y M3 S+", "Y Mz S+"];
+        assert_eq!(result.mismatches.keys().collect::<Vec<_>>(), expected_modes);
         assert_eq!(
-            result.mismatches.keys().collect::<Vec<_>>(),
-            vec!["Y M0 S+", "Y M3 S+", "Y Mz S+"]
+            result.hash_counts.keys().collect::<Vec<_>>(),
+            expected_modes
         );
+        for mode in expected_modes {
+            assert_eq!(result.hash_counts[mode]["linux"], 3);
+            assert_eq!(result.hash_counts[mode]["macos"], 3);
+            assert_eq!(result.hash_counts[mode]["windows"], 3);
+        }
     }
 
     #[test]
@@ -339,19 +471,31 @@ mod tests {
         .unwrap();
         assert_eq!(result.platforms, vec!["linux", "macos", "windows"]);
         assert_eq!(result.count_mismatches(), 0);
+        let expected_modes: Vec<_> = modes.iter().collect();
+        assert_eq!(result.mismatches.keys().collect::<Vec<_>>(), expected_modes);
         assert_eq!(
-            result.mismatches.keys().collect::<Vec<_>>(),
-            vec!["Y M0 S+", "Y M3 S+", "Y Mz S+"]
+            result.hash_counts.keys().collect::<Vec<_>>(),
+            expected_modes
         );
+        for mode in modes {
+            assert_eq!(result.hash_counts[mode]["linux"], 3);
+            assert_eq!(result.hash_counts[mode]["macos"], 3);
+            assert_eq!(result.hash_counts[mode]["windows"], 3);
+        }
 
         let modes = &["Y M0 S+".to_string()];
         let result = compare_hashes(&[hashes_a, hashes_b, hashes_c], Some(modes)).unwrap();
         assert_eq!(result.platforms, vec!["linux", "macos", "windows"]);
         assert_eq!(result.count_mismatches(), 0);
+        let expected_modes: Vec<_> = modes.iter().collect();
+        assert_eq!(result.mismatches.keys().collect::<Vec<_>>(), expected_modes);
         assert_eq!(
-            result.mismatches.keys().collect::<Vec<_>>(),
-            vec!["Y M0 S+"]
+            result.hash_counts.keys().collect::<Vec<_>>(),
+            expected_modes
         );
+        assert_eq!(result.hash_counts["Y M0 S+"]["linux"], 3);
+        assert_eq!(result.hash_counts["Y M0 S+"]["macos"], 3);
+        assert_eq!(result.hash_counts["Y M0 S+"]["windows"], 3);
 
         // Create a mismatch in `Y Mz S+` and request comparison of only `Y M0 S+`.
         let hashes_a = make_custom_hash_data(
@@ -372,10 +516,14 @@ mod tests {
         let result = compare_hashes(&[hashes_a, hashes_b], Some(modes)).unwrap();
         assert_eq!(result.platforms, vec!["linux", "macos"]);
         assert_eq!(result.count_mismatches(), 0);
+        let expected_modes: Vec<_> = modes.iter().collect();
+        assert_eq!(result.mismatches.keys().collect::<Vec<_>>(), expected_modes);
         assert_eq!(
-            result.mismatches.keys().collect::<Vec<_>>(),
-            vec!["Y M0 S+"]
+            result.hash_counts.keys().collect::<Vec<_>>(),
+            expected_modes
         );
+        assert_eq!(result.hash_counts["Y M0 S+"]["linux"], 1);
+        assert_eq!(result.hash_counts["Y M0 S+"]["macos"], 1);
     }
 
     #[test]
@@ -418,10 +566,17 @@ mod tests {
         assert_eq!(result.count_mismatches(), 3);
         assert_eq!(result.platforms, vec!["linux", "macos", "windows"]);
         assert_eq!(result.reference_platform, "linux");
+        let expected_modes = vec!["Y M0 S+", "Y M3 S+"];
+        assert_eq!(result.mismatches.keys().collect::<Vec<_>>(), expected_modes);
         assert_eq!(
-            result.mismatches.keys().collect::<Vec<_>>(),
-            vec!["Y M0 S+", "Y M3 S+"]
+            result.hash_counts.keys().collect::<Vec<_>>(),
+            expected_modes
         );
+        for mode in expected_modes {
+            assert_eq!(result.hash_counts[mode]["linux"], 3);
+            assert_eq!(result.hash_counts[mode]["macos"], 3);
+            assert_eq!(result.hash_counts[mode]["windows"], 3);
+        }
 
         // Mode: Y M0 S+
         let macos_mismatches = &result.mismatches["Y M0 S+"]["macos"];
@@ -490,10 +645,18 @@ mod tests {
         assert_eq!(result.count_mismatches(), 4);
         assert_eq!(result.platforms, vec!["linux", "macos", "windows"]);
         assert_eq!(result.reference_platform, "linux");
+        let expected_modes = vec!["Y M0 S+", "Y M3 S+"];
+        assert_eq!(result.mismatches.keys().collect::<Vec<_>>(), expected_modes);
         assert_eq!(
-            result.mismatches.keys().collect::<Vec<_>>(),
-            vec!["Y M0 S+", "Y M3 S+"]
+            result.hash_counts.keys().collect::<Vec<_>>(),
+            expected_modes
         );
+        assert_eq!(result.hash_counts["Y M0 S+"]["linux"], 2);
+        assert_eq!(result.hash_counts["Y M0 S+"]["macos"], 2);
+        assert_eq!(result.hash_counts["Y M0 S+"]["windows"], 2);
+        assert_eq!(result.hash_counts["Y M3 S+"]["linux"], 0);
+        assert_eq!(result.hash_counts["Y M3 S+"]["macos"], 2);
+        assert_eq!(result.hash_counts["Y M3 S+"]["windows"], 2);
 
         // Mode: Y M0 S+
         let macos_mismatches = &result.mismatches["Y M0 S+"]["macos"];

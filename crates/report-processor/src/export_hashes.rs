@@ -24,6 +24,16 @@ impl HashData {
             .map(|hashes_at_path| hashes_at_path.len())
             .sum()
     }
+
+    /// Counts the number of hashes at a specific mode.
+    pub fn count_hashes_at_mode(&self, mode: &str) -> usize {
+        self.hashes
+            .get(mode)
+            .into_iter()
+            .flat_map(|hashes_at_mode| hashes_at_mode.values())
+            .map(|hashes_at_path| hashes_at_path.len())
+            .sum()
+    }
 }
 
 /// Extracts all bytecode hashes from a report.
