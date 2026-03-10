@@ -399,10 +399,14 @@ fn subscribe_to_full_blocks_information_substrate(
                     let limits = substrate_provider
                         .constants()
                         .at(&revive_metadata::constants().system().block_weights())
+                        .expect("TODO: Remove")
+                        .per_class
+                        .normal
+                        .max_extrinsic
                         .expect("TODO: Remove");
 
-                    let max_ref_time = limits.max_block.ref_time;
-                    let max_proof_size = limits.max_block.proof_size;
+                    let max_ref_time = limits.ref_time;
+                    let max_proof_size = limits.proof_size;
 
                     MinedBlockInformation {
                         ethereum_block_information: EthereumMinedBlockInformation {
