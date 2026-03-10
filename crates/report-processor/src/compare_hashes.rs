@@ -29,7 +29,7 @@ impl Mismatch {
 /// The result of the hash comparison.
 #[derive(Clone, Debug)]
 pub struct ComparisonResult {
-    /// All platforms compared.
+    /// All platforms compared, listed in the deterministic order of comparison.
     pub platforms: Vec<String>,
     /// The reference platform used.
     pub reference_platform: String,
@@ -409,6 +409,33 @@ mod tests {
         );
     }
 
+    /// Asserts the [`ComparisonResult`] against expected values, for the case where
+    /// every platform is expected to have the same number of hashes at each mode.
+    fn assert_expected_result(
+        result: &ComparisonResult,
+        expected_platforms: &[&str],
+        expected_modes: &[&str],
+        expected_hash_count_per_mode: usize,
+        expected_mismatch_count: usize,
+    ) {
+        assert_eq!(result.platforms, expected_platforms);
+        assert_eq!(result.reference_platform, expected_platforms[0]);
+        assert_eq!(result.count_mismatches(), expected_mismatch_count);
+        assert_eq!(result.mismatches.keys().collect::<Vec<_>>(), expected_modes);
+        assert_eq!(
+            result.hash_counts.keys().collect::<Vec<_>>(),
+            expected_modes
+        );
+        for mode in expected_modes {
+            for platform in &result.platforms {
+                assert_eq!(
+                    result.hash_counts[*mode][platform],
+                    expected_hash_count_per_mode
+                );
+            }
+        }
+    }
+
     #[test]
     fn compare_hashes_inferred_modes_ok() {
         let entries = &[
@@ -427,19 +454,13 @@ mod tests {
         let hashes_c = make_custom_hash_data("windows", entries);
 
         let result = compare_hashes(&[hashes_a, hashes_b, hashes_c], None).unwrap();
-        assert_eq!(result.platforms, vec!["linux", "macos", "windows"]);
-        assert_eq!(result.count_mismatches(), 0);
-        let expected_modes = vec!["Y M0 S+", "Y M3 S+", "Y Mz S+"];
-        assert_eq!(result.mismatches.keys().collect::<Vec<_>>(), expected_modes);
-        assert_eq!(
-            result.hash_counts.keys().collect::<Vec<_>>(),
-            expected_modes
+        assert_expected_result(
+            &result,
+            &["linux", "macos", "windows"],
+            &["Y M0 S+", "Y M3 S+", "Y Mz S+"],
+            3,
+            0,
         );
-        for mode in expected_modes {
-            assert_eq!(result.hash_counts[mode]["linux"], 3);
-            assert_eq!(result.hash_counts[mode]["macos"], 3);
-            assert_eq!(result.hash_counts[mode]["windows"], 3);
-        }
     }
 
     #[test]
@@ -469,33 +490,17 @@ mod tests {
             Some(modes),
         )
         .unwrap();
-        assert_eq!(result.platforms, vec!["linux", "macos", "windows"]);
-        assert_eq!(result.count_mismatches(), 0);
-        let expected_modes: Vec<_> = modes.iter().collect();
-        assert_eq!(result.mismatches.keys().collect::<Vec<_>>(), expected_modes);
-        assert_eq!(
-            result.hash_counts.keys().collect::<Vec<_>>(),
-            expected_modes
+        assert_expected_result(
+            &result,
+            &["linux", "macos", "windows"],
+            &["Y M0 S+", "Y M3 S+", "Y Mz S+"],
+            3,
+            0,
         );
-        for mode in modes {
-            assert_eq!(result.hash_counts[mode]["linux"], 3);
-            assert_eq!(result.hash_counts[mode]["macos"], 3);
-            assert_eq!(result.hash_counts[mode]["windows"], 3);
-        }
 
         let modes = &["Y M0 S+".to_string()];
         let result = compare_hashes(&[hashes_a, hashes_b, hashes_c], Some(modes)).unwrap();
-        assert_eq!(result.platforms, vec!["linux", "macos", "windows"]);
-        assert_eq!(result.count_mismatches(), 0);
-        let expected_modes: Vec<_> = modes.iter().collect();
-        assert_eq!(result.mismatches.keys().collect::<Vec<_>>(), expected_modes);
-        assert_eq!(
-            result.hash_counts.keys().collect::<Vec<_>>(),
-            expected_modes
-        );
-        assert_eq!(result.hash_counts["Y M0 S+"]["linux"], 3);
-        assert_eq!(result.hash_counts["Y M0 S+"]["macos"], 3);
-        assert_eq!(result.hash_counts["Y M0 S+"]["windows"], 3);
+        assert_expected_result(&result, &["linux", "macos", "windows"], &["Y M0 S+"], 3, 0);
 
         // Create a mismatch in `Y Mz S+` and request comparison of only `Y M0 S+`.
         let hashes_a = make_custom_hash_data(
@@ -514,16 +519,7 @@ mod tests {
         );
         let modes = &["Y M0 S+".to_string()];
         let result = compare_hashes(&[hashes_a, hashes_b], Some(modes)).unwrap();
-        assert_eq!(result.platforms, vec!["linux", "macos"]);
-        assert_eq!(result.count_mismatches(), 0);
-        let expected_modes: Vec<_> = modes.iter().collect();
-        assert_eq!(result.mismatches.keys().collect::<Vec<_>>(), expected_modes);
-        assert_eq!(
-            result.hash_counts.keys().collect::<Vec<_>>(),
-            expected_modes
-        );
-        assert_eq!(result.hash_counts["Y M0 S+"]["linux"], 1);
-        assert_eq!(result.hash_counts["Y M0 S+"]["macos"], 1);
+        assert_expected_result(&result, &["linux", "macos"], &["Y M0 S+"], 1, 0);
     }
 
     #[test]
@@ -563,20 +559,13 @@ mod tests {
         );
 
         let result = compare_hashes(&[hashes_a, hashes_b, hashes_c], None).unwrap();
-        assert_eq!(result.count_mismatches(), 3);
-        assert_eq!(result.platforms, vec!["linux", "macos", "windows"]);
-        assert_eq!(result.reference_platform, "linux");
-        let expected_modes = vec!["Y M0 S+", "Y M3 S+"];
-        assert_eq!(result.mismatches.keys().collect::<Vec<_>>(), expected_modes);
-        assert_eq!(
-            result.hash_counts.keys().collect::<Vec<_>>(),
-            expected_modes
+        assert_expected_result(
+            &result,
+            &["linux", "macos", "windows"],
+            &["Y M0 S+", "Y M3 S+"],
+            3,
+            3,
         );
-        for mode in expected_modes {
-            assert_eq!(result.hash_counts[mode]["linux"], 3);
-            assert_eq!(result.hash_counts[mode]["macos"], 3);
-            assert_eq!(result.hash_counts[mode]["windows"], 3);
-        }
 
         // Mode: Y M0 S+
         let macos_mismatches = &result.mismatches["Y M0 S+"]["macos"];
@@ -642,9 +631,9 @@ mod tests {
         );
 
         let result = compare_hashes(&[hashes_a, hashes_b, hashes_c], None).unwrap();
-        assert_eq!(result.count_mismatches(), 4);
         assert_eq!(result.platforms, vec!["linux", "macos", "windows"]);
         assert_eq!(result.reference_platform, "linux");
+        assert_eq!(result.count_mismatches(), 4);
         let expected_modes = vec!["Y M0 S+", "Y M3 S+"];
         assert_eq!(result.mismatches.keys().collect::<Vec<_>>(), expected_modes);
         assert_eq!(
