@@ -228,7 +228,7 @@ pub enum Cli {
         other_expectation_path: JsonFile<Expectations<'static>>,
     },
 
-    /// Extracts and exports the bytecode hashes from a [`Report`].
+    /// Extracts and exports the bytecode hashes from pre-link compilations from a [`Report`].
     ExportHashes {
         /// The path to the report's JSON file.
         #[clap(long)]
