@@ -1,5 +1,5 @@
 name: "Compile Contracts"
-description: "Builds and runs revive-differential-tests's retester compilations from this repo and uploads the compilation report."
+description: "Builds and runs revive-differential-tests's retester to compile contracts, and uploads the compilation report."
 
 inputs:
   revive-differential-tests-path:
@@ -23,8 +23,12 @@ inputs:
     default: ""
   report-artifact-name:
     description: "The name for the uploaded compilation report artifact."
-    required: false
-    default: "compilation-report"
+    required: true
+
+outputs:
+  report-path:
+    description: "The path to the generated compilation report JSON file."
+    value: ${{ steps.compile.outputs.report-path }}
 
 runs:
   using: "composite"
@@ -41,7 +45,7 @@ runs:
     - name: Resolve the repo path
       id: repo
       shell: bash
-      run: echo "path=${{ inputs.revive-differential-tests-path || 'revive-differential-tests' }}" >> "$GITHUB_OUTPUT"
+      run: echo "path=$(realpath ${{ inputs.revive-differential-tests-path || 'revive-differential-tests' }})" >> "$GITHUB_OUTPUT"
 
     - name: Install retester
       shell: bash
@@ -52,9 +56,12 @@ runs:
       run: mkdir -p workdir
 
     - name: Compile contracts
+      id: compile
       shell: bash
       run: |
         REPO_PATH="${{ steps.repo.outputs.path }}"
+        WORKDIR="./workdir"
+        REPORT_FILE_NAME="compilation-report.json"
         SOLC_VERSION="${{ inputs.solc-version }}"
 
         MODE_ARGS=()
@@ -74,14 +81,16 @@ runs:
           --resolc.heap-size 528000 \
           --resolc.stack-size 128000 \
           ${SOLC_VERSION:+--solc.version "$SOLC_VERSION"} \
-          --report.file-name compilation-report.json \
-          --working-directory ./workdir \
+          --report.file-name "$REPORT_FILE_NAME" \
+          --working-directory "$WORKDIR" \
           --concurrency.number-of-threads 10 \
           --concurrency.number-of-concurrent-tasks 100 \
           || true
+
+        echo "report-path=$WORKDIR/$REPORT_FILE_NAME" >> "$GITHUB_OUTPUT"
 
     - name: Upload the compilation report
       uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
       with:
         name: ${{ inputs.report-artifact-name }}
-        path: ./workdir/compilation-report.json
+        path: ${{ steps.compile.outputs.report-path }}
