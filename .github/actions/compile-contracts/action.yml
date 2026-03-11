@@ -1,0 +1,87 @@
+name: "Compile Contracts"
+description: "Builds and runs revive-differential-tests's retester compilations from this repo and uploads the compilation report."
+
+inputs:
+  revive-differential-tests-path:
+    description: "The path to an existing checkout of revive-differential-tests. If empty, revive-differential-tests-ref is checked out."
+    required: false
+    default: ""
+  revive-differential-tests-ref:
+    description: "The branch, tag, or SHA to checkout if revive-differential-tests-path is not provided."
+    required: false
+    default: "main"
+  resolc-path:
+    description: "The path to the resolc binary."
+    required: true
+  solc-version:
+    description: "The solc version to use. If empty, retester's default is used."
+    required: false
+    default: ""
+  modes:
+    description: "Comma-separated compiler modes (e.g. 'Y M0 S+,Y M3 S+,Y Mz S+'). If empty, retester's default is used."
+    required: false
+    default: ""
+  report-artifact-name:
+    description: "The name for the uploaded compilation report artifact."
+    required: false
+    default: "compilation-report"
+
+runs:
+  using: "composite"
+  steps:
+    - name: Checkout revive-differential-tests
+      if: ${{ inputs.revive-differential-tests-path == '' }}
+      uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+      with:
+        repository: paritytech/revive-differential-tests
+        ref: ${{ inputs.revive-differential-tests-ref }}
+        path: revive-differential-tests
+        submodules: recursive
+
+    - name: Resolve the repo path
+      id: repo
+      shell: bash
+      run: echo "path=${{ inputs.revive-differential-tests-path || 'revive-differential-tests' }}" >> "$GITHUB_OUTPUT"
+
+    - name: Install retester
+      shell: bash
+      run: cargo install --locked --path "${{ steps.repo.outputs.path }}/crates/core"
+
+    - name: Create workdir for retester
+      shell: bash
+      run: mkdir -p workdir
+
+    - name: Compile contracts
+      shell: bash
+      run: |
+        REPO_PATH="${{ steps.repo.outputs.path }}"
+        SOLC_VERSION="${{ inputs.solc-version }}"
+
+        MODE_ARGS=()
+        if [[ -n "${{ inputs.modes }}" ]]; then
+          # Strip spaces around commas.
+          CLEANED_MODES=$(echo "${{ inputs.modes }}" | sed 's/ *, */,/g')
+          IFS=',' read -ra MODES <<< "$CLEANED_MODES"
+          for mode in "${MODES[@]}"; do
+            MODE_ARGS+=(--mode "$mode")
+          done
+        fi
+
+        retester compile \
+          --compile "$REPO_PATH/resolc-compiler-tests/fixtures/solidity" \
+          "${MODE_ARGS[@]}" \
+          --resolc.path "${{ inputs.resolc-path }}" \
+          --resolc.heap-size 528000 \
+          --resolc.stack-size 128000 \
+          ${SOLC_VERSION:+--solc.version "$SOLC_VERSION"} \
+          --report.file-name compilation-report.json \
+          --working-directory ./workdir \
+          --concurrency.number-of-threads 10 \
+          --concurrency.number-of-concurrent-tasks 100 \
+          || true
+
+    - name: Upload the compilation report
+      uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
+      with:
+        name: ${{ inputs.report-artifact-name }}
+        path: ./workdir/compilation-report.json
