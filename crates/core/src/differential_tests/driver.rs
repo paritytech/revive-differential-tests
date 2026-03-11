@@ -251,13 +251,13 @@ where
         // than including the actual bytecode. This creates a problem where a factory contract could
         // be deployed but the code it's supposed to create is not on chain. Therefore, we upload
         // all the code to the chain prior to running any transactions on the driver.
-        if platform_information.platform.vm_identifier() == VmIdentifier::PolkaVM {
-            #[subxt::subxt(runtime_metadata_path = "../../assets/revive_metadata.scale")]
-            pub mod revive {}
-
-            let metadata_bytes = include_bytes!("../../../../assets/revive_metadata.scale");
-            let metadata = SubxtMetadata::decode(&mut &metadata_bytes[..])
-                .context("Failed to decode the revive metadata")?;
+        if let Some(substrate_provider_fut) = platform_information.node.substrate_provider()
+            && platform_information.platform.vm_identifier() == VmIdentifier::PolkaVM
+        {
+            let substrate_client = substrate_provider_fut
+                .await
+                .context("Failed to connect to the substrate node")?;
+            let metadata = substrate_client.metadata();
 
             const RUNTIME_PALLET_ADDRESS: Address =
                 address!("0x6d6f646c70792f70616464720000000000000000");
@@ -271,8 +271,15 @@ where
                     async move {
                         let code = alloy::hex::decode(code_string)
                             .context("Failed to hex-decode the post-link code. This is a bug")?;
-                        let payload = revive::tx().revive().upload_code(code, u128::MAX);
-                        let encoded_payload = payload
+                        let upload_call = subxt::dynamic::tx(
+                            "Revive",
+                            "upload_code",
+                            vec![
+                                subxt::dynamic::Value::from_bytes(code),
+                                subxt::dynamic::Value::u128(u128::MAX),
+                            ],
+                        );
+                        let encoded_payload = upload_call
                             .encode_call_data(&metadata)
                             .context("Failed to encode the upload code payload")?;
 

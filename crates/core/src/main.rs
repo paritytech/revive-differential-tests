@@ -47,8 +47,6 @@ mod internal_prelude {
     pub use semver::{Version, VersionReq};
     pub use serde::{Deserialize, Serialize};
     pub use serde_json::{self, Value, json};
-    pub use subxt::ext::codec::Decode;
-    pub use subxt::metadata::Metadata as SubxtMetadata;
     pub use subxt::tx::Payload;
     pub use tokio::select;
     pub use tokio::sync::broadcast;
@@ -106,7 +104,7 @@ fn main() -> anyhow::Result<()> {
                 .with_writer(writer)
                 .with_thread_ids(false)
                 .with_thread_names(false)
-                .with_ansi(false)
+                .with_ansi(true)
                 .pretty(),
         ),
     };

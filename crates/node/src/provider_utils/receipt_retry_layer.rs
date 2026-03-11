@@ -110,20 +110,34 @@ where
                 || (method.contains("debug") && method.contains("trace"));
 
             if !requires_retries {
+                debug!(%method, "Retry layer: method does not require retries, forwarding directly");
                 return service.call(req).await;
             }
 
+            debug!(%method, ?polling_duration, ?polling_interval, "Retry layer: starting retry loop");
             timeout(polling_duration, async {
                 let mut interval = interval(polling_interval);
+                let mut attempt: u32 = 0;
 
                 loop {
                     interval.tick().await;
+                    attempt += 1;
 
-                    let Ok(resp) = service.call(req.clone()).await else {
-                        continue;
+                    let resp = match service.call(req.clone()).await {
+                        Ok(resp) => resp,
+                        Err(err) => {
+                            debug!(%method, attempt, %err, "Retry layer: transport error, retrying");
+                            continue;
+                        }
                     };
                     let response = resp.as_single().expect("Can't fail");
                     if response.is_error() {
+                        debug!(
+                            %method,
+                            attempt,
+                            error = ?response.payload(),
+                            "Retry layer: RPC error response, retrying"
+                        );
                         continue;
                     }
 
@@ -137,14 +151,27 @@ where
                             .is_some()
                         || method != "eth_getTransactionReceipt"
                     {
+                        debug!(%method, attempt, "Retry layer: received successful response");
                         return resp;
                     } else {
+                        debug!(
+                            %method,
+                            attempt,
+                            "Retry layer: receipt response was null/unparseable, retrying"
+                        );
                         continue;
                     }
                 }
             })
             .await
-            .map_err(|_| TransportErrorKind::custom_str("Timeout when retrying request"))
+            .map_err(|_| {
+                debug!(
+                    %method,
+                    ?polling_duration,
+                    "Retry layer: timed out waiting for successful response"
+                );
+                TransportErrorKind::custom_str("Timeout when retrying request")
+            })
         })
     }
 }

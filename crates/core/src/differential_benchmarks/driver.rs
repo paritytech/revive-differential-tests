@@ -223,6 +223,57 @@ where
             .inspect_err(|err| error!(?err, "Post-linking compilation failed"))
             .context("Failed to compile the post-link contracts")?;
 
+        // Factory contracts on the PVM refer to the code that they're instantiating by hash rather
+        // than including the actual bytecode. This creates a problem where a factory contract could
+        // be deployed but the code it's supposed to create is not on chain. Therefore, we upload
+        // all the code to the chain prior to running any transactions on the driver.
+        if let Some(substrate_provider_fut) = self.platform_information.node.substrate_provider()
+            && self.platform_information.platform.vm_identifier() == VmIdentifier::PolkaVM
+        {
+            let substrate_client = substrate_provider_fut
+                .await
+                .context("Failed to connect to the substrate node")?;
+            let metadata = substrate_client.metadata();
+
+            const RUNTIME_PALLET_ADDRESS: Address =
+                address!("0x6d6f646c70792f70616464720000000000000000");
+
+            let code_upload_tasks = compiler_output
+                .contracts
+                .values()
+                .flat_map(|item| item.values())
+                .map(|(code_string, _)| {
+                    let metadata = metadata.clone();
+                    let node = self.platform_information.node;
+                    async move {
+                        let code = alloy::hex::decode(code_string)
+                            .context("Failed to hex-decode the post-link code. This is a bug")?;
+                        let upload_call = subxt::dynamic::tx(
+                            "Revive",
+                            "upload_code",
+                            vec![
+                                subxt::dynamic::Value::from_bytes(code),
+                                subxt::dynamic::Value::u128(u128::MAX),
+                            ],
+                        );
+                        let encoded_payload = upload_call
+                            .encode_call_data(&metadata)
+                            .context("Failed to encode the upload code payload")?;
+
+                        let tx_request = TransactionRequest::default()
+                            .from(deployer_address)
+                            .to(RUNTIME_PALLET_ADDRESS)
+                            .input(encoded_payload.into());
+                        node.execute_transaction(tx_request)
+                            .await
+                            .context("Failed to execute transaction")
+                    }
+                });
+            try_join_all(code_upload_tasks)
+                .await
+                .context("Code upload failed")?;
+        }
+
         for (contract_path, contract_name_to_info_mapping) in compiler_output.contracts.iter() {
             for (contract_name, (contract_bytecode, _)) in contract_name_to_info_mapping.iter() {
                 let contract_bytecode = hex::decode(contract_bytecode)
@@ -850,12 +901,13 @@ where
                                 let mut interval = interval(Duration::from_millis(200));
                                 loop {
                                     interval.tick().await;
-                                    let Ok(gas_estimate) =
-                                        provider.estimate_gas(transaction.clone()).await
-                                    else {
-                                        continue;
-                                    };
-                                    return gas_estimate;
+                                    match provider.estimate_gas(transaction.clone()).await {
+                                        Ok(gas_estimate) => break gas_estimate,
+                                        Err(err) => {
+                                            warn!(?err, "Failed to get the gas estimate, retrying");
+                                            continue;
+                                        }
+                                    }
                                 }
                             })
                             .await
@@ -881,9 +933,7 @@ where
         {
             let fee_history = self.fee_history_information.read().await;
 
-            let base_fee = fee_history
-                .latest_block_base_fee()
-                .unwrap_or_default();
+            let base_fee = fee_history.latest_block_base_fee().unwrap_or_default();
 
             // Median of non-zero 20th-percentile rewards, matching alloy's
             // `eip1559_default_estimator` / `estimate_priority_fee`.
@@ -902,7 +952,7 @@ where
                 } else {
                     rewards.sort_unstable();
                     let n = rewards.len();
-                    let median = if n % 2 == 0 {
+                    let median = if n.is_multiple_of(2) {
                         (rewards[n / 2 - 1] + rewards[n / 2]) / 2
                     } else {
                         rewards[n / 2]
@@ -912,7 +962,9 @@ where
             };
 
             // base_fee * 2 + priority_fee, matching alloy's EIP1559_BASE_FEE_MULTIPLIER
-            let max_fee_per_gas = base_fee.saturating_mul(2).saturating_add(max_priority_fee_per_gas);
+            let max_fee_per_gas = base_fee
+                .saturating_mul(2)
+                .saturating_add(max_priority_fee_per_gas);
 
             transaction.set_max_fee_per_gas(max_fee_per_gas);
             transaction.set_max_priority_fee_per_gas(max_priority_fee_per_gas);
