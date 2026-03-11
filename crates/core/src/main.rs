@@ -28,7 +28,8 @@ mod internal_prelude {
     pub use alloy::json_abi::JsonAbi;
     pub use alloy::network::{Ethereum, TransactionBuilder};
     pub use alloy::primitives::{Address, BlockNumber, TxHash, U256, address};
-    pub use alloy::providers::{PendingTransactionBuilder, Provider};
+    pub use alloy::providers::{DynProvider, PendingTransactionBuilder, Provider};
+    pub use alloy::rpc::types::FeeHistory;
     pub use alloy::rpc::types::trace::geth::{
         CallFrame, GethDebugBuiltInTracerType, GethDebugTracerConfig, GethDebugTracerType,
         GethDebugTracingOptions,
@@ -38,7 +39,7 @@ mod internal_prelude {
     pub use anyhow::Context as _;
     pub use anyhow::{Error, Result, bail};
     pub use clap::Parser;
-    pub use futures::future::try_join_all;
+    pub use futures::future::{join, try_join_all};
     pub use futures::{FutureExt, Stream, StreamExt, TryFutureExt, TryStreamExt, stream};
     pub use indexmap::{IndexMap, indexmap};
     pub use regex::Regex;
@@ -53,6 +54,7 @@ mod internal_prelude {
     pub use tokio::sync::broadcast;
     pub use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
     pub use tokio::sync::{Mutex, Notify, OnceCell, RwLock, Semaphore};
+    pub use tokio::task::{AbortHandle, JoinSet};
     pub use tokio::time::{interval, timeout};
     pub use tracing::level_filters::LevelFilter;
     pub use tracing::{

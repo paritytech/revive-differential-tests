@@ -350,6 +350,10 @@ where
                 .execute_account_allocation(step_path, step.as_ref())
                 .await
                 .context("Account Allocation Step Failed"),
+            Step::Transfer(step) => self
+                .execute_transfer(step_path, step.as_ref())
+                .await
+                .context("Transfer Step Failed"),
         }
         .context(format!("Failure on step {step_path}"))?;
         self.steps_executed += steps_executed;
@@ -384,6 +388,38 @@ where
         self.handle_function_call_assertions(step, &execution_receipt, &tracing_result)
             .await
             .context("Failed to handle function call assertions")?;
+        Ok(1)
+    }
+
+    #[instrument(level = "info", skip_all)]
+    pub async fn execute_transfer(
+        &mut self,
+        _: &StepPath,
+        step: &TransferStep,
+    ) -> Result<usize> {
+        let context = self.default_resolution_context();
+        let from = step
+            .from
+            .resolve_address(self.platform_information.node, context)
+            .await
+            .context("Failed to resolve transfer sender")?;
+        let to = step
+            .to
+            .resolve_address(self.platform_information.node, context)
+            .await
+            .context("Failed to resolve transfer recipient")?;
+        let tx = TransactionRequest::default()
+            .from(from)
+            .to(to)
+            .value(step.amount.into_inner());
+        let receipt = self
+            .platform_information
+            .node
+            .execute_transaction(tx)
+            .await?;
+        if !receipt.status() {
+            anyhow::bail!("Transfer transaction failed {receipt:?}");
+        }
         Ok(1)
     }
 

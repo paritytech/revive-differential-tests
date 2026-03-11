@@ -1,5 +1,3 @@
-use futures::future::join;
-
 use crate::internal_prelude::*;
 
 /// This struct defines the watcher used in the benchmarks. A watcher is only valid for 1 workload
@@ -14,6 +12,9 @@ pub struct Watcher {
     /// and a single node from that platform.
     blocks_stream: FrameworkStream<MinedBlockInformation>,
 
+    /// The provider uses to make requests to the ETH RPC as the watcher is running.
+    provider: DynProvider,
+
     /// The reporter used to send events to the report aggregator.
     reporter: ExecutionSpecificReporter,
 }
@@ -21,6 +22,7 @@ pub struct Watcher {
 impl Watcher {
     pub fn new(
         blocks_stream: FrameworkStream<MinedBlockInformation>,
+        provider: DynProvider,
         reporter: ExecutionSpecificReporter,
     ) -> (Self, UnboundedSender<WatcherEvent>) {
         let (tx, rx) = unbounded_channel::<WatcherEvent>();
@@ -28,6 +30,7 @@ impl Watcher {
             Self {
                 rx,
                 blocks_stream,
+                provider,
                 reporter,
             },
             tx,
@@ -62,8 +65,15 @@ impl Watcher {
     /// for by closing the channel completely and stopping its own execution which ensures that the
     /// sender's side gets an error if it attempts to request for another transaction to be watched.
     ///
+    /// Once the two above described tasks resolve the watcher starts trying to get the receipts for
+    /// all of the submitted transactions and checking for their status to make sure that all of the
+    /// transactions succeeded, if any of the transactions failed then this future resolves with an
+    /// [`Err`]. The receipts are queried from the RPC concurrently and with a semaphore with 100
+    /// permits in order to ensure that the RPC is not drowned in requests.
+    ///
     /// This future resolves once the two above described tasks resolve and complete their execution
     /// based on the above described logic.
+    #[allow(irrefutable_let_patterns)]
     pub fn run(mut self) -> FrameworkFuture<Result<()>> {
         Box::pin(async move {
             // We start by waiting for the `StartEvent` which informs us of the first block that we want
@@ -215,6 +225,52 @@ impl Watcher {
             // Execute both of the tasks concurrently until they both complete.
             let (transaction_registration_information, observed_blocks) =
                 join(registration_task, block_subscription_task).await;
+
+            // Getting the transaction receipts for all of the transactions that were submitted to
+            // the chain.
+            let semaphore = Arc::new(Semaphore::new(100));
+            let receipt_tasks = transaction_registration_information
+                .keys()
+                .copied()
+                .map(|tx_hash| {
+                    let semaphore = semaphore.clone();
+                    let receipt_future = self.provider.get_transaction_receipt(tx_hash);
+                    async move {
+                        debug!("Acquiring permit");
+                        let _guard = semaphore.acquire_owned().await?;
+                        debug!("Acquired permit");
+
+                        debug!("Awaiting receipt");
+                        let Some(receipt) = receipt_future.await? else {
+                            bail!("Receipt for {tx_hash} not found")
+                        };
+                        debug!("Obtained receipt");
+
+                        if receipt.status() {
+                            debug!("Transaction succeeded")
+                        } else {
+                            warn!("Transaction failed: {receipt:?}");
+                            bail!("Transaction failed: {receipt:?}")
+                        }
+
+                        Ok(())
+                    }
+                    .instrument(info_span!("Getting receipt", %tx_hash))
+                })
+                .fold(JoinSet::new(), |mut set, task| {
+                    set.spawn(task);
+                    set
+                });
+            if let errors = receipt_tasks
+                .join_all()
+                .await
+                .into_iter()
+                .filter_map(Result::err)
+                .collect::<Vec<_>>()
+                && !errors.is_empty()
+            {
+                bail!("Encountered multiple errors when getting the receipts, {errors:?}")
+            }
 
             // Reporting all of the information to the reporter about all of the observed blocks, the tx
             // counts, the transaction information, and everything else.

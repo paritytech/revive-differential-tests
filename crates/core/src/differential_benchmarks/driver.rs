@@ -43,9 +43,25 @@ pub struct Driver<'a, I> {
     /// proceeding forward.
     await_transaction_receipts: bool,
 
+    /// This field contains the fee history information. It's updated every 200ms while all of the
+    /// transactions are being submitted.
+    fee_history_information: Arc<RwLock<FeeHistory>>,
+
+    /// This field contains an optional handle to abort an async task. This stores the task which
+    /// is used to update the fee history information.
+    fee_history_update_task: Option<AbortHandle>,
+
     /// This is the queue of steps that are to be executed by the driver for this test case. Each
     /// time `execute_step` is called one of the steps is executed.
     steps_iterator: I,
+}
+
+impl<'a, I> Drop for Driver<'a, I> {
+    fn drop(&mut self) {
+        if let Some(ref abort_handle) = self.fee_history_update_task {
+            abort_handle.abort();
+        }
+    }
 }
 
 impl<'a, I> Driver<'a, I>
@@ -64,6 +80,34 @@ where
         inclusion_watcher: &'a InclusionWatcher,
         steps: I,
     ) -> Result<Self> {
+        let provider = platform_information
+            .node
+            .provider()
+            .await
+            .context("Failed to get provider")?;
+        let fee_history = provider
+            .get_fee_history(10, alloy::eips::BlockNumberOrTag::Latest, &[20.0])
+            .await
+            .context("Failed to get the initial fee history")
+            .map(RwLock::new)
+            .map(Arc::new)?;
+        let fee_history_task = tokio::spawn({
+            let fee_history = fee_history.clone();
+            async move {
+                let mut interval = interval(Duration::from_millis(500));
+                loop {
+                    interval.tick().await;
+                    let Ok(new_fee_history) = provider
+                        .get_fee_history(10, alloy::eips::BlockNumberOrTag::Latest, &[20.0])
+                        .await
+                    else {
+                        warn!("Failed to get fee history");
+                        continue;
+                    };
+                    *fee_history.write().await = new_fee_history
+                }
+            }
+        });
         let mut this = Driver {
             driver_id: DRIVER_COUNT.fetch_add(1, Ordering::SeqCst),
             platform_information,
@@ -77,6 +121,8 @@ where
             await_transaction_receipts: true,
             watcher_tx,
             gas_limits: Arc::new(Default::default()),
+            fee_history_information: fee_history,
+            fee_history_update_task: Some(fee_history_task.abort_handle()),
         };
         this.init_execution_state(cached_compiler)
             .await
@@ -256,6 +302,19 @@ where
                 .execute_account_allocation(step_path, step.as_ref())
                 .await
                 .context("Account Allocation Step Failed"),
+            Step::Transfer(step) => {
+                match self
+                    .execute_transfer(step_path, step.as_ref())
+                    .await
+                    .context("Transfer Step Failed")
+                {
+                    Ok(steps_executed) => Ok(steps_executed),
+                    Err(err) => {
+                        warn!(?err, "Step execution failed");
+                        return Ok(());
+                    }
+                }
+            }
             // The following steps are disabled in the benchmarking driver.
             Step::BalanceAssertion(..) | Step::StorageEmptyAssertion(..) => Ok(0),
         }?;
@@ -280,6 +339,42 @@ where
         self.handle_function_call_variable_assignment(step, transaction_hash)
             .await
             .context("Failed to handle function call variable assignment")?;
+        Ok(1)
+    }
+
+    #[instrument(level = "info", skip_all, fields(driver_id = self.driver_id))]
+    pub async fn execute_transfer(
+        &mut self,
+        step_path: &StepPath,
+        step: &TransferStep,
+    ) -> Result<usize> {
+        let context = self.default_resolution_context();
+        let from = step
+            .from
+            .resolve_address(self.platform_information.node, context)
+            .await
+            .context("Failed to resolve transfer sender")?;
+        let to = step
+            .to
+            .resolve_address(self.platform_information.node, context)
+            .await
+            .context("Failed to resolve transfer recipient")?;
+        let tx = TransactionRequest::default()
+            .from(from)
+            .to(to)
+            .value(step.amount.into_inner());
+        let (_tx_hash, receipt_future, inclusion_future) = self
+            .execute_transaction(tx, Some(step_path), Duration::from_secs(30 * 60))
+            .await
+            .context("Failed to submit transfer transaction")?;
+        if self.await_transaction_receipts {
+            let receipt = receipt_future.await?;
+            if !receipt.status() {
+                bail!("Transfer transaction failed {receipt:?}");
+            }
+        } else if self.await_transaction_inclusion {
+            inclusion_future.await;
+        };
         Ok(1)
     }
 
@@ -365,67 +460,6 @@ where
                     }
                 } else if self.await_transaction_inclusion {
                     inclusion_future.await;
-                } else {
-                    // We've not been configured to await for inclusion or await for the receipt but
-                    // we still want to get insight on how long it takes for us to observe the txs
-                    // and also their status and add it to our logs and perhaps make use of it later
-                    // on if we need to debug them.
-                    tokio::spawn(
-                        async move {
-                            static AWAITING_RECEIPTS_COUNT: Mutex<usize> = Mutex::const_new(0);
-                            static SEMAPHORE: Semaphore = Semaphore::const_new(1000);
-
-                            let _guard = SEMAPHORE.acquire().await.expect("Poisoned");
-
-                            let elapsed_seconds = {
-                                let now = SystemTime::now();
-                                move || now.elapsed().unwrap().as_secs()
-                            };
-                            debug!("Starting the process");
-
-                            // Increment the static counter since we're about to await a new receipt
-                            // to arrive.
-                            {
-                                let mut guard = AWAITING_RECEIPTS_COUNT.lock().await;
-                                *guard += 1;
-                                debug!(awaiting = *guard, "Incremented the receipt await counter");
-                            }
-
-                            // Await for the transaction to be included in a block.
-                            debug!("Starting to await for inclusion");
-                            inclusion_future.await;
-                            debug!("Transaction included in a block");
-
-                            // Await for the receipt and log information
-                            debug!("Starting to await for receipt");
-                            match receipt_future.await {
-                                Ok(receipt) if receipt.status() => {
-                                    debug!(
-                                        elapsed_seconds = elapsed_seconds(),
-                                        "Got the transaction receipt"
-                                    );
-                                }
-                                Ok(receipt) => {
-                                    warn!(
-                                        elapsed_seconds = elapsed_seconds(),
-                                        ?receipt,
-                                        "Got the transaction receipt, but the transaction failed"
-                                    )
-                                }
-                                Err(error) => {
-                                    warn!(
-                                        elapsed_seconds = elapsed_seconds(),
-                                        ?error,
-                                        "Failed to get receipt"
-                                    )
-                                }
-                            };
-
-                            *AWAITING_RECEIPTS_COUNT.lock().await -= 1;
-                        }
-                        .instrument(tracing::Span::current())
-                        .instrument(info_span!("Awaiting receipt", %tx_hash)),
-                    );
                 };
 
                 Ok(tx_hash)
@@ -531,10 +565,12 @@ where
                             steps.into_iter()
                         },
                         await_transaction_inclusion: step.await_transaction_inclusion,
-                        await_transaction_receipts: i == 0,
+                        await_transaction_receipts: self.await_transaction_receipts && i == 0,
                         inclusion_watcher: self.inclusion_watcher,
                         watcher_tx: self.watcher_tx.clone(),
                         gas_limits: self.gas_limits.clone(),
+                        fee_history_information: self.fee_history_information.clone(),
+                        fee_history_update_task: None,
                     })
                     .map(|driver| driver.execute_all());
 
@@ -836,6 +872,50 @@ where
                 }
             };
             transaction.set_gas_limit(gas_limit * 110 / 100);
+        }
+
+        // If gas limit caching is enabled, also fill in EIP-1559 fee fields from
+        // the cached fee history to avoid per-transaction eth_feeHistory calls.
+        if self.platform_information.platform.allow_caching_gas_limit()
+            && transaction.max_fee_per_gas.is_none()
+        {
+            let fee_history = self.fee_history_information.read().await;
+
+            let base_fee = fee_history
+                .latest_block_base_fee()
+                .unwrap_or_default();
+
+            // Median of non-zero 20th-percentile rewards, matching alloy's
+            // `eip1559_default_estimator` / `estimate_priority_fee`.
+            let max_priority_fee_per_gas = {
+                let mut rewards: Vec<u128> = fee_history
+                    .reward
+                    .as_deref()
+                    .unwrap_or_default()
+                    .iter()
+                    .filter_map(|r| r.first().copied())
+                    .filter(|r| *r > 0)
+                    .collect();
+
+                if rewards.is_empty() {
+                    1u128
+                } else {
+                    rewards.sort_unstable();
+                    let n = rewards.len();
+                    let median = if n % 2 == 0 {
+                        (rewards[n / 2 - 1] + rewards[n / 2]) / 2
+                    } else {
+                        rewards[n / 2]
+                    };
+                    median.max(1)
+                }
+            };
+
+            // base_fee * 2 + priority_fee, matching alloy's EIP1559_BASE_FEE_MULTIPLIER
+            let max_fee_per_gas = base_fee.saturating_mul(2).saturating_add(max_priority_fee_per_gas);
+
+            transaction.set_max_fee_per_gas(max_fee_per_gas);
+            transaction.set_max_priority_fee_per_gas(max_priority_fee_per_gas);
         }
 
         let transaction_hash = self

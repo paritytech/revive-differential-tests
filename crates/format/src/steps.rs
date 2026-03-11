@@ -22,6 +22,9 @@ pub enum Step {
     /// A step type that allows for a new account address to be allocated and to later on be used
     /// as the caller in another step.
     AllocateAccount(Box<AllocateAccountStep>),
+
+    /// A native value transfer from one account to another.
+    Transfer(Box<TransferStep>),
 }
 
 /// This is an input step which is a transaction description that the framework translates into a
@@ -145,6 +148,26 @@ pub struct AllocateAccountStep {
     /// account.
     #[serde(rename = "allocate_account")]
     pub variable_name: String,
+}
+
+/// A native value transfer step that sends some amount of native currency from one account to
+/// another without going through a contract.
+#[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq, JsonSchema)]
+pub struct TransferStep {
+    /// An optional comment on the transfer step.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub comment: Option<String>,
+
+    /// The sender address.
+    #[schemars(with = "String")]
+    pub from: StepAddress,
+
+    /// The recipient address.
+    #[schemars(with = "String")]
+    pub to: StepAddress,
+
+    /// The amount of native currency to transfer.
+    pub amount: EtherValue,
 }
 
 /// A set of expectations and assertions to make about the transaction after it ran.
@@ -736,6 +759,7 @@ impl<T> CalldataToken<T> {
     const BLOCK_NUMBER_VARIABLE: &str = "$BLOCK_NUMBER";
     const BLOCK_TIMESTAMP_VARIABLE: &str = "$BLOCK_TIMESTAMP";
     const TRANSACTION_GAS_PRICE: &str = "$TRANSACTION_GAS_PRICE";
+    const RANDOM_ADDRESS_VARIABLE: &str = "$RANDOM_ADDRESS";
     const VARIABLE_PREFIX: &str = "$VARIABLE:";
 
     fn into_item(self) -> Option<T> {
@@ -908,6 +932,8 @@ impl<T: AsRef<str>> CalldataToken<T> {
                         .context("Failed to get the block")?
                         .context("Block not found")
                         .map(|block| U256::from(block.header.timestamp))
+                } else if item == Self::RANDOM_ADDRESS_VARIABLE {
+                    Ok(U256::from_be_slice(Address::random().as_ref()))
                 } else if let Some(variable_name) = item.strip_prefix(Self::VARIABLE_PREFIX) {
                     context
                         .variable(variable_name)

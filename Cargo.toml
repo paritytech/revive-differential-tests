@@ -24,7 +24,7 @@ revive-dt-solc-binaries = { version = "0.1.0", path = "crates/solc-binaries" }
 revive-dt-proc-macros = { version = "0.1.0", path = "crates/proc-macros" }
 revive-dt-report-processor = { version = "0.1.0", path = "crates/report-processor" }
 
-alloy = { version = "1.4.1", features = ["full", "genesis", "json-rpc"] }
+alloy = { version = "1.4.1", features = ["full", "genesis", "json-rpc", "rand"] }
 ansi_term = "0.12.1"
 base64 = "0.22"
 flate2 = "1.0"

@@ -14,11 +14,13 @@ impl InclusionWatcher {
     }
 
     pub fn await_transaction(&self, tx_hash: TxHash) -> FrameworkFuture<()> {
-        info!(%tx_hash, "Awaiting transaction inclusion");
-        self.transactions_map
-            .get(tx_hash)
-            .inspect(move |_| info!(%tx_hash, "Transaction has been included"))
-            .boxed()
+        let await_future = self.transactions_map.get(tx_hash);
+        Box::pin(async move {
+            info!(%tx_hash, "Awaiting transaction inclusion");
+            await_future
+                .inspect(move |_| info!(%tx_hash, "Transaction has been included"))
+                .await
+        })
     }
 
     pub fn run(
