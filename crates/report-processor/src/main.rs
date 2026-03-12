@@ -284,6 +284,10 @@ fn main() -> Result<()> {
             remove_prefix,
             platform_label,
         } => {
+            let remove_prefix = remove_prefix
+                .canonicalize()
+                .context("Failed to canonicalize the remove-prefix path")?;
+
             let platform_hash_data = extract_hashes(&report, &remove_prefix, &platform_label)?;
             write_or_overwrite_json(&output_path, &platform_hash_data)?;
 
@@ -439,10 +443,11 @@ pub enum Cli {
         #[clap(long)]
         output_path: PathBuf,
 
-        /// The absolute prefix path to remove from each source path found in the [`Report`]
-        /// when added to the exported file. This is essential for normalization if the hashes
-        /// are used for cross-platform comparison. For cross-platform comparison, this
-        /// value should be the path to the base directory shared by all contracts,
+        /// The relative or absolute prefix path to remove from each source path found
+        /// in the [`Report`] when added to the exported file. The path is resolved to
+        /// its absolute canonical form before stripping. This is essential for normalization
+        /// if the hashes are used for cross-platform comparison. For cross-platform comparison,
+        /// this value should be the path to the base directory shared by all contracts,
         /// e.g. "/home/runner/work/contracts" or "C:\\Users\\runner\\work\\contracts".
         ///
         /// Note that the normalized paths added to the exported file should thereby not

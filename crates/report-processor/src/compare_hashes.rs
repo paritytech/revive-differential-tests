@@ -238,7 +238,7 @@ pub fn build_comparison_summary(result: &ComparisonResult) -> String {
     for (mode, mismatches_at_mode) in &result.mismatches {
         let mut mode_summary = format!(
             "\n-------------------------------------------\
-             \nMode {mode}:\
+             \nMode: {mode}\
              \n-------------------------------------------"
         );
 
@@ -267,17 +267,17 @@ pub fn build_comparison_summary(result: &ComparisonResult) -> String {
 
             mode_summary.push_str(&format!(
                 "\n\
-                 \n    {reference_platform} ({reference_hash_count} hashes) vs. {other_platform} ({other_hash_count} hashes):\
-                 \n        Mismatches: {status_symbol} {mismatch_count} {missing_info}",
+                 \n{reference_platform} ({reference_hash_count} hashes) vs. {other_platform} ({other_hash_count} hashes):\
+                 \n    Mismatches: {status_symbol} {mismatch_count} {missing_info}",
             ));
 
             for mismatch in mismatches {
                 mode_summary.push_str(&format!(
                     "\n\
-                     \n        - path: {}\
-                     \n          contract: {}\
-                     \n          {reference_platform}: {}\
-                     \n          {other_platform}: {}",
+                     \n    - path: {}\
+                     \n      contract: {}\
+                     \n      {reference_platform}: {}\
+                     \n      {other_platform}: {}",
                     mismatch.path,
                     mismatch.contract_name,
                     mismatch.reference_hash.as_deref().unwrap_or("MISSING"),
