@@ -64,7 +64,8 @@ args = [
   "--rpc-max-connections=4294967295",
   "--pool-limit=4294967295",
   "--pool-kbytes=4294967295",
-  "--state-pruning=100000",
   "--no-hardware-benchmarks",
   "--no-mdns",
+  "--state-pruning=archive",
+  "--blocks-pruning=archive",
 ]
