@@ -1,5 +1,5 @@
 name: "Export Bytecode Hashes"
-description: "Builds and runs revive-differential-tests's report-processor to extract bytecode hashes from a retester report, and uploads the hash file."
+description: "Extracts bytecode hashes from a retester report using report-processor, and uploads the hash file."
 
 inputs:
   revive-differential-tests-path:
@@ -14,7 +14,7 @@ inputs:
     description: "The path to the retester report JSON file."
     required: true
   remove-prefix:
-    description: "The absolute path prefix to strip from source paths in the report for cross-platform normalization. This must match the runner that produced the report."
+    description: "The absolute path prefix to strip from source paths in the report for cross-platform normalization. Must be a path from the runner that produced the report."
     required: true
   platform-label:
     description: "The platform label indicating which platform the hashes were generated on (e.g. 'linux', 'macos')."
@@ -24,8 +24,8 @@ inputs:
     required: true
 
 env:
-  # Output path for the exported hashes file.
-  HASH_OUTPUT_PATH: ./hashes.json
+  # The file name for the exported hash file.
+  HASH_FILE_NAME: hashes.json
 
 runs:
   using: "composite"
@@ -52,13 +52,14 @@ runs:
       run: |
         report-processor export-hashes \
           --report-path "${{ inputs.report-path }}" \
-          --output-path "${{ env.HASH_OUTPUT_PATH }}" \
+          --output-path "./${{ env.HASH_FILE_NAME }}" \
           --remove-prefix "${{ inputs.remove-prefix }}" \
           --platform-label "${{ inputs.platform-label }}"
 
     - name: Upload hashes
-      uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
+      uses: actions/upload-artifact@v6
       with:
         name: ${{ inputs.upload-artifact-name }}
-        path: ${{ env.HASH_OUTPUT_PATH }}
+        path: ./${{ env.HASH_FILE_NAME }}
         retention-days: 3
+        if-no-files-found: error

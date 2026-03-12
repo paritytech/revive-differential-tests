@@ -1,5 +1,5 @@
 name: "Compile Contracts"
-description: "Builds and runs revive-differential-tests's retester to compile contracts, and uploads the compilation report."
+description: "Compiles contracts using retester, and uploads the compilation report."
 
 inputs:
   revive-differential-tests-path:
@@ -18,7 +18,7 @@ inputs:
     required: false
     default: ""
   modes:
-    description: "Comma-separated compiler modes (e.g. 'Y M0 S+, Y M3 S+, Y Mz S+'). If empty, retester's default is used."
+    description: "Comma-separated compiler modes to compile with (e.g. 'Y M0 S+, Y M3 S+, Y Mz S+'). If empty, retester's default is used."
     required: false
     default: ""
   upload-artifact-name:
@@ -60,7 +60,7 @@ runs:
 
     - name: Create workdir for retester
       shell: bash
-      run: mkdir -p ${{ env.WORK_DIR }}
+      run: mkdir -p "${{ env.WORK_DIR }}"
 
     - name: Compile contracts
       id: compile
@@ -83,8 +83,7 @@ runs:
           --compile "${{ steps.repo.outputs.path }}/resolc-compiler-tests/fixtures/solidity" \
           "${MODE_ARGS[@]}" \
           --resolc.path "${{ inputs.resolc-path }}" \
-          --resolc.heap-size 528000 \
-          --resolc.stack-size 128000 \
+          --resolc.heap-size 500000 \
           ${SOLC_VERSION:+--solc.version "$SOLC_VERSION"} \
           --report.file-name "$REPORT_FILE_NAME" \
           --working-directory "${{ env.WORK_DIR }}" \
@@ -92,12 +91,19 @@ runs:
           --concurrency.number-of-concurrent-tasks 100 \
           || true
 
-        echo "report-path=${{ env.WORK_DIR }}/$REPORT_FILE_NAME" >> "$GITHUB_OUTPUT"
+        REPORT_PATH="${{ env.WORK_DIR }}/$REPORT_FILE_NAME"
+        if [[ ! -f "$REPORT_PATH" ]]; then
+          echo "::error::Compilation report was not generated at $REPORT_PATH"
+          exit 1
+        fi
+
+        echo "report-path=$REPORT_PATH" >> "$GITHUB_OUTPUT"
         echo "contracts-source-prefix=$(realpath "${{ steps.repo.outputs.path }}")" >> "$GITHUB_OUTPUT"
 
     - name: Upload the compilation report
-      uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
+      uses: actions/upload-artifact@v6
       with:
         name: ${{ inputs.upload-artifact-name }}
         path: ${{ steps.compile.outputs.report-path }}
         retention-days: 3
+        if-no-files-found: error
