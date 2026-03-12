@@ -163,7 +163,7 @@ impl Watcher {
                         // Keep skipping block as long as their block number is below the block number
                         // we were tasked to start at.
                         if block_information.ethereum_block_information.block_number
-                            <= ignore_blocks_before_block_number
+                            < ignore_blocks_before_block_number
                         {
                             info!(
                                 block_number =
