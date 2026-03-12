@@ -30,7 +30,7 @@ outputs:
     description: "The path to the generated compilation report JSON file."
     value: ${{ steps.compile.outputs.report-path }}
   contracts-source-prefix:
-    description: "The absolute path prefix common to all source paths in the compilation report. (Can be used as the `remove-prefix` input when exporting bytecode hashes.)"
+    description: "The path prefix common to all source paths in the compilation report. (Can be used as the `remove-prefix` input when exporting bytecode hashes.)"
     value: ${{ steps.compile.outputs.contracts-source-prefix }}
 
 runs:
@@ -94,7 +94,7 @@ runs:
         fi
 
         echo "report-path=$REPORT_PATH" >> "$GITHUB_OUTPUT"
-        echo "contracts-source-prefix=$(realpath "${{ steps.repo.outputs.path }}")" >> "$GITHUB_OUTPUT"
+        echo "contracts-source-prefix=${{ steps.repo.outputs.path }}/resolc-compiler-tests" >> "$GITHUB_OUTPUT"
 
     - name: Upload the compilation report
       uses: actions/upload-artifact@v6
