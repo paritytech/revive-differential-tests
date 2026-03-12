@@ -14,7 +14,7 @@ inputs:
     description: "The path to the retester report JSON file."
     required: true
   remove-prefix:
-    description: "The absolute path prefix to strip from source paths in the report for cross-platform normalization. Must be a path from the runner that produced the report."
+    description: "The relative or absolute path prefix to strip from source paths in the report for cross-platform normalization. Must point to a directory on the runner that produced the report."
     required: true
   platform-label:
     description: "The platform label indicating which platform the hashes were generated on (e.g. 'linux', 'macos'). This is included in the exported file."
