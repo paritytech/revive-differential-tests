@@ -21,10 +21,6 @@ inputs:
     description: "The name for the uploaded comparison result artifact."
     required: true
 
-env:
-  # The hash file name expected to exist in the downloaded artifacts.
-  HASH_FILE_NAME: hashes.json
-
 runs:
   using: "composite"
   steps:
@@ -65,9 +61,9 @@ runs:
       shell: bash
       run: |
         shopt -s nullglob
-        HASH_FILES=(./all-hashes/*/${{ env.HASH_FILE_NAME }})
+        HASH_FILES=(./all-hashes/*/hashes.json)
         if [[ ${#HASH_FILES[@]} -eq 0 ]]; then
-          echo "::error::No hash files found matching ./all-hashes/*/${{ env.HASH_FILE_NAME }}"
+          echo "::error::No hash files found matching ./all-hashes/*/hashes.json"
           exit 1
         fi
 
