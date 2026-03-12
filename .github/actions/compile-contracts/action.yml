@@ -18,10 +18,10 @@ inputs:
     required: false
     default: ""
   modes:
-    description: "Comma-separated compiler modes (e.g. 'Y M0 S+,Y M3 S+,Y Mz S+'). If empty, retester's default is used."
+    description: "Comma-separated compiler modes (e.g. 'Y M0 S+, Y M3 S+, Y Mz S+'). If empty, retester's default is used."
     required: false
     default: ""
-  report-artifact-name:
+  upload-artifact-name:
     description: "The name for the uploaded compilation report artifact."
     required: true
 
@@ -29,6 +29,13 @@ outputs:
   report-path:
     description: "The path to the generated compilation report JSON file."
     value: ${{ steps.compile.outputs.report-path }}
+  contracts-source-prefix:
+    description: "The absolute path prefix common to all source paths in the compilation report. (Can be used as the `remove-prefix` input when exporting bytecode hashes.)"
+    value: ${{ steps.compile.outputs.contracts-source-prefix }}
+
+env:
+  # Working directory for the retester (used internally for writing the report).
+  WORK_DIR: ./workdir
 
 runs:
   using: "composite"
@@ -45,7 +52,7 @@ runs:
     - name: Resolve the repo path
       id: repo
       shell: bash
-      run: echo "path=$(realpath ${{ inputs.revive-differential-tests-path || 'revive-differential-tests' }})" >> "$GITHUB_OUTPUT"
+      run: echo "path=${{ inputs.revive-differential-tests-path || 'revive-differential-tests' }}" >> "$GITHUB_OUTPUT"
 
     - name: Install retester
       shell: bash
@@ -53,14 +60,12 @@ runs:
 
     - name: Create workdir for retester
       shell: bash
-      run: mkdir -p workdir
+      run: mkdir -p ${{ env.WORK_DIR }}
 
     - name: Compile contracts
       id: compile
       shell: bash
       run: |
-        REPO_PATH="${{ steps.repo.outputs.path }}"
-        WORKDIR="./workdir"
         REPORT_FILE_NAME="compilation-report.json"
         SOLC_VERSION="${{ inputs.solc-version }}"
 
@@ -75,22 +80,24 @@ runs:
         fi
 
         retester compile \
-          --compile "$REPO_PATH/resolc-compiler-tests/fixtures/solidity" \
+          --compile "${{ steps.repo.outputs.path }}/resolc-compiler-tests/fixtures/solidity" \
           "${MODE_ARGS[@]}" \
           --resolc.path "${{ inputs.resolc-path }}" \
           --resolc.heap-size 528000 \
           --resolc.stack-size 128000 \
           ${SOLC_VERSION:+--solc.version "$SOLC_VERSION"} \
           --report.file-name "$REPORT_FILE_NAME" \
-          --working-directory "$WORKDIR" \
+          --working-directory "${{ env.WORK_DIR }}" \
           --concurrency.number-of-threads 10 \
           --concurrency.number-of-concurrent-tasks 100 \
           || true
 
-        echo "report-path=$WORKDIR/$REPORT_FILE_NAME" >> "$GITHUB_OUTPUT"
+        echo "report-path=${{ env.WORK_DIR }}/$REPORT_FILE_NAME" >> "$GITHUB_OUTPUT"
+        echo "contracts-source-prefix=$(realpath "${{ steps.repo.outputs.path }}")" >> "$GITHUB_OUTPUT"
 
     - name: Upload the compilation report
       uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
       with:
-        name: ${{ inputs.report-artifact-name }}
+        name: ${{ inputs.upload-artifact-name }}
         path: ${{ steps.compile.outputs.report-path }}
+        retention-days: 3
