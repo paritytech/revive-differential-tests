@@ -110,7 +110,7 @@ impl Watcher {
                 let is_submission_completed = is_submission_completed.clone();
                 let watch_requests = watch_requests.clone();
                 async move {
-                    let mut transaction_information = HashMap::new();
+                    let mut transaction_information = IndexMap::new();
                     while let Some(watcher_event) = self.rx.recv().await {
                         match watcher_event {
                             // A start event which was resent to the watcher. There's nothing that we do
@@ -226,37 +226,25 @@ impl Watcher {
             let (transaction_registration_information, observed_blocks) =
                 join(registration_task, block_subscription_task).await;
 
-            // Getting the transaction receipts for all of the transactions that were submitted to
-            // the chain.
-            let semaphore = Arc::new(Semaphore::new(200));
-            let completed_count = Arc::new(Mutex::new(0usize));
+            // Getting the transaction receipts in chunks, preserving insertion order. We process
+            // them in order because receipts from later blocks may not be available on the RPC yet
+            // if we request them too early. We still process each chunk concurrently (rather than
+            // one at a time) to avoid taking hours on large workloads.
             let total_len = transaction_registration_information.len();
-            let receipt_tasks = transaction_registration_information
+            let tx_hashes = transaction_registration_information
                 .keys()
                 .copied()
-                .map(|tx_hash| {
-                    let semaphore = semaphore.clone();
-                    let completed_count = completed_count.clone();
+                .collect::<Vec<_>>();
+            let mut completed = 0usize;
+            for chunk in tx_hashes.chunks(100) {
+                let results = futures::future::join_all(chunk.iter().map(|&tx_hash| {
                     let provider = self.provider.clone();
-                    let receipt_future = provider.get_transaction_receipt(tx_hash);
                     async move {
-                        debug!("Acquiring permit");
-                        let _guard = semaphore.acquire_owned().await?;
-                        debug!("Acquired permit");
-
                         debug!("Awaiting receipt");
-                        let Some(receipt) = receipt_future.await? else {
+                        let Some(receipt) = provider.get_transaction_receipt(tx_hash).await? else {
                             bail!("Receipt for {tx_hash} not found")
                         };
                         debug!("Obtained receipt");
-                        let completed = completed_count
-                            .lock()
-                            .map(|mut guard| {
-                                *guard += 1;
-                                *guard
-                            })
-                            .await;
-                        info!(completed, out_of = total_len, "Obtained receipt");
 
                         if receipt.status() {
                             debug!("Transaction succeeded")
@@ -264,11 +252,20 @@ impl Watcher {
                             let trace = provider
                                 .debug_trace_transaction(
                                     tx_hash,
-                                    GethDebugTracingOptions::prestate_tracer(PreStateConfig {
-                                        diff_mode: Some(true),
-                                        disable_code: None,
-                                        disable_storage: None,
-                                    }),
+                                    GethDebugTracingOptions {
+                                        tracer: Some(GethDebugTracerType::BuiltInTracer(
+                                            GethDebugBuiltInTracerType::CallTracer,
+                                        )),
+                                        tracer_config: GethDebugTracerConfig(serde_json::json! {{
+                                            "onlyTopCall": true,
+                                            "withLog": false,
+                                            "withStorage": false,
+                                            "withMemory": false,
+                                            "withStack": false,
+                                            "withReturnData": true
+                                        }}),
+                                        ..Default::default()
+                                    },
                                 )
                                 .await
                                 .context("Failed to get the trace of the transaction");
@@ -279,24 +276,20 @@ impl Watcher {
                         Ok(())
                     }
                     .instrument(info_span!("Getting receipt", %tx_hash))
-                })
-                .fold(JoinSet::new(), |mut set, task| {
-                    set.spawn(task);
-                    set
-                });
-            if let errors = receipt_tasks
-                .join_all()
-                .await
-                .into_iter()
-                .filter_map(Result::err)
-                .collect::<Vec<_>>()
-                && !errors.is_empty()
-            {
-                warn!(
-                    ?errors,
-                    "Encountered multiple errors when getting the receipts"
-                );
-                bail!("Encountered multiple errors when getting the receipts, {errors:?}")
+                }))
+                .await;
+
+                let errors: Vec<_> = results.into_iter().filter_map(Result::err).collect();
+                if !errors.is_empty() {
+                    warn!(
+                        ?errors,
+                        "Encountered multiple errors when getting the receipts"
+                    );
+                    bail!("Encountered multiple errors when getting the receipts, {errors:?}")
+                }
+
+                completed += chunk.len();
+                info!(completed, out_of = total_len, "Obtained receipts for chunk");
             }
 
             // Reporting all of the information to the reporter about all of the observed blocks, the tx

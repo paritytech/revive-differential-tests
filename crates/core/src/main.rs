@@ -53,7 +53,7 @@ mod internal_prelude {
     pub use tokio::sync::broadcast;
     pub use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
     pub use tokio::sync::{Mutex, Notify, OnceCell, RwLock, Semaphore};
-    pub use tokio::task::{AbortHandle, JoinSet};
+    pub use tokio::task::AbortHandle;
     pub use tokio::time::{interval, timeout};
     pub use tracing::level_filters::LevelFilter;
     pub use tracing::{
