@@ -237,7 +237,8 @@ impl Watcher {
                 .map(|tx_hash| {
                     let semaphore = semaphore.clone();
                     let completed_count = completed_count.clone();
-                    let receipt_future = self.provider.get_transaction_receipt(tx_hash);
+                    let provider = self.provider.clone();
+                    let receipt_future = provider.get_transaction_receipt(tx_hash);
                     async move {
                         debug!("Acquiring permit");
                         let _guard = semaphore.acquire_owned().await?;
@@ -260,8 +261,19 @@ impl Watcher {
                         if receipt.status() {
                             debug!("Transaction succeeded")
                         } else {
-                            warn!("Transaction failed: {receipt:?}");
-                            bail!("Transaction failed: {receipt:?}")
+                            let trace = provider
+                                .debug_trace_transaction(
+                                    tx_hash,
+                                    GethDebugTracingOptions::prestate_tracer(PreStateConfig {
+                                        diff_mode: Some(true),
+                                        disable_code: None,
+                                        disable_storage: None,
+                                    }),
+                                )
+                                .await
+                                .context("Failed to get the trace of the transaction");
+                            warn!(?receipt, ?trace, "Transaction failed");
+                            bail!("Transaction failed: {receipt:?} {trace:?}")
                         }
 
                         Ok(())
