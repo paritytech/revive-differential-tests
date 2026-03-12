@@ -17,15 +17,11 @@ inputs:
     description: "The absolute path prefix to strip from source paths in the report for cross-platform normalization. Must be a path from the runner that produced the report."
     required: true
   platform-label:
-    description: "The platform label indicating which platform the hashes were generated on (e.g. 'linux', 'macos')."
+    description: "The platform label indicating which platform the hashes were generated on (e.g. 'linux', 'macos'). This is included in the exported file."
     required: true
   upload-artifact-name:
     description: "The name for the uploaded hash file artifact."
     required: true
-
-env:
-  # The file name for the exported hash file.
-  HASH_FILE_NAME: hashes.json
 
 runs:
   using: "composite"
@@ -52,7 +48,7 @@ runs:
       run: |
         report-processor export-hashes \
           --report-path "${{ inputs.report-path }}" \
-          --output-path "./${{ env.HASH_FILE_NAME }}" \
+          --output-path "./hashes.json" \
           --remove-prefix "${{ inputs.remove-prefix }}" \
           --platform-label "${{ inputs.platform-label }}"
 
@@ -60,6 +56,6 @@ runs:
       uses: actions/upload-artifact@v6
       with:
         name: ${{ inputs.upload-artifact-name }}
-        path: ./${{ env.HASH_FILE_NAME }}
+        path: ./hashes.json
         retention-days: 3
         if-no-files-found: error
