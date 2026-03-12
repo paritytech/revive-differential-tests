@@ -204,7 +204,7 @@ pub async fn handle_differential_benchmarks(
                 .unwrap();
             inclusion_watcher.stop();
 
-            let _ = watcher_task.await;
+            watcher_task.await??;
             let _ = inclusion_watcher_task.await;
         }
     }

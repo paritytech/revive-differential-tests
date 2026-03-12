@@ -280,6 +280,10 @@ impl Watcher {
                 .collect::<Vec<_>>()
                 && !errors.is_empty()
             {
+                warn!(
+                    ?errors,
+                    "Encountered multiple errors when getting the receipts"
+                );
                 bail!("Encountered multiple errors when getting the receipts, {errors:?}")
             }
 
