@@ -33,7 +33,7 @@ mod internal_prelude {
     pub use alloy::rpc::types::FeeHistory;
     pub use alloy::rpc::types::trace::geth::{
         CallFrame, GethDebugBuiltInTracerType, GethDebugTracerConfig, GethDebugTracerType,
-        GethDebugTracingOptions, PreStateConfig,
+        GethDebugTracingOptions,
     };
     pub use alloy::rpc::types::{TransactionReceipt, TransactionRequest};
     pub use ansi_term::{ANSIStrings, Color};
