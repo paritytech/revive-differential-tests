@@ -383,7 +383,6 @@ jobs:
   publish:
     name: Publish Report
     needs: benchmark
-    if: always()
     runs-on: parity-large
     permissions:
       contents: write
