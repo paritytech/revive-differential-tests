@@ -228,12 +228,15 @@ impl Watcher {
 
             // Getting the transaction receipts for all of the transactions that were submitted to
             // the chain.
-            let semaphore = Arc::new(Semaphore::new(100));
+            let semaphore = Arc::new(Semaphore::new(200));
+            let completed_count = Arc::new(Mutex::new(0usize));
+            let total_len = transaction_registration_information.len();
             let receipt_tasks = transaction_registration_information
                 .keys()
                 .copied()
                 .map(|tx_hash| {
                     let semaphore = semaphore.clone();
+                    let completed_count = completed_count.clone();
                     let receipt_future = self.provider.get_transaction_receipt(tx_hash);
                     async move {
                         debug!("Acquiring permit");
@@ -245,6 +248,14 @@ impl Watcher {
                             bail!("Receipt for {tx_hash} not found")
                         };
                         debug!("Obtained receipt");
+                        let completed = completed_count
+                            .lock()
+                            .map(|mut guard| {
+                                *guard += 1;
+                                *guard
+                            })
+                            .await;
+                        info!(completed, out_of = total_len, "Obtained receipt");
 
                         if receipt.status() {
                             debug!("Transaction succeeded")
