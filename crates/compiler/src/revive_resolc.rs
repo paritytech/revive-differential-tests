@@ -78,7 +78,7 @@ impl Resolc {
         let mut input_value = serde_json::to_value(input)
             .context("Failed to serialize Standard JSON input for resolc")?;
         if let Some(settings) = input_value.get_mut("settings") {
-            settings["polkavm"] = serde_json::to_value(&input.settings.polkavm).unwrap();
+            settings["polkavm"] = serde_json::to_value(input.settings.polkavm).unwrap();
             if let Some(optimizer) = settings.get_mut("optimizer") {
                 optimizer["mode"] =
                     serde_json::Value::String(input.settings.optimizer.mode.to_string());
