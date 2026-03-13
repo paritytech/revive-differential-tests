@@ -271,7 +271,8 @@ pub fn build_comparison_summary(result: &ComparisonResult) -> String {
                  \n    Mismatches: {status_symbol} {mismatch_count} {missing_info}",
             ));
 
-            for mismatch in mismatches {
+            let max_displayed = 10;
+            for mismatch in mismatches.iter().take(max_displayed) {
                 mode_summary.push_str(&format!(
                     "\n\
                      \n    - path: {}\
@@ -282,6 +283,12 @@ pub fn build_comparison_summary(result: &ComparisonResult) -> String {
                     mismatch.contract_name,
                     mismatch.reference_hash.as_deref().unwrap_or("MISSING"),
                     mismatch.other_hash.as_deref().unwrap_or("MISSING"),
+                ));
+            }
+            if mismatch_count > max_displayed {
+                mode_summary.push_str(&format!(
+                    "\n\n    ... and {} more",
+                    mismatch_count - max_displayed
                 ));
             }
         }
@@ -334,7 +341,7 @@ pub fn build_comparison_summary(result: &ComparisonResult) -> String {
          \n\
          {status_message}\n\
          \n\
-         ==========================================="
+         ===========================================\n"
     )
 }
 

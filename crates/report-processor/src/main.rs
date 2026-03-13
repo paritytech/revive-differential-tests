@@ -324,9 +324,13 @@ fn main() -> Result<()> {
             let summary = build_comparison_summary(&result);
             println!("{summary}");
             write_or_overwrite_json(&output_path, &result)?;
+            println!(
+                "Full comparison result written to: {}",
+                output_path.display()
+            );
 
             if result.count_mismatches() > 0 {
-                std::process::exit(1);
+                bail!("Mismatches detected");
             }
         }
     };
