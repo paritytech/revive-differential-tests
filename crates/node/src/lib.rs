@@ -77,7 +77,7 @@ pub(crate) mod internal_prelude {
     pub use subxt::{OnlineClient, SubstrateConfig};
     pub use tokio::sync::{OnceCell, Semaphore};
     pub use tokio::task::AbortHandle;
-    pub use tokio::time::{interval, timeout};
+    pub use tokio::time::{interval, sleep, timeout};
     pub use toml;
     pub use tower::{Layer, Service};
     pub use tracing::*;
