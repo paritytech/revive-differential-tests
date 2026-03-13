@@ -357,13 +357,12 @@ jobs:
 
       - name: Run benchmarks
         env:
-          RUST_LOG: info,retester::differential_benchmarks::watcher=debug,revive_dt_node::provider_utils::batching_layer=debug,revive_dt_core::differential_benchmarks::driver=debug,alloy=off
+          RUST_LOG: info,retester::differential_benchmarks::watcher=debug,revive_dt_node::provider_utils::batching_layer=debug,revive_dt_node::provider_utils::receipt_retry_layer=debug,revive_dt_core::differential_benchmarks::driver=debug,alloy=off
         run: |
           retester benchmark \
             --log-format json \
             --test "${{ matrix.test }}" \
             --platform ${{ matrix.platform }} \
-            --eth-rpc.logging-level "trace" \
             --working-directory ./workdir \
             --concurrency.number-of-nodes 1 \
             --concurrency.number-of-threads 12 \

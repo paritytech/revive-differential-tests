@@ -66,8 +66,7 @@ pub(crate) mod internal_prelude {
             BoxFuture, RpcError, TransportError, TransportErrorKind, TransportFut, TransportResult,
         },
     };
-    pub use anyhow::Context as _;
-    pub use anyhow::{Result, bail};
+    pub use anyhow::{Context as _, Result, bail};
     pub use futures::StreamExt;
     pub use serde::{Deserialize, Deserializer, Serialize, Serializer};
     pub use serde_json::{self, Value, json};
@@ -81,7 +80,7 @@ pub(crate) mod internal_prelude {
     pub use tokio::time::{interval, timeout};
     pub use toml;
     pub use tower::{Layer, Service};
-    pub use tracing::{debug, error, info, instrument, trace};
+    pub use tracing::*;
     pub use zombienet_sdk::{LocalFileSystem, NetworkConfig, NetworkConfigExt};
 
     pub use revive_common::EVMVersion;

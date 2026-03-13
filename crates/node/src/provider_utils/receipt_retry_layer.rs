@@ -1,3 +1,5 @@
+use tracing::Instrument;
+
 use crate::internal_prelude::*;
 
 /// A layer that allows for automatic retries for getting the receipt.
@@ -105,6 +107,7 @@ where
             let request = req.as_single().ok_or_else(|| {
                 TransportErrorKind::custom_str("Retry layer doesn't support batch requests")
             })?;
+            tracing::Span::current().record("request", tracing::field::debug(request));
             let method = request.method();
             let requires_retries = method == "eth_getTransactionReceipt"
                 || (method.contains("debug") && method.contains("trace"));
@@ -123,6 +126,8 @@ where
                     interval.tick().await;
                     attempt += 1;
 
+                    let resp = service.call(req.clone()).await;
+                    debug!(?resp, "Obtained a response");
                     let resp = match service.call(req.clone()).await {
                         Ok(resp) => resp,
                         Err(err) => {
@@ -157,12 +162,13 @@ where
                         debug!(
                             %method,
                             attempt,
+                            ?response,
                             "Retry layer: receipt response was null/unparseable, retrying"
                         );
                         continue;
                     }
                 }
-            })
+            }.instrument(debug_span!("Handling request", request = tracing::field::Empty)))
             .await
             .map_err(|_| {
                 debug!(
