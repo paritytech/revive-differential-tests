@@ -72,11 +72,17 @@ impl Resolc {
         )
     }
 
-    fn inject_polkavm_settings(&self, input: &SolcStandardJsonInput) -> Result<serde_json::Value> {
+    /// Manually inject resolc-specific settings that are marked `skip_serializing`
+    /// in the upstream `revive-solc-json-interface` crate.
+    fn inject_resolc_specific_settings(input: &SolcStandardJsonInput) -> Result<serde_json::Value> {
         let mut input_value = serde_json::to_value(input)
             .context("Failed to serialize Standard JSON input for resolc")?;
         if let Some(settings) = input_value.get_mut("settings") {
-            settings["polkavm"] = serde_json::to_value(self.polkavm_settings()).unwrap();
+            settings["polkavm"] = serde_json::to_value(&input.settings.polkavm).unwrap();
+            if let Some(optimizer) = settings.get_mut("optimizer") {
+                optimizer["mode"] =
+                    serde_json::Value::String(input.settings.optimizer.mode.to_string());
+            }
         }
         Ok(input_value)
     }
@@ -167,8 +173,8 @@ impl SolidityCompiler for Resolc {
                     detect_missing_libraries: false,
                 },
             };
-            // Manually inject polkavm settings since it's marked skip_serializing in the upstream crate
-            let std_input_json = this.inject_polkavm_settings(&input)?;
+            // Manually inject resolc-specific settings that are marked `skip_serializing` in the upstream crate.
+            let std_input_json = Self::inject_resolc_specific_settings(&input)?;
 
             Span::current().record(
                 "json_in",
@@ -336,5 +342,93 @@ impl SolidityCompiler for Resolc {
     fn supports_mode(&self, mode: &Mode) -> bool {
         mode.pipeline == ModePipeline::ViaYulIR
             && SolidityCompiler::supports_mode(&self.0.solc, mode)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::BTreeMap;
+
+    use revive_solc_json_interface::standard_json::input::source::Source as SolcStandardJsonInputSource;
+
+    fn make_solc_input_with_resolc_settings(
+        optimizer_mode: char,
+        pvm_heap_size: u32,
+        pvm_stack_size: u32,
+    ) -> SolcStandardJsonInput {
+        SolcStandardJsonInput {
+            language: SolcStandardJsonInputLanguage::Solidity,
+            sources: BTreeMap::from([(
+                "test.sol".to_string(),
+                SolcStandardJsonInputSource::from("contract T {}".to_string()),
+            )]),
+            settings: SolcStandardJsonInputSettings {
+                evm_version: None,
+                libraries: Default::default(),
+                remappings: Default::default(),
+                output_selection: Default::default(),
+                via_ir: Some(true),
+                optimizer: SolcStandardJsonInputSettingsOptimizer::new(
+                    true,
+                    optimizer_mode,
+                    ResolcOptimizerDetails::default(),
+                ),
+                polkavm: SolcStandardJsonInputSettingsPolkaVM::new(
+                    Some(SolcStandardJsonInputSettingsPolkaVMMemory::new(
+                        Some(pvm_heap_size),
+                        Some(pvm_stack_size),
+                    )),
+                    false,
+                ),
+                metadata: Default::default(),
+                detect_missing_libraries: false,
+            },
+        }
+    }
+
+    fn assert_expected_solc_input(
+        json_input: &serde_json::Value,
+        optimizer_mode: char,
+        pvm_heap_size: u32,
+        pvm_stack_size: u32,
+    ) {
+        let optimizer = &json_input["settings"]["optimizer"];
+        assert_eq!(
+            optimizer["mode"].as_str(),
+            Some(optimizer_mode.to_string().as_str())
+        );
+        assert_eq!(optimizer["enabled"].as_bool(), Some(true));
+
+        let polkavm = &json_input["settings"]["polkavm"];
+        assert_eq!(
+            polkavm["memoryConfig"]["heapSize"].as_u64(),
+            Some(pvm_heap_size as u64)
+        );
+        assert_eq!(
+            polkavm["memoryConfig"]["stackSize"].as_u64(),
+            Some(pvm_stack_size as u64)
+        );
+        assert_eq!(polkavm["debugInformation"].as_bool(), Some(false));
+
+        // Standard fields survive the round-trip.
+        assert_eq!(json_input["language"].as_str(), Some("Solidity"));
+        assert!(json_input["sources"]["test.sol"].is_object());
+        assert_eq!(json_input["settings"]["viaIR"].as_bool(), Some(true));
+    }
+
+    #[test]
+    fn injects_resolc_specific_settings() {
+        let input = make_solc_input_with_resolc_settings('0', 100_000, 50_000);
+        let json_input = Resolc::inject_resolc_specific_settings(&input).unwrap();
+        assert_expected_solc_input(&json_input, '0', 100_000, 50_000);
+
+        let input = make_solc_input_with_resolc_settings('3', 200_000, 75_000);
+        let json_input = Resolc::inject_resolc_specific_settings(&input).unwrap();
+        assert_expected_solc_input(&json_input, '3', 200_000, 75_000);
+
+        let input = make_solc_input_with_resolc_settings('z', 300_000, 100_000);
+        let json_input = Resolc::inject_resolc_specific_settings(&input).unwrap();
+        assert_expected_solc_input(&json_input, 'z', 300_000, 100_000);
     }
 }
