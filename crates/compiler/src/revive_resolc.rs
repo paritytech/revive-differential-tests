@@ -166,7 +166,7 @@ impl SolidityCompiler for Resolc {
                     optimizer: SolcStandardJsonInputSettingsOptimizer::new(
                         optimize_setting.solc_optimizer_enabled,
                         optimize_setting.level.to_mode_char(),
-                        ResolcOptimizerDetails::disabled(&Version::new(0, 0, 0)),
+                        SolcOptimizerDetails::default(),
                     ),
                     polkavm: this.polkavm_settings(),
                     metadata: SolcStandardJsonInputSettingsMetadata::default(),
@@ -372,7 +372,7 @@ mod tests {
                 optimizer: SolcStandardJsonInputSettingsOptimizer::new(
                     true,
                     optimizer_mode,
-                    ResolcOptimizerDetails::default(),
+                    SolcOptimizerDetails::default(),
                 ),
                 polkavm: SolcStandardJsonInputSettingsPolkaVM::new(
                     Some(SolcStandardJsonInputSettingsPolkaVMMemory::new(
