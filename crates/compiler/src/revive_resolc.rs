@@ -72,7 +72,7 @@ impl Resolc {
         )
     }
 
-    /// Manually inject resolc-specific settings that are marked `skip_serializing`
+    /// Injects resolc-specific settings that are marked `skip_serializing`
     /// in the upstream `revive-solc-json-interface` crate.
     fn inject_resolc_specific_settings(input: &SolcStandardJsonInput) -> Result<serde_json::Value> {
         let mut input_value = serde_json::to_value(input)
