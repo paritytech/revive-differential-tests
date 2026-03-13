@@ -30,6 +30,7 @@ serde_yaml_ng = { workspace = true }
 sp-core = { workspace = true }
 sp-runtime = { workspace = true }
 subxt = { workspace = true }
+[target.'cfg(unix)'.dependencies]
 zombienet-sdk = { workspace = true }
 
 [dev-dependencies]

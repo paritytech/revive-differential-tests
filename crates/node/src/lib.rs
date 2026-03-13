@@ -15,6 +15,7 @@ pub mod prelude {
     pub use crate::node_implementations::lighthouse_geth::LighthouseGethNode;
     pub use crate::node_implementations::polkadot_omni_node::PolkadotOmnichainNode;
     pub use crate::node_implementations::substrate::SubstrateNode;
+    #[cfg(unix)]
     pub use crate::node_implementations::zombienet::ZombienetNode;
     pub use crate::provider_utils::*;
 }
@@ -82,6 +83,7 @@ pub(crate) mod internal_prelude {
     pub use toml;
     pub use tower::{Layer, Service};
     pub use tracing::{debug, error, info, instrument, trace};
+    #[cfg(unix)]
     pub use zombienet_sdk::{LocalFileSystem, NetworkConfig, NetworkConfigExt};
 
     pub use revive_common::EVMVersion;

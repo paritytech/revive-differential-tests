@@ -64,7 +64,16 @@ pub trait Platform {
             NodeIdentifier::Geth => new_geth_node(context),
             NodeIdentifier::LighthouseGeth => new_lighthouse_geth_node(context),
             NodeIdentifier::ReviveDevNode => new_revive_dev_node(context),
-            NodeIdentifier::Zombienet => new_zombienet_node(context),
+            NodeIdentifier::Zombienet => {
+                #[cfg(unix)]
+                {
+                    new_zombienet_node(context)
+                }
+                #[cfg(not(unix))]
+                {
+                    anyhow::bail!("Zombienet is not supported on this platform")
+                }
+            }
             NodeIdentifier::PolkadotOmniNode => new_polkadot_omni_node(context),
         }
     }
@@ -87,7 +96,16 @@ pub trait Platform {
             NodeIdentifier::Geth => export_geth_genesis(context),
             NodeIdentifier::LighthouseGeth => export_lighthouse_geth_genesis(context),
             NodeIdentifier::ReviveDevNode => export_revive_dev_node_genesis(context),
-            NodeIdentifier::Zombienet => export_zombienet_genesis(context),
+            NodeIdentifier::Zombienet => {
+                #[cfg(unix)]
+                {
+                    export_zombienet_genesis(context)
+                }
+                #[cfg(not(unix))]
+                {
+                    anyhow::bail!("Zombienet is not supported on this platform")
+                }
+            }
             NodeIdentifier::PolkadotOmniNode => export_polkadot_omni_node_genesis(context),
         }
     }
@@ -372,6 +390,7 @@ fn new_revive_dev_node(
     }))
 }
 
+#[cfg(unix)]
 fn new_zombienet_node(
     context: Context,
 ) -> Result<JoinHandle<Result<Box<dyn NodeApi + Send + Sync>>>> {
@@ -438,6 +457,7 @@ fn export_revive_dev_node_genesis(context: Context) -> Result<serde_json::Value>
     SubstrateNode::node_genesis(revive_dev_node_path, export_chainspec_command, &wallet)
 }
 
+#[cfg(unix)]
 fn export_zombienet_genesis(context: Context) -> Result<serde_json::Value> {
     let polkadot_parachain_path = context.as_polkadot_parachain_configuration().path.as_path();
     let wallet = context.as_wallet_configuration().wallet();
