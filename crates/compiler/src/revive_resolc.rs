@@ -353,10 +353,11 @@ mod tests {
     use super::*;
     use std::collections::BTreeMap;
 
+    use revive_dt_common::types::ModeOptimizerLevel;
     use revive_solc_json_interface::standard_json::input::source::Source as SolcStandardJsonInputSource;
 
     fn make_solc_input_with_resolc_settings(
-        optimizer_mode: char,
+        optimizer_level: ModeOptimizerLevel,
         pvm_heap_size: u32,
         pvm_stack_size: u32,
     ) -> SolcStandardJsonInput {
@@ -374,7 +375,7 @@ mod tests {
                 via_ir: Some(true),
                 optimizer: SolcStandardJsonInputSettingsOptimizer::new(
                     true,
-                    optimizer_mode,
+                    optimizer_level.to_mode_char(),
                     SolcOptimizerDetails::default(),
                 ),
                 polkavm: SolcStandardJsonInputSettingsPolkaVM::new(
@@ -392,14 +393,14 @@ mod tests {
 
     fn assert_expected_solc_input(
         json_input: &serde_json::Value,
-        optimizer_mode: char,
+        optimizer_level: ModeOptimizerLevel,
         pvm_heap_size: u32,
         pvm_stack_size: u32,
     ) {
         let optimizer = &json_input["settings"]["optimizer"];
         assert_eq!(
             optimizer["mode"].as_str(),
-            Some(optimizer_mode.to_string().as_str())
+            Some(optimizer_level.to_mode_char().to_string().as_str())
         );
         assert_eq!(optimizer["enabled"].as_bool(), Some(true));
 
@@ -422,16 +423,15 @@ mod tests {
 
     #[test]
     fn injects_resolc_specific_settings() {
-        let input = make_solc_input_with_resolc_settings('0', 100_000, 50_000);
-        let json_input = Resolc::inject_resolc_specific_settings(&input).unwrap();
-        assert_expected_solc_input(&json_input, '0', 100_000, 50_000);
-
-        let input = make_solc_input_with_resolc_settings('3', 200_000, 75_000);
-        let json_input = Resolc::inject_resolc_specific_settings(&input).unwrap();
-        assert_expected_solc_input(&json_input, '3', 200_000, 75_000);
-
-        let input = make_solc_input_with_resolc_settings('z', 300_000, 100_000);
-        let json_input = Resolc::inject_resolc_specific_settings(&input).unwrap();
-        assert_expected_solc_input(&json_input, 'z', 300_000, 100_000);
+        for (opt_level, pvm_heap_size, pvm_stack_size) in [
+            (ModeOptimizerLevel::M0, 100_000, 50_000),
+            (ModeOptimizerLevel::M3, 200_000, 75_000),
+            (ModeOptimizerLevel::Mz, 300_000, 100_000),
+        ] {
+            let input =
+                make_solc_input_with_resolc_settings(opt_level, pvm_heap_size, pvm_stack_size);
+            let json_input = Resolc::inject_resolc_specific_settings(&input).unwrap();
+            assert_expected_solc_input(&json_input, opt_level, pvm_heap_size, pvm_stack_size);
+        }
     }
 }
