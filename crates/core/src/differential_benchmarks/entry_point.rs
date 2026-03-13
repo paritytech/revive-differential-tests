@@ -140,9 +140,9 @@ pub async fn handle_differential_benchmarks(
                     .context("Failed to subscribe to full blocks information from the node")?,
                 platform_information
                     .node
-                    .provider()
+                    .subscribe_to_transaction_receipts()
                     .await
-                    .context("Failed to get the provider")?,
+                    .context("Failed to subscribe to the receipts from the node")?,
                 test_definition
                     .reporter
                     .execution_specific_reporter(0usize, platform_identifier),

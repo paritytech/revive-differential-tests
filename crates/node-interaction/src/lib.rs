@@ -19,7 +19,7 @@ use alloy::rpc::types::trace::geth::{
 use alloy::rpc::types::{EIP1186AccountProofResponse, TransactionReceipt, TransactionRequest};
 use anyhow::{Context as _, Result};
 
-use futures::future::Either;
+use futures::future::{Either, join_all};
 use futures::{Stream, StreamExt, stream};
 use revive_common::EVMVersion;
 use revive_dt_common::futures::{FrameworkFuture, FrameworkStream};
@@ -212,6 +212,36 @@ pub trait NodeApi {
             ))
         } else {
             Either::Right(subscribe_to_transaction_inclusions_ethereum(provider))
+        };
+        Box::pin(future) as _
+    }
+
+    /// Subscribes to the transaction receipts of each finalized block.
+    ///
+    /// The default implementation uses a different strategy between Ethereum and Substrate nodes.
+    ///
+    /// For Ethereum nodes, we subscribe to the finalized blocks stream and fetch all receipts
+    /// for each block using [`eth_getBlockReceipts`], then flatten them into the output stream.
+    ///
+    /// For Substrate based nodes, we subscribe to the finalized blocks stream, extract the
+    /// transaction hashes from each block, and then fetch individual receipts for each
+    /// transaction via [`eth_getTransactionReceipt`] through the eth-rpc proxy. The receipts
+    /// are collected per-block and then flattened into the output stream.
+    ///
+    /// In both cases, blocks whose receipts fail to be retrieved are silently skipped.
+    fn subscribe_to_transaction_receipts(
+        &self,
+    ) -> FrameworkFuture<Result<FrameworkStream<TransactionReceipt>>> {
+        let provider = self.subscriptions_provider();
+        let substrate_provider = self.substrate_provider();
+
+        let future = if let Some(substrate_provider) = substrate_provider {
+            Either::Left(subscribe_to_transaction_receipts_substrate(
+                provider,
+                substrate_provider,
+            ))
+        } else {
+            Either::Right(subscribe_to_transaction_receipts_ethereum(provider))
         };
         Box::pin(future) as _
     }
@@ -510,4 +540,93 @@ fn subscribe_to_transaction_inclusions_substrate(
     })
 }
 
-pub type SharedNode = Arc<dyn NodeApi>;
+fn subscribe_to_transaction_receipts_ethereum(
+    provider: FrameworkFuture<Result<DynProvider>>,
+) -> FrameworkFuture<Result<FrameworkStream<TransactionReceipt>>> {
+    Box::pin(async move {
+        let provider = provider.await.context("Failed to get the provider")?;
+
+        let finalized_blocks_stream =
+            subscribe_to_full_blocks_information_ethereum(Box::pin(ready(Ok(provider.clone()))))
+                .await
+                .context("Failed to get the finalized blocks stream")?;
+
+        let receipts_stream = finalized_blocks_stream
+            .map(|block| block.ethereum_block_information.block_number)
+            .then(move |block_number| {
+                let provider = provider.clone();
+                async move {
+                    let block_receipts = provider
+                        .get_block_receipts(alloy::eips::BlockId::Number(
+                            alloy::eips::BlockNumberOrTag::Number(block_number),
+                        ))
+                        .await;
+                    let Ok(Some(receipts)) = block_receipts else {
+                        error!(
+                            block_number,
+                            result = ?block_receipts,
+                            "Failed to get the block receipts"
+                        );
+                        return None;
+                    };
+                    Some(receipts)
+                }
+            })
+            .filter_map(ready)
+            .flat_map(stream::iter);
+
+        Ok(Box::pin(receipts_stream) as _)
+    })
+}
+
+fn subscribe_to_transaction_receipts_substrate(
+    provider: FrameworkFuture<Result<DynProvider>>,
+    substrate_provider: FrameworkFuture<Result<OnlineClient<SubstrateConfig>>>,
+) -> FrameworkFuture<Result<FrameworkStream<TransactionReceipt>>> {
+    Box::pin(async move {
+        let provider = provider.await.context("Failed to get the provider")?;
+        let substrate_provider = substrate_provider
+            .await
+            .context("Failed to get the substrate provider")?;
+
+        let finalized_blocks_stream = subscribe_to_full_blocks_information_substrate(
+            Box::pin(ready(Ok(provider.clone()))),
+            Box::pin(ready(Ok(substrate_provider.clone()))),
+        )
+        .await
+        .context("Failed to get the finalized blocks stream")?;
+
+        let receipts_stream = finalized_blocks_stream
+            .map(|block| {
+                (
+                    block.ethereum_block_information.block_number,
+                    block.ethereum_block_information.transaction_hashes,
+                )
+            })
+            .then(move |(block_number, transaction_hashes)| {
+                let provider = provider.clone();
+                async move {
+                    let block_receipts = join_all(transaction_hashes.into_iter().map(|hash| {
+                        let provider = provider.clone();
+                        provider.get_transaction_receipt(hash)
+                    }))
+                    .await
+                    .into_iter()
+                    .collect::<Result<Option<Vec<_>>, _>>();
+                    let Ok(Some(receipts)) = block_receipts else {
+                        error!(
+                            block_number,
+                            result = ?block_receipts,
+                            "Failed to get the block receipts"
+                        );
+                        return None;
+                    };
+                    Some(receipts)
+                }
+            })
+            .filter_map(ready)
+            .flat_map(stream::iter);
+
+        Ok(Box::pin(receipts_stream) as _)
+    })
+}

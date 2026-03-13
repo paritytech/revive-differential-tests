@@ -12,8 +12,9 @@ pub struct Watcher {
     /// and a single node from that platform.
     blocks_stream: FrameworkStream<MinedBlockInformation>,
 
-    /// The provider uses to make requests to the ETH RPC as the watcher is running.
-    provider: DynProvider,
+    /// This is a stream of the transaction receipts of the transactions that were mined by the
+    /// node. They're obtained once the block has been finalized and is available in the node.
+    receipts_stream: FrameworkStream<TransactionReceipt>,
 
     /// The reporter used to send events to the report aggregator.
     reporter: ExecutionSpecificReporter,
@@ -22,7 +23,7 @@ pub struct Watcher {
 impl Watcher {
     pub fn new(
         blocks_stream: FrameworkStream<MinedBlockInformation>,
-        provider: DynProvider,
+        receipts_stream: FrameworkStream<TransactionReceipt>,
         reporter: ExecutionSpecificReporter,
     ) -> (Self, UnboundedSender<WatcherEvent>) {
         let (tx, rx) = unbounded_channel::<WatcherEvent>();
@@ -30,7 +31,7 @@ impl Watcher {
             Self {
                 rx,
                 blocks_stream,
-                provider,
+                receipts_stream,
                 reporter,
             },
             tx,
@@ -39,40 +40,36 @@ impl Watcher {
 
     /// The main future which should be polled in order for the watcher to run.
     ///
-    /// This task spawns two tasks which work together until a final outcome is reached.
+    /// This task spawns three concurrent tasks which work together until a final outcome is reached.
     ///
-    /// 1. The first task listens for [`WatcherEvent`]s. For each transaction that it encounters it
-    ///    adds its hash to a `watching_transaction_hashes` [`HashSet`] which means that the task is
-    ///    watching for this transaction hash and waiting for it to be mined into a block. This is
-    ///    akin to a user sending a request saying "please watch for this transaction hash for me"
-    ///    and this task is the handler of such a request. All that it does is that it stores the
-    ///    hash of this transaction in a shared [`HashSet`] for the other task to handle later on.
-    ///    Additionally, when this task receives a [`WatcherEvent::AllTransactionsSubmitted`] event
-    ///    it mutates a shared boolean which informs of the later task of the fact that submission
-    ///    is completed.
-    /// 2. A second task whose main objective is to watch for the blocks getting mined and note down
-    ///    all of the transactions that it has observed in these blocks. It does so by storing them
-    ///    in a [`HashSet`] of transaction hashes. Eventually, when the shared boolean denoting the
-    ///    completion of submission is set to [`true`], this task would then compare its set of
-    ///    observed transactions to the set of transactions that we wanted to watch for. If the set
-    ///    has no differences it means that we've successfully observed all of the transactions we
-    ///    wanted to observe and this task completes.
+    /// 1. **Registration task**: Listens for [`WatcherEvent`]s. For each transaction that it
+    ///    encounters it adds its hash to a `watching_transaction_hashes` [`HashSet`] which means
+    ///    that the task is watching for this transaction hash and waiting for it to be mined into a
+    ///    block. This is akin to a user sending a request saying "please watch for this transaction
+    ///    hash for me" and this task is the handler of such a request. All that it does is that it
+    ///    stores the hash of this transaction in a shared [`HashSet`] for the other tasks to handle
+    ///    later on. Additionally, when this task receives a
+    ///    [`WatcherEvent::AllTransactionsSubmitted`] event it mutates a shared boolean which informs
+    ///    the other tasks of the fact that submission is completed. It also guarantees that no more
+    ///    transaction hashes will be requested to be watched for by closing the channel completely.
+    /// 2. **Block subscription task**: Watches for blocks getting mined and notes down all of the
+    ///    transactions that it has observed in these blocks. It does so by storing them in a
+    ///    [`HashSet`] of transaction hashes. Eventually, when the shared boolean denoting the
+    ///    completion of submission is set to [`true`], this task compares its set of observed
+    ///    transactions to the set of transactions that we wanted to watch for. If the set has no
+    ///    differences it means that we've successfully observed all of the transactions we wanted
+    ///    to observe and this task completes.
+    /// 3. **Receipt watching task**: Consumes the `receipts_stream` provided at construction time,
+    ///    collecting all transaction receipts as they arrive from the finalized blocks. Like the
+    ///    block subscription task, it completes once all requested transaction hashes have had their
+    ///    receipts observed.
     ///
-    /// The two spawned tasks are also involved in some amount of reporting to the reporter at
-    /// various different stages in their runtime and they also return various values as tasks.
+    /// All three tasks run concurrently via [`join3`]. Once they all resolve, the watcher checks
+    /// that all collected receipts have a successful status. If any receipt indicates a failed
+    /// transaction, this future resolves with an [`Err`].
     ///
-    /// The first task guarantees that no more transaction hashes will be requested to be watched
-    /// for by closing the channel completely and stopping its own execution which ensures that the
-    /// sender's side gets an error if it attempts to request for another transaction to be watched.
-    ///
-    /// Once the two above described tasks resolve the watcher starts trying to get the receipts for
-    /// all of the submitted transactions and checking for their status to make sure that all of the
-    /// transactions succeeded, if any of the transactions failed then this future resolves with an
-    /// [`Err`]. The receipts are queried from the RPC concurrently and with a semaphore with 100
-    /// permits in order to ensure that the RPC is not drowned in requests.
-    ///
-    /// This future resolves once the two above described tasks resolve and complete their execution
-    /// based on the above described logic.
+    /// Finally, the watcher reports all observed block information, per-block transaction counts,
+    /// and per-transaction metadata (submission time, block inclusion time) to the reporter.
     #[allow(irrefutable_let_patterns)]
     pub fn run(mut self) -> FrameworkFuture<Result<()>> {
         Box::pin(async move {
@@ -222,74 +219,59 @@ impl Watcher {
                 }
             };
 
-            // Execute both of the tasks concurrently until they both complete.
-            let (transaction_registration_information, observed_blocks) =
-                join(registration_task, block_subscription_task).await;
+            // This is the receipt watching task which consumes the receipts stream and collects all
+            // of the transaction receipts as they arrive from the finalized blocks. It completes
+            // once all of the requested transaction hashes have had their receipts observed as
+            // described in the doc comment of this method.
+            let transaction_receipt_watching_task = {
+                let is_submission_completed = is_submission_completed.clone();
+                let watch_requests = watch_requests.clone();
+                async move {
+                    let mut receipts = HashMap::new();
+                    let mut receipts_observed = HashSet::new();
+                    while let Some(receipt) = self.receipts_stream.next().await {
+                        receipts_observed.insert(receipt.transaction_hash);
+                        receipts.insert(receipt.transaction_hash, receipt);
 
-            // Getting the transaction receipts in chunks, preserving insertion order. We process
-            // them in order because receipts from later blocks may not be available on the RPC yet
-            // if we request them too early. We still process each chunk concurrently (rather than
-            // one at a time) to avoid taking hours on large workloads.
-            let total_len = transaction_registration_information.len();
-            let tx_hashes = transaction_registration_information
-                .keys()
-                .copied()
-                .collect::<Vec<_>>();
-            let mut completed = 0usize;
-            for chunk in tx_hashes.chunks(100) {
-                let results = futures::future::join_all(chunk.iter().map(|&tx_hash| {
-                    let provider = self.provider.clone();
-                    async move {
-                        debug!("Awaiting receipt");
-                        let Some(receipt) = provider.get_transaction_receipt(tx_hash).await? else {
-                            bail!("Receipt for {tx_hash} not found")
-                        };
-                        debug!("Obtained receipt");
+                        let requested_transactions_len = watch_requests.read().await.len();
+                        info!(
+                            receipts.observed = receipts.len(),
+                            receipts.requested = requested_transactions_len,
+                            receipts.remaining =
+                                requested_transactions_len.saturating_sub(receipts.len()),
+                            "Observed a new receipt"
+                        );
 
-                        if receipt.status() {
-                            debug!("Transaction succeeded")
-                        } else {
-                            let trace = provider
-                                .debug_trace_transaction(
-                                    tx_hash,
-                                    GethDebugTracingOptions {
-                                        tracer: Some(GethDebugTracerType::BuiltInTracer(
-                                            GethDebugBuiltInTracerType::CallTracer,
-                                        )),
-                                        tracer_config: GethDebugTracerConfig(serde_json::json! {{
-                                            "onlyTopCall": true,
-                                            "withLog": false,
-                                            "withStorage": false,
-                                            "withMemory": false,
-                                            "withStack": false,
-                                            "withReturnData": true
-                                        }}),
-                                        ..Default::default()
-                                    },
-                                )
-                                .await
-                                .context("Failed to get the trace of the transaction");
-                            warn!(?receipt, ?trace, "Transaction failed");
-                            bail!("Transaction failed: {receipt:?} {trace:?}")
+                        // This is the primary condition which determines if we should break out of the
+                        // loop or not. If all of the transactions have been submitted and there's no
+                        // difference between the transactions the user requested us to watch and the
+                        // ones we've seen then we break out of the loop and stop.
+                        if *is_submission_completed.read().await
+                            && watch_requests.read().await.is_subset(&receipts_observed)
+                        {
+                            info!("All transactions observed");
+                            break;
                         }
-
-                        Ok(())
                     }
-                    .instrument(info_span!("Getting receipt", %tx_hash))
-                }))
-                .await;
-
-                let errors: Vec<_> = results.into_iter().filter_map(Result::err).collect();
-                if !errors.is_empty() {
-                    warn!(
-                        ?errors,
-                        "Encountered multiple errors when getting the receipts"
-                    );
-                    bail!("Encountered multiple errors when getting the receipts, {errors:?}")
+                    receipts
                 }
+            };
 
-                completed += chunk.len();
-                info!(completed, out_of = total_len, "Obtained receipts for chunk");
+            // Execute both of the tasks concurrently until they both complete.
+            let (transaction_registration_information, observed_blocks, observed_receipts) = join3(
+                registration_task,
+                block_subscription_task,
+                transaction_receipt_watching_task,
+            )
+            .await;
+
+            if let failing_receipts = observed_receipts
+                .into_values()
+                .filter(|receipt| !receipt.status())
+                .collect::<Vec<_>>()
+                && !failing_receipts.is_empty()
+            {
+                bail!("Encountered failing receipts: {failing_receipts:?}");
             }
 
             // Reporting all of the information to the reporter about all of the observed blocks, the tx

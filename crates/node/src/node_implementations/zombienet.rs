@@ -322,13 +322,6 @@ impl ZombienetNode {
         let eth_rpc_port = Self::ETH_RPC_BASE_PORT + self.id as u16;
         let node_rpc_url = collator_ws_uri.clone();
 
-        OpenOptions::new()
-            .write(true)
-            .truncate(true)
-            .create(true)
-            .read(false)
-            .open(self.base_directory.join("eth-rpc-database"))
-            .context("Failed")?;
         let eth_rpc_process = Process::new(
             "proxy",
             self.logs_directory.as_path(),
@@ -345,9 +338,9 @@ impl ZombienetNode {
                     .arg("--rpc-port")
                     .arg(eth_rpc_port.to_string())
                     .arg("--index-last-n-blocks")
-                    .arg(100_000u32.to_string())
+                    .arg(u32::MAX.to_string())
                     .arg("--cache-size")
-                    .arg(100_000u32.to_string())
+                    .arg(u32::MAX.to_string())
                     .arg("--rpc-max-batch-request-len")
                     .arg(u32::MAX.to_string())
                     .arg("--database-url")

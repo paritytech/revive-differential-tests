@@ -28,8 +28,7 @@ mod internal_prelude {
     pub use alloy::json_abi::JsonAbi;
     pub use alloy::network::{Ethereum, TransactionBuilder};
     pub use alloy::primitives::{Address, BlockNumber, TxHash, U256, address};
-    pub use alloy::providers::ext::DebugApi;
-    pub use alloy::providers::{DynProvider, PendingTransactionBuilder, Provider};
+    pub use alloy::providers::{PendingTransactionBuilder, Provider};
     pub use alloy::rpc::types::FeeHistory;
     pub use alloy::rpc::types::trace::geth::{
         CallFrame, GethDebugBuiltInTracerType, GethDebugTracerConfig, GethDebugTracerType,
@@ -40,7 +39,7 @@ mod internal_prelude {
     pub use anyhow::Context as _;
     pub use anyhow::{Error, Result, bail};
     pub use clap::Parser;
-    pub use futures::future::{join, try_join_all};
+    pub use futures::future::{join3, try_join_all};
     pub use futures::{FutureExt, Stream, StreamExt, TryFutureExt, TryStreamExt, stream};
     pub use indexmap::{IndexMap, indexmap};
     pub use regex::Regex;

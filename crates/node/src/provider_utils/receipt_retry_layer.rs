@@ -128,7 +128,7 @@ where
 
                     let resp = service.call(req.clone()).await;
                     debug!(?resp, "Obtained a response");
-                    let resp = match service.call(req.clone()).await {
+                    let resp = match resp {
                         Ok(resp) => resp,
                         Err(err) => {
                             debug!(%method, attempt, %err, "Retry layer: transport error, retrying");
@@ -168,7 +168,7 @@ where
                         continue;
                     }
                 }
-            }.instrument(debug_span!("Handling request", request = tracing::field::Empty)))
+            })
             .await
             .map_err(|_| {
                 debug!(
@@ -178,6 +178,6 @@ where
                 );
                 TransportErrorKind::custom_str("Timeout when retrying request")
             })
-        })
+        }.instrument(debug_span!("Handling request", request = tracing::field::Empty)))
     }
 }
