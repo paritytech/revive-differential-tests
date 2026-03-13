@@ -923,7 +923,7 @@ where
                     }
                 }
             };
-            transaction.set_gas_limit((gas_limit * 110 / 100).max(gas_limit + 1000));
+            transaction.set_gas_limit((gas_limit * 110 / 100).max(gas_limit + 5000));
         }
 
         // If gas limit caching is enabled, also fill in EIP-1559 fee fields from

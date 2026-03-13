@@ -275,7 +275,10 @@ impl Watcher {
                 .collect::<Vec<_>>()
                 && !failing_receipts.is_empty()
             {
-                bail!("Encountered failing receipts: {failing_receipts:?}");
+                bail!(
+                    "Encountered failing receipts of {} len: {failing_receipts:?}",
+                    failing_receipts.len()
+                );
             }
 
             // Reporting all of the information to the reporter about all of the observed blocks, the tx
