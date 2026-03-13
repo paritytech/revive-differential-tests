@@ -343,8 +343,6 @@ impl ZombienetNode {
                     .arg(u32::MAX.to_string())
                     .arg("--rpc-max-batch-request-len")
                     .arg(u32::MAX.to_string())
-                    .arg("--database-url")
-                    .arg(self.base_directory.join("eth-rpc-database"))
                     .env("RUST_LOG", self.eth_rpc_logging_level.as_str())
                     .stdout(stdout_file)
                     .stderr(stderr_file);
