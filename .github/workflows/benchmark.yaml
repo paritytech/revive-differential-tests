@@ -46,6 +46,9 @@ jobs:
     steps:
       - name: Setup Rust toolchain
         uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          target: wasm32-unknown-unknown
+          components: rust-src
 
       - name: Setup sccache
         uses: mozilla-actions/sccache-action@v0.0.9
