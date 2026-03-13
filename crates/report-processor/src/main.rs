@@ -326,7 +326,7 @@ fn main() -> Result<()> {
             write_or_overwrite_json(&output_path, &result)?;
 
             if result.count_mismatches() > 0 {
-                std::process::exit(1);
+                bail!("Mismatches detected");
             }
         }
     };
