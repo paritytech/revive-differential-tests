@@ -166,6 +166,9 @@ impl SolidityCompiler for Resolc {
                     optimizer: SolcStandardJsonInputSettingsOptimizer::new(
                         optimize_setting.solc_optimizer_enabled,
                         optimize_setting.level.to_mode_char(),
+                        // Don't disable the optimizer details. `SolcOptimizerDetails::default()` will
+                        // return `None` for each optimizer detail, allowing `solc_optimizer_enabled`
+                        // to be the determining factor for the default values of solc's optimizer details.
                         SolcOptimizerDetails::default(),
                     ),
                     polkavm: this.polkavm_settings(),
