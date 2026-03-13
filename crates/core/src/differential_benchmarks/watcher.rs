@@ -230,11 +230,15 @@ impl Watcher {
                     let mut receipts = HashMap::new();
                     let mut receipts_observed = HashSet::new();
                     while let Some(receipt) = self.receipts_stream.next().await {
+                        let block_number =
+                            receipt.block_number.as_ref().cloned().unwrap_or_default();
+
                         receipts_observed.insert(receipt.transaction_hash);
                         receipts.insert(receipt.transaction_hash, receipt);
 
                         let requested_transactions_len = watch_requests.read().await.len();
                         info!(
+                            receipt.block_number = block_number,
                             receipts.observed = receipts.len(),
                             receipts.requested = requested_transactions_len,
                             receipts.remaining =
@@ -249,7 +253,7 @@ impl Watcher {
                         if *is_submission_completed.read().await
                             && watch_requests.read().await.is_subset(&receipts_observed)
                         {
-                            info!("All transactions observed");
+                            info!("All receipts observed");
                             break;
                         }
                     }

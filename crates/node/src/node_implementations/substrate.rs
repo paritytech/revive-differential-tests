@@ -25,7 +25,7 @@ pub struct SubstrateNode {
     wallet: Arc<EthereumWallet>,
     nonce_manager: CachedNonceManager,
     provider: Arc<OnceCell<ConcreteProvider<Ethereum, Arc<EthereumWallet>>>>,
-    substrate_provider: Arc<OnceCell<OnlineClient<SubstrateConfig>>>,
+    substrate_provider: Arc<OnceCell<OnlineClient<PolkadotConfig>>>,
     consensus: Option<String>,
     use_fallback_gas_filler: bool,
     node_logging_level: String,
@@ -360,7 +360,7 @@ impl NodeApi for SubstrateNode {
     fn substrate_provider(
         &self,
     ) -> Option<
-        revive_dt_common::futures::FrameworkFuture<anyhow::Result<OnlineClient<SubstrateConfig>>>,
+        revive_dt_common::futures::FrameworkFuture<anyhow::Result<OnlineClient<PolkadotConfig>>>,
     > {
         let provider = self.substrate_provider.clone();
         let substrate_rpc_port = Self::BASE_SUBSTRATE_RPC_PORT + self.id as u16;

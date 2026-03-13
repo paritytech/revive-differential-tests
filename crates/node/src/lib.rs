@@ -74,7 +74,7 @@ pub(crate) mod internal_prelude {
     pub use serde_yaml_ng;
     pub use sp_core::crypto::Ss58Codec;
     pub use sp_runtime::AccountId32;
-    pub use subxt::{OnlineClient, SubstrateConfig};
+    pub use subxt::{OnlineClient, PolkadotConfig};
     pub use tokio::sync::{OnceCell, Semaphore};
     pub use tokio::task::AbortHandle;
     pub use tokio::time::{interval, sleep, timeout};

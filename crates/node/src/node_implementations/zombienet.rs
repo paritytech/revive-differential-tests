@@ -63,7 +63,7 @@ pub struct ZombienetNode {
     nonce_manager: CachedNonceManager,
 
     provider: Arc<OnceCell<ConcreteProvider<Ethereum, Arc<EthereumWallet>>>>,
-    substrate_provider: Arc<OnceCell<OnlineClient<SubstrateConfig>>>,
+    substrate_provider: Arc<OnceCell<OnlineClient<PolkadotConfig>>>,
 
     use_fallback_gas_filler: bool,
 
@@ -528,7 +528,7 @@ impl NodeApi for ZombienetNode {
     fn substrate_provider(
         &self,
     ) -> Option<
-        revive_dt_common::futures::FrameworkFuture<anyhow::Result<OnlineClient<SubstrateConfig>>>,
+        revive_dt_common::futures::FrameworkFuture<anyhow::Result<OnlineClient<PolkadotConfig>>>,
     > {
         let provider = self.substrate_provider.clone();
         let connection_string = self.collator_ws_uri.clone().unwrap_or_default();

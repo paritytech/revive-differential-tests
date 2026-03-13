@@ -19,8 +19,9 @@ use alloy::rpc::types::trace::geth::{
 use alloy::rpc::types::{EIP1186AccountProofResponse, TransactionReceipt, TransactionRequest};
 use anyhow::{Context as _, Result};
 
-use futures::future::{Either, join_all};
+use futures::future::Either;
 use futures::{Stream, StreamExt, stream};
+use pallet_revive_eth_rpc::ReceiptExtractor;
 use revive_common::EVMVersion;
 use revive_dt_common::futures::{FrameworkFuture, FrameworkStream};
 
@@ -28,7 +29,7 @@ use revive_dt_common::subscriptions::{
     EthereumMinedBlockInformation, MinedBlockInformation, SubstrateMinedBlockInformation,
 };
 use subxt::utils::H256;
-use subxt::{OnlineClient, SubstrateConfig};
+use subxt::{OnlineClient, PolkadotConfig};
 use tokio::sync::RwLock;
 use tokio::task::AbortHandle;
 use tracing::{debug, error};
@@ -237,7 +238,6 @@ pub trait NodeApi {
 
         let future = if let Some(substrate_provider) = substrate_provider {
             Either::Left(subscribe_to_transaction_receipts_substrate(
-                provider,
                 substrate_provider,
             ))
         } else {
@@ -260,7 +260,7 @@ pub trait NodeApi {
     }
 
     /// The substrate provider used by the node. None if it's not a substrate node.
-    fn substrate_provider(&self) -> Option<FrameworkFuture<Result<OnlineClient<SubstrateConfig>>>> {
+    fn substrate_provider(&self) -> Option<FrameworkFuture<Result<OnlineClient<PolkadotConfig>>>> {
         None
     }
 }
@@ -302,9 +302,10 @@ fn subscribe_to_full_blocks_information_ethereum(
     })
 }
 
+#[allow(clippy::type_complexity)]
 fn subscribe_to_full_blocks_information_substrate(
     provider: FrameworkFuture<Result<DynProvider>>,
-    substrate_provider: FrameworkFuture<Result<OnlineClient<SubstrateConfig>>>,
+    substrate_provider: FrameworkFuture<Result<OnlineClient<PolkadotConfig>>>,
 ) -> FrameworkFuture<Result<FrameworkStream<MinedBlockInformation>>> {
     Box::pin(async move {
         let provider = provider.await.context("Failed to get provider")?;
@@ -513,7 +514,7 @@ fn subscribe_to_transaction_inclusions_ethereum(
 }
 
 fn subscribe_to_transaction_inclusions_substrate(
-    provider: FrameworkFuture<Result<OnlineClient<SubstrateConfig>>>,
+    provider: FrameworkFuture<Result<OnlineClient<PolkadotConfig>>>,
 ) -> FrameworkFuture<Result<FrameworkStream<TxHash>>> {
     Box::pin(async move {
         let stream = provider
@@ -580,48 +581,41 @@ fn subscribe_to_transaction_receipts_ethereum(
 }
 
 fn subscribe_to_transaction_receipts_substrate(
-    provider: FrameworkFuture<Result<DynProvider>>,
-    substrate_provider: FrameworkFuture<Result<OnlineClient<SubstrateConfig>>>,
+    substrate_provider: FrameworkFuture<Result<OnlineClient<PolkadotConfig>>>,
 ) -> FrameworkFuture<Result<FrameworkStream<TransactionReceipt>>> {
     Box::pin(async move {
-        let provider = provider.await.context("Failed to get the provider")?;
         let substrate_provider = substrate_provider
             .await
             .context("Failed to get the substrate provider")?;
 
-        let finalized_blocks_stream = subscribe_to_full_blocks_information_substrate(
-            Box::pin(ready(Ok(provider.clone()))),
-            Box::pin(ready(Ok(substrate_provider.clone()))),
-        )
-        .await
-        .context("Failed to get the finalized blocks stream")?;
+        let receipt_extractor = ReceiptExtractor::new(substrate_provider.clone(), None)
+            .await
+            .context("Failed to create the receipt extractor")
+            .map(Arc::new)?;
 
-        let receipts_stream = finalized_blocks_stream
-            .map(|block| {
-                (
-                    block.ethereum_block_information.block_number,
-                    block.ethereum_block_information.transaction_hashes,
-                )
-            })
-            .then(move |(block_number, transaction_hashes)| {
-                let provider = provider.clone();
+        let receipts_stream = substrate_provider
+            .blocks()
+            .subscribe_finalized()
+            .await
+            .context("Failed to subscribe to finalized blocks")?
+            .filter_map(|block| ready(block.ok()))
+            .then(move |block| {
+                let receipt_extractor = receipt_extractor.clone();
                 async move {
-                    let block_receipts = join_all(transaction_hashes.into_iter().map(|hash| {
-                        let provider = provider.clone();
-                        provider.get_transaction_receipt(hash)
-                    }))
-                    .await
-                    .into_iter()
-                    .collect::<Result<Option<Vec<_>>, _>>();
-                    let Ok(Some(receipts)) = block_receipts else {
+                    let result = receipt_extractor.extract_from_block(&block).await;
+                    let Ok(receipts) = result else {
                         error!(
-                            block_number,
-                            result = ?block_receipts,
+                            block_number = block.number(),
+                            ?result,
                             "Failed to get the block receipts"
                         );
                         return None;
                     };
-                    Some(receipts)
+                    Some(receipts.into_iter().map(|(_, receipt)| {
+                        let serialized = serde_json::to_vec(&receipt).expect("Can't fail");
+                        serde_json::from_slice::<TransactionReceipt>(&serialized)
+                            .expect("Can't fail")
+                    }))
                 }
             })
             .filter_map(ready)

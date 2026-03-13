@@ -24,7 +24,12 @@ revive-dt-solc-binaries = { version = "0.1.0", path = "crates/solc-binaries" }
 revive-dt-proc-macros = { version = "0.1.0", path = "crates/proc-macros" }
 revive-dt-report-processor = { version = "0.1.0", path = "crates/report-processor" }
 
-alloy = { version = "1.4.1", features = ["full", "genesis", "json-rpc", "rand"] }
+alloy = { version = "1.4.1", features = [
+    "full",
+    "genesis",
+    "json-rpc",
+    "rand",
+] }
 ansi_term = "0.12.1"
 base64 = "0.22"
 flate2 = "1.0"
@@ -54,11 +59,11 @@ serde_json = { version = "1.0", default-features = false, features = [
 serde_with = { version = "3.14.0", features = ["hex"] }
 serde_yaml_ng = { version = "0.10.0" }
 sha2 = { version = "0.10.9" }
-sp-core = "36.1.0"
-sp-runtime = "41.1.0"
+sp-core = "38.0.1"
+sp-runtime = "43.0.0"
 strum = { version = "0.27.2", features = ["derive"] }
 syn = { version = "2.0.117", features = ["full"] }
-subxt = { version = "0.44.0" }
+subxt = { version = "0.43.0" }
 temp-dir = { version = "0.1.16" }
 tempfile = "3.3"
 thiserror = "2"
@@ -84,10 +89,11 @@ itertools = { version = "0.14.0" }
 
 # revive compiler
 revive-solc-json-interface = { version = "0.5.0" }
-revive-common = { version = "0.3.0"  }
+revive-common = { version = "0.3.0" }
 revive-differential = { version = "0.3.0" }
 
 zombienet-sdk = { git = "https://github.com/paritytech/zombienet-sdk.git", rev = "891f6554354ce466abd496366dbf8b4f82141241" }
+pallet-revive-eth-rpc = { version = "0.13.0" }
 
 [profile.bench]
 inherits = "release"
