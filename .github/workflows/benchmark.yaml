@@ -363,6 +363,7 @@ jobs:
             --log-format json \
             --test "${{ matrix.test }}" \
             --platform ${{ matrix.platform }} \
+            --eth-rpc.logging-level "trace" \
             --working-directory ./workdir \
             --concurrency.number-of-nodes 1 \
             --concurrency.number-of-threads 12 \
