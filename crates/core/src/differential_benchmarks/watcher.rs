@@ -101,6 +101,18 @@ impl Watcher {
             // which are observed in blocks are accidental or non canonical.
             let watch_requests = Arc::new(RwLock::new(HashSet::<TxHash>::new()));
 
+            // This is a shared value which defines the block at which the block watcher task should
+            // stop irrespective of whether it has seen all of the transactions or not. Sadly, this
+            // is a concept that we're forced to add and not a concept that we want to add. We have
+            // observed that there are certain cases where there's a mismatch between the number of
+            // transactions in a substrate block and the number of transactions in an ethereum block
+            // where the number in the ethereum block can sometimes be smaller leading the block
+            // watching task to keep running indefinitely and to no end since not all of the txs
+            // were observed. This value is set by the receipt watching task when it finishes its
+            // execution and it communicates the absolute deadline for the block watcher when it
+            // must stop.
+            let stop_at_block_number = Arc::new(RwLock::new(None::<u64>));
+
             // The registration task, which performs what's been described in the doc-comment of this
             // method.
             let registration_task = {
@@ -150,74 +162,81 @@ impl Watcher {
             // This is the block subscription task which is the main watcher task watching for all of
             // the observed transactions and keeping track of them. It's implemented as described in the
             // doc comment of the function.
-            let block_subscription_task = {
-                let is_submission_completed = is_submission_completed.clone();
-                let watch_requests = watch_requests.clone();
-                async move {
-                    let mut observed_transaction_hashes = HashSet::new();
-                    let mut observed_blocks = vec![];
-                    while let Some(block_information) = self.blocks_stream.next().await {
-                        // Keep skipping block as long as their block number is below the block number
-                        // we were tasked to start at.
-                        if block_information.ethereum_block_information.block_number
-                            < ignore_blocks_before_block_number
-                        {
-                            info!(
-                                block_number =
-                                    block_information.ethereum_block_information.block_number,
-                                ignore_blocks_before_block_number,
-                                "Observed a block, but it's being ignored"
+            let block_subscription_task =
+                {
+                    let is_submission_completed = is_submission_completed.clone();
+                    let watch_requests = watch_requests.clone();
+                    let stop_at_block_number = stop_at_block_number.clone();
+                    async move {
+                        let mut observed_transaction_hashes = HashSet::new();
+                        let mut observed_blocks = vec![];
+                        while let Some(block_information) = self.blocks_stream.next().await {
+                            let block_number =
+                                block_information.ethereum_block_information.block_number;
+
+                            // Keep skipping block as long as their block number is below the block number
+                            // we were tasked to start at.
+                            if block_number < ignore_blocks_before_block_number {
+                                info!(
+                                    block_number =
+                                        block_information.ethereum_block_information.block_number,
+                                    ignore_blocks_before_block_number,
+                                    "Observed a block, but it's being ignored"
+                                );
+                                continue;
+                            }
+
+                            // Add the transaction hashes from this block to the set of transaction hashes
+                            // we've observed and also add it's information to the map we store where we
+                            // keep track of the transaction and which block contained it.
+                            observed_transaction_hashes.extend(
+                                block_information
+                                    .ethereum_block_information
+                                    .transaction_hashes
+                                    .clone(),
                             );
-                            continue;
-                        }
 
-                        // Add the transaction hashes from this block to the set of transaction hashes
-                        // we've observed and also add it's information to the map we store where we
-                        // keep track of the transaction and which block contained it.
-                        observed_transaction_hashes.extend(
-                            block_information
-                                .ethereum_block_information
-                                .transaction_hashes
-                                .clone(),
-                        );
+                            // Logging information about this newly observed block and adding it to the set
+                            // of block we will return at the end.
+                            let requested_transactions_len = watch_requests.read().await.len();
+                            info!(
+                                block.number =
+                                    block_information.ethereum_block_information.block_number,
+                                block.timestamp =
+                                    block_information.ethereum_block_information.block_timestamp,
+                                block.tx_hashes_len = block_information
+                                    .ethereum_block_information
+                                    .transaction_hashes
+                                    .len(),
+                                transactions.observed = observed_transaction_hashes.len(),
+                                transactions.requested = requested_transactions_len,
+                                transactions.remaining = requested_transactions_len
+                                    .saturating_sub(observed_transaction_hashes.len()),
+                                "Observed a new block"
+                            );
+                            observed_blocks.push(block_information);
 
-                        // Logging information about this newly observed block and adding it to the set
-                        // of block we will return at the end.
-                        let requested_transactions_len = watch_requests.read().await.len();
-                        info!(
-                            block.number =
-                                block_information.ethereum_block_information.block_number,
-                            block.timestamp =
-                                block_information.ethereum_block_information.block_timestamp,
-                            block.tx_hashes_len = block_information
-                                .ethereum_block_information
-                                .transaction_hashes
-                                .len(),
-                            transactions.observed = observed_transaction_hashes.len(),
-                            transactions.requested = requested_transactions_len,
-                            transactions.remaining = requested_transactions_len
-                                .saturating_sub(observed_transaction_hashes.len()),
-                            "Observed a new block"
-                        );
-                        observed_blocks.push(block_information);
-
-                        // This is the primary condition which determines if we should break out of the
-                        // loop or not. If all of the transactions have been submitted and there's no
-                        // difference between the transactions the user requested us to watch and the
-                        // ones we've seen then we break out of the loop and stop.
-                        if *is_submission_completed.read().await
-                            && watch_requests
+                            // This is the primary condition which determines if we should break out of the
+                            // loop or not. If all of the transactions have been submitted and there's no
+                            // difference between the transactions the user requested us to watch and the
+                            // ones we've seen then we break out of the loop and stop.
+                            let all_blocks_observed = watch_requests
                                 .read()
                                 .await
-                                .is_subset(&observed_transaction_hashes)
-                        {
-                            info!("All transactions observed");
-                            break;
+                                .is_subset(&observed_transaction_hashes);
+                            let block_end_reached = stop_at_block_number.read().await.is_some_and(
+                                |stop_at_block_number| block_number >= stop_at_block_number,
+                            );
+                            if *is_submission_completed.read().await
+                                && (all_blocks_observed || block_end_reached)
+                            {
+                                info!("All transactions observed");
+                                break;
+                            }
                         }
+                        observed_blocks
                     }
-                    observed_blocks
-                }
-            };
+                };
 
             // This is the receipt watching task which consumes the receipts stream and collects all
             // of the transaction receipts as they arrive from the finalized blocks. It completes
@@ -226,12 +245,16 @@ impl Watcher {
             let transaction_receipt_watching_task = {
                 let is_submission_completed = is_submission_completed.clone();
                 let watch_requests = watch_requests.clone();
+                let stop_at_block_number = stop_at_block_number.clone();
                 async move {
                     let mut receipts = HashMap::new();
                     let mut receipts_observed = HashSet::new();
                     while let Some(receipt) = self.receipts_stream.next().await {
-                        let block_number =
-                            receipt.block_number.as_ref().cloned().unwrap_or_default();
+                        let block_number = receipt
+                            .block_number
+                            .as_ref()
+                            .cloned()
+                            .expect("Receipt must have a block number");
 
                         receipts_observed.insert(receipt.transaction_hash);
                         receipts.insert(receipt.transaction_hash, receipt);
@@ -254,6 +277,7 @@ impl Watcher {
                             && watch_requests.read().await.is_subset(&receipts_observed)
                         {
                             info!("All receipts observed");
+                            *stop_at_block_number.write().await = Some(block_number);
                             break;
                         }
                     }
