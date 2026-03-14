@@ -2,7 +2,13 @@ use crate::internal_prelude::*;
 
 use crate::differential_benchmarks::ExecutionState;
 
-static DRIVER_COUNT: AtomicUsize = AtomicUsize::new(0);
+fn next_driver_id() -> usize {
+    static DRIVER_COUNT: StdMutex<usize> = StdMutex::new(0);
+    let mut guard = DRIVER_COUNT.lock().expect("poisoned");
+    let count = *guard;
+    *guard += 1;
+    count
+}
 
 /// The differential tests driver for a single platform.
 pub struct Driver<'a, I> {
@@ -43,25 +49,9 @@ pub struct Driver<'a, I> {
     /// proceeding forward.
     await_transaction_receipts: bool,
 
-    /// This field contains the fee history information. It's updated every 200ms while all of the
-    /// transactions are being submitted.
-    fee_history_information: Arc<RwLock<FeeHistory>>,
-
-    /// This field contains an optional handle to abort an async task. This stores the task which
-    /// is used to update the fee history information.
-    fee_history_update_task: Option<AbortHandle>,
-
     /// This is the queue of steps that are to be executed by the driver for this test case. Each
     /// time `execute_step` is called one of the steps is executed.
     steps_iterator: I,
-}
-
-impl<'a, I> Drop for Driver<'a, I> {
-    fn drop(&mut self) {
-        if let Some(ref abort_handle) = self.fee_history_update_task {
-            abort_handle.abort();
-        }
-    }
 }
 
 impl<'a, I> Driver<'a, I>
@@ -80,36 +70,8 @@ where
         inclusion_watcher: &'a InclusionWatcher,
         steps: I,
     ) -> Result<Self> {
-        let provider = platform_information
-            .node
-            .provider()
-            .await
-            .context("Failed to get provider")?;
-        let fee_history = provider
-            .get_fee_history(10, alloy::eips::BlockNumberOrTag::Latest, &[20.0])
-            .await
-            .context("Failed to get the initial fee history")
-            .map(RwLock::new)
-            .map(Arc::new)?;
-        let fee_history_task = tokio::spawn({
-            let fee_history = fee_history.clone();
-            async move {
-                let mut interval = interval(Duration::from_millis(500));
-                loop {
-                    interval.tick().await;
-                    let Ok(new_fee_history) = provider
-                        .get_fee_history(10, alloy::eips::BlockNumberOrTag::Latest, &[20.0])
-                        .await
-                    else {
-                        warn!("Failed to get fee history");
-                        continue;
-                    };
-                    *fee_history.write().await = new_fee_history
-                }
-            }
-        });
         let mut this = Driver {
-            driver_id: DRIVER_COUNT.fetch_add(1, Ordering::SeqCst),
+            driver_id: next_driver_id(),
             platform_information,
             test_definition,
             private_key_allocator,
@@ -121,8 +83,6 @@ where
             await_transaction_receipts: true,
             watcher_tx,
             gas_limits: Arc::new(Default::default()),
-            fee_history_information: fee_history,
-            fee_history_update_task: Some(fee_history_task.abort_handle()),
         };
         this.init_execution_state(cached_compiler)
             .await
@@ -595,7 +555,7 @@ where
             async move {
                 let mut tasks = (0..step.repeat)
                     .map(|i| Driver {
-                        driver_id: DRIVER_COUNT.fetch_add(1, Ordering::SeqCst),
+                        driver_id: next_driver_id(),
                         platform_information: self.platform_information,
                         test_definition: self.test_definition,
                         private_key_allocator: self.private_key_allocator.clone(),
@@ -620,8 +580,6 @@ where
                         inclusion_watcher: self.inclusion_watcher,
                         watcher_tx: self.watcher_tx.clone(),
                         gas_limits: self.gas_limits.clone(),
-                        fee_history_information: self.fee_history_information.clone(),
-                        fee_history_update_task: None,
                     })
                     .map(|driver| driver.execute_all());
 
@@ -924,50 +882,6 @@ where
                 }
             };
             transaction.set_gas_limit(gas_limit * 120 / 100);
-        }
-
-        // If gas limit caching is enabled, also fill in EIP-1559 fee fields from
-        // the cached fee history to avoid per-transaction eth_feeHistory calls.
-        if self.platform_information.platform.allow_caching_gas_limit()
-            && transaction.max_fee_per_gas.is_none()
-        {
-            let fee_history = self.fee_history_information.read().await;
-
-            let base_fee = fee_history.latest_block_base_fee().unwrap_or_default();
-
-            // Median of non-zero 20th-percentile rewards, matching alloy's
-            // `eip1559_default_estimator` / `estimate_priority_fee`.
-            let max_priority_fee_per_gas = {
-                let mut rewards: Vec<u128> = fee_history
-                    .reward
-                    .as_deref()
-                    .unwrap_or_default()
-                    .iter()
-                    .filter_map(|r| r.first().copied())
-                    .filter(|r| *r > 0)
-                    .collect();
-
-                if rewards.is_empty() {
-                    1u128
-                } else {
-                    rewards.sort_unstable();
-                    let n = rewards.len();
-                    let median = if n.is_multiple_of(2) {
-                        (rewards[n / 2 - 1] + rewards[n / 2]) / 2
-                    } else {
-                        rewards[n / 2]
-                    };
-                    median.max(1)
-                }
-            };
-
-            // base_fee * 2 + priority_fee, matching alloy's EIP1559_BASE_FEE_MULTIPLIER
-            let max_fee_per_gas = base_fee
-                .saturating_mul(2)
-                .saturating_add(max_priority_fee_per_gas);
-
-            transaction.set_max_fee_per_gas(max_fee_per_gas);
-            transaction.set_max_priority_fee_per_gas(max_priority_fee_per_gas);
         }
 
         let transaction_hash = self

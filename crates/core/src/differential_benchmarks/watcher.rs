@@ -256,6 +256,17 @@ impl Watcher {
                             .cloned()
                             .expect("Receipt must have a block number");
 
+                        // Keep skipping receipts as long as their block number is below the block
+                        // number we were tasked to start at.
+                        if block_number < ignore_blocks_before_block_number {
+                            info!(
+                                block_number,
+                                ignore_blocks_before_block_number,
+                                "Observed a receipt, but it's being ignored"
+                            );
+                            continue;
+                        }
+
                         receipts_observed.insert(receipt.transaction_hash);
                         receipts.insert(receipt.transaction_hash, receipt);
 

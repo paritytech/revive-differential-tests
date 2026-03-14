@@ -600,7 +600,7 @@ fn subscribe_to_transaction_receipts_substrate(
             .await
             .context("Failed to subscribe to finalized blocks")?
             .filter_map(|block| ready(block.ok()))
-            .then(move |block| {
+            .map(move |block| {
                 let receipt_extractor = receipt_extractor.clone();
                 async move {
                     let result = receipt_extractor.extract_from_block(&block).await;
@@ -619,6 +619,7 @@ fn subscribe_to_transaction_receipts_substrate(
                     }))
                 }
             })
+            .buffered(200)
             .filter_map(ready)
             .flat_map(stream::iter);
 

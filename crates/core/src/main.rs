@@ -20,7 +20,7 @@ mod internal_prelude {
     pub use std::path::{Path, PathBuf};
     pub use std::pin::Pin;
     pub use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-    pub use std::sync::{Arc, LazyLock};
+    pub use std::sync::{Arc, LazyLock, Mutex as StdMutex};
     pub use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
     pub use alloy::consensus::EMPTY_ROOT_HASH;
@@ -29,7 +29,6 @@ mod internal_prelude {
     pub use alloy::network::{Ethereum, TransactionBuilder};
     pub use alloy::primitives::{Address, BlockNumber, TxHash, U256, address};
     pub use alloy::providers::{PendingTransactionBuilder, Provider};
-    pub use alloy::rpc::types::FeeHistory;
     pub use alloy::rpc::types::trace::geth::{
         CallFrame, GethDebugBuiltInTracerType, GethDebugTracerConfig, GethDebugTracerType,
         GethDebugTracingOptions,
@@ -52,7 +51,6 @@ mod internal_prelude {
     pub use tokio::sync::broadcast;
     pub use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
     pub use tokio::sync::{Mutex, Notify, OnceCell, RwLock, Semaphore};
-    pub use tokio::task::AbortHandle;
     pub use tokio::time::{interval, timeout};
     pub use tracing::level_filters::LevelFilter;
     pub use tracing::{
