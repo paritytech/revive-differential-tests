@@ -372,7 +372,7 @@ fn subscribe_to_full_blocks_information_substrate(
             .await
             .context("Failed to subscribe to the finalized blocks")?
             .filter_map(|block| futures::future::ready(block.ok()))
-            .then(move |substrate_block| {
+            .map(move |substrate_block| {
                 let provider = provider.clone();
                 let substrate_provider = substrate_provider.clone();
                 let observed_best_blocks = observed_any_blocks.clone();
@@ -462,7 +462,8 @@ fn subscribe_to_full_blocks_information_substrate(
                         observation_time,
                     }
                 }
-            });
+            })
+            .buffered(200);
 
         Ok(Box::pin(SubstrateSubscriptionStream {
             stream: Box::pin(stream),
