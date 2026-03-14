@@ -29,7 +29,7 @@ env:
   RUNTIMES_VERSION: ${{ inputs.runtimes_version || '220928aa6e87b11cf2b40a6ad893bdbd6efd87d6' }}
   ADDITIONAL_KEYS: ${{ inputs.additional_keys || '200010' }}
   RESOLC_VERSION: ${{ inputs.resolc_version || 'v0.6.0' }}
-  SOLC_VERSION: ${{ inputs.solc_version || 'v0.8.28' }}
+  SOLC_VERSION: ${{ inputs.solc_version || 'v0.8.30' }}
 
 permissions:
   contents: write
