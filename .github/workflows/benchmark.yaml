@@ -370,7 +370,6 @@ jobs:
             --concurrency.number-of-nodes 1 \
             --concurrency.number-of-threads 12 \
             --concurrency.number-of-concurrent-tasks 1000 \
-            --resolc.heap-size 500000 \
             --zombienet.config-path ./assets/polkadot-assethub-zombienet.toml \
             --wallet.additional-keys ${{ env.ADDITIONAL_KEYS }} \
             --report.file-name report.json \
