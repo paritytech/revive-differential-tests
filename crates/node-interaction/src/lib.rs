@@ -33,7 +33,8 @@ use subxt::utils::H256;
 use subxt::{OnlineClient, PolkadotConfig};
 use tokio::sync::RwLock;
 use tokio::task::AbortHandle;
-use tracing::{debug, error};
+use tokio::time::interval;
+use tracing::{debug, error, warn};
 
 #[subxt::subxt(runtime_metadata_path = "../../assets/revive_metadata.scale")]
 pub mod revive_metadata {}
@@ -425,12 +426,23 @@ fn subscribe_to_full_blocks_information_substrate(
                     };
 
                     // Constructing the block information.
-                    let used = substrate_provider
-                        .storage()
-                        .at(substrate_block.reference())
-                        .fetch_or_default(&revive_metadata::storage().system().block_weight())
-                        .await
-                        .expect("TODO: Remove");
+                    let used = {
+                        let mut interval = interval(Duration::from_secs(1));
+                        loop {
+                            interval.tick().await;
+
+                            let result = substrate_provider
+                            .storage()
+                            .at(substrate_block.reference())
+                            .fetch_or_default(&revive_metadata::storage().system().block_weight())
+                            .await
+                            .inspect_err(|err| warn!(?err, "Failed to get the substrate block weights"));
+
+                            if let Ok(result) = result {
+                                break result;
+                            }
+                        }
+                    };
 
                     let block_ref_time = (used.normal.ref_time as u128)
                         + (used.operational.ref_time as u128)
