@@ -29,7 +29,11 @@ pub struct RetryLayer {
 }
 
 impl RetryLayer {
-    pub fn new(polling_duration: Duration, initial_backoff: Duration, max_backoff: Duration) -> Self {
+    pub fn new(
+        polling_duration: Duration,
+        initial_backoff: Duration,
+        max_backoff: Duration,
+    ) -> Self {
         Self {
             polling_duration,
             initial_backoff,

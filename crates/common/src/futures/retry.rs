@@ -35,12 +35,7 @@ where
                 return Ok(value);
             }
             ControlFlow::Continue(error) if attempt == max_retries => {
-                warn!(
-                    attempt,
-                    max_retries,
-                    ?error,
-                    "All retry attempts exhausted"
-                );
+                warn!(attempt, max_retries, ?error, "All retry attempts exhausted");
                 return Err(error);
             }
             ControlFlow::Continue(error) => {

@@ -399,11 +399,7 @@ where
     }
 
     #[instrument(level = "info", skip_all)]
-    pub async fn execute_transfer(
-        &mut self,
-        _: &StepPath,
-        step: &TransferStep,
-    ) -> Result<usize> {
+    pub async fn execute_transfer(&mut self, _: &StepPath, step: &TransferStep) -> Result<usize> {
         let context = self.default_resolution_context();
         let from = step
             .from

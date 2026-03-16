@@ -367,6 +367,17 @@ fn subscribe_to_full_blocks_information_substrate(
 
         // This is the main stream we return to the users. It's a stream over the finalized blocks
         // we observe from the subscription to the substrate rpc.
+        let limits = substrate_provider
+            .constants()
+            .at(&revive_metadata::constants().system().block_weights())
+            .expect("TODO: Remove")
+            .per_class
+            .normal
+            .max_extrinsic
+            .expect("TODO: Remove");
+
+        let max_ref_time = limits.ref_time;
+        let max_proof_size = limits.proof_size;
         let stream = substrate_provider
             .blocks()
             .subscribe_finalized()
@@ -428,18 +439,6 @@ fn subscribe_to_full_blocks_information_substrate(
                         + (used.operational.proof_size as u128)
                         + (used.mandatory.proof_size as u128);
 
-                    let limits = substrate_provider
-                        .constants()
-                        .at(&revive_metadata::constants().system().block_weights())
-                        .expect("TODO: Remove")
-                        .per_class
-                        .normal
-                        .max_extrinsic
-                        .expect("TODO: Remove");
-
-                    let max_ref_time = limits.ref_time;
-                    let max_proof_size = limits.proof_size;
-
                     MinedBlockInformation {
                         ethereum_block_information: EthereumMinedBlockInformation {
                             block_number: revive_block.number(),
@@ -464,7 +463,7 @@ fn subscribe_to_full_blocks_information_substrate(
                     }
                 }
             })
-            .buffered(50);
+            .buffered(10);
 
         Ok(Box::pin(SubstrateSubscriptionStream {
             stream: Box::pin(stream),
@@ -624,7 +623,7 @@ fn subscribe_to_transaction_receipts_substrate(
                     }))
                 }
             })
-            .buffered(50)
+            .buffered(10)
             .filter_map(ready)
             .flat_map(stream::iter);
 
