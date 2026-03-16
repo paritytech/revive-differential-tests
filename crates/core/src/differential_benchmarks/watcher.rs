@@ -115,7 +115,7 @@ impl Watcher {
 
             // The registration task, which performs what's been described in the doc-comment of this
             // method.
-            let registration_task = {
+            let registration_task = tokio::spawn({
                 let is_submission_completed = is_submission_completed.clone();
                 let watch_requests = watch_requests.clone();
                 async move {
@@ -157,13 +157,13 @@ impl Watcher {
                     }
                     transaction_information
                 }
-            };
+            });
 
             // This is the block subscription task which is the main watcher task watching for all of
             // the observed transactions and keeping track of them. It's implemented as described in the
             // doc comment of the function.
             let block_subscription_task =
-                {
+                tokio::spawn({
                     let is_submission_completed = is_submission_completed.clone();
                     let watch_requests = watch_requests.clone();
                     let stop_at_block_number = stop_at_block_number.clone();
@@ -236,13 +236,13 @@ impl Watcher {
                         }
                         observed_blocks
                     }
-                };
+                });
 
             // This is the receipt watching task which consumes the receipts stream and collects all
             // of the transaction receipts as they arrive from the finalized blocks. It completes
             // once all of the requested transaction hashes have had their receipts observed as
             // described in the doc comment of this method.
-            let transaction_receipt_watching_task = {
+            let transaction_receipt_watching_task = tokio::spawn({
                 let is_submission_completed = is_submission_completed.clone();
                 let watch_requests = watch_requests.clone();
                 let stop_at_block_number = stop_at_block_number.clone();
@@ -294,15 +294,16 @@ impl Watcher {
                     }
                     receipts
                 }
-            };
+            });
 
             // Execute both of the tasks concurrently until they both complete.
-            let (transaction_registration_information, observed_blocks, observed_receipts) = join3(
-                registration_task,
-                block_subscription_task,
-                transaction_receipt_watching_task,
-            )
-            .await;
+            let (transaction_registration_information, observed_blocks, observed_receipts) =
+                try_join3(
+                    registration_task,
+                    block_subscription_task,
+                    transaction_receipt_watching_task,
+                )
+                .await?;
 
             if let failing_receipts = observed_receipts
                 .into_values()

@@ -7,6 +7,7 @@ pub mod prelude {
 
 use std::collections::HashMap;
 use std::future::ready;
+use std::ops::ControlFlow;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -23,7 +24,7 @@ use futures::future::Either;
 use futures::{Stream, StreamExt, stream};
 use pallet_revive_eth_rpc::ReceiptExtractor;
 use revive_common::EVMVersion;
-use revive_dt_common::futures::{FrameworkFuture, FrameworkStream};
+use revive_dt_common::futures::{FrameworkFuture, FrameworkStream, retry_with_exponential_backoff};
 
 use revive_dt_common::subscriptions::{
     EthereumMinedBlockInformation, MinedBlockInformation, SubstrateMinedBlockInformation,
@@ -603,15 +604,19 @@ fn subscribe_to_transaction_receipts_substrate(
             .map(move |block| {
                 let receipt_extractor = receipt_extractor.clone();
                 async move {
-                    let result = receipt_extractor.extract_from_block(&block).await;
-                    let Ok(receipts) = result else {
-                        error!(
-                            block_number = block.number(),
-                            ?result,
-                            "Failed to get the block receipts"
-                        );
-                        return None;
-                    };
+                    let block_number = block.number();
+                    let receipts =
+                        retry_with_exponential_backoff(10, Duration::from_millis(500), || async {
+                            match receipt_extractor.extract_from_block(&block).await {
+                                Ok(receipts) => ControlFlow::Break(receipts),
+                                Err(error) => ControlFlow::Continue(error),
+                            }
+                        })
+                        .await
+                        .with_context(|| {
+                            format!("Failed to get the receipts for block: {block_number}")
+                        })
+                        .expect("Failed to get the receipts for the block");
                     Some(receipts.into_iter().map(|(_, receipt)| {
                         let serialized = serde_json::to_vec(&receipt).expect("Can't fail");
                         serde_json::from_slice::<TransactionReceipt>(&serialized)
