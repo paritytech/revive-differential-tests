@@ -463,7 +463,7 @@ fn subscribe_to_full_blocks_information_substrate(
                     }
                 }
             })
-            .buffered(200);
+            .buffered(50);
 
         Ok(Box::pin(SubstrateSubscriptionStream {
             stream: Box::pin(stream),
@@ -619,7 +619,7 @@ fn subscribe_to_transaction_receipts_substrate(
                     }))
                 }
             })
-            .buffered(200)
+            .buffered(50)
             .filter_map(ready)
             .flat_map(stream::iter);
 
