@@ -49,7 +49,7 @@ pub(crate) mod internal_prelude {
         SolcStandardJsonInputSettingsOptimizer, SolcStandardJsonInputSettingsPolkaVM,
         SolcStandardJsonInputSettingsPolkaVMMemory, SolcStandardJsonInputSettingsSelection,
         SolcStandardJsonOutput,
-        standard_json::input::settings::optimizer::details::Details as ResolcOptimizerDetails,
+        standard_json::input::settings::optimizer::details::Details as SolcOptimizerDetails,
     };
     pub use semver::Version;
     pub use serde::{Deserialize, Serialize};
