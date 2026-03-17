@@ -8,13 +8,16 @@ use revive_dt_config::Context;
 use revive_dt_report::{CompilationStatus, CompiledContractInformation, Report};
 use serde::{Deserialize, Serialize};
 
+/// The bytecode hashes at a single mode, keyed by normalized source path and contract name.
+pub type ModeHashData = BTreeMap<String, BTreeMap<String, String>>;
+
 /// Hash data and the format used for export.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct HashData {
     /// The platform to be associated with the hashes (e.g. "linux" or "macos").
     pub platform: String,
-    /// The bytecode hashes keyed by the [`Mode`] display string, normalized source path, and contract name.
-    pub hashes: BTreeMap<String, BTreeMap<String, BTreeMap<String, String>>>,
+    /// The hash data keyed by the [`Mode`] display string.
+    pub hashes: BTreeMap<String, ModeHashData>,
 }
 
 impl HashData {
@@ -44,7 +47,7 @@ pub fn extract_hashes(
     contracts_base_dir: &Path,
     platform_label: &str,
 ) -> Result<HashData> {
-    let mut hashes: BTreeMap<String, BTreeMap<String, BTreeMap<String, String>>> = BTreeMap::new();
+    let mut hashes: BTreeMap<String, ModeHashData> = BTreeMap::new();
 
     match &report.context {
         Context::Compile(_) => {
@@ -101,7 +104,7 @@ pub fn extract_hashes(
 
 /// Populates `hashes` with hashes found in `compiled_contracts_info`.
 fn populate_hashes(
-    hashes: &mut BTreeMap<String, BTreeMap<String, BTreeMap<String, String>>>,
+    hashes: &mut BTreeMap<String, ModeHashData>,
     mode_string: String,
     compiled_contracts_info: &HashMap<PathBuf, HashMap<String, CompiledContractInformation>>,
     contracts_base_dir: &Path,
