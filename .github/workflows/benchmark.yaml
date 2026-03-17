@@ -385,6 +385,7 @@ jobs:
   # ── Merge reports and publish to GitHub Pages ────────────────────────
   publish:
     name: Publish Report
+    if: always()
     needs: benchmark
     runs-on: parity-large
     permissions:

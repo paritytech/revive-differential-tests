@@ -325,7 +325,7 @@ fn subscribe_to_full_blocks_information_substrate(
             let observed_any_blocks = observed_any_blocks.clone();
             let substrate_provider = substrate_provider.clone();
             async move {
-                let stream = match substrate_provider.blocks().subscribe_all().await {
+                let stream = match substrate_provider.blocks().subscribe_best().await {
                     Ok(stream) => stream,
                     Err(err) => {
                         error!(?err, "Failed to subscribe to the any blocks, stopped");
