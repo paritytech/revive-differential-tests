@@ -333,22 +333,21 @@ fn subscribe_to_full_blocks_information_substrate(
                     }
                 };
                 stream
-                    .filter_map(|block| {
-                        futures::future::ready(match block {
-                            Ok(block) => Some(block),
+                    .for_each_concurrent(None, |block| {
+                        let block = match block {
+                            Ok(block) => block,
                             Err(err) => {
                                 error!(
                                     ?err,
                                     "Failed to get one of the blocks from the subscription"
                                 );
-                                None
+                                return Either::Left(ready(()));
                             }
-                        })
-                    })
-                    .for_each(|block| {
+                        };
+
                         let observed_any_blocks = observed_any_blocks.clone();
-                        async move {
-                            let observation_time = SystemTime::now();
+                        let observation_time = SystemTime::now();
+                        Either::Right(async move {
                             debug!(
                                 block.number = block.number(),
                                 block.hash = ?block.hash(),
@@ -360,7 +359,7 @@ fn subscribe_to_full_blocks_information_substrate(
                                 .await;
                             let entry = write_guard.entry(block.hash()).or_insert(observation_time);
                             *entry = (*entry).min(observation_time)
-                        }
+                        })
                     })
                     .await;
             }
