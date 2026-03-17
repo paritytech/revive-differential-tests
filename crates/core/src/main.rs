@@ -3,6 +3,7 @@ mod differential_benchmarks;
 mod differential_tests;
 mod helpers;
 
+#[allow(unused_imports)]
 mod internal_prelude {
     pub use revive_dt_common::prelude::*;
     pub use revive_dt_compiler::prelude::*;
@@ -57,6 +58,7 @@ mod internal_prelude {
         Instrument, Span, debug, debug_span, error, field::display, info, info_span, instrument,
         warn,
     };
+    pub use tracing_appender::non_blocking::WorkerGuard;
     pub use tracing_subscriber::EnvFilter;
 
     pub use crate::compilations::handle_compilations;
@@ -73,13 +75,15 @@ mod internal_prelude {
 
 use crate::internal_prelude::*;
 
-fn main() -> anyhow::Result<()> {
-    let mut context = Context::try_parse()?;
-    context.update_for_profile();
+#[cfg(feature = "tokio-debug")]
+fn setup_tracing(_: &LogConfiguration) -> Result<()> {
+    console_subscriber::init();
+    Ok(())
+}
 
-    let log_config: &LogConfiguration = context.as_ref();
-
-    let (writer, _guard) = tracing_appender::non_blocking::NonBlockingBuilder::default()
+#[cfg(not(feature = "tokio-debug"))]
+fn setup_tracing(log_config: &LogConfiguration) -> Result<WorkerGuard> {
+    let (writer, guard) = tracing_appender::non_blocking::NonBlockingBuilder::default()
         .lossy(false)
         // Assuming that each line contains 255 characters and that each character is one byte, then
         // this means that our buffer is about 4GBs large.
@@ -116,10 +120,17 @@ fn main() -> anyhow::Result<()> {
         .with(fmt_layer)
         .with(env_filter);
 
-    #[cfg(feature = "tokio-debug")]
-    let registry = registry.with(console_subscriber::spawn());
-
     tracing::subscriber::set_global_default(registry)?;
+
+    Ok(guard)
+}
+
+fn main() -> anyhow::Result<()> {
+    let mut context = Context::try_parse()?;
+    context.update_for_profile();
+
+    let _guard = setup_tracing(context.as_log_configuration())?;
+
     info!("Differential testing tool is starting");
 
     let (reporter, report_aggregator_task) = ReportAggregator::new(context.clone()).into_task();
