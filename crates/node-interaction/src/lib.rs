@@ -331,13 +331,11 @@ fn subscribe_to_full_blocks_information_substrate(
             .map(move |substrate_block| {
                 let provider = provider.clone();
                 let substrate_provider = substrate_provider.clone();
-                let observation_time = SystemTime::now();
 
                 async move {
                     debug!(
                         block.number = substrate_block.number(),
                         block.hash = ?substrate_block.hash(),
-                        block.observation_time = observation_time.duration_since(UNIX_EPOCH).unwrap().as_secs(),
                         "Observed a new finalized block"
                     );
 
@@ -358,6 +356,7 @@ fn subscribe_to_full_blocks_information_substrate(
                             }
                         }
                     };
+                    let observation_time = SystemTime::now();
 
                     // Constructing the block information.
                     let used = {
@@ -366,11 +365,15 @@ fn subscribe_to_full_blocks_information_substrate(
                             interval.tick().await;
 
                             let result = substrate_provider
-                            .storage()
-                            .at(substrate_block.reference())
-                            .fetch_or_default(&revive_metadata::storage().system().block_weight())
-                            .await
-                            .inspect_err(|err| warn!(?err, "Failed to get the substrate block weights"));
+                                .storage()
+                                .at(substrate_block.reference())
+                                .fetch_or_default(
+                                    &revive_metadata::storage().system().block_weight(),
+                                )
+                                .await
+                                .inspect_err(|err| {
+                                    warn!(?err, "Failed to get the substrate block weights")
+                                });
 
                             if let Ok(result) = result {
                                 break result;
