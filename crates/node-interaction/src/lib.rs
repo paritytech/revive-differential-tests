@@ -5,6 +5,7 @@ pub mod prelude {
     pub use crate::revive_metadata;
 }
 
+use std::collections::HashMap;
 use std::future::ready;
 use std::ops::ControlFlow;
 use std::sync::Arc;
@@ -20,7 +21,7 @@ use alloy::rpc::types::{EIP1186AccountProofResponse, TransactionReceipt, Transac
 use anyhow::{Context as _, Result};
 
 use futures::future::Either;
-use futures::{StreamExt, stream};
+use futures::{Stream, StreamExt, stream};
 use pallet_revive_eth_rpc::ReceiptExtractor;
 use revive_common::EVMVersion;
 use revive_dt_common::futures::{FrameworkFuture, FrameworkStream, retry_with_exponential_backoff};
@@ -28,7 +29,10 @@ use revive_dt_common::futures::{FrameworkFuture, FrameworkStream, retry_with_exp
 use revive_dt_common::subscriptions::{
     EthereumMinedBlockInformation, MinedBlockInformation, SubstrateMinedBlockInformation,
 };
+use subxt::utils::H256;
 use subxt::{OnlineClient, PolkadotConfig};
+use tokio::sync::RwLock;
+use tokio::task::AbortHandle;
 use tokio::time::interval;
 use tracing::{debug, error, warn};
 
@@ -309,6 +313,58 @@ fn subscribe_to_full_blocks_information_substrate(
         let provider = provider.await.context("Failed to get provider")?;
         let substrate_provider = substrate_provider.await.context("Failed to get provider")?;
 
+        // This is a map of the hash of the any substrate blocks to the time at which they were
+        // observed. We use this as the canonical way of getting the "observation time" of blocks
+        // on the chain. If we encounter a finalized block which doesn't have an associated time of
+        // observation then we take the current time as the observation time.
+        let observed_any_blocks = Arc::new(RwLock::new(HashMap::<H256, SystemTime>::new()));
+
+        // This task's main objective is to subscribe to the any blocks and to process them as fast
+        // as it can adding them to the observed any blocks map.
+        let any_block_processing_task = tokio::spawn({
+            let observed_any_blocks = observed_any_blocks.clone();
+            let substrate_provider = substrate_provider.clone();
+            async move {
+                let stream = match substrate_provider.blocks().subscribe_best().await {
+                    Ok(stream) => stream,
+                    Err(err) => {
+                        error!(?err, "Failed to subscribe to the any blocks, stopped");
+                        return;
+                    }
+                };
+                stream
+                    .for_each_concurrent(None, |block| {
+                        let block = match block {
+                            Ok(block) => block,
+                            Err(err) => {
+                                error!(
+                                    ?err,
+                                    "Failed to get one of the blocks from the subscription"
+                                );
+                                return Either::Left(ready(()));
+                            }
+                        };
+
+                        let observed_any_blocks = observed_any_blocks.clone();
+                        let observation_time = SystemTime::now();
+                        Either::Right(async move {
+                            debug!(
+                                block.number = block.number(),
+                                block.hash = ?block.hash(),
+                                block.observation_time = observation_time.duration_since(UNIX_EPOCH).unwrap().as_secs(),
+                                "Observed a new any block"
+                            );
+                            let mut write_guard = observed_any_blocks
+                                .write()
+                                .await;
+                            let entry = write_guard.entry(block.hash()).or_insert(observation_time);
+                            *entry = (*entry).min(observation_time)
+                        })
+                    })
+                    .await;
+            }
+        });
+
         // This is the main stream we return to the users. It's a stream over the finalized blocks
         // we observe from the subscription to the substrate rpc.
         let limits = substrate_provider
@@ -331,8 +387,18 @@ fn subscribe_to_full_blocks_information_substrate(
             .map(move |substrate_block| {
                 let provider = provider.clone();
                 let substrate_provider = substrate_provider.clone();
+                let observed_best_blocks = observed_any_blocks.clone();
 
                 async move {
+                    // Getting the observation time for this block from the map ob the observed best
+                    // blocks, we will add this to the mined block information later on.
+                    let observation_time = observed_best_blocks
+                        .read()
+                        .await
+                        .get(&substrate_block.hash())
+                        .copied()
+                        .unwrap_or_else(SystemTime::now);
+
                     debug!(
                         block.number = substrate_block.number(),
                         block.hash = ?substrate_block.hash(),
@@ -356,7 +422,6 @@ fn subscribe_to_full_blocks_information_substrate(
                             }
                         }
                     };
-                    let observation_time = SystemTime::now();
 
                     // Constructing the block information.
                     let used = {
@@ -412,10 +477,38 @@ fn subscribe_to_full_blocks_information_substrate(
                     }
                 }
             })
-            .buffered(200);
+            .buffered(1);
 
-        Ok(Box::pin(stream) as _)
+        Ok(Box::pin(SubstrateSubscriptionStream {
+            stream: Box::pin(stream),
+            task_handle: any_block_processing_task.abort_handle(),
+        }) as _)
     })
+}
+
+struct SubstrateSubscriptionStream<T> {
+    stream: T,
+    task_handle: AbortHandle,
+}
+
+impl<T> Drop for SubstrateSubscriptionStream<T> {
+    fn drop(&mut self) {
+        self.task_handle.abort();
+    }
+}
+
+impl<T> Stream for SubstrateSubscriptionStream<T>
+where
+    T: Stream + Unpin,
+{
+    type Item = T::Item;
+
+    fn poll_next(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Option<Self::Item>> {
+        std::pin::Pin::new(&mut self.stream).poll_next(cx)
+    }
 }
 
 fn subscribe_to_transaction_inclusions_ethereum(
