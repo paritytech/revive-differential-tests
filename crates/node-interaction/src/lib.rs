@@ -474,7 +474,7 @@ fn subscribe_to_full_blocks_information_substrate(
                     }
                 }
             })
-            .buffered(10);
+            .buffered(1);
 
         Ok(Box::pin(SubstrateSubscriptionStream {
             stream: Box::pin(stream),
