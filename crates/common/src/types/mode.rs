@@ -287,7 +287,8 @@ impl FromStr for ParsedMode {
     type Err = anyhow::Error;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         static REGEX: LazyLock<Regex> = LazyLock::new(|| {
-            Regex::new(r"(?x)
+            Regex::new(
+                r"(?x)
                 ^
                 (?:(?P<pipeline>[YEILV])(?P<optimize_flag>[+-])?)? # Pipeline to use e.g. Y, E+, E-
                 \s*
@@ -297,7 +298,9 @@ impl FromStr for ParsedMode {
                 \s*
                 (?P<version>[>=<^]*\d+(?:\.\d+)*)?                 # Optional semver version e.g. >=0.8.0, 0.7, <0.8
                 $
-            ").unwrap()
+            ",
+            )
+            .unwrap()
         });
 
         let Some(caps) = REGEX.captures(s) else {

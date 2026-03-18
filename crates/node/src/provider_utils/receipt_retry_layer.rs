@@ -122,88 +122,91 @@ where
         let max_backoff = self.max_backoff;
         let polling_duration = self.polling_duration;
 
-        Box::pin(async move {
-            let request = req.as_single().ok_or_else(|| {
-                TransportErrorKind::custom_str("Retry layer doesn't support batch requests")
-            })?;
-            tracing::Span::current().record("request", tracing::field::debug(request));
-            let method = request.method();
-            let requires_retries = method == "eth_getTransactionReceipt"
-                || (method.contains("debug") && method.contains("trace"));
+        Box::pin(
+            async move {
+                let request = req
+                    .as_single()
+                    .ok_or_else(|| TransportErrorKind::custom_str("Retry layer doesn't support batch requests"))?;
+                tracing::Span::current().record("request", tracing::field::debug(request));
+                let method = request.method();
+                let requires_retries =
+                    method == "eth_getTransactionReceipt" || (method.contains("debug") && method.contains("trace"));
 
-            if !requires_retries {
-                debug!(%method, "Retry layer: method does not require retries, forwarding directly");
-                return service.call(req).await;
-            }
+                if !requires_retries {
+                    debug!(%method, "Retry layer: method does not require retries, forwarding directly");
+                    return service.call(req).await;
+                }
 
-            debug!(%method, ?polling_duration, ?initial_backoff, ?max_backoff, "Retry layer: starting retry loop");
-            timeout(polling_duration, async {
-                let mut backoff = initial_backoff;
-                let mut attempt: u32 = 0;
+                debug!(%method, ?polling_duration, ?initial_backoff, ?max_backoff, "Retry layer: starting retry loop");
+                timeout(polling_duration, async {
+                    let mut backoff = initial_backoff;
+                    let mut attempt: u32 = 0;
 
-                loop {
-                    attempt += 1;
+                    loop {
+                        attempt += 1;
 
-                    let resp = service.call(req.clone()).await;
-                    debug!(?resp, "Obtained a response");
-                    let resp = match resp {
-                        Ok(resp) => resp,
-                        Err(err) => {
-                            debug!(%method, attempt, ?backoff, %err, "Retry layer: transport error, retrying");
+                        let resp = service.call(req.clone()).await;
+                        debug!(?resp, "Obtained a response");
+                        let resp = match resp {
+                            Ok(resp) => resp,
+                            Err(err) => {
+                                debug!(%method, attempt, ?backoff, %err, "Retry layer: transport error, retrying");
+                                sleep(backoff).await;
+                                backoff = (backoff * 2).min(max_backoff);
+                                continue;
+                            }
+                        };
+                        let response = resp.as_single().expect("Can't fail");
+                        if response.is_error() {
+                            debug!(
+                                %method,
+                                attempt,
+                                ?backoff,
+                                error = ?response.payload(),
+                                "Retry layer: RPC error response, retrying"
+                            );
                             sleep(backoff).await;
                             backoff = (backoff * 2).min(max_backoff);
                             continue;
                         }
-                    };
-                    let response = resp.as_single().expect("Can't fail");
-                    if response.is_error() {
-                        debug!(
-                            %method,
-                            attempt,
-                            ?backoff,
-                            error = ?response.payload(),
-                            "Retry layer: RPC error response, retrying"
-                        );
-                        sleep(backoff).await;
-                        backoff = (backoff * 2).min(max_backoff);
-                        continue;
-                    }
 
-                    if method == "eth_getTransactionReceipt"
-                        && response
-                            .payload()
-                            .clone()
-                            .deserialize_success::<ReceiptOutput>()
-                            .ok()
-                            .and_then(|resp| resp.try_into_success().ok())
-                            .is_some()
-                        || method != "eth_getTransactionReceipt"
-                    {
-                        debug!(%method, attempt, "Retry layer: received successful response");
-                        return resp;
-                    } else {
-                        debug!(
-                            %method,
-                            attempt,
-                            ?backoff,
-                            ?response,
-                            "Retry layer: receipt response was null/unparseable, retrying"
-                        );
-                        sleep(backoff).await;
-                        backoff = (backoff * 2).min(max_backoff);
-                        continue;
+                        if method == "eth_getTransactionReceipt"
+                            && response
+                                .payload()
+                                .clone()
+                                .deserialize_success::<ReceiptOutput>()
+                                .ok()
+                                .and_then(|resp| resp.try_into_success().ok())
+                                .is_some()
+                            || method != "eth_getTransactionReceipt"
+                        {
+                            debug!(%method, attempt, "Retry layer: received successful response");
+                            return resp;
+                        } else {
+                            debug!(
+                                %method,
+                                attempt,
+                                ?backoff,
+                                ?response,
+                                "Retry layer: receipt response was null/unparseable, retrying"
+                            );
+                            sleep(backoff).await;
+                            backoff = (backoff * 2).min(max_backoff);
+                            continue;
+                        }
                     }
-                }
-            })
-            .await
-            .map_err(|_| {
-                debug!(
-                    %method,
-                    ?polling_duration,
-                    "Retry layer: timed out waiting for successful response"
-                );
-                TransportErrorKind::custom_str("Timeout when retrying request")
-            })
-        }.instrument(debug_span!("Handling request", request = tracing::field::Empty)))
+                })
+                .await
+                .map_err(|_| {
+                    debug!(
+                        %method,
+                        ?polling_duration,
+                        "Retry layer: timed out waiting for successful response"
+                    );
+                    TransportErrorKind::custom_str("Timeout when retrying request")
+                })
+            }
+            .instrument(debug_span!("Handling request", request = tracing::field::Empty)),
+        )
     }
 }

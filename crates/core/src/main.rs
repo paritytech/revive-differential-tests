@@ -18,6 +18,7 @@ mod internal_prelude {
     pub use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
     pub use std::future::Future;
     pub use std::io::{BufWriter, Write, stderr};
+    pub use std::ops::ControlFlow;
     pub use std::path::{Path, PathBuf};
     pub use std::pin::Pin;
     pub use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -29,7 +30,7 @@ mod internal_prelude {
     pub use alloy::json_abi::JsonAbi;
     pub use alloy::network::{Ethereum, TransactionBuilder};
     pub use alloy::primitives::{Address, BlockNumber, TxHash, U256, address};
-    pub use alloy::providers::{PendingTransactionBuilder, Provider};
+    pub use alloy::providers::{DynProvider, PendingTransactionBuilder, Provider};
     pub use alloy::rpc::types::trace::geth::{
         CallFrame, GethDebugBuiltInTracerType, GethDebugTracerConfig, GethDebugTracerType,
         GethDebugTracingOptions,
@@ -39,15 +40,18 @@ mod internal_prelude {
     pub use anyhow::Context as _;
     pub use anyhow::{Error, Result, bail};
     pub use clap::Parser;
-    pub use futures::future::{try_join_all, try_join3};
+    pub use futures::future::{Either, try_join, try_join_all, try_join3};
     pub use futures::{FutureExt, Stream, StreamExt, TryFutureExt, TryStreamExt, stream};
     pub use indexmap::{IndexMap, indexmap};
+    pub use pallet_revive_eth_rpc::ReceiptExtractor;
     pub use regex::Regex;
     pub use schemars::schema_for;
     pub use semver::{Version, VersionReq};
     pub use serde::{Deserialize, Serialize};
     pub use serde_json::{self, Value, json};
     pub use subxt::tx::Payload;
+    pub use subxt::utils::H256;
+    pub use subxt::{OnlineClient, PolkadotConfig};
     pub use tokio::select;
     pub use tokio::sync::broadcast;
     pub use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};

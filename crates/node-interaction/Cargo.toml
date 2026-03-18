@@ -10,7 +10,6 @@ rust-version.workspace = true
 
 [dependencies]
 revive-common = { workspace = true }
-pallet-revive-eth-rpc = { workspace = true }
 
 revive-dt-common = { workspace = true }
 

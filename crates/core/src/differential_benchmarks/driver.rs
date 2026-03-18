@@ -313,19 +313,17 @@ where
                 .execute_account_allocation(step_path, step.as_ref())
                 .await
                 .context("Account Allocation Step Failed"),
-            Step::Transfer(step) => {
-                match self
-                    .execute_transfer(step_path, step.as_ref())
-                    .await
-                    .context("Transfer Step Failed")
-                {
-                    Ok(steps_executed) => Ok(steps_executed),
-                    Err(err) => {
-                        warn!(?err, "Step execution failed");
-                        return Ok(());
-                    }
+            Step::Transfer(step) => match self
+                .execute_transfer(step_path, step.as_ref())
+                .await
+                .context("Transfer Step Failed")
+            {
+                Ok(steps_executed) => Ok(steps_executed),
+                Err(err) => {
+                    warn!(?err, "Step execution failed");
+                    return Ok(());
                 }
-            }
+            },
             // The following steps are disabled in the benchmarking driver.
             Step::BalanceAssertion(..) | Step::StorageEmptyAssertion(..) => Ok(0),
         }?;

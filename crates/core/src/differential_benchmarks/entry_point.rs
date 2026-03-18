@@ -132,17 +132,27 @@ pub async fn handle_differential_benchmarks(
 
             // Initializing all of the components requires to execute this particular workload.
             let private_key_allocator = private_key_allocator.clone();
+            let provider = platform_information
+                .node
+                .provider()
+                .await
+                .context("Failed to create the node's provider")?;
+            let substrate_provider = match platform_information.node.substrate_provider() {
+                Some(future) => Some(
+                    future
+                        .await
+                        .context("Failed to create the substrate provider")?,
+                ),
+                None => None,
+            };
             let (watcher, watcher_tx) = Watcher::new(
                 platform_information
                     .node
                     .subscribe_to_full_blocks_information()
                     .await
                     .context("Failed to subscribe to full blocks information from the node")?,
-                platform_information
-                    .node
-                    .subscribe_to_transaction_receipts()
-                    .await
-                    .context("Failed to subscribe to the receipts from the node")?,
+                provider,
+                substrate_provider,
                 test_definition
                     .reporter
                     .execution_specific_reporter(0usize, platform_identifier),

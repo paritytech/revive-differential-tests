@@ -7,7 +7,6 @@ pub mod prelude {
 
 use std::collections::HashMap;
 use std::future::ready;
-use std::ops::ControlFlow;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -22,9 +21,8 @@ use anyhow::{Context as _, Result};
 
 use futures::future::Either;
 use futures::{Stream, StreamExt, stream};
-use pallet_revive_eth_rpc::ReceiptExtractor;
 use revive_common::EVMVersion;
-use revive_dt_common::futures::{FrameworkFuture, FrameworkStream, retry_with_exponential_backoff};
+use revive_dt_common::futures::{FrameworkFuture, FrameworkStream};
 
 use revive_dt_common::subscriptions::{
     EthereumMinedBlockInformation, MinedBlockInformation, SubstrateMinedBlockInformation,
@@ -219,35 +217,6 @@ pub trait NodeApi {
         Box::pin(future) as _
     }
 
-    /// Subscribes to the transaction receipts of each finalized block.
-    ///
-    /// The default implementation uses a different strategy between Ethereum and Substrate nodes.
-    ///
-    /// For Ethereum nodes, we subscribe to the finalized blocks stream and fetch all receipts
-    /// for each block using [`eth_getBlockReceipts`], then flatten them into the output stream.
-    ///
-    /// For Substrate based nodes, we subscribe to the finalized blocks stream, extract the
-    /// transaction hashes from each block, and then fetch individual receipts for each
-    /// transaction via [`eth_getTransactionReceipt`] through the eth-rpc proxy. The receipts
-    /// are collected per-block and then flattened into the output stream.
-    ///
-    /// In both cases, blocks whose receipts fail to be retrieved are silently skipped.
-    fn subscribe_to_transaction_receipts(
-        &self,
-    ) -> FrameworkFuture<Result<FrameworkStream<TransactionReceipt>>> {
-        let provider = self.subscriptions_provider();
-        let substrate_provider = self.substrate_provider();
-
-        let future = if let Some(substrate_provider) = substrate_provider {
-            Either::Left(subscribe_to_transaction_receipts_substrate(
-                substrate_provider,
-            ))
-        } else {
-            Either::Right(subscribe_to_transaction_receipts_ethereum(provider))
-        };
-        Box::pin(future) as _
-    }
-
     /// A function to run post spawning the nodes and before any transactions are run on the node.
     fn pre_transactions(&mut self) -> FrameworkFuture<Result<()>> {
         Box::pin(async move { Ok(()) })
@@ -325,7 +294,7 @@ fn subscribe_to_full_blocks_information_substrate(
             let observed_any_blocks = observed_any_blocks.clone();
             let substrate_provider = substrate_provider.clone();
             async move {
-                let stream = match substrate_provider.blocks().subscribe_best().await {
+                let stream = match substrate_provider.blocks().subscribe_all().await {
                     Ok(stream) => stream,
                     Err(err) => {
                         error!(?err, "Failed to subscribe to the any blocks, stopped");
@@ -337,10 +306,7 @@ fn subscribe_to_full_blocks_information_substrate(
                         let block = match block {
                             Ok(block) => block,
                             Err(err) => {
-                                error!(
-                                    ?err,
-                                    "Failed to get one of the blocks from the subscription"
-                                );
+                                error!(?err, "Failed to get one of the blocks from the subscription");
                                 return Either::Left(ready(()));
                             }
                         };
@@ -354,9 +320,7 @@ fn subscribe_to_full_blocks_information_substrate(
                                 block.observation_time = observation_time.duration_since(UNIX_EPOCH).unwrap().as_secs(),
                                 "Observed a new any block"
                             );
-                            let mut write_guard = observed_any_blocks
-                                .write()
-                                .await;
+                            let mut write_guard = observed_any_blocks.write().await;
                             let entry = write_guard.entry(block.hash()).or_insert(observation_time);
                             *entry = (*entry).min(observation_time)
                         })
@@ -397,7 +361,13 @@ fn subscribe_to_full_blocks_information_substrate(
                         .await
                         .get(&substrate_block.hash())
                         .copied()
-                        .unwrap_or_else(SystemTime::now);
+                        .unwrap_or_else(|| {
+                            warn!(
+                                block.number = substrate_block.number(),
+                                "Resorted to current time for block observation time"
+                            );
+                            SystemTime::now()
+                        });
 
                     debug!(
                         block.number = substrate_block.number(),
@@ -471,13 +441,14 @@ fn subscribe_to_full_blocks_information_substrate(
                             max_ref_time,
                             proof_size: block_proof_size,
                             max_proof_size,
+                            block_hash: substrate_block.hash().0,
                         }),
                         tx_counts: Default::default(),
                         observation_time,
                     }
                 }
             })
-            .buffered(1);
+            .buffered(20);
 
         Ok(Box::pin(SubstrateSubscriptionStream {
             stream: Box::pin(stream),
@@ -553,94 +524,5 @@ fn subscribe_to_transaction_inclusions_substrate(
             });
 
         Ok(Box::pin(stream) as _)
-    })
-}
-
-fn subscribe_to_transaction_receipts_ethereum(
-    provider: FrameworkFuture<Result<DynProvider>>,
-) -> FrameworkFuture<Result<FrameworkStream<TransactionReceipt>>> {
-    Box::pin(async move {
-        let provider = provider.await.context("Failed to get the provider")?;
-
-        let finalized_blocks_stream =
-            subscribe_to_full_blocks_information_ethereum(Box::pin(ready(Ok(provider.clone()))))
-                .await
-                .context("Failed to get the finalized blocks stream")?;
-
-        let receipts_stream = finalized_blocks_stream
-            .map(|block| block.ethereum_block_information.block_number)
-            .then(move |block_number| {
-                let provider = provider.clone();
-                async move {
-                    let block_receipts = provider
-                        .get_block_receipts(alloy::eips::BlockId::Number(
-                            alloy::eips::BlockNumberOrTag::Number(block_number),
-                        ))
-                        .await;
-                    let Ok(Some(receipts)) = block_receipts else {
-                        error!(
-                            block_number,
-                            result = ?block_receipts,
-                            "Failed to get the block receipts"
-                        );
-                        return None;
-                    };
-                    Some(receipts)
-                }
-            })
-            .filter_map(ready)
-            .flat_map(stream::iter);
-
-        Ok(Box::pin(receipts_stream) as _)
-    })
-}
-
-fn subscribe_to_transaction_receipts_substrate(
-    substrate_provider: FrameworkFuture<Result<OnlineClient<PolkadotConfig>>>,
-) -> FrameworkFuture<Result<FrameworkStream<TransactionReceipt>>> {
-    Box::pin(async move {
-        let substrate_provider = substrate_provider
-            .await
-            .context("Failed to get the substrate provider")?;
-
-        let receipt_extractor = ReceiptExtractor::new(substrate_provider.clone(), None)
-            .await
-            .context("Failed to create the receipt extractor")
-            .map(Arc::new)?;
-
-        let receipts_stream = substrate_provider
-            .blocks()
-            .subscribe_finalized()
-            .await
-            .context("Failed to subscribe to finalized blocks")?
-            .filter_map(|block| ready(block.ok()))
-            .map(move |block| {
-                let receipt_extractor = receipt_extractor.clone();
-                async move {
-                    let block_number = block.number();
-                    let receipts =
-                        retry_with_exponential_backoff(10, Duration::from_millis(500), || async {
-                            match receipt_extractor.extract_from_block(&block).await {
-                                Ok(receipts) => ControlFlow::Break(receipts),
-                                Err(error) => ControlFlow::Continue(error),
-                            }
-                        })
-                        .await
-                        .with_context(|| {
-                            format!("Failed to get the receipts for block: {block_number}")
-                        })
-                        .expect("Failed to get the receipts for the block");
-                    Some(receipts.into_iter().map(|(_, receipt)| {
-                        let serialized = serde_json::to_vec(&receipt).expect("Can't fail");
-                        serde_json::from_slice::<TransactionReceipt>(&serialized)
-                            .expect("Can't fail")
-                    }))
-                }
-            })
-            .buffered(10)
-            .filter_map(ready)
-            .flat_map(stream::iter);
-
-        Ok(Box::pin(receipts_stream) as _)
     })
 }

@@ -12,9 +12,13 @@ pub struct Watcher {
     /// and a single node from that platform.
     blocks_stream: FrameworkStream<MinedBlockInformation>,
 
-    /// This is a stream of the transaction receipts of the transactions that were mined by the
-    /// node. They're obtained once the block has been finalized and is available in the node.
-    receipts_stream: FrameworkStream<TransactionReceipt>,
+    /// This is the provider to use to communicate with the eth-rpc. We use this to get the receipts
+    /// of the various blocks that get mined for ethereum native chains.
+    provider: DynProvider,
+
+    /// This is the substrate RPC which we use to communicate with substrate based nodes. We use
+    /// this provider only for chains which are substrate based.
+    substrate_provider: Option<OnlineClient<PolkadotConfig>>,
 
     /// The reporter used to send events to the report aggregator.
     reporter: ExecutionSpecificReporter,
@@ -23,7 +27,8 @@ pub struct Watcher {
 impl Watcher {
     pub fn new(
         blocks_stream: FrameworkStream<MinedBlockInformation>,
-        receipts_stream: FrameworkStream<TransactionReceipt>,
+        provider: DynProvider,
+        substrate_provider: Option<OnlineClient<PolkadotConfig>>,
         reporter: ExecutionSpecificReporter,
     ) -> (Self, UnboundedSender<WatcherEvent>) {
         let (tx, rx) = unbounded_channel::<WatcherEvent>();
@@ -31,7 +36,8 @@ impl Watcher {
             Self {
                 rx,
                 blocks_stream,
-                receipts_stream,
+                provider,
+                substrate_provider,
                 reporter,
             },
             tx,
@@ -101,18 +107,6 @@ impl Watcher {
             // which are observed in blocks are accidental or non canonical.
             let watch_requests = Arc::new(RwLock::new(HashSet::<TxHash>::new()));
 
-            // This is a shared value which defines the block at which the block watcher task should
-            // stop irrespective of whether it has seen all of the transactions or not. Sadly, this
-            // is a concept that we're forced to add and not a concept that we want to add. We have
-            // observed that there are certain cases where there's a mismatch between the number of
-            // transactions in a substrate block and the number of transactions in an ethereum block
-            // where the number in the ethereum block can sometimes be smaller leading the block
-            // watching task to keep running indefinitely and to no end since not all of the txs
-            // were observed. This value is set by the receipt watching task when it finishes its
-            // execution and it communicates the absolute deadline for the block watcher when it
-            // must stop.
-            let stop_at_block_number = Arc::new(RwLock::new(None::<u64>));
-
             // The registration task, which performs what's been described in the doc-comment of this
             // method.
             let registration_task = tokio::spawn({
@@ -162,151 +156,233 @@ impl Watcher {
             // This is the block subscription task which is the main watcher task watching for all of
             // the observed transactions and keeping track of them. It's implemented as described in the
             // doc comment of the function.
-            let block_subscription_task =
-                tokio::spawn({
-                    let is_submission_completed = is_submission_completed.clone();
-                    let watch_requests = watch_requests.clone();
-                    let stop_at_block_number = stop_at_block_number.clone();
-                    async move {
-                        let mut observed_transaction_hashes = HashSet::new();
-                        let mut observed_blocks = vec![];
-                        while let Some(block_information) = self.blocks_stream.next().await {
-                            let block_number =
-                                block_information.ethereum_block_information.block_number;
-
-                            // Keep skipping block as long as their block number is below the block number
-                            // we were tasked to start at.
-                            if block_number < ignore_blocks_before_block_number {
-                                info!(
-                                    block_number =
-                                        block_information.ethereum_block_information.block_number,
-                                    ignore_blocks_before_block_number,
-                                    "Observed a block, but it's being ignored"
-                                );
-                                continue;
-                            }
-
-                            // Add the transaction hashes from this block to the set of transaction hashes
-                            // we've observed and also add it's information to the map we store where we
-                            // keep track of the transaction and which block contained it.
-                            observed_transaction_hashes.extend(
-                                block_information
-                                    .ethereum_block_information
-                                    .transaction_hashes
-                                    .clone(),
-                            );
-
-                            // Logging information about this newly observed block and adding it to the set
-                            // of block we will return at the end.
-                            let requested_transactions_len = watch_requests.read().await.len();
-                            info!(
-                                block.number =
-                                    block_information.ethereum_block_information.block_number,
-                                block.timestamp =
-                                    block_information.ethereum_block_information.block_timestamp,
-                                block.tx_hashes_len = block_information
-                                    .ethereum_block_information
-                                    .transaction_hashes
-                                    .len(),
-                                transactions.observed = observed_transaction_hashes.len(),
-                                transactions.requested = requested_transactions_len,
-                                transactions.remaining = requested_transactions_len
-                                    .saturating_sub(observed_transaction_hashes.len()),
-                                "Observed a new block"
-                            );
-                            observed_blocks.push(block_information);
-
-                            // This is the primary condition which determines if we should break out of the
-                            // loop or not. If all of the transactions have been submitted and there's no
-                            // difference between the transactions the user requested us to watch and the
-                            // ones we've seen then we break out of the loop and stop.
-                            let all_blocks_observed = watch_requests
-                                .read()
-                                .await
-                                .is_subset(&observed_transaction_hashes);
-                            let block_end_reached = stop_at_block_number.read().await.is_some_and(
-                                |stop_at_block_number| block_number >= stop_at_block_number,
-                            );
-                            if *is_submission_completed.read().await
-                                && (all_blocks_observed || block_end_reached)
-                            {
-                                info!("All transactions observed");
-                                break;
-                            }
-                        }
-                        observed_blocks
-                    }
-                });
-
-            // This is the receipt watching task which consumes the receipts stream and collects all
-            // of the transaction receipts as they arrive from the finalized blocks. It completes
-            // once all of the requested transaction hashes have had their receipts observed as
-            // described in the doc comment of this method.
-            let transaction_receipt_watching_task = tokio::spawn({
+            let block_subscription_task = tokio::spawn({
                 let is_submission_completed = is_submission_completed.clone();
                 let watch_requests = watch_requests.clone();
-                let stop_at_block_number = stop_at_block_number.clone();
                 async move {
-                    let mut receipts = HashMap::new();
-                    let mut receipts_observed = HashSet::new();
-                    while let Some(receipt) = self.receipts_stream.next().await {
-                        let block_number = receipt
-                            .block_number
-                            .as_ref()
-                            .cloned()
-                            .expect("Receipt must have a block number");
+                    // This is a kill switch which we use in cases where it appears like the chain
+                    // has stopped processing transactions and appears to have halted. If we have
+                    // encountered 100 blocks with no transactions then we stop this task and move
+                    // on even if we are yet to observe all of the transactions. We also provide a
+                    // warning that this was the halting reason just in case it needs further
+                    // investigation.
+                    let mut number_of_consecutive_blocks_with_zero_transactions = 0usize;
 
-                        // Keep skipping receipts as long as their block number is below the block
-                        // number we were tasked to start at.
+                    let mut observed_transaction_hashes = HashSet::new();
+                    let mut observed_blocks = vec![];
+                    while let Some(block_information) = self.blocks_stream.next().await {
+                        let block_number =
+                            block_information.ethereum_block_information.block_number;
+
+                        // Keep skipping block as long as their block number is below the block number
+                        // we were tasked to start at.
                         if block_number < ignore_blocks_before_block_number {
                             info!(
-                                block_number,
+                                block_number =
+                                    block_information.ethereum_block_information.block_number,
                                 ignore_blocks_before_block_number,
-                                "Observed a receipt, but it's being ignored"
+                                "Observed a block, but it's being ignored"
                             );
                             continue;
                         }
 
-                        receipts_observed.insert(receipt.transaction_hash);
-                        receipts.insert(receipt.transaction_hash, receipt);
+                        // Add the transaction hashes from this block to the set of transaction hashes
+                        // we've observed and also add it's information to the map we store where we
+                        // keep track of the transaction and which block contained it.
+                        observed_transaction_hashes.extend(
+                            block_information
+                                .ethereum_block_information
+                                .transaction_hashes
+                                .clone(),
+                        );
 
+                        // Logging information about this newly observed block and adding it to the set
+                        // of block we will return at the end.
                         let requested_transactions_len = watch_requests.read().await.len();
                         info!(
-                            receipt.block_number = block_number,
-                            receipts.observed = receipts.len(),
-                            receipts.requested = requested_transactions_len,
-                            receipts.remaining =
-                                requested_transactions_len.saturating_sub(receipts.len()),
-                            "Observed a new receipt"
+                            block.number =
+                                block_information.ethereum_block_information.block_number,
+                            block.timestamp =
+                                block_information.ethereum_block_information.block_timestamp,
+                            block.observation_time = block_information
+                                .observation_time
+                                .duration_since(UNIX_EPOCH)
+                                .unwrap()
+                                .as_millis(),
+                            block.tx_hashes_len = block_information
+                                .ethereum_block_information
+                                .transaction_hashes
+                                .len(),
+                            transactions.observed = observed_transaction_hashes.len(),
+                            transactions.requested = requested_transactions_len,
+                            transactions.remaining = requested_transactions_len
+                                .saturating_sub(observed_transaction_hashes.len()),
+                            "Observed a new block"
                         );
+                        let has_transactions = !block_information
+                            .ethereum_block_information
+                            .transaction_hashes
+                            .is_empty();
+                        observed_blocks.push(block_information);
+
+                        if !has_transactions {
+                            number_of_consecutive_blocks_with_zero_transactions += 1
+                        } else {
+                            number_of_consecutive_blocks_with_zero_transactions = 0
+                        }
 
                         // This is the primary condition which determines if we should break out of the
                         // loop or not. If all of the transactions have been submitted and there's no
                         // difference between the transactions the user requested us to watch and the
                         // ones we've seen then we break out of the loop and stop.
+                        let all_blocks_observed = watch_requests
+                            .read()
+                            .await
+                            .is_subset(&observed_transaction_hashes);
+                        let block_empty_timeout =
+                            number_of_consecutive_blocks_with_zero_transactions >= 100;
                         if *is_submission_completed.read().await
-                            && watch_requests.read().await.is_subset(&receipts_observed)
+                            && (all_blocks_observed || block_empty_timeout)
                         {
-                            info!("All receipts observed");
-                            *stop_at_block_number.write().await = Some(block_number);
+                            info!(
+                                all_blocks_observed,
+                                block_empty_timeout, "All transactions observed"
+                            );
                             break;
                         }
                     }
-                    receipts
+                    observed_blocks
                 }
             });
 
             // Execute both of the tasks concurrently until they both complete.
-            let (transaction_registration_information, observed_blocks, observed_receipts) =
-                try_join3(
-                    registration_task,
-                    block_subscription_task,
-                    transaction_receipt_watching_task,
-                )
-                .await?;
+            let (transaction_registration_information, observed_blocks) =
+                try_join(registration_task, block_subscription_task).await?;
+
+            // The registration and the block observation tasks are done. We can now try to get the
+            // receipts of all of the transactions that were submitted. We will get them through the
+            // rpc depending on the platform. The range of receipts we get is the ones for all of
+            // the blocks which we've observed.
+            let observed_receipts: Vec<TransactionReceipt> = match self.substrate_provider {
+                Some(substrate_provider) => {
+                    let receipt_extractor = ReceiptExtractor::new(substrate_provider.clone(), None)
+                        .await
+                        .context("Failed to create the receipt extractor")
+                        .map(Arc::new)?;
+                    let block_data: Vec<_> = observed_blocks
+                        .iter()
+                        .map(|b| {
+                            let block_hash = b
+                                .substrate_block_information
+                                .as_ref()
+                                .expect("Substrate block information must be present")
+                                .block_hash;
+                            (block_hash, b.ethereum_block_information.block_number)
+                        })
+                        .collect();
+                    stream::iter(block_data)
+                        .map(|(block_hash, block_number)| {
+                            let receipt_extractor = receipt_extractor.clone();
+                            let substrate_provider = substrate_provider.clone();
+                            async move {
+                                let block =
+                                    retry_with_exponential_backoff(10, Duration::from_secs(1), || async {
+                                        match substrate_provider.blocks().at(H256(block_hash)).await {
+                                            Ok(block) => ControlFlow::Break(block),
+                                            Err(err) => {
+                                                warn!(
+                                                    block_number,
+                                                    ?err,
+                                                    "Failed to get the block, retrying"
+                                                );
+                                                ControlFlow::Continue(err)
+                                            }
+                                        }
+                                    })
+                                    .await
+                                    .with_context(|| {
+                                        format!("Failed to get block {block_number} after retries")
+                                    })
+                                    .expect("Can't fail");
+
+                                let receipts =
+                                    retry_with_exponential_backoff(10, Duration::from_secs(1), || async {
+                                        match receipt_extractor.extract_from_block(&block).await {
+                                            Ok(receipts) => ControlFlow::Break(receipts),
+                                            Err(err) => {
+                                                warn!(
+                                                    block_number,
+                                                    ?err,
+                                                    "Failed to get the receipts for block, retrying"
+                                                );
+                                                ControlFlow::Continue(err)
+                                            }
+                                        }
+                                    })
+                                    .await
+                                    .with_context(|| {
+                                        format!(
+                                            "Failed to get receipts for block {block_number} after retries"
+                                        )
+                                    })
+                                    .expect("Can't fail");
+
+                                receipts
+                                    .into_iter()
+                                    .map(|(_, receipt)| {
+                                        let serialized = serde_json::to_vec(&receipt).expect("Can't fail");
+                                        serde_json::from_slice::<TransactionReceipt>(&serialized)
+                                            .expect("Can't fail")
+                                    })
+                                    .collect::<Vec<_>>()
+                            }
+                        })
+                        .buffer_unordered(100)
+                        .flat_map(|receipts| stream::iter(receipts.into_iter()))
+                        .collect::<Vec<_>>()
+                        .await
+                }
+                None => {
+                    let block_numbers: Vec<_> = observed_blocks
+                        .iter()
+                        .map(|b| b.ethereum_block_information.block_number)
+                        .collect();
+                    stream::iter(block_numbers)
+                        .map(|block_number| {
+                            let provider = self.provider.clone();
+                            async move {
+                                retry_with_exponential_backoff(10, Duration::from_secs(1), || async {
+                                    match provider
+                                        .get_block_receipts(alloy::eips::BlockId::Number(block_number.into()))
+                                        .await
+                                    {
+                                        Ok(Some(receipts)) => ControlFlow::Break(receipts),
+                                        other => {
+                                            warn!(
+                                                block_number,
+                                                result = ?other,
+                                                "Failed to get the receipts for block, retrying"
+                                            );
+                                            ControlFlow::Continue(anyhow::anyhow!("{other:?}"))
+                                        }
+                                    }
+                                })
+                                .await
+                                .with_context(|| {
+                                    format!("Failed to get receipts for block {block_number} after retries")
+                                })
+                                .expect("Can't fail")
+                            }
+                        })
+                        .buffer_unordered(100)
+                        .flat_map(|receipts| stream::iter(receipts.into_iter()))
+                        .collect::<Vec<_>>()
+                        .await
+                }
+            };
 
             if let failing_receipts = observed_receipts
-                .into_values()
+                .into_iter()
                 .filter(|receipt| !receipt.status())
                 .collect::<Vec<_>>()
                 && !failing_receipts.is_empty()
