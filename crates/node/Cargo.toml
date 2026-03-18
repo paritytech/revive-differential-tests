@@ -19,12 +19,11 @@ tokio = { workspace = true }
 revive-common = { workspace = true }
 revive-dt-common = { workspace = true }
 revive-dt-config = { workspace = true }
-revive-dt-format = { workspace = true }
 revive-dt-node-interaction = { workspace = true }
-revive-dt-report = { workspace = true }
 
 serde = { workspace = true }
 serde_json = { workspace = true }
+toml = { workspace = true }
 serde_with = { workspace = true }
 serde_yaml_ng = { workspace = true }
 

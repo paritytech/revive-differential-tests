@@ -1,29 +1,4 @@
-use std::collections::BTreeMap;
-use std::sync::Arc;
-use std::{borrow::Cow, path::Path};
-
-use anyhow::Context as _;
-use futures::{Stream, StreamExt, stream};
-use indexmap::{IndexMap, indexmap};
-use revive_dt_common::cached_fs::read_to_string;
-use revive_dt_common::types::PlatformIdentifier;
-use revive_dt_config::{Context, IgnoreCasesConfiguration};
-use revive_dt_format::corpus::Corpus;
-use serde_json::{Value, json};
-
-use revive_dt_compiler::Mode;
-use revive_dt_compiler::SolidityCompiler;
-use revive_dt_format::{
-    case::{Case, CaseIdx},
-    metadata::MetadataFile,
-};
-use revive_dt_node_interaction::EthereumNode;
-use revive_dt_report::{ExecutionSpecificReporter, Report, Reporter, TestCaseStatus};
-use revive_dt_report::{TestSpecificReporter, TestSpecifier};
-use tracing::{debug, error, info};
-
-use crate::Platform;
-use crate::helpers::NodePool;
+use crate::internal_prelude::*;
 
 pub async fn create_test_definitions_stream<'a>(
     // This is only required for creating the compiler objects and is not used anywhere else in the
@@ -55,7 +30,7 @@ pub async fn create_test_definitions_stream<'a>(
                     case,
                     mode.clone(),
                     reporter.test_specific_reporter(Arc::new(TestSpecifier {
-                        solc_mode: mode.as_ref().clone(),
+                        compiler_mode: mode.as_ref().clone(),
                         metadata_file_path: metadata_file.metadata_file_path.clone(),
                         case_idx: CaseIdx::new(case_idx),
                     })),
@@ -77,7 +52,7 @@ pub async fn create_test_definitions_stream<'a>(
             for (platform, node_pool) in platforms_and_nodes.values() {
                 let node = node_pool.round_robbin();
                 let compiler = platform
-                    .new_compiler(context.clone(), mode.version.clone().map(Into::into))
+                    .new_compiler(context.clone(), mode.solc_version.clone().map(Into::into))
                     .await
                     .inspect_err(|err| {
                         error!(
@@ -212,8 +187,8 @@ impl TryFrom<IgnoreCasesConfiguration> for TestCaseIgnoreResolvedConfiguration {
     type Error = anyhow::Error;
 
     fn try_from(value: IgnoreCasesConfiguration) -> Result<Self, Self::Error> {
-        let mut this = Self::default()
-            .with_ignore_cases_with_failing_steps(value.ignore_cases_with_failing_steps);
+        let mut this =
+            Self::default().with_ignore_cases_with_failing_steps(value.cases_with_failing_steps);
 
         this = if let Some(succeeding_cases_from_report) = value.succeeding_cases_from_report {
             let content = read_to_string(succeeding_cases_from_report)
@@ -360,9 +335,7 @@ impl<'a> TestDefinition<'a> {
         };
         let mut is_allowed = true;
         for (_, platform_information) in self.platforms.iter() {
-            let is_allowed_for_platform = platform_information
-                .compiler
-                .supports_mode(self.mode.optimize_setting, self.mode.pipeline);
+            let is_allowed_for_platform = platform_information.compiler.supports_mode(&self.mode);
             is_allowed &= is_allowed_for_platform;
             error_map.insert(
                 platform_information.platform.platform_identifier().into(),
@@ -430,7 +403,7 @@ impl<'a> TestDefinition<'a> {
 
 pub struct TestPlatformInformation<'a> {
     pub platform: &'a dyn Platform,
-    pub node: &'a dyn EthereumNode,
+    pub node: &'a dyn NodeApi,
     pub compiler: Box<dyn SolidityCompiler>,
     pub reporter: ExecutionSpecificReporter,
 }

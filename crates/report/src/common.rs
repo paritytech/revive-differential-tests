@@ -1,11 +1,6 @@
 //! Common types and functions used throughout the crate.
 
-use std::{path::PathBuf, sync::Arc};
-
-use revive_dt_common::{define_wrapper_type, types::PlatformIdentifier};
-use revive_dt_compiler::Mode;
-use revive_dt_format::{case::CaseIdx, steps::StepPath};
-use serde::{Deserialize, Serialize};
+use crate::internal_prelude::*;
 
 define_wrapper_type!(
     #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
@@ -13,10 +8,16 @@ define_wrapper_type!(
     pub struct MetadataFilePath(PathBuf);
 );
 
+impl AsRef<Path> for MetadataFilePath {
+    fn as_ref(&self) -> &Path {
+        self.as_path()
+    }
+}
+
 /// An absolute specifier for a test.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct TestSpecifier {
-    pub solc_mode: Mode,
+    pub compiler_mode: Mode,
     pub metadata_file_path: PathBuf,
     pub case_idx: CaseIdx,
 }
@@ -34,4 +35,20 @@ pub struct ExecutionSpecifier {
 pub struct StepExecutionSpecifier {
     pub execution_specifier: Arc<ExecutionSpecifier>,
     pub step_idx: StepPath,
+}
+
+/// An absolute specifier for pre-link-only compilation.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct PreLinkCompilationSpecifier {
+    pub compiler_mode: Mode,
+    pub metadata_file_path: PathBuf,
+}
+
+/// An absolute specifier for compilation events depending on the context.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub enum CompilationSpecifier {
+    /// Compilation happening as part of test execution.
+    Execution(Arc<ExecutionSpecifier>),
+    /// Pre-link-only compilation happening without test execution.
+    PreLink(Arc<PreLinkCompilationSpecifier>),
 }

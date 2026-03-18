@@ -1,26 +1,7 @@
 //! A wrapper around the compiler which allows for caching of compilation artifacts so that they can
 //! be reused between runs.
 
-use std::{
-    borrow::Cow,
-    collections::HashMap,
-    path::{Path, PathBuf},
-    sync::{Arc, LazyLock},
-};
-
-use futures::FutureExt;
-use revive_dt_common::{iterators::FilesWithExtensionIterator, types::CompilerIdentifier};
-use revive_dt_compiler::{Compiler, CompilerOutput, Mode, SolidityCompiler};
-use revive_dt_core::Platform;
-use revive_dt_format::metadata::{ContractIdent, ContractInstance, Metadata};
-
-use alloy::{hex::ToHexExt, json_abi::JsonAbi, primitives::Address};
-use anyhow::{Context as _, Error, Result};
-use revive_dt_report::ExecutionSpecificReporter;
-use semver::Version;
-use serde::{Deserialize, Serialize};
-use tokio::sync::{Mutex, RwLock, Semaphore};
-use tracing::{Instrument, debug, debug_span, instrument};
+use crate::internal_prelude::*;
 
 pub struct CachedCompiler<'a> {
     /// The cache that stores the compiled contracts.
@@ -55,7 +36,8 @@ impl<'a> CachedCompiler<'a> {
         fields(
             metadata_file_path = %metadata_file_path.display(),
             %mode,
-            platform = %platform.platform_identifier()
+            compiler = %compiler_identifier,
+            platform = ?platform_identifier,
         ),
         err
     )]
@@ -66,14 +48,15 @@ impl<'a> CachedCompiler<'a> {
         mode: Cow<'a, Mode>,
         deployed_libraries: Option<&HashMap<ContractInstance, (ContractIdent, Address, JsonAbi)>>,
         compiler: &dyn SolidityCompiler,
-        platform: &dyn Platform,
-        reporter: &ExecutionSpecificReporter,
+        compiler_identifier: CompilerIdentifier,
+        platform_identifier: Option<PlatformIdentifier>,
+        reporter: &CompilationReporter<'_>,
     ) -> Result<CompilerOutput> {
         let cache_key = CacheKey {
-            compiler_identifier: platform.compiler_identifier(),
+            compiler_identifier,
             compiler_version: compiler.version().clone(),
             metadata_file_path,
-            solc_mode: mode.clone(),
+            compiler_mode: mode.clone(),
         };
 
         let compilation_callback = || {
@@ -98,7 +81,7 @@ impl<'a> CachedCompiler<'a> {
                 cache_key.compiler_identifier = %cache_key.compiler_identifier,
                 cache_key.compiler_version = %cache_key.compiler_version,
                 cache_key.metadata_file_path = %cache_key.metadata_file_path.display(),
-                cache_key.solc_mode = %cache_key.solc_mode,
+                cache_key.compiler_mode = %cache_key.compiler_mode,
             ))
         };
 
@@ -141,27 +124,15 @@ impl<'a> CachedCompiler<'a> {
 
                 match self.artifacts_cache.get(&cache_key).await {
                     Some(cache_value) => {
-                        if deployed_libraries.is_some() {
-                            reporter
-                                .report_post_link_contracts_compilation_succeeded_event(
-                                    compiler.version().clone(),
-                                    compiler.path(),
-                                    true,
-                                    None,
-                                    cache_value.compiler_output.clone(),
-                                )
-                                .expect("Can't happen");
-                        } else {
-                            reporter
-                                .report_pre_link_contracts_compilation_succeeded_event(
-                                    compiler.version().clone(),
-                                    compiler.path(),
-                                    true,
-                                    None,
-                                    cache_value.compiler_output.clone(),
-                                )
-                                .expect("Can't happen");
-                        }
+                        reporter
+                            .report_pre_link_contracts_compilation_succeeded_event(
+                                compiler.version().clone(),
+                                compiler.path(),
+                                true,
+                                None,
+                                cache_value.compiler_output.clone(),
+                            )
+                            .expect("Can't happen");
                         cache_value.compiler_output
                     }
                     None => {
@@ -196,7 +167,7 @@ async fn compile_contracts(
     mode: &Mode,
     deployed_libraries: Option<&HashMap<ContractInstance, (ContractIdent, Address, JsonAbi)>>,
     compiler: &dyn SolidityCompiler,
-    reporter: &ExecutionSpecificReporter,
+    reporter: &CompilationReporter<'_>,
 ) -> Result<CompilerOutput> {
     // Puts a limit on how many compilations we can perform at any given instance which helps us
     // with some of the errors we've been seeing with high concurrency on MacOS (we have not tried
@@ -239,7 +210,10 @@ async fn compile_contracts(
 
     match (output.as_ref(), deployed_libraries.is_some()) {
         (Ok(output), true) => {
-            reporter
+            let CompilationReporter::Execution(exec_reporter) = reporter else {
+                unreachable!();
+            };
+            exec_reporter
                 .report_post_link_contracts_compilation_succeeded_event(
                     compiler.version().clone(),
                     compiler.path(),
@@ -261,7 +235,10 @@ async fn compile_contracts(
                 .expect("Can't happen");
         }
         (Err(err), true) => {
-            reporter
+            let CompilationReporter::Execution(exec_reporter) = reporter else {
+                unreachable!();
+            };
+            exec_reporter
                 .report_post_link_contracts_compilation_failed_event(
                     compiler.version().clone(),
                     compiler.path().to_path_buf(),
@@ -296,13 +273,19 @@ impl ArtifactsCache {
         }
     }
 
-    #[instrument(level = "debug", skip_all, err)]
-    pub async fn with_invalidated_cache(self) -> Result<Self> {
-        cacache::clear(self.path.as_path())
-            .await
-            .map_err(Into::<Error>::into)
-            .with_context(|| format!("Failed to clear cache at {}", self.path.display()))?;
-        Ok(self)
+    pub fn with_invalidated_cache(self) -> FrameworkFuture<Result<Self>> {
+        Box::pin(async move {
+            match cacache::clear(self.path.as_path()).await {
+                Ok(()) => Ok(self),
+                Err(cacache::Error::IoError(err, _))
+                    if err.kind() == std::io::ErrorKind::NotFound =>
+                {
+                    Ok(self)
+                }
+                Err(err) => Err(Into::<Error>::into(err))
+                    .with_context(|| format!("Failed to clear cache at {}", self.path.display())),
+            }
+        })
     }
 
     #[instrument(level = "debug", skip_all, err)]
@@ -339,7 +322,7 @@ struct CacheKey<'a> {
     metadata_file_path: &'a Path,
 
     /// The mode that the compilation artifacts where compiled with.
-    solc_mode: Cow<'a, Mode>,
+    compiler_mode: Cow<'a, Mode>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

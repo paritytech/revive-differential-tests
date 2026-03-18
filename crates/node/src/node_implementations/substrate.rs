@@ -1,56 +1,6 @@
-use std::{
-    fs::{create_dir_all, remove_dir_all},
-    path::{Path, PathBuf},
-    pin::Pin,
-    process::{Command, Stdio},
-    sync::{
-        Arc, Mutex,
-        atomic::{AtomicU32, Ordering},
-    },
-    time::Duration,
-};
+#![allow(dead_code)]
 
-use alloy::{
-    eips::BlockNumberOrTag,
-    genesis::Genesis,
-    network::{Ethereum, EthereumWallet, NetworkWallet},
-    primitives::{Address, BlockHash, BlockNumber, BlockTimestamp, StorageKey, TxHash, U256},
-    providers::{
-        Provider,
-        ext::DebugApi,
-        fillers::{CachedNonceManager, ChainIdFiller, NonceFiller},
-    },
-    rpc::types::{
-        EIP1186AccountProofResponse, TransactionReceipt, TransactionRequest,
-        trace::geth::{
-            DiffMode, GethDebugTracingOptions, GethTrace, PreStateConfig, PreStateFrame,
-        },
-    },
-};
-use anyhow::Context as _;
-use futures::{FutureExt, Stream, StreamExt};
-use revive_common::EVMVersion;
-use revive_dt_common::fs::clear_directory;
-use revive_dt_format::traits::ResolverApi;
-use serde_json::{Value, json};
-use sp_core::crypto::Ss58Codec;
-use sp_runtime::AccountId32;
-
-use revive_dt_config::*;
-use revive_dt_node_interaction::EthereumNode;
-use revive_dt_report::{
-    EthereumMinedBlockInformation, MinedBlockInformation, SubstrateMinedBlockInformation,
-};
-use subxt::{OnlineClient, SubstrateConfig};
-use tokio::sync::OnceCell;
-use tracing::{instrument, trace};
-
-use crate::{
-    Node,
-    constants::INITIAL_BALANCE,
-    helpers::{Process, ProcessReadinessWaitBehavior},
-    provider_utils::{ConcreteProvider, FallbackGasFiller, construct_concurrency_limited_provider},
-};
+use crate::internal_prelude::*;
 
 static NODE_COUNT: AtomicU32 = AtomicU32::new(0);
 
@@ -74,7 +24,8 @@ pub struct SubstrateNode {
     eth_proxy_process: Option<Process>,
     wallet: Arc<EthereumWallet>,
     nonce_manager: CachedNonceManager,
-    provider: OnceCell<ConcreteProvider<Ethereum, Arc<EthereumWallet>>>,
+    provider: Arc<OnceCell<ConcreteProvider<Ethereum, Arc<EthereumWallet>>>>,
+    substrate_provider: Arc<OnceCell<OnlineClient<SubstrateConfig>>>,
     consensus: Option<String>,
     use_fallback_gas_filler: bool,
     node_logging_level: String,
@@ -99,20 +50,18 @@ impl SubstrateNode {
         node_path: PathBuf,
         export_chainspec_command: &str,
         consensus: Option<String>,
-        context: impl AsRef<WorkingDirectoryConfiguration>
-        + AsRef<EthRpcConfiguration>
-        + AsRef<WalletConfiguration>,
+        context: impl HasWorkingDirectoryConfiguration + HasEthRpcConfiguration + HasWalletConfiguration,
         existing_connection_strings: &[String],
         use_fallback_gas_filler: bool,
         node_logging_level: String,
         eth_rpc_logging_level: String,
     ) -> Self {
-        let working_directory_path =
-            AsRef::<WorkingDirectoryConfiguration>::as_ref(&context).as_path();
-        let eth_rpc_path = AsRef::<EthRpcConfiguration>::as_ref(&context)
-            .path
+        let working_directory_path = context
+            .as_working_directory_configuration()
+            .working_directory
             .as_path();
-        let wallet = AsRef::<WalletConfiguration>::as_ref(&context).wallet();
+        let eth_rpc_path = context.as_eth_rpc_configuration().path.as_path();
+        let wallet = context.as_wallet_configuration().wallet();
 
         let substrate_directory = working_directory_path.join(Self::BASE_DIRECTORY);
         let id = NODE_COUNT.fetch_add(1, Ordering::SeqCst);
@@ -137,6 +86,7 @@ impl SubstrateNode {
             wallet: wallet.clone(),
             nonce_manager: Default::default(),
             provider: Default::default(),
+            substrate_provider: Default::default(),
             consensus,
             use_fallback_gas_filler,
             node_logging_level,
@@ -145,7 +95,7 @@ impl SubstrateNode {
     }
 
     fn init(&mut self, _: Genesis) -> anyhow::Result<&mut Self> {
-        static CHAINSPEC_MUTEX: Mutex<Option<Value>> = Mutex::new(None);
+        static CHAINSPEC_MUTEX: StdMutex<Option<Value>> = StdMutex::new(None);
 
         if !self.rpc_url.is_empty() {
             return Ok(self);
@@ -272,6 +222,8 @@ impl SubstrateNode {
                     .arg(format!("ws://127.0.0.1:{substrate_rpc_port}"))
                     .arg("--rpc-max-connections")
                     .arg(u32::MAX.to_string())
+                    .arg("--rpc-max-batch-request-len")
+                    .arg(u32::MAX.to_string())
                     .env("RUST_LOG", self.eth_rpc_logging_level.as_str())
                     .stdout(stdout_file)
                     .stderr(stderr_file);
@@ -295,16 +247,6 @@ impl SubstrateNode {
         }
 
         Ok(())
-    }
-
-    fn eth_to_substrate_address(address: &Address) -> String {
-        let eth_bytes = address.0.0;
-
-        let mut padded = [0xEEu8; 32];
-        padded[..20].copy_from_slice(&eth_bytes);
-
-        let account_id = AccountId32::from(padded);
-        account_id.to_ss58check()
     }
 
     pub fn eth_rpc_version(&self) -> anyhow::Result<String> {
@@ -365,27 +307,14 @@ impl SubstrateNode {
         let mut chainspec_json = serde_json::from_str::<serde_json::Value>(&content)
             .context("Failed to parse Substrate chain spec JSON")?;
 
-        let existing_chainspec_balances =
-            chainspec_json["genesis"]["runtimeGenesis"]["patch"]["balances"]["balances"]
-                .as_array_mut()
-                .expect("Can't fail");
-
         trace!("Adding addresses to chainspec");
-        for address in NetworkWallet::<Ethereum>::signer_addresses(wallet) {
-            let substrate_address = Self::eth_to_substrate_address(&address);
-            let balance = INITIAL_BALANCE;
-            existing_chainspec_balances.push(json!((substrate_address, balance)));
-        }
+        inject_wallet_balances(&mut chainspec_json, wallet)?;
 
         Ok(chainspec_json)
     }
 }
 
-impl EthereumNode for SubstrateNode {
-    fn pre_transactions(&mut self) -> Pin<Box<dyn Future<Output = anyhow::Result<()>> + '_>> {
-        Box::pin(async move { Ok(()) })
-    }
-
+impl NodeApi for SubstrateNode {
     fn id(&self) -> usize {
         self.id as _
     }
@@ -394,361 +323,55 @@ impl EthereumNode for SubstrateNode {
         &self.rpc_url
     }
 
-    fn submit_transaction(
-        &self,
-        transaction: TransactionRequest,
-    ) -> Pin<Box<dyn Future<Output = anyhow::Result<TxHash>> + '_>> {
-        Box::pin(async move {
-            let provider = self
-                .provider()
-                .await
-                .context("Failed to create the provider for transaction submission")?;
-            let pending_transaction = provider
-                .send_transaction(transaction)
-                .await
-                .context("Failed to submit the transaction through the provider")?;
-            Ok(*pending_transaction.tx_hash())
-        })
-    }
-
-    fn get_receipt(
-        &self,
-        tx_hash: TxHash,
-    ) -> Pin<Box<dyn Future<Output = anyhow::Result<TransactionReceipt>> + '_>> {
-        Box::pin(async move {
-            self.provider()
-                .await
-                .context("Failed to create provider for getting the receipt")?
-                .get_transaction_receipt(tx_hash)
-                .await
-                .context("Failed to get the receipt of the transaction")?
-                .context("Failed to get the receipt of the transaction")
-        })
-    }
-
-    fn execute_transaction(
-        &self,
-        transaction: TransactionRequest,
-    ) -> Pin<Box<dyn Future<Output = anyhow::Result<TransactionReceipt>> + '_>> {
-        Box::pin(async move {
-            self.provider()
-                .await
-                .context("Failed to create provider for transaction submission")?
-                .send_transaction(transaction)
-                .await
-                .context("Encountered an error when submitting a transaction")?
-                .get_receipt()
-                .await
-                .context("Failed to get the receipt for the transaction")
-        })
-    }
-
-    fn trace_transaction(
-        &self,
-        tx_hash: TxHash,
-        trace_options: GethDebugTracingOptions,
-    ) -> Pin<Box<dyn Future<Output = anyhow::Result<GethTrace>> + '_>> {
-        Box::pin(async move {
-            self.provider()
-                .await
-                .context("Failed to create provider for debug tracing")?
-                .debug_trace_transaction(tx_hash, trace_options)
-                .await
-                .context("Failed to obtain debug trace from substrate proxy")
-        })
-    }
-
-    fn state_diff(
-        &self,
-        tx_hash: TxHash,
-    ) -> Pin<Box<dyn Future<Output = anyhow::Result<DiffMode>> + '_>> {
-        Box::pin(async move {
-            let trace_options = GethDebugTracingOptions::prestate_tracer(PreStateConfig {
-                diff_mode: Some(true),
-                disable_code: None,
-                disable_storage: None,
-            });
-            match self
-                .trace_transaction(tx_hash, trace_options)
-                .await?
-                .try_into_pre_state_frame()?
-            {
-                PreStateFrame::Diff(diff) => Ok(diff),
-                _ => anyhow::bail!("expected a diff mode trace"),
-            }
-        })
-    }
-
-    fn balance_of(
-        &self,
-        address: Address,
-    ) -> Pin<Box<dyn Future<Output = anyhow::Result<U256>> + '_>> {
-        Box::pin(async move {
-            self.provider()
-                .await
-                .context("Failed to get the substrate provider")?
-                .get_balance(address)
-                .await
-                .map_err(Into::into)
-        })
-    }
-
-    fn latest_state_proof(
-        &self,
-        address: Address,
-        keys: Vec<StorageKey>,
-    ) -> Pin<Box<dyn Future<Output = anyhow::Result<EIP1186AccountProofResponse>> + '_>> {
-        Box::pin(async move {
-            self.provider()
-                .await
-                .context("Failed to get the substrate provider")?
-                .get_proof(address, keys)
-                .latest()
-                .await
-                .map_err(Into::into)
-        })
-    }
-
-    fn resolver(
-        &self,
-    ) -> Pin<Box<dyn Future<Output = anyhow::Result<Arc<dyn ResolverApi + '_>>> + '_>> {
-        Box::pin(async move {
-            let id = self.id;
-            let provider = self.provider().await?;
-            Ok(Arc::new(SubstrateNodeResolver { id, provider }) as Arc<dyn ResolverApi>)
-        })
-    }
-
     fn evm_version(&self) -> EVMVersion {
         EVMVersion::Cancun
     }
 
-    fn subscribe_to_full_blocks_information(
-        &self,
-    ) -> Pin<
-        Box<
-            dyn Future<Output = anyhow::Result<Pin<Box<dyn Stream<Item = MinedBlockInformation>>>>>
-                + '_,
-        >,
-    > {
-        #[subxt::subxt(runtime_metadata_path = "../../assets/revive_metadata.scale")]
-        pub mod revive {}
+    fn provider(&self) -> revive_dt_common::futures::FrameworkFuture<anyhow::Result<DynProvider>> {
+        let provider = self.provider.clone();
+        let connection_string = self.rpc_url.clone();
+        let gas_filler =
+            FallbackGasFiller::default().with_fallback_mechanism(self.use_fallback_gas_filler);
+        let nonce_filler = NonceFiller::new(self.nonce_manager.clone());
+        let wallet = self.wallet.clone();
 
         Box::pin(async move {
-            let substrate_rpc_port = Self::BASE_SUBSTRATE_RPC_PORT + self.id as u16;
-            let substrate_rpc_url = format!("ws://127.0.0.1:{substrate_rpc_port}");
-            let api = OnlineClient::<SubstrateConfig>::from_url(substrate_rpc_url)
-                .await
-                .context("Failed to create subxt rpc client")?;
-            let provider = self.provider().await.context("Failed to create provider")?;
-
-            let block_stream = api
-                .blocks()
-                .subscribe_all()
-                .await
-                .context("Failed to subscribe to blocks")?;
-
-            let mined_block_information_stream = block_stream.filter_map(move |block| {
-                let api = api.clone();
-                let provider = provider.clone();
-
-                async move {
-                    let substrate_block = block.ok()?;
-                    let revive_block = provider
-                        .get_block_by_number(
-                            BlockNumberOrTag::Number(substrate_block.number() as _),
-                        )
-                        .await
-                        .expect("TODO: Remove")
-                        .expect("TODO: Remove");
-
-                    let used = api
-                        .storage()
-                        .at(substrate_block.reference())
-                        .fetch_or_default(&revive::storage().system().block_weight())
-                        .await
-                        .expect("TODO: Remove");
-
-                    let block_ref_time = (used.normal.ref_time as u128)
-                        + (used.operational.ref_time as u128)
-                        + (used.mandatory.ref_time as u128);
-                    let block_proof_size = (used.normal.proof_size as u128)
-                        + (used.operational.proof_size as u128)
-                        + (used.mandatory.proof_size as u128);
-
-                    let limits = api
-                        .constants()
-                        .at(&revive::constants().system().block_weights())
-                        .expect("TODO: Remove");
-
-                    let max_ref_time = limits.max_block.ref_time;
-                    let max_proof_size = limits.max_block.proof_size;
-
-                    Some(MinedBlockInformation {
-                        ethereum_block_information: EthereumMinedBlockInformation {
-                            block_number: revive_block.number(),
-                            block_timestamp: revive_block.header.timestamp,
-                            mined_gas: revive_block.header.gas_used as _,
-                            block_gas_limit: revive_block.header.gas_limit as _,
-                            transaction_hashes: revive_block
-                                .transactions
-                                .into_hashes()
-                                .as_hashes()
-                                .expect("Must be hashes")
-                                .to_vec(),
-                        },
-                        substrate_block_information: Some(SubstrateMinedBlockInformation {
-                            ref_time: block_ref_time,
-                            max_ref_time,
-                            proof_size: block_proof_size,
-                            max_proof_size,
-                        }),
-                        tx_counts: Default::default(),
-                    })
-                }
-            });
-
-            Ok(Box::pin(mined_block_information_stream)
-                as Pin<Box<dyn Stream<Item = MinedBlockInformation>>>)
-        })
-    }
-
-    fn provider(
-        &self,
-    ) -> Pin<Box<dyn Future<Output = anyhow::Result<alloy::providers::DynProvider<Ethereum>>> + '_>>
-    {
-        Box::pin(
-            self.provider()
-                .map(|provider| provider.map(|provider| provider.erased())),
-        )
-    }
-}
-
-pub struct SubstrateNodeResolver {
-    id: u32,
-    provider: ConcreteProvider<Ethereum, Arc<EthereumWallet>>,
-}
-
-impl ResolverApi for SubstrateNodeResolver {
-    #[instrument(level = "info", skip_all, fields(substrate_node_id = self.id))]
-    fn chain_id(
-        &self,
-    ) -> Pin<Box<dyn Future<Output = anyhow::Result<alloy::primitives::ChainId>> + '_>> {
-        Box::pin(async move { self.provider.get_chain_id().await.map_err(Into::into) })
-    }
-
-    #[instrument(level = "info", skip_all, fields(substrate_node_id = self.id))]
-    fn transaction_gas_price(
-        &self,
-        tx_hash: TxHash,
-    ) -> Pin<Box<dyn Future<Output = anyhow::Result<u128>> + '_>> {
-        Box::pin(async move {
-            self.provider
-                .get_transaction_receipt(tx_hash)
-                .await?
-                .context("Failed to get the transaction receipt")
-                .map(|receipt| receipt.effective_gas_price)
-        })
-    }
-
-    #[instrument(level = "info", skip_all, fields(substrate_node_id = self.id))]
-    fn block_gas_limit(
-        &self,
-        number: BlockNumberOrTag,
-    ) -> Pin<Box<dyn Future<Output = anyhow::Result<u128>> + '_>> {
-        Box::pin(async move {
-            self.provider
-                .get_block_by_number(number)
-                .await
-                .context("Failed to get the substrate block")?
-                .context("Failed to get the substrate block, perhaps the chain has no blocks?")
-                .map(|block| block.header.gas_limit as _)
-        })
-    }
-
-    #[instrument(level = "info", skip_all, fields(substrate_node_id = self.id))]
-    fn block_coinbase(
-        &self,
-        number: BlockNumberOrTag,
-    ) -> Pin<Box<dyn Future<Output = anyhow::Result<Address>> + '_>> {
-        Box::pin(async move {
-            self.provider
-                .get_block_by_number(number)
-                .await
-                .context("Failed to get the substrate block")?
-                .context("Failed to get the substrate block, perhaps the chain has no blocks?")
-                .map(|block| block.header.beneficiary)
-        })
-    }
-
-    #[instrument(level = "info", skip_all, fields(substrate_node_id = self.id))]
-    fn block_difficulty(
-        &self,
-        number: BlockNumberOrTag,
-    ) -> Pin<Box<dyn Future<Output = anyhow::Result<U256>> + '_>> {
-        Box::pin(async move {
-            self.provider
-                .get_block_by_number(number)
-                .await
-                .context("Failed to get the substrate block")?
-                .context("Failed to get the substrate block, perhaps the chain has no blocks?")
-                .map(|block| U256::from_be_bytes(block.header.mix_hash.0))
-        })
-    }
-
-    #[instrument(level = "info", skip_all, fields(substrate_node_id = self.id))]
-    fn block_base_fee(
-        &self,
-        number: BlockNumberOrTag,
-    ) -> Pin<Box<dyn Future<Output = anyhow::Result<u64>> + '_>> {
-        Box::pin(async move {
-            self.provider
-                .get_block_by_number(number)
-                .await
-                .context("Failed to get the substrate block")?
-                .context("Failed to get the substrate block, perhaps the chain has no blocks?")
-                .and_then(|block| {
-                    block
-                        .header
-                        .base_fee_per_gas
-                        .context("Failed to get the base fee per gas")
+            provider
+                .get_or_try_init(|| async move {
+                    construct_concurrency_limited_provider::<Ethereum, _>(
+                        &connection_string,
+                        gas_filler,
+                        ChainIdFiller::default(),
+                        nonce_filler,
+                        wallet,
+                    )
+                    .await
+                    .context("Failed to construct the provider")
                 })
-        })
-    }
-
-    #[instrument(level = "info", skip_all, fields(substrate_node_id = self.id))]
-    fn block_hash(
-        &self,
-        number: BlockNumberOrTag,
-    ) -> Pin<Box<dyn Future<Output = anyhow::Result<BlockHash>> + '_>> {
-        Box::pin(async move {
-            self.provider
-                .get_block_by_number(number)
                 .await
-                .context("Failed to get the substrate block")?
-                .context("Failed to get the substrate block, perhaps the chain has no blocks?")
-                .map(|block| block.header.hash)
+                .map(|provider| provider.clone().erased())
         })
     }
 
-    #[instrument(level = "info", skip_all, fields(substrate_node_id = self.id))]
-    fn block_timestamp(
+    fn substrate_provider(
         &self,
-        number: BlockNumberOrTag,
-    ) -> Pin<Box<dyn Future<Output = anyhow::Result<BlockTimestamp>> + '_>> {
-        Box::pin(async move {
-            self.provider
-                .get_block_by_number(number)
-                .await
-                .context("Failed to get the substrate block")?
-                .context("Failed to get the substrate block, perhaps the chain has no blocks?")
-                .map(|block| block.header.timestamp)
-        })
-    }
+    ) -> Option<
+        revive_dt_common::futures::FrameworkFuture<anyhow::Result<OnlineClient<SubstrateConfig>>>,
+    > {
+        let provider = self.substrate_provider.clone();
+        let substrate_rpc_port = Self::BASE_SUBSTRATE_RPC_PORT + self.id as u16;
+        let connection_string = format!("ws://127.0.0.1:{substrate_rpc_port}");
 
-    #[instrument(level = "info", skip_all, fields(substrate_node_id = self.id))]
-    fn last_block_number(&self) -> Pin<Box<dyn Future<Output = anyhow::Result<BlockNumber>> + '_>> {
-        Box::pin(async move { self.provider.get_block_number().await.map_err(Into::into) })
+        Some(Box::pin(async move {
+            provider
+                .get_or_try_init(|| async move {
+                    OnlineClient::from_url(connection_string)
+                        .await
+                        .context("Failed to create a new online client")
+                })
+                .await
+                .cloned()
+        }))
     }
 }
 
@@ -797,14 +420,16 @@ mod tests {
 
     use std::fs;
 
+    use alloy::primitives::U256;
+
     use super::*;
     use crate::Node;
 
-    fn test_config() -> TestExecutionContext {
-        TestExecutionContext::default()
+    fn test_config() -> Test {
+        Test::default()
     }
 
-    fn new_node() -> (TestExecutionContext, SubstrateNode) {
+    fn new_node() -> (Test, SubstrateNode) {
         // Note: When we run the tests in the CI we found that if they're all
         // run in parallel then the CI is unable to start all of the nodes in
         // time and their start up times-out. Therefore, we want all of the
@@ -824,25 +449,27 @@ mod tests {
         let _guard = NODE_START_MUTEX.lock().unwrap();
 
         let context = test_config();
+        let revive_dev_node_path = context.revive_dev_node.path.clone();
+        let genesis = context.genesis.genesis().unwrap().clone();
         let mut node = SubstrateNode::new(
-            context.revive_dev_node_configuration.path.clone(),
+            revive_dev_node_path,
             SubstrateNode::REVIVE_DEV_NODE_EXPORT_CHAINSPEC_COMMAND,
             None,
-            &context,
+            context.clone(),
             &[],
             true,
             "".to_string(),
             "".to_string(),
         );
-        node.init(context.genesis_configuration.genesis().unwrap().clone())
+        node.init(genesis)
             .expect("Failed to initialize the node")
             .spawn_process()
             .expect("Failed to spawn the node process");
         (context, node)
     }
 
-    fn shared_state() -> &'static (TestExecutionContext, SubstrateNode) {
-        static STATE: LazyLock<(TestExecutionContext, SubstrateNode)> = LazyLock::new(new_node);
+    fn shared_state() -> &'static (Test, SubstrateNode) {
+        static STATE: LazyLock<(Test, SubstrateNode)> = LazyLock::new(new_node);
         &STATE
     }
 
@@ -858,11 +485,7 @@ mod tests {
 
         let provider = node.provider().await.expect("Failed to create provider");
 
-        let account_address = context
-            .wallet_configuration
-            .wallet()
-            .default_signer()
-            .address();
+        let account_address = context.wallet.wallet().default_signer().address();
         let transaction = TransactionRequest::default()
             .to(account_address)
             .value(U256::from(100_000_000_000_000u128));
@@ -898,11 +521,12 @@ mod tests {
         "#;
 
         let context = test_config();
+        let revive_dev_node_path = context.revive_dev_node.path.clone();
         let mut dummy_node = SubstrateNode::new(
-            context.revive_dev_node_configuration.path.clone(),
+            revive_dev_node_path,
             SubstrateNode::REVIVE_DEV_NODE_EXPORT_CHAINSPEC_COMMAND,
             None,
-            &context,
+            context,
             &[],
             true,
             "".to_string(),
@@ -923,10 +547,10 @@ mod tests {
         let contents = fs::read_to_string(&final_chainspec_path).expect("Failed to read chainspec");
 
         // Validate that the Substrate addresses derived from the Ethereum addresses are in the file
-        let first_eth_addr = SubstrateNode::eth_to_substrate_address(
+        let first_eth_addr = crate::helpers::eth_to_polkadot_address(
             &"90F8bf6A479f320ead074411a4B0e7944Ea8c9C1".parse().unwrap(),
         );
-        let second_eth_addr = SubstrateNode::eth_to_substrate_address(
+        let second_eth_addr = crate::helpers::eth_to_polkadot_address(
             &"Ab8483F64d9C6d1EcF9b849Ae677dD3315835cb2".parse().unwrap(),
         );
 
@@ -938,53 +562,6 @@ mod tests {
             contents.contains(&second_eth_addr),
             "Chainspec should contain Substrate address for second Ethereum account"
         );
-    }
-
-    #[test]
-    #[ignore = "Ignored since they take a long time to run"]
-    fn print_eth_to_substrate_mappings() {
-        let eth_addresses = vec![
-            "0x90F8bf6A479f320ead074411a4B0e7944Ea8c9C1",
-            "0xffffffffffffffffffffffffffffffffffffffff",
-            "90F8bf6A479f320ead074411a4B0e7944Ea8c9C1",
-        ];
-
-        for eth_addr in eth_addresses {
-            let ss58 = SubstrateNode::eth_to_substrate_address(&eth_addr.parse().unwrap());
-
-            println!("Ethereum: {eth_addr} -> Substrate SS58: {ss58}");
-        }
-    }
-
-    #[test]
-    #[ignore = "Ignored since they take a long time to run"]
-    fn test_eth_to_substrate_address() {
-        let cases = vec![
-            (
-                "0x90F8bf6A479f320ead074411a4B0e7944Ea8c9C1",
-                "5FLneRcWAfk3X3tg6PuGyLNGAquPAZez5gpqvyuf3yUK8VaV",
-            ),
-            (
-                "90F8bf6A479f320ead074411a4B0e7944Ea8c9C1",
-                "5FLneRcWAfk3X3tg6PuGyLNGAquPAZez5gpqvyuf3yUK8VaV",
-            ),
-            (
-                "0x0000000000000000000000000000000000000000",
-                "5C4hrfjw9DjXZTzV3MwzrrAr9P1MLDHajjSidz9bR544LEq1",
-            ),
-            (
-                "0xffffffffffffffffffffffffffffffffffffffff",
-                "5HrN7fHLXWcFiXPwwtq2EkSGns9eMmoUQnbVKweNz3VVr6N4",
-            ),
-        ];
-
-        for (eth_addr, expected_ss58) in cases {
-            let result = SubstrateNode::eth_to_substrate_address(&eth_addr.parse().unwrap());
-            assert_eq!(
-                result, expected_ss58,
-                "Mismatch for Ethereum address {eth_addr}"
-            );
-        }
     }
 
     #[test]
@@ -1011,122 +588,5 @@ mod tests {
             version.starts_with("pallet-revive-eth-rpc"),
             "Expected eth-rpc version string, got: {version}"
         );
-    }
-
-    #[tokio::test]
-    #[ignore = "Ignored since they take a long time to run"]
-    async fn can_get_chain_id_from_node() {
-        // Arrange
-        let node = shared_node();
-
-        // Act
-        let chain_id = node.resolver().await.unwrap().chain_id().await;
-
-        // Assert
-        let chain_id = chain_id.expect("Failed to get the chain id");
-        assert_eq!(chain_id, 420_420_420);
-    }
-
-    #[tokio::test]
-    #[ignore = "Ignored since they take a long time to run"]
-    async fn can_get_gas_limit_from_node() {
-        // Arrange
-        let node = shared_node();
-
-        // Act
-        let gas_limit = node
-            .resolver()
-            .await
-            .unwrap()
-            .block_gas_limit(BlockNumberOrTag::Latest)
-            .await;
-
-        // Assert
-        let _ = gas_limit.expect("Failed to get the gas limit");
-    }
-
-    #[tokio::test]
-    #[ignore = "Ignored since they take a long time to run"]
-    async fn can_get_coinbase_from_node() {
-        // Arrange
-        let node = shared_node();
-
-        // Act
-        let coinbase = node
-            .resolver()
-            .await
-            .unwrap()
-            .block_coinbase(BlockNumberOrTag::Latest)
-            .await;
-
-        // Assert
-        let _ = coinbase.expect("Failed to get the coinbase");
-    }
-
-    #[tokio::test]
-    #[ignore = "Ignored since they take a long time to run"]
-    async fn can_get_block_difficulty_from_node() {
-        // Arrange
-        let node = shared_node();
-
-        // Act
-        let block_difficulty = node
-            .resolver()
-            .await
-            .unwrap()
-            .block_difficulty(BlockNumberOrTag::Latest)
-            .await;
-
-        // Assert
-        let _ = block_difficulty.expect("Failed to get the block difficulty");
-    }
-
-    #[tokio::test]
-    #[ignore = "Ignored since they take a long time to run"]
-    async fn can_get_block_hash_from_node() {
-        // Arrange
-        let node = shared_node();
-
-        // Act
-        let block_hash = node
-            .resolver()
-            .await
-            .unwrap()
-            .block_hash(BlockNumberOrTag::Latest)
-            .await;
-
-        // Assert
-        let _ = block_hash.expect("Failed to get the block hash");
-    }
-
-    #[tokio::test]
-    #[ignore = "Ignored since they take a long time to run"]
-    async fn can_get_block_timestamp_from_node() {
-        // Arrange
-        let node = shared_node();
-
-        // Act
-        let block_timestamp = node
-            .resolver()
-            .await
-            .unwrap()
-            .block_timestamp(BlockNumberOrTag::Latest)
-            .await;
-
-        // Assert
-        let _ = block_timestamp.expect("Failed to get the block timestamp");
-    }
-
-    #[tokio::test]
-    #[ignore = "Ignored since they take a long time to run"]
-    async fn can_get_block_number_from_node() {
-        // Arrange
-        let node = shared_node();
-
-        // Act
-        let block_number = node.resolver().await.unwrap().last_block_number().await;
-
-        // Assert
-        let _ = block_number.expect("Failed to get the block number");
     }
 }

@@ -1,16 +1,4 @@
-use std::sync::LazyLock;
-
-use alloy::{
-    network::{Network, NetworkWallet, TransactionBuilder4844},
-    providers::{
-        Identity, ProviderBuilder, RootProvider,
-        fillers::{ChainIdFiller, FillProvider, JoinFill, NonceFiller, TxFiller, WalletFiller},
-    },
-    rpc::client::ClientBuilder,
-};
-use anyhow::{Context, Result};
-
-use crate::provider_utils::{ConcurrencyLimiterLayer, FallbackGasFiller, RetryLayer};
+use crate::internal_prelude::*;
 
 pub type ConcreteProvider<N, W> = FillProvider<
     JoinFill<
@@ -42,11 +30,12 @@ where
     // requests at any point of time and no more than that. This is done in an effort to stabilize
     // the framework from some of the interment issues that we've been seeing related to RPC calls.
     static GLOBAL_CONCURRENCY_LIMITER_LAYER: LazyLock<ConcurrencyLimiterLayer> =
-        LazyLock::new(|| ConcurrencyLimiterLayer::new(500));
+        LazyLock::new(|| ConcurrencyLimiterLayer::new(1_500));
 
     let client = ClientBuilder::default()
-        .layer(GLOBAL_CONCURRENCY_LIMITER_LAYER.clone())
         .layer(RetryLayer::default())
+        .layer(BatchingLayer::new().with_max_batch_size(1000usize))
+        .layer(GLOBAL_CONCURRENCY_LIMITER_LAYER.clone())
         .connect(rpc_url)
         .await
         .context("Failed to construct the RPC client")?;

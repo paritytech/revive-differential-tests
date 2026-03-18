@@ -10,6 +10,7 @@ rust-version.workspace = true
 
 [dependencies]
 revive-dt-common = { workspace = true }
+revive-dt-proc-macros = { workspace = true }
 
 alloy = { workspace = true }
 anyhow = { workspace = true }
