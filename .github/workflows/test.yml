@@ -73,6 +73,10 @@ jobs:
         uses: actions-rust-lang/setup-rust-toolchain@v1
       - name: Install the Cargo Make Binary
         uses: davidB/rust-cargo-make@v1
+      - name: Install Needed Dependencies
+        run: |
+          apt-get update
+          apt-get install -y build-essential pkg-config libssl-dev protobuf-compiler llvm clang libclang-dev
       - name: Run Cargo Clippy
         run: cargo make clippy
   test:
