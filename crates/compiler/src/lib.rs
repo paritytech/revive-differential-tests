@@ -17,16 +17,16 @@ pub mod prelude {
     pub use crate::{Mode, ModeOptimizerSetting, ModePipeline};
 }
 
-/// Resolves a compiler output source path to an absolute, canonicalized filesystem path.
+/// Resolves a compiler output source path to an absolute, canonicalized file system path.
 ///
 /// If `base_path` is `Some` and `path` is relative, joins it with the base before canonicalizing.
 /// This is needed if the input source paths have been normalized to relative paths.
 pub fn resolve_output_source_path(path: &Path, base_path: Option<&Path>) -> Result<PathBuf> {
-    let absolute_path = match base_path {
+    let path_buf = match base_path {
         Some(base) if !path.is_absolute() => base.join(path),
-        _ => path.to_path_buf(),
+        Some(_) | None => path.to_path_buf(),
     };
-    absolute_path
+    path_buf
         .canonicalize()
         .with_context(|| format!("Failed to canonicalize path {}", path.display()))
 }
