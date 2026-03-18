@@ -287,8 +287,6 @@ impl PolkadotOmnichainNode {
                     .arg("--node-rpc-url")
                     .arg(format!("ws://127.0.0.1:{polkadot_omnichain_node_rpc_port}"))
                     .arg("--rpc-max-connections")
-                    .arg(u32::MAX.to_string())
-                    .arg("--prune")
                     .arg(NUMBER_OF_CACHED_BLOCKS.to_string())
                     .env("RUST_LOG", self.eth_rpc_logging_level.as_str())
                     .stdout(stdout_file)
