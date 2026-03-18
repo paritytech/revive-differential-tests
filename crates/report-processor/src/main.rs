@@ -185,11 +185,17 @@ fn main() -> Result<()> {
                                 .extend(exec_report.mined_block_information.clone());
 
                             for (path, contracts) in &exec_report.compiled_contracts {
-                                merged_exec
+                                let merged_contracts = merged_exec
                                     .compiled_contracts
                                     .entry(path.clone())
-                                    .or_default()
-                                    .extend(contracts.clone());
+                                    .or_default();
+                                for (name, info) in contracts {
+                                    merged_contracts
+                                        .entry(name.clone())
+                                        .or_default()
+                                        .contract_size
+                                        .extend(info.contract_size.clone());
+                                }
                             }
 
                             for (instance, platforms) in &exec_report.contract_addresses {
