@@ -348,7 +348,7 @@ fn subscribe_to_full_blocks_information_substrate(
             .await
             .context("Failed to subscribe to the finalized blocks")?
             .filter_map(|block| futures::future::ready(block.ok()))
-            .map(move |substrate_block| {
+            .then(move |substrate_block| {
                 let provider = provider.clone();
                 let substrate_provider = substrate_provider.clone();
                 let observed_best_blocks = observed_any_blocks.clone();
@@ -374,6 +374,9 @@ fn subscribe_to_full_blocks_information_substrate(
                         block.hash = ?substrate_block.hash(),
                         "Observed a new finalized block"
                     );
+                    let substrate_block_number = substrate_block.number();
+                    let substrate_block_hash = substrate_block.hash();
+                    drop(substrate_block);
 
                     // Obtain the equivalent block to this block from the revive-eth-rpc. We do some
                     // polling logic here in order to ensure that if the rpc is yet to catch up we
@@ -384,7 +387,7 @@ fn subscribe_to_full_blocks_information_substrate(
                             interval.tick().await;
                             let result = provider
                                 .get_block_by_number(alloy::eips::BlockNumberOrTag::Number(
-                                    substrate_block.number() as _,
+                                    substrate_block_number as _,
                                 ))
                                 .await;
                             if let Ok(Some(block)) = result {
@@ -401,7 +404,7 @@ fn subscribe_to_full_blocks_information_substrate(
 
                             let result = substrate_provider
                                 .storage()
-                                .at(substrate_block.reference())
+                                .at(substrate_block_hash)
                                 .fetch_or_default(
                                     &revive_metadata::storage().system().block_weight(),
                                 )
@@ -441,14 +444,13 @@ fn subscribe_to_full_blocks_information_substrate(
                             max_ref_time,
                             proof_size: block_proof_size,
                             max_proof_size,
-                            block_hash: substrate_block.hash().0,
+                            block_hash: substrate_block_hash.0,
                         }),
                         tx_counts: Default::default(),
                         observation_time,
                     }
                 }
-            })
-            .buffered(20);
+            });
 
         Ok(Box::pin(SubstrateSubscriptionStream {
             stream: Box::pin(stream),
