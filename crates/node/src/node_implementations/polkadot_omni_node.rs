@@ -47,7 +47,7 @@ pub struct PolkadotOmnichainNode {
     /// The provider used for all RPC interactions with the RPC of this node.
     provider: Arc<OnceCell<ConcreteProvider<Ethereum, Arc<EthereumWallet>>>>,
     /// The provider used for the substrate rpc.
-    substrate_provider: Arc<OnceCell<OnlineClient<SubstrateConfig>>>,
+    substrate_provider: Arc<OnceCell<OnlineClient<PolkadotConfig>>>,
 
     /// A boolean that controls if the fallback gas filler should be used or not.
     use_fallback_gas_filler: bool,
@@ -354,7 +354,7 @@ impl NodeApi for PolkadotOmnichainNode {
     fn substrate_provider(
         &self,
     ) -> Option<
-        revive_dt_common::futures::FrameworkFuture<anyhow::Result<OnlineClient<SubstrateConfig>>>,
+        revive_dt_common::futures::FrameworkFuture<anyhow::Result<OnlineClient<PolkadotConfig>>>,
     > {
         let provider = self.substrate_provider.clone();
         let substrate_rpc_port = Self::BASE_POLKADOT_OMNICHAIN_NODE_RPC_PORT + self.id as u16;

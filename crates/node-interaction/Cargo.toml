@@ -17,6 +17,7 @@ alloy = { workspace = true }
 anyhow = { workspace = true }
 futures = { workspace = true }
 subxt = { workspace = true }
+serde_json = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
 

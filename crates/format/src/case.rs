@@ -116,6 +116,7 @@ impl Case {
                 Step::StorageEmptyAssertion(..) => None,
                 Step::Repeat(..) => None,
                 Step::AllocateAccount(..) => None,
+                Step::Transfer(step) => step.from.as_address().copied(),
             })
             .next()
             .unwrap_or(FunctionCallStep::default_caller_address())

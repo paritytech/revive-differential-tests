@@ -251,13 +251,13 @@ where
         // than including the actual bytecode. This creates a problem where a factory contract could
         // be deployed but the code it's supposed to create is not on chain. Therefore, we upload
         // all the code to the chain prior to running any transactions on the driver.
-        if platform_information.platform.vm_identifier() == VmIdentifier::PolkaVM {
-            #[subxt::subxt(runtime_metadata_path = "../../assets/revive_metadata.scale")]
-            pub mod revive {}
-
-            let metadata_bytes = include_bytes!("../../../../assets/revive_metadata.scale");
-            let metadata = SubxtMetadata::decode(&mut &metadata_bytes[..])
-                .context("Failed to decode the revive metadata")?;
+        if let Some(substrate_provider_fut) = platform_information.node.substrate_provider()
+            && platform_information.platform.vm_identifier() == VmIdentifier::PolkaVM
+        {
+            let substrate_client = substrate_provider_fut
+                .await
+                .context("Failed to connect to the substrate node")?;
+            let metadata = substrate_client.metadata();
 
             const RUNTIME_PALLET_ADDRESS: Address =
                 address!("0x6d6f646c70792f70616464720000000000000000");
@@ -271,8 +271,15 @@ where
                     async move {
                         let code = alloy::hex::decode(code_string)
                             .context("Failed to hex-decode the post-link code. This is a bug")?;
-                        let payload = revive::tx().revive().upload_code(code, u128::MAX);
-                        let encoded_payload = payload
+                        let upload_call = subxt::dynamic::tx(
+                            "Revive",
+                            "upload_code",
+                            vec![
+                                subxt::dynamic::Value::from_bytes(code),
+                                subxt::dynamic::Value::u128(u128::MAX),
+                            ],
+                        );
+                        let encoded_payload = upload_call
                             .encode_call_data(&metadata)
                             .context("Failed to encode the upload code payload")?;
 
@@ -350,6 +357,10 @@ where
                 .execute_account_allocation(step_path, step.as_ref())
                 .await
                 .context("Account Allocation Step Failed"),
+            Step::Transfer(step) => self
+                .execute_transfer(step_path, step.as_ref())
+                .await
+                .context("Transfer Step Failed"),
         }
         .context(format!("Failure on step {step_path}"))?;
         self.steps_executed += steps_executed;
@@ -384,6 +395,34 @@ where
         self.handle_function_call_assertions(step, &execution_receipt, &tracing_result)
             .await
             .context("Failed to handle function call assertions")?;
+        Ok(1)
+    }
+
+    #[instrument(level = "info", skip_all)]
+    pub async fn execute_transfer(&mut self, _: &StepPath, step: &TransferStep) -> Result<usize> {
+        let context = self.default_resolution_context();
+        let from = step
+            .from
+            .resolve_address(self.platform_information.node, context)
+            .await
+            .context("Failed to resolve transfer sender")?;
+        let to = step
+            .to
+            .resolve_address(self.platform_information.node, context)
+            .await
+            .context("Failed to resolve transfer recipient")?;
+        let tx = TransactionRequest::default()
+            .from(from)
+            .to(to)
+            .value(step.amount.into_inner());
+        let receipt = self
+            .platform_information
+            .node
+            .execute_transaction(tx)
+            .await?;
+        if !receipt.status() {
+            anyhow::bail!("Transfer transaction failed {receipt:?}");
+        }
         Ok(1)
     }
 
