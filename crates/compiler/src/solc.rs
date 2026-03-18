@@ -107,7 +107,14 @@ impl SolidityCompiler for Solc {
                 sources: Sources(
                     sources
                         .into_iter()
-                        .map(|(source_path, source_code)| (source_path, Source::new(source_code)))
+                        .map(|(source_path, source_code)| {
+                            (
+                                PathBuf::from(
+                                    normalize_path(&source_path, base_path.as_deref()).unwrap(),
+                                ),
+                                Source::new(source_code),
+                            )
+                        })
                         .collect(),
                 ),
                 settings: Settings {
@@ -133,7 +140,9 @@ impl SolidityCompiler for Solc {
                             .into_iter()
                             .map(|(file_path, libraries)| {
                                 (
-                                    file_path,
+                                    PathBuf::from(
+                                        normalize_path(&file_path, base_path.as_deref()).unwrap(),
+                                    ),
                                     libraries
                                         .into_iter()
                                         .map(|(library_name, library_address)| {
@@ -233,12 +242,10 @@ impl SolidityCompiler for Solc {
             for (contract_path, contracts) in parsed.contracts {
                 let contracts_at_path = compiler_output
                     .contracts
-                    .entry(contract_path.canonicalize().with_context(|| {
-                        format!(
-                            "Failed to canonicalize contract path {}",
-                            contract_path.display()
-                        )
-                    })?)
+                    .entry(resolve_output_source_path(
+                        &contract_path,
+                        base_path.as_deref(),
+                    )?)
                     .or_default();
                 for (contract_name, contract_info) in contracts.into_iter() {
                     let source_code = contract_info

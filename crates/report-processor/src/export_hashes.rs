@@ -2,6 +2,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 
 use anyhow::{Result, bail};
+use revive_dt_common::fs::normalize_path;
 #[allow(unused_imports, reason = "only used in documentation")]
 use revive_dt_common::types::Mode;
 use revive_dt_config::Context;
@@ -110,7 +111,7 @@ fn populate_hashes(
     contracts_base_dir: &Path,
 ) -> Result<()> {
     for (source_path, contracts_info_at_path) in compiled_contracts_info {
-        let normalized_path = normalize_path(source_path, contracts_base_dir)?;
+        let normalized_path = normalize_path(source_path, Some(contracts_base_dir))?;
 
         for (contract_name, contract_info) in contracts_info_at_path {
             hashes
@@ -126,110 +127,4 @@ fn populate_hashes(
     }
 
     Ok(())
-}
-
-/// Converts `path` to a relative path from the base directory and normalizes it with forward slashes.
-/// This ensures that the normalized path added as part of the hash data is consistent, and thus
-/// comparable, across platforms. It should thereby not be used to access the filesystem.
-///
-/// Example:
-/// ```
-/// path            = "/home/runner/work/contracts/solidity/simple/loop.sol"
-/// base_dir        = "/home/runner/work/contracts"
-/// normalized path = "solidity/simple/loop.sol"
-/// ```
-///
-/// Example:
-/// ```
-/// path            = "C:\\Users\\runner\\work\\contracts\\solidity\\simple\\loop.sol"
-/// base_dir        = "C:\\Users\\runner\\work\\contracts"
-/// normalized path = "solidity/simple/loop.sol"
-/// ```
-fn normalize_path(path: &Path, base_dir: &Path) -> Result<String> {
-    // In order to be able to unit test Windows paths on non-Windows machines, string-based
-    // prefix stripping is used here rather than `Path::strip_prefix()` because the
-    // latter compares path components, and component parsing is platform-dependent
-    // (on Unix, backslashes are not treated as separators).
-
-    let path_string = path.to_string_lossy().replace('\\', "/");
-    let base_string = format!(
-        // Ensure base ends with `/` so only complete directory components are matched.
-        // E.g. '/home/runner/fixtures' is not seen as a base dir of '/home/runner/fixturesABC/file.sol'.
-        "{}/",
-        base_dir
-            .to_string_lossy()
-            .replace('\\', "/")
-            .trim_end_matches('/')
-    );
-    let Some(normalized) = path_string.strip_prefix(&base_string) else {
-        bail!(
-            "'{}' is not a base directory of path '{}'",
-            base_dir.display(),
-            path.display(),
-        )
-    };
-
-    Ok(normalized.to_string())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn normalize_paths() {
-        let normalized_unix_path = normalize_path(
-            Path::new("/home/runner/fixtures/solidity/simple/default.sol"),
-            Path::new("/home/runner/fixtures"),
-        )
-        .unwrap();
-        let normalized_windows_path = normalize_path(
-            Path::new("C:\\Users\\runner\\fixtures\\solidity\\simple\\default.sol"),
-            Path::new("C:\\Users\\runner\\fixtures"),
-        )
-        .unwrap();
-
-        assert_eq!(normalized_unix_path, normalized_windows_path);
-        assert_eq!(normalized_unix_path, "solidity/simple/default.sol");
-    }
-
-    #[test]
-    fn normalize_path_trailing_slash() {
-        assert_eq!(
-            normalize_path(
-                Path::new("/home/runner/fixtures/solidity/simple/default.sol"),
-                Path::new("/home/runner/fixtures/")
-            )
-            .unwrap(),
-            "solidity/simple/default.sol"
-        );
-    }
-
-    #[test]
-    fn normalize_path_invalid_base_dir() {
-        let error = normalize_path(
-            Path::new("/other/path/file.sol"),
-            Path::new("/home/runner/fixtures"),
-        )
-        .unwrap_err()
-        .to_string();
-
-        assert!(error.contains(
-            "'/home/runner/fixtures' is not a base directory of path '/other/path/file.sol'"
-        ));
-    }
-
-    #[test]
-    fn normalize_path_invalid_partial_base_dir() {
-        let error = normalize_path(
-            Path::new("/home/runner/fixturesABC/file.sol"),
-            Path::new("/home/runner/fixtures"),
-        )
-        .unwrap_err()
-        .to_string();
-
-        assert!(error.contains(
-            "'/home/runner/fixtures' is not a base directory of path '/home/runner/fixturesABC/file.sol'"
-        ));
-    }
 }

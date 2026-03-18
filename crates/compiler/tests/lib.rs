@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
+#[allow(unused_imports, reason = "only used in documentation")]
+use revive_dt_common::fs::normalize_path;
 use revive_dt_common::types::VersionOrRequirement;
 use revive_dt_compiler::{
     Compiler, ModeOptimizerLevel, ModeOptimizerSetting, revive_resolc::Resolc, solc::Solc,
@@ -145,4 +147,64 @@ async fn bytecode_differs_across_optimization_modes() {
         bytecodes.insert(bytecode.clone(), level);
     }
     assert_eq!(bytecodes.len(), 3);
+}
+
+/// Asserts that compiling a contract that calls an external library from two
+/// different absolute paths produces identical bytecode when `base_path` is set.
+/// See [`normalize_path`] for why this matters.
+#[tokio::test]
+async fn bytecode_is_identical_across_base_paths_when_calling_library() {
+    let args = Test::default();
+    let resolc = Resolc::new(
+        args.clone(),
+        VersionOrRequirement::Version(Version::new(0, 8, 30)),
+    )
+    .await
+    .unwrap();
+
+    let fixture_directory = PathBuf::from("./tests/assets/library_call");
+
+    // Two temporary directories simulate different platform working directories.
+    let directory_a = tempfile::tempdir().unwrap();
+    let directory_b = tempfile::tempdir().unwrap();
+
+    // Copy the fixtures into each directory.
+    for directory in [directory_a.path(), directory_b.path()] {
+        for entry in std::fs::read_dir(&fixture_directory).unwrap() {
+            let entry = entry.unwrap();
+            std::fs::copy(entry.path(), directory.join(entry.file_name())).unwrap();
+        }
+    }
+
+    assert_ne!(
+        directory_a.path(),
+        directory_b.path(),
+        "Temporary directories must differ"
+    );
+
+    let mut bytecodes = Vec::new();
+    for directory in [directory_a.path(), directory_b.path()] {
+        let contract_path = directory.join("main.sol");
+        let output = Compiler::new()
+            .with_base_path(directory.to_path_buf())
+            .with_allow_path(directory)
+            .with_source(&contract_path)
+            .unwrap()
+            .try_build(&resolc)
+            .await
+            .expect("Failed to compile");
+
+        let contracts = output
+            .contracts
+            .get(&contract_path.canonicalize().unwrap())
+            .unwrap();
+        let (bytecode, _abi) = contracts.get("Main").unwrap();
+        bytecodes.push(bytecode.clone());
+    }
+
+    assert_eq!(bytecodes.len(), 2);
+    assert_eq!(
+        bytecodes[0], bytecodes[1],
+        "The bytecode should be identical regardless of base path"
+    );
 }

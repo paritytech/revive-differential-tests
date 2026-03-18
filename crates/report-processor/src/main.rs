@@ -578,10 +578,6 @@ impl<T> JsonFile<T> {
     pub fn into_inner(self) -> T {
         *self.content
     }
-
-    pub fn path(&self) -> &Path {
-        &self.path
-    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]

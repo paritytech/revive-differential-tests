@@ -244,10 +244,10 @@ pub fn build_comparison_summary(result: &ComparisonResult) -> String {
                     .and_then(|counts| counts.get(platform))
                     .copied()
                     .unwrap_or(0);
-                format!("{platform} ({count})")
+                format!("{platform}: {count}")
             })
             .collect::<Vec<_>>()
-            .join(", ");
+            .join("\n    - ");
         let mismatch_count = mismatches.len();
         let missing_count = mismatches
             .iter()
@@ -261,8 +261,11 @@ pub fn build_comparison_summary(result: &ComparisonResult) -> String {
         let status_symbol = if mismatch_count == 0 { "✅" } else { "❌" };
 
         mode_summary.push_str(&format!(
-            "\n\nHash counts: {counts_info}\
-             \n\nMismatches: {status_symbol} {mismatch_count} {missing_info}"
+            "\n\
+             \nHash counts:\
+             \n    - {counts_info}\
+             \n\
+             \nMismatches: {status_symbol} {mismatch_count} {missing_info}"
         ));
 
         let max_displayed = 10;

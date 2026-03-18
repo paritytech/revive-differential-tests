@@ -17,8 +17,23 @@ pub mod prelude {
     pub use crate::{Mode, ModeOptimizerSetting, ModePipeline};
 }
 
+/// Resolves a compiler output source path to an absolute, canonicalized file system path.
+///
+/// If `base_path` is `Some` and `path` is relative, joins it with the base before canonicalizing.
+/// This is needed if the input source paths have been normalized to relative paths.
+pub fn resolve_output_source_path(path: &Path, base_path: Option<&Path>) -> Result<PathBuf> {
+    let path_buf = match base_path {
+        Some(base) if !path.is_absolute() => base.join(path),
+        Some(_) | None => path.to_path_buf(),
+    };
+    path_buf
+        .canonicalize()
+        .with_context(|| format!("Failed to canonicalize path {}", path.display()))
+}
+
 pub(crate) mod internal_prelude {
     pub use crate::prelude::*;
+    pub use crate::resolve_output_source_path;
     pub use revive_dt_config::prelude::*;
 
     pub use std::collections::{BTreeSet, HashMap};
@@ -58,6 +73,7 @@ pub(crate) mod internal_prelude {
 
     pub use revive_common::EVMVersion;
     pub use revive_dt_common::cached_fs::read_to_string;
+    pub use revive_dt_common::fs::normalize_path;
     pub use revive_dt_common::futures::FrameworkFuture;
     pub use revive_dt_common::types::VersionOrRequirement;
     pub use revive_dt_solc_binaries::download_solc;
