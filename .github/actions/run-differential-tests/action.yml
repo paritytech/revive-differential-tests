@@ -69,9 +69,6 @@ runs:
       id: repo
       shell: bash
       run: echo "path=${{ inputs.revive-differential-tests-path || 'revive-differential-tests' }}" >> "$GITHUB_OUTPUT"
-    - name: Installing Retester
-      shell: bash
-      run: ${{ inputs['cargo-command'] }} install --locked --path "${{ steps.repo.outputs.path }}/crates/core"
     - name: Creating a workdir for retester
       shell: bash
       run: mkdir workdir
@@ -88,10 +85,10 @@ runs:
         ${{ inputs['cargo-command'] }} build --locked --profile release --bin polkadot-omni-node --manifest-path ${{ inputs['polkadot-sdk-path'] }}/Cargo.toml
     - name: Installing retester
       shell: bash
-      run: ${{ inputs['cargo-command'] }} install --path "${{ steps.repo.outputs.path }}/crates/core"
+      run: ${{ inputs['cargo-command'] }} install --locked --path "${{ steps.repo.outputs.path }}/crates/core"
     - name: Installing report-processor
       shell: bash
-      run: ${{ inputs['cargo-command'] }} install --path "${{ steps.repo.outputs.path }}/crates/report-processor"
+      run: ${{ inputs['cargo-command'] }} install --locked --path "${{ steps.repo.outputs.path }}/crates/report-processor"
     - name: Running the Differential Tests
       shell: bash
       run: |
