@@ -31,6 +31,7 @@ inputs:
     description: "The solc version to use. If empty, retester's default is used."
     required: false
     default: ""
+    type: string
   use-compilation-caches:
     description: "Controls if the compilation caches will be used for the test run or not."
     required: false
@@ -73,12 +74,9 @@ runs:
       id: repo
       shell: bash
       run: echo "path=${{ inputs.revive-differential-tests-path || 'revive-differential-tests' }}" >> "$GITHUB_OUTPUT"
-    - name: Installing Retester
-      shell: bash
-      run: ${{ inputs['cargo-command'] }} install --locked --path "${{ steps.repo.outputs.path }}/crates/core"
     - name: Creating a workdir for retester
       shell: bash
-      run: mkdir workdir
+      run: mkdir -p workdir
     - name: Downloading & Initializing the compilation caches
       shell: bash
       if: ${{ inputs['use-compilation-caches'] == true }}
@@ -92,10 +90,10 @@ runs:
         ${{ inputs['cargo-command'] }} build --locked --profile release --bin polkadot-omni-node --manifest-path ${{ inputs['polkadot-sdk-path'] }}/Cargo.toml
     - name: Installing retester
       shell: bash
-      run: ${{ inputs['cargo-command'] }} install --path "${{ steps.repo.outputs.path }}/crates/core"
+      run: ${{ inputs['cargo-command'] }} install --locked --path "${{ steps.repo.outputs.path }}/crates/core"
     - name: Installing report-processor
       shell: bash
-      run: ${{ inputs['cargo-command'] }} install --path "${{ steps.repo.outputs.path }}/crates/report-processor"
+      run: ${{ inputs['cargo-command'] }} install --locked --path "${{ steps.repo.outputs.path }}/crates/report-processor"
     - name: Running the Differential Tests
       shell: bash
       run: |
@@ -119,17 +117,17 @@ runs:
           --test "${{ steps.repo.outputs.path }}/resolc-compiler-tests/fixtures/solidity/simple" \
           --test "${{ steps.repo.outputs.path }}/resolc-compiler-tests/fixtures/solidity/complex" \
           --test "${{ steps.repo.outputs.path }}/resolc-compiler-tests/fixtures/solidity/translated_semantic_tests" \
-          --platform ${{ inputs['platform'] }} \
+          --platform "${{ inputs['platform'] }}" \
           --report.file-name report.json \
           --concurrency.number-of-nodes 10 \
           --concurrency.number-of-threads 10 \
           --concurrency.number-of-concurrent-tasks 100 \
           --working-directory ./workdir \
           --revive-dev-node.consensus manual-seal-200 \
-          --revive-dev-node.path ${{ inputs['polkadot-sdk-path'] }}/target/release/revive-dev-node \
-          --eth-rpc.path ${{ inputs['polkadot-sdk-path'] }}/target/release/eth-rpc \
-          --polkadot-omni-node.path ${{ inputs['polkadot-sdk-path'] }}/target/release/polkadot-omni-node \
-          --resolc.path ${{ inputs['resolc-path'] }} \
+          --revive-dev-node.path "${{ inputs['polkadot-sdk-path'] }}/target/release/revive-dev-node" \
+          --eth-rpc.path "${{ inputs['polkadot-sdk-path'] }}/target/release/eth-rpc" \
+          --polkadot-omni-node.path "${{ inputs['polkadot-sdk-path'] }}/target/release/polkadot-omni-node" \
+          --resolc.path "${{ inputs['resolc-path'] }}" \
           --resolc.heap-size 500000 \
           ${SOLC_VERSION:+--solc.version "$SOLC_VERSION"} \
           "${OMNI_ARGS[@]}" || true
