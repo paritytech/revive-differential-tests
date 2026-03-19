@@ -133,6 +133,7 @@ fn main() -> anyhow::Result<()> {
     let mut context = Context::try_parse()?;
     context.update_for_profile();
 
+    #[allow(clippy::let_unit_value)]
     let _guard = setup_tracing(context.as_log_configuration())?;
 
     info!("Differential testing tool is starting");
