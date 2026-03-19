@@ -13,8 +13,13 @@ inputs:
     required: false
     default: "cargo"
     type: string
+  revive-differential-tests-path:
+    description: "The path to an existing checkout of revive-differential-tests. If empty, revive-differential-tests-ref is checked out."
+    required: false
+    default: ""
+    type: string
   revive-differential-tests-ref:
-    description: "The branch, tag or SHA to checkout for the revive-differential-tests."
+    description: "The branch, tag, or SHA to checkout if revive-differential-tests-path is not provided."
     required: false
     default: "main"
     type: string
@@ -53,15 +58,20 @@ runs:
   using: "composite"
   steps:
     - name: Checkout the Differential Tests Repository
+      if: ${{ inputs.revive-differential-tests-path == '' }}
       uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
       with:
         repository: paritytech/revive-differential-tests
         ref: ${{ inputs['revive-differential-tests-ref'] }}
         path: revive-differential-tests
         submodules: recursive
+    - name: Resolve the repo path
+      id: repo
+      shell: bash
+      run: echo "path=${{ inputs.revive-differential-tests-path || 'revive-differential-tests' }}" >> "$GITHUB_OUTPUT"
     - name: Installing Retester
       shell: bash
-      run: ${{ inputs['cargo-command'] }} install --locked --path revive-differential-tests/crates/core
+      run: ${{ inputs['cargo-command'] }} install --locked --path "${{ steps.repo.outputs.path }}/crates/core"
     - name: Creating a workdir for retester
       shell: bash
       run: mkdir workdir
@@ -78,10 +88,10 @@ runs:
         ${{ inputs['cargo-command'] }} build --locked --profile release --bin polkadot-omni-node --manifest-path ${{ inputs['polkadot-sdk-path'] }}/Cargo.toml
     - name: Installing retester
       shell: bash
-      run: ${{ inputs['cargo-command'] }} install --path ./revive-differential-tests/crates/core
+      run: ${{ inputs['cargo-command'] }} install --path "${{ steps.repo.outputs.path }}/crates/core"
     - name: Installing report-processor
       shell: bash
-      run: ${{ inputs['cargo-command'] }} install --path ./revive-differential-tests/crates/report-processor
+      run: ${{ inputs['cargo-command'] }} install --path "${{ steps.repo.outputs.path }}/crates/report-processor"
     - name: Running the Differential Tests
       shell: bash
       run: |
@@ -100,9 +110,9 @@ runs:
         fi
 
         retester test \
-          --test ./revive-differential-tests/resolc-compiler-tests/fixtures/solidity/simple \
-          --test ./revive-differential-tests/resolc-compiler-tests/fixtures/solidity/complex \
-          --test ./revive-differential-tests/resolc-compiler-tests/fixtures/solidity/translated_semantic_tests \
+          --test "${{ steps.repo.outputs.path }}/resolc-compiler-tests/fixtures/solidity/simple" \
+          --test "${{ steps.repo.outputs.path }}/resolc-compiler-tests/fixtures/solidity/complex" \
+          --test "${{ steps.repo.outputs.path }}/resolc-compiler-tests/fixtures/solidity/translated_semantic_tests" \
           --platform ${{ inputs['platform'] }} \
           --report.file-name report.json \
           --concurrency.number-of-nodes 10 \
@@ -118,7 +128,7 @@ runs:
           "${OMNI_ARGS[@]}" || true
     - name: Generate the expectation file
       shell: bash
-      run: report-processor generate-expectations-file --report-path ./workdir/report.json --output-path ./workdir/expectations.json --remove-prefix ./revive-differential-tests/resolc-compiler-tests --include-status failed
+      run: report-processor generate-expectations-file --report-path ./workdir/report.json --output-path ./workdir/expectations.json --remove-prefix "${{ steps.repo.outputs.path }}/resolc-compiler-tests" --include-status failed
     - name: Upload the Report to the CI
       uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
       with:

@@ -2,7 +2,13 @@ use crate::internal_prelude::*;
 
 use crate::differential_benchmarks::ExecutionState;
 
-static DRIVER_COUNT: AtomicUsize = AtomicUsize::new(0);
+fn next_driver_id() -> usize {
+    static DRIVER_COUNT: StdMutex<usize> = StdMutex::new(0);
+    let mut guard = DRIVER_COUNT.lock().expect("poisoned");
+    let count = *guard;
+    *guard += 1;
+    count
+}
 
 /// The differential tests driver for a single platform.
 pub struct Driver<'a, I> {
@@ -65,7 +71,7 @@ where
         steps: I,
     ) -> Result<Self> {
         let mut this = Driver {
-            driver_id: DRIVER_COUNT.fetch_add(1, Ordering::SeqCst),
+            driver_id: next_driver_id(),
             platform_information,
             test_definition,
             private_key_allocator,
@@ -177,6 +183,57 @@ where
             .inspect_err(|err| error!(?err, "Post-linking compilation failed"))
             .context("Failed to compile the post-link contracts")?;
 
+        // Factory contracts on the PVM refer to the code that they're instantiating by hash rather
+        // than including the actual bytecode. This creates a problem where a factory contract could
+        // be deployed but the code it's supposed to create is not on chain. Therefore, we upload
+        // all the code to the chain prior to running any transactions on the driver.
+        if let Some(substrate_provider_fut) = self.platform_information.node.substrate_provider()
+            && self.platform_information.platform.vm_identifier() == VmIdentifier::PolkaVM
+        {
+            let substrate_client = substrate_provider_fut
+                .await
+                .context("Failed to connect to the substrate node")?;
+            let metadata = substrate_client.metadata();
+
+            const RUNTIME_PALLET_ADDRESS: Address =
+                address!("0x6d6f646c70792f70616464720000000000000000");
+
+            let code_upload_tasks = compiler_output
+                .contracts
+                .values()
+                .flat_map(|item| item.values())
+                .map(|(code_string, _)| {
+                    let metadata = metadata.clone();
+                    let node = self.platform_information.node;
+                    async move {
+                        let code = alloy::hex::decode(code_string)
+                            .context("Failed to hex-decode the post-link code. This is a bug")?;
+                        let upload_call = subxt::dynamic::tx(
+                            "Revive",
+                            "upload_code",
+                            vec![
+                                subxt::dynamic::Value::from_bytes(code),
+                                subxt::dynamic::Value::u128(u128::MAX),
+                            ],
+                        );
+                        let encoded_payload = upload_call
+                            .encode_call_data(&metadata)
+                            .context("Failed to encode the upload code payload")?;
+
+                        let tx_request = TransactionRequest::default()
+                            .from(deployer_address)
+                            .to(RUNTIME_PALLET_ADDRESS)
+                            .input(encoded_payload.into());
+                        node.execute_transaction(tx_request)
+                            .await
+                            .context("Failed to execute transaction")
+                    }
+                });
+            try_join_all(code_upload_tasks)
+                .await
+                .context("Code upload failed")?;
+        }
+
         for (contract_path, contract_name_to_info_mapping) in compiler_output.contracts.iter() {
             for (contract_name, (contract_bytecode, _)) in contract_name_to_info_mapping.iter() {
                 let contract_bytecode = hex::decode(contract_bytecode)
@@ -256,6 +313,17 @@ where
                 .execute_account_allocation(step_path, step.as_ref())
                 .await
                 .context("Account Allocation Step Failed"),
+            Step::Transfer(step) => match self
+                .execute_transfer(step_path, step.as_ref())
+                .await
+                .context("Transfer Step Failed")
+            {
+                Ok(steps_executed) => Ok(steps_executed),
+                Err(err) => {
+                    warn!(?err, "Step execution failed");
+                    return Ok(());
+                }
+            },
             // The following steps are disabled in the benchmarking driver.
             Step::BalanceAssertion(..) | Step::StorageEmptyAssertion(..) => Ok(0),
         }?;
@@ -280,6 +348,42 @@ where
         self.handle_function_call_variable_assignment(step, transaction_hash)
             .await
             .context("Failed to handle function call variable assignment")?;
+        Ok(1)
+    }
+
+    #[instrument(level = "info", skip_all, fields(driver_id = self.driver_id))]
+    pub async fn execute_transfer(
+        &mut self,
+        step_path: &StepPath,
+        step: &TransferStep,
+    ) -> Result<usize> {
+        let context = self.default_resolution_context();
+        let from = step
+            .from
+            .resolve_address(self.platform_information.node, context)
+            .await
+            .context("Failed to resolve transfer sender")?;
+        let to = step
+            .to
+            .resolve_address(self.platform_information.node, context)
+            .await
+            .context("Failed to resolve transfer recipient")?;
+        let tx = TransactionRequest::default()
+            .from(from)
+            .to(to)
+            .value(step.amount.into_inner());
+        let (_tx_hash, receipt_future, inclusion_future) = self
+            .execute_transaction(tx, Some(step_path), Duration::from_secs(30 * 60))
+            .await
+            .context("Failed to submit transfer transaction")?;
+        if self.await_transaction_receipts {
+            let receipt = receipt_future.await?;
+            if !receipt.status() {
+                bail!("Transfer transaction failed {receipt:?}");
+            }
+        } else if self.await_transaction_inclusion {
+            inclusion_future.await;
+        };
         Ok(1)
     }
 
@@ -365,67 +469,6 @@ where
                     }
                 } else if self.await_transaction_inclusion {
                     inclusion_future.await;
-                } else {
-                    // We've not been configured to await for inclusion or await for the receipt but
-                    // we still want to get insight on how long it takes for us to observe the txs
-                    // and also their status and add it to our logs and perhaps make use of it later
-                    // on if we need to debug them.
-                    tokio::spawn(
-                        async move {
-                            static AWAITING_RECEIPTS_COUNT: Mutex<usize> = Mutex::const_new(0);
-                            static SEMAPHORE: Semaphore = Semaphore::const_new(1000);
-
-                            let _guard = SEMAPHORE.acquire().await.expect("Poisoned");
-
-                            let elapsed_seconds = {
-                                let now = SystemTime::now();
-                                move || now.elapsed().unwrap().as_secs()
-                            };
-                            debug!("Starting the process");
-
-                            // Increment the static counter since we're about to await a new receipt
-                            // to arrive.
-                            {
-                                let mut guard = AWAITING_RECEIPTS_COUNT.lock().await;
-                                *guard += 1;
-                                debug!(awaiting = *guard, "Incremented the receipt await counter");
-                            }
-
-                            // Await for the transaction to be included in a block.
-                            debug!("Starting to await for inclusion");
-                            inclusion_future.await;
-                            debug!("Transaction included in a block");
-
-                            // Await for the receipt and log information
-                            debug!("Starting to await for receipt");
-                            match receipt_future.await {
-                                Ok(receipt) if receipt.status() => {
-                                    debug!(
-                                        elapsed_seconds = elapsed_seconds(),
-                                        "Got the transaction receipt"
-                                    );
-                                }
-                                Ok(receipt) => {
-                                    warn!(
-                                        elapsed_seconds = elapsed_seconds(),
-                                        ?receipt,
-                                        "Got the transaction receipt, but the transaction failed"
-                                    )
-                                }
-                                Err(error) => {
-                                    warn!(
-                                        elapsed_seconds = elapsed_seconds(),
-                                        ?error,
-                                        "Failed to get receipt"
-                                    )
-                                }
-                            };
-
-                            *AWAITING_RECEIPTS_COUNT.lock().await -= 1;
-                        }
-                        .instrument(tracing::Span::current())
-                        .instrument(info_span!("Awaiting receipt", %tx_hash)),
-                    );
                 };
 
                 Ok(tx_hash)
@@ -510,7 +553,7 @@ where
             async move {
                 let mut tasks = (0..step.repeat)
                     .map(|i| Driver {
-                        driver_id: DRIVER_COUNT.fetch_add(1, Ordering::SeqCst),
+                        driver_id: next_driver_id(),
                         platform_information: self.platform_information,
                         test_definition: self.test_definition,
                         private_key_allocator: self.private_key_allocator.clone(),
@@ -531,7 +574,7 @@ where
                             steps.into_iter()
                         },
                         await_transaction_inclusion: step.await_transaction_inclusion,
-                        await_transaction_receipts: i == 0,
+                        await_transaction_receipts: self.await_transaction_receipts && i == 0,
                         inclusion_watcher: self.inclusion_watcher,
                         watcher_tx: self.watcher_tx.clone(),
                         gas_limits: self.gas_limits.clone(),
@@ -814,12 +857,13 @@ where
                                 let mut interval = interval(Duration::from_millis(200));
                                 loop {
                                     interval.tick().await;
-                                    let Ok(gas_estimate) =
-                                        provider.estimate_gas(transaction.clone()).await
-                                    else {
-                                        continue;
-                                    };
-                                    return gas_estimate;
+                                    match provider.estimate_gas(transaction.clone()).await {
+                                        Ok(gas_estimate) => break gas_estimate,
+                                        Err(err) => {
+                                            warn!(?err, "Failed to get the gas estimate, retrying");
+                                            continue;
+                                        }
+                                    }
                                 }
                             })
                             .await
@@ -835,7 +879,7 @@ where
                     }
                 }
             };
-            transaction.set_gas_limit(gas_limit * 110 / 100);
+            transaction.set_gas_limit(gas_limit * 120 / 100);
         }
 
         let transaction_hash = self

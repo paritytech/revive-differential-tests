@@ -25,7 +25,7 @@ pub struct SubstrateNode {
     wallet: Arc<EthereumWallet>,
     nonce_manager: CachedNonceManager,
     provider: Arc<OnceCell<ConcreteProvider<Ethereum, Arc<EthereumWallet>>>>,
-    substrate_provider: Arc<OnceCell<OnlineClient<SubstrateConfig>>>,
+    substrate_provider: Arc<OnceCell<OnlineClient<PolkadotConfig>>>,
     consensus: Option<String>,
     use_fallback_gas_filler: bool,
     node_logging_level: String,
@@ -222,10 +222,6 @@ impl SubstrateNode {
                     .arg(format!("ws://127.0.0.1:{substrate_rpc_port}"))
                     .arg("--rpc-max-connections")
                     .arg(u32::MAX.to_string())
-                    .arg("--index-last-n-blocks")
-                    .arg(NUMBER_OF_CACHED_BLOCKS.to_string())
-                    .arg("--cache-size")
-                    .arg(NUMBER_OF_CACHED_BLOCKS.to_string())
                     .arg("--rpc-max-batch-request-len")
                     .arg(u32::MAX.to_string())
                     .env("RUST_LOG", self.eth_rpc_logging_level.as_str())
@@ -360,7 +356,7 @@ impl NodeApi for SubstrateNode {
     fn substrate_provider(
         &self,
     ) -> Option<
-        revive_dt_common::futures::FrameworkFuture<anyhow::Result<OnlineClient<SubstrateConfig>>>,
+        revive_dt_common::futures::FrameworkFuture<anyhow::Result<OnlineClient<PolkadotConfig>>>,
     > {
         let provider = self.substrate_provider.clone();
         let substrate_rpc_port = Self::BASE_SUBSTRATE_RPC_PORT + self.id as u16;
