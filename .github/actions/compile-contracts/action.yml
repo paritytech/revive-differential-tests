@@ -50,6 +50,17 @@ runs:
       shell: bash
       run: echo "path=${{ inputs.revive-differential-tests-path || 'revive-differential-tests' }}" >> "$GITHUB_OUTPUT"
 
+    - name: Install dependencies
+      shell: bash
+      run: |
+        if [[ "$RUNNER_OS" == "Linux" ]]; then
+          sudo apt-get update && sudo apt-get install -y protobuf-compiler
+        elif [[ "$RUNNER_OS" == "macOS" ]]; then
+          brew install protobuf
+        elif [[ "$RUNNER_OS" == "Windows" ]]; then
+          choco install protoc -y
+        fi
+
     - name: Install retester
       shell: bash
       run: cargo install --locked --path "${{ steps.repo.outputs.path }}/crates/core"
