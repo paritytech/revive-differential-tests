@@ -4,9 +4,6 @@ use crate::internal_prelude::*;
 
 static NODE_COUNT: AtomicU32 = AtomicU32::new(0);
 
-/// The number of blocks that should be cached by the polkadot-omni-node and the eth-rpc.
-const NUMBER_OF_CACHED_BLOCKS: u32 = 100_000;
-
 /// A node implementation for the polkadot-omni-node.
 #[derive(Debug)]
 
@@ -226,6 +223,7 @@ impl PolkadotOmnichainNode {
             }
         }
 
+        let has_cache_size = eth_rpc_supports_cache_size(&self.eth_rpc_binary_path);
         let eth_rpc_process = Process::new(
             "eth-rpc",
             self.logs_directory_path.as_path(),
@@ -240,7 +238,13 @@ impl PolkadotOmnichainNode {
                     .arg("--rpc-max-connections")
                     .arg(u32::MAX.to_string())
                     .arg("--rpc-max-batch-request-len")
-                    .arg(u32::MAX.to_string())
+                    .arg(u32::MAX.to_string());
+                if has_cache_size {
+                    command
+                        .arg("--cache-size")
+                        .arg(NUMBER_OF_CACHED_BLOCKS.to_string());
+                }
+                command
                     .env("RUST_LOG", self.eth_rpc_logging_level.as_str())
                     .stdout(stdout_file)
                     .stderr(stderr_file);

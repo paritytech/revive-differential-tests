@@ -322,6 +322,7 @@ impl ZombienetNode {
         let eth_rpc_port = Self::ETH_RPC_BASE_PORT + self.id as u16;
         let node_rpc_url = collator_ws_uri.clone();
 
+        let has_cache_size = eth_rpc_supports_cache_size(&self.eth_proxy_binary);
         let eth_rpc_process = Process::new(
             "proxy",
             self.logs_directory.as_path(),
@@ -338,7 +339,13 @@ impl ZombienetNode {
                     .arg("--rpc-port")
                     .arg(eth_rpc_port.to_string())
                     .arg("--rpc-max-batch-request-len")
-                    .arg(u32::MAX.to_string())
+                    .arg(u32::MAX.to_string());
+                if has_cache_size {
+                    command
+                        .arg("--cache-size")
+                        .arg(NUMBER_OF_CACHED_BLOCKS.to_string());
+                }
+                command
                     .env("RUST_LOG", self.eth_rpc_logging_level.as_str())
                     .stdout(stdout_file)
                     .stderr(stderr_file);
