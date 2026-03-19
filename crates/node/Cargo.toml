@@ -30,6 +30,8 @@ serde_yaml_ng = { workspace = true }
 sp-core = { workspace = true }
 sp-runtime = { workspace = true }
 subxt = { workspace = true }
+# Zombienet uses `std::os::unix` which prevents compiling retester on Windows.
+# For running pre-link-only contract compilations on Windows, Zombienet is gated.
 [target.'cfg(unix)'.dependencies]
 zombienet-sdk = { workspace = true }
 
