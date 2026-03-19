@@ -47,7 +47,7 @@ pub struct PolkadotOmnichainNode {
     /// The provider used for all RPC interactions with the RPC of this node.
     provider: Arc<OnceCell<ConcreteProvider<Ethereum, Arc<EthereumWallet>>>>,
     /// The provider used for the substrate rpc.
-    substrate_provider: Arc<OnceCell<OnlineClient<SubstrateConfig>>>,
+    substrate_provider: Arc<OnceCell<OnlineClient<PolkadotConfig>>>,
 
     /// A boolean that controls if the fallback gas filler should be used or not.
     use_fallback_gas_filler: bool,
@@ -239,10 +239,6 @@ impl PolkadotOmnichainNode {
                     .arg(format!("ws://127.0.0.1:{polkadot_omnichain_node_rpc_port}"))
                     .arg("--rpc-max-connections")
                     .arg(u32::MAX.to_string())
-                    .arg("--index-last-n-blocks")
-                    .arg(NUMBER_OF_CACHED_BLOCKS.to_string())
-                    .arg("--cache-size")
-                    .arg(NUMBER_OF_CACHED_BLOCKS.to_string())
                     .arg("--rpc-max-batch-request-len")
                     .arg(u32::MAX.to_string())
                     .env("RUST_LOG", self.eth_rpc_logging_level.as_str())
@@ -358,7 +354,7 @@ impl NodeApi for PolkadotOmnichainNode {
     fn substrate_provider(
         &self,
     ) -> Option<
-        revive_dt_common::futures::FrameworkFuture<anyhow::Result<OnlineClient<SubstrateConfig>>>,
+        revive_dt_common::futures::FrameworkFuture<anyhow::Result<OnlineClient<PolkadotConfig>>>,
     > {
         let provider = self.substrate_provider.clone();
         let substrate_rpc_port = Self::BASE_POLKADOT_OMNICHAIN_NODE_RPC_PORT + self.id as u16;

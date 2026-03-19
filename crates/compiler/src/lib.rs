@@ -28,7 +28,7 @@ pub fn resolve_output_source_path(path: &Path, base_path: Option<&Path>) -> Resu
     };
     path_buf
         .canonicalize()
-        .with_context(|| format!("Failed to canonicalize path {}", path.display()))
+        .with_context(|| format!("Failed to canonicalize path {}", path_buf.display()))
 }
 
 pub(crate) mod internal_prelude {
