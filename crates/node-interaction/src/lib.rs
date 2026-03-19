@@ -28,10 +28,11 @@ use revive_dt_common::subscriptions::{
     EthereumMinedBlockInformation, MinedBlockInformation, SubstrateMinedBlockInformation,
 };
 use subxt::utils::H256;
-use subxt::{OnlineClient, SubstrateConfig};
+use subxt::{OnlineClient, PolkadotConfig};
 use tokio::sync::RwLock;
 use tokio::task::AbortHandle;
-use tracing::{debug, error};
+use tokio::time::interval;
+use tracing::{debug, error, warn};
 
 #[subxt::subxt(runtime_metadata_path = "../../assets/revive_metadata.scale")]
 pub mod revive_metadata {}
@@ -230,7 +231,7 @@ pub trait NodeApi {
     }
 
     /// The substrate provider used by the node. None if it's not a substrate node.
-    fn substrate_provider(&self) -> Option<FrameworkFuture<Result<OnlineClient<SubstrateConfig>>>> {
+    fn substrate_provider(&self) -> Option<FrameworkFuture<Result<OnlineClient<PolkadotConfig>>>> {
         None
     }
 }
@@ -272,9 +273,10 @@ fn subscribe_to_full_blocks_information_ethereum(
     })
 }
 
+#[allow(clippy::type_complexity)]
 fn subscribe_to_full_blocks_information_substrate(
     provider: FrameworkFuture<Result<DynProvider>>,
-    substrate_provider: FrameworkFuture<Result<OnlineClient<SubstrateConfig>>>,
+    substrate_provider: FrameworkFuture<Result<OnlineClient<PolkadotConfig>>>,
 ) -> FrameworkFuture<Result<FrameworkStream<MinedBlockInformation>>> {
     Box::pin(async move {
         let provider = provider.await.context("Failed to get provider")?;
@@ -300,34 +302,28 @@ fn subscribe_to_full_blocks_information_substrate(
                     }
                 };
                 stream
-                    .filter_map(|block| {
-                        futures::future::ready(match block {
-                            Ok(block) => Some(block),
+                    .for_each_concurrent(None, |block| {
+                        let block = match block {
+                            Ok(block) => block,
                             Err(err) => {
-                                error!(
-                                    ?err,
-                                    "Failed to get one of the blocks from the subscription"
-                                );
-                                None
+                                error!(?err, "Failed to get one of the blocks from the subscription");
+                                return Either::Left(ready(()));
                             }
-                        })
-                    })
-                    .for_each(|block| {
+                        };
+
                         let observed_any_blocks = observed_any_blocks.clone();
-                        async move {
-                            let observation_time = SystemTime::now();
+                        let observation_time = SystemTime::now();
+                        Either::Right(async move {
                             debug!(
                                 block.number = block.number(),
                                 block.hash = ?block.hash(),
                                 block.observation_time = observation_time.duration_since(UNIX_EPOCH).unwrap().as_secs(),
                                 "Observed a new any block"
                             );
-                            let mut write_guard = observed_any_blocks
-                                .write()
-                                .await;
+                            let mut write_guard = observed_any_blocks.write().await;
                             let entry = write_guard.entry(block.hash()).or_insert(observation_time);
                             *entry = (*entry).min(observation_time)
-                        }
+                        })
                     })
                     .await;
             }
@@ -335,13 +331,24 @@ fn subscribe_to_full_blocks_information_substrate(
 
         // This is the main stream we return to the users. It's a stream over the finalized blocks
         // we observe from the subscription to the substrate rpc.
+        let limits = substrate_provider
+            .constants()
+            .at(&revive_metadata::constants().system().block_weights())
+            .expect("TODO: Remove")
+            .per_class
+            .normal
+            .max_extrinsic
+            .expect("TODO: Remove");
+
+        let max_ref_time = limits.ref_time;
+        let max_proof_size = limits.proof_size;
         let stream = substrate_provider
             .blocks()
             .subscribe_finalized()
             .await
             .context("Failed to subscribe to the finalized blocks")?
             .filter_map(|block| futures::future::ready(block.ok()))
-            .then(move |substrate_block| {
+            .map(move |substrate_block| {
                 let provider = provider.clone();
                 let substrate_provider = substrate_provider.clone();
                 let observed_best_blocks = observed_any_blocks.clone();
@@ -354,12 +361,17 @@ fn subscribe_to_full_blocks_information_substrate(
                         .await
                         .get(&substrate_block.hash())
                         .copied()
-                        .unwrap_or_else(SystemTime::now);
+                        .unwrap_or_else(|| {
+                            warn!(
+                                block.number = substrate_block.number(),
+                                "Resorted to current time for block observation time"
+                            );
+                            SystemTime::now()
+                        });
 
                     debug!(
                         block.number = substrate_block.number(),
                         block.hash = ?substrate_block.hash(),
-                        block.observation_time = observation_time.duration_since(UNIX_EPOCH).unwrap().as_secs(),
                         "Observed a new finalized block"
                     );
 
@@ -382,12 +394,27 @@ fn subscribe_to_full_blocks_information_substrate(
                     };
 
                     // Constructing the block information.
-                    let used = substrate_provider
-                        .storage()
-                        .at(substrate_block.reference())
-                        .fetch_or_default(&revive_metadata::storage().system().block_weight())
-                        .await
-                        .expect("TODO: Remove");
+                    let used = {
+                        let mut interval = interval(Duration::from_secs(1));
+                        loop {
+                            interval.tick().await;
+
+                            let result = substrate_provider
+                                .storage()
+                                .at(substrate_block.reference())
+                                .fetch_or_default(
+                                    &revive_metadata::storage().system().block_weight(),
+                                )
+                                .await
+                                .inspect_err(|err| {
+                                    warn!(?err, "Failed to get the substrate block weights")
+                                });
+
+                            if let Ok(result) = result {
+                                break result;
+                            }
+                        }
+                    };
 
                     let block_ref_time = (used.normal.ref_time as u128)
                         + (used.operational.ref_time as u128)
@@ -395,14 +422,6 @@ fn subscribe_to_full_blocks_information_substrate(
                     let block_proof_size = (used.normal.proof_size as u128)
                         + (used.operational.proof_size as u128)
                         + (used.mandatory.proof_size as u128);
-
-                    let limits = substrate_provider
-                        .constants()
-                        .at(&revive_metadata::constants().system().block_weights())
-                        .expect("TODO: Remove");
-
-                    let max_ref_time = limits.max_block.ref_time;
-                    let max_proof_size = limits.max_block.proof_size;
 
                     MinedBlockInformation {
                         ethereum_block_information: EthereumMinedBlockInformation {
@@ -422,12 +441,14 @@ fn subscribe_to_full_blocks_information_substrate(
                             max_ref_time,
                             proof_size: block_proof_size,
                             max_proof_size,
+                            block_hash: substrate_block.hash().0,
                         }),
                         tx_counts: Default::default(),
                         observation_time,
                     }
                 }
-            });
+            })
+            .buffered(20);
 
         Ok(Box::pin(SubstrateSubscriptionStream {
             stream: Box::pin(stream),
@@ -479,7 +500,7 @@ fn subscribe_to_transaction_inclusions_ethereum(
 }
 
 fn subscribe_to_transaction_inclusions_substrate(
-    provider: FrameworkFuture<Result<OnlineClient<SubstrateConfig>>>,
+    provider: FrameworkFuture<Result<OnlineClient<PolkadotConfig>>>,
 ) -> FrameworkFuture<Result<FrameworkStream<TxHash>>> {
     Box::pin(async move {
         let stream = provider
@@ -505,5 +526,3 @@ fn subscribe_to_transaction_inclusions_substrate(
         Ok(Box::pin(stream) as _)
     })
 }
-
-pub type SharedNode = Arc<dyn NodeApi>;

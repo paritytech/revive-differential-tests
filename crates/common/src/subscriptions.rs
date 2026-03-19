@@ -64,6 +64,9 @@ pub struct SubstrateMinedBlockInformation {
 
     /// The max proof size for substrate based chains.
     pub max_proof_size: u64,
+
+    /// The block hash of the substrate block.
+    pub block_hash: [u8; 32],
 }
 
 impl SubstrateMinedBlockInformation {

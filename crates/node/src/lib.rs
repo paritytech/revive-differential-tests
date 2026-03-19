@@ -15,6 +15,7 @@ pub mod prelude {
     pub use crate::node_implementations::lighthouse_geth::LighthouseGethNode;
     pub use crate::node_implementations::polkadot_omni_node::PolkadotOmnichainNode;
     pub use crate::node_implementations::substrate::SubstrateNode;
+    #[cfg(unix)]
     pub use crate::node_implementations::zombienet::ZombienetNode;
     pub use crate::provider_utils::*;
 }
@@ -66,8 +67,7 @@ pub(crate) mod internal_prelude {
             BoxFuture, RpcError, TransportError, TransportErrorKind, TransportFut, TransportResult,
         },
     };
-    pub use anyhow::Context as _;
-    pub use anyhow::{Result, bail};
+    pub use anyhow::{Context as _, Result, bail};
     pub use futures::StreamExt;
     pub use serde::{Deserialize, Deserializer, Serialize, Serializer};
     pub use serde_json::{self, Value, json};
@@ -75,13 +75,14 @@ pub(crate) mod internal_prelude {
     pub use serde_yaml_ng;
     pub use sp_core::crypto::Ss58Codec;
     pub use sp_runtime::AccountId32;
-    pub use subxt::{OnlineClient, SubstrateConfig};
+    pub use subxt::{OnlineClient, PolkadotConfig};
     pub use tokio::sync::{OnceCell, Semaphore};
     pub use tokio::task::AbortHandle;
-    pub use tokio::time::{interval, timeout};
+    pub use tokio::time::{interval, sleep, timeout};
     pub use toml;
     pub use tower::{Layer, Service};
-    pub use tracing::{debug, error, info, instrument, trace};
+    pub use tracing::*;
+    #[cfg(unix)]
     pub use zombienet_sdk::{LocalFileSystem, NetworkConfig, NetworkConfigExt};
 
     pub use revive_common::EVMVersion;

@@ -21,6 +21,8 @@ revive-dt-node = { workspace = true }
 revive-dt-node-interaction = { workspace = true }
 revive-dt-report = { workspace = true }
 
+pallet-revive-eth-rpc = { workspace = true }
+
 ansi_term = { workspace = true }
 alloy = { workspace = true }
 anyhow = { workspace = true }

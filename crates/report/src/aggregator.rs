@@ -1188,6 +1188,7 @@ mod tests {
             max_ref_time: 10000,
             proof_size: 3000,
             max_proof_size: 6000,
+            block_hash: [0u8; 32],
         };
         let blocks = vec![
             make_block(

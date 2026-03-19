@@ -3,6 +3,7 @@ mod differential_benchmarks;
 mod differential_tests;
 mod helpers;
 
+#[allow(unused_imports)]
 mod internal_prelude {
     pub use revive_dt_common::prelude::*;
     pub use revive_dt_compiler::prelude::*;
@@ -17,10 +18,11 @@ mod internal_prelude {
     pub use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
     pub use std::future::Future;
     pub use std::io::{BufWriter, Write, stderr};
+    pub use std::ops::ControlFlow;
     pub use std::path::{Path, PathBuf};
     pub use std::pin::Pin;
     pub use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-    pub use std::sync::{Arc, LazyLock};
+    pub use std::sync::{Arc, LazyLock, Mutex as StdMutex};
     pub use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
     pub use alloy::consensus::EMPTY_ROOT_HASH;
@@ -28,7 +30,7 @@ mod internal_prelude {
     pub use alloy::json_abi::JsonAbi;
     pub use alloy::network::{Ethereum, TransactionBuilder};
     pub use alloy::primitives::{Address, BlockNumber, TxHash, U256, address};
-    pub use alloy::providers::{PendingTransactionBuilder, Provider};
+    pub use alloy::providers::{DynProvider, PendingTransactionBuilder, Provider};
     pub use alloy::rpc::types::trace::geth::{
         CallFrame, GethDebugBuiltInTracerType, GethDebugTracerConfig, GethDebugTracerType,
         GethDebugTracingOptions,
@@ -38,17 +40,18 @@ mod internal_prelude {
     pub use anyhow::Context as _;
     pub use anyhow::{Error, Result, bail};
     pub use clap::Parser;
-    pub use futures::future::try_join_all;
+    pub use futures::future::{Either, try_join, try_join_all, try_join3};
     pub use futures::{FutureExt, Stream, StreamExt, TryFutureExt, TryStreamExt, stream};
     pub use indexmap::{IndexMap, indexmap};
+    pub use pallet_revive_eth_rpc::ReceiptExtractor;
     pub use regex::Regex;
     pub use schemars::schema_for;
     pub use semver::{Version, VersionReq};
     pub use serde::{Deserialize, Serialize};
     pub use serde_json::{self, Value, json};
-    pub use subxt::ext::codec::Decode;
-    pub use subxt::metadata::Metadata as SubxtMetadata;
     pub use subxt::tx::Payload;
+    pub use subxt::utils::H256;
+    pub use subxt::{OnlineClient, PolkadotConfig};
     pub use tokio::select;
     pub use tokio::sync::broadcast;
     pub use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
@@ -59,6 +62,7 @@ mod internal_prelude {
         Instrument, Span, debug, debug_span, error, field::display, info, info_span, instrument,
         warn,
     };
+    pub use tracing_appender::non_blocking::WorkerGuard;
     pub use tracing_subscriber::EnvFilter;
 
     pub use crate::compilations::handle_compilations;
@@ -75,13 +79,15 @@ mod internal_prelude {
 
 use crate::internal_prelude::*;
 
-fn main() -> anyhow::Result<()> {
-    let mut context = Context::try_parse()?;
-    context.update_for_profile();
+#[cfg(feature = "tokio-debug")]
+fn setup_tracing(_: &LogConfiguration) -> Result<()> {
+    console_subscriber::init();
+    Ok(())
+}
 
-    let log_config: &LogConfiguration = context.as_ref();
-
-    let (writer, _guard) = tracing_appender::non_blocking::NonBlockingBuilder::default()
+#[cfg(not(feature = "tokio-debug"))]
+fn setup_tracing(log_config: &LogConfiguration) -> Result<WorkerGuard> {
+    let (writer, guard) = tracing_appender::non_blocking::NonBlockingBuilder::default()
         .lossy(false)
         // Assuming that each line contains 255 characters and that each character is one byte, then
         // this means that our buffer is about 4GBs large.
@@ -104,7 +110,7 @@ fn main() -> anyhow::Result<()> {
                 .with_writer(writer)
                 .with_thread_ids(false)
                 .with_thread_names(false)
-                .with_ansi(false)
+                .with_ansi(true)
                 .pretty(),
         ),
     };
@@ -118,10 +124,20 @@ fn main() -> anyhow::Result<()> {
         .with(fmt_layer)
         .with(env_filter);
 
-    #[cfg(feature = "tokio-debug")]
-    let registry = registry.with(console_subscriber::spawn());
-
     tracing::subscriber::set_global_default(registry)?;
+
+    Ok(guard)
+}
+
+fn main() -> anyhow::Result<()> {
+    let mut context = Context::try_parse()?;
+    context.update_for_profile();
+
+    // The `tokio-debug` variant returns `()`, but the default variant returns a `WorkerGuard`
+    // that must be held until `main` exits to keep the non-blocking tracing writer alive.
+    #[allow(clippy::let_unit_value)]
+    let _guard = setup_tracing(context.as_log_configuration())?;
+
     info!("Differential testing tool is starting");
 
     let (reporter, report_aggregator_task) = ReportAggregator::new(context.clone()).into_task();
