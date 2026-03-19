@@ -133,6 +133,9 @@ fn main() -> anyhow::Result<()> {
     let mut context = Context::try_parse()?;
     context.update_for_profile();
 
+    // The `tokio-debug` variant returns `()`, but the default variant returns a `WorkerGuard`
+    // that must be held until `main` exits to keep the non-blocking tracing writer alive.
+    #[allow(clippy::let_unit_value)]
     let _guard = setup_tracing(context.as_log_configuration())?;
 
     info!("Differential testing tool is starting");
