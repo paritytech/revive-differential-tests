@@ -50,15 +50,22 @@ runs:
       shell: bash
       run: echo "path=${{ inputs.revive-differential-tests-path || 'revive-differential-tests' }}" >> "$GITHUB_OUTPUT"
 
+    - name: Set up Rust toolchain
+      uses: actions-rust-lang/setup-rust-toolchain@v1
+      with:
+        target: wasm32-unknown-unknown
+        components: rust-src
+        rustflags: ""
+
     - name: Install dependencies
       shell: bash
       run: |
         if [[ "$RUNNER_OS" == "Linux" ]]; then
-          sudo apt-get update && sudo apt-get install -y protobuf-compiler
+          sudo apt-get update && sudo apt-get install -y build-essential pkg-config libssl-dev protobuf-compiler clang libclang-dev
         elif [[ "$RUNNER_OS" == "macOS" ]]; then
           brew install protobuf
         elif [[ "$RUNNER_OS" == "Windows" ]]; then
-          choco install protoc -y
+          choco install -y protoc llvm
         fi
 
     - name: Install retester
