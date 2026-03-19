@@ -206,11 +206,11 @@ impl SubstrateNode {
         }
 
         trace!("Spawning eth-rpc process");
-        let has_cache_size = eth_rpc_supports_cache_size(&self.eth_proxy_binary);
+        let eth_proxy_binary = self.eth_proxy_binary.as_path();
         let eth_proxy_process = Process::new(
             "proxy",
             self.logs_directory.as_path(),
-            self.eth_proxy_binary.as_path(),
+            eth_proxy_binary,
             |command, stdout_file, stderr_file| {
                 command
                     .arg("--dev")
@@ -222,11 +222,7 @@ impl SubstrateNode {
                     .arg(u32::MAX.to_string())
                     .arg("--rpc-max-batch-request-len")
                     .arg(u32::MAX.to_string());
-                if has_cache_size {
-                    command
-                        .arg("--cache-size")
-                        .arg(NUMBER_OF_CACHED_BLOCKS.to_string());
-                }
+                apply_cache_size_arg(command, eth_proxy_binary);
                 command
                     .env("RUST_LOG", self.eth_rpc_logging_level.as_str())
                     .stdout(stdout_file)
