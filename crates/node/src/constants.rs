@@ -8,3 +8,6 @@ pub const INITIAL_BALANCE: u128 = 10u128.pow(37);
 
 /// The chain id used for all of the chains spawned by the framework.
 pub const CHAIN_ID: ChainId = 420420420;
+
+/// The number of blocks to cache in the eth-rpc process.
+pub const NUMBER_OF_CACHED_BLOCKS: u32 = 100_000;
