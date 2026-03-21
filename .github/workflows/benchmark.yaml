@@ -216,6 +216,8 @@ jobs:
     name: Build resolc from source
     if: ${{ inputs.resolc_ref != '' }}
     runs-on: parity-large
+    outputs:
+      resolc_commit: ${{ steps.resolve-ref.outputs.commit }}
     env:
       SCCACHE_GHA_ENABLED: "true"
       RUSTC_WRAPPER: "sccache"
@@ -237,12 +239,16 @@ jobs:
           repository: paritytech/revive
           ref: ${{ inputs.resolc_ref }}
 
+      - name: Resolve commit hash
+        id: resolve-ref
+        run: echo "commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
       - name: Restore resolc cache
         id: cache
         uses: actions/cache/restore@v4
         with:
           path: ~/.cargo/bin/resolc
-          key: resolc-source-${{ inputs.resolc_ref }}
+          key: resolc-source-${{ steps.resolve-ref.outputs.commit || needs.build-resolc.outputs.resolc_commit }}
 
       - name: Build LLVM
         if: steps.cache.outputs.cache-hit != 'true'
@@ -259,7 +265,7 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: ~/.cargo/bin/resolc
-          key: resolc-source-${{ inputs.resolc_ref }}
+          key: resolc-source-${{ steps.resolve-ref.outputs.commit || needs.build-resolc.outputs.resolc_commit }}
 
   # ── Generate test matrix dynamically ─────────────────────────────────
   generate-matrix:
@@ -390,7 +396,7 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: ~/.cargo/bin/resolc
-          key: resolc-source-${{ inputs.resolc_ref }}
+          key: resolc-source-${{ steps.resolve-ref.outputs.commit || needs.build-resolc.outputs.resolc_commit }}
 
       # ── Restore cached binaries ─────────────────────────────────────────
 
