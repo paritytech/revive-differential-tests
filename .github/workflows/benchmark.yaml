@@ -225,6 +225,12 @@ jobs:
       SCCACHE_GHA_ENABLED: "true"
       RUSTC_WRAPPER: "sccache"
     steps:
+      - name: Checkout revive
+        uses: actions/checkout@v4
+        with:
+          repository: paritytech/revive
+          ref: ${{ inputs.resolc_ref }}
+
       - name: Setup Rust toolchain
         uses: actions-rust-lang/setup-rust-toolchain@v1
 
@@ -234,13 +240,7 @@ jobs:
       - name: Install system packages
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential pkg-config libssl-dev llvm clang libclang-dev cmake ninja-build
-
-      - name: Checkout revive
-        uses: actions/checkout@v4
-        with:
-          repository: paritytech/revive
-          ref: ${{ inputs.resolc_ref }}
+          sudo apt-get install -y build-essential pkg-config libssl-dev llvm clang libclang-dev cmake ninja-build lld
 
       - name: Resolve commit hash
         id: resolve-ref
