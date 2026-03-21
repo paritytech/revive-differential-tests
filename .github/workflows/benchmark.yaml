@@ -471,21 +471,16 @@ jobs:
         with:
           ref: gh-pages
           path: gh-pages-dir
-          lfs: true
-
-      - name: Setup Git LFS
-        working-directory: gh-pages-dir
-        run: |
-          git lfs install
-          git lfs track "reports/*.json.gz"
-          git lfs track "latest.json.gz"
 
       - name: Add report
         run: |
-          mkdir -p gh-pages-dir/reports
+          # Copy the report as the `index.html` file.
           cp ./benchmark-report.html "gh-pages-dir/index.html"
-          cp ./web-report.json.gz "gh-pages-dir/reports/${REPORT_NAME}.json.gz"
-          cp ./web-report.json.gz "gh-pages-dir/latest.json.gz"
+          # Copy the report as a file with the dat in order to find it later
+          # on if we need it.
+          cp ./benchmark-report.html "gh-pages-dir/reports/${REPORT_NAME}.html"
+          # Move the raw report into a directory for finding later.
+          cp ./web-report.json "gh-pages-dir/raw/${REPORT_NAME}.json"
 
       - name: Push to gh-pages
         working-directory: gh-pages-dir
