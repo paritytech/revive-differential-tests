@@ -311,7 +311,13 @@ jobs:
   # ── Run benchmarks (one job per test x platform) ─────────────────────
   benchmark:
     name: "${{ matrix.platform }} / ${{ matrix.test }}"
-    needs: [generate-matrix, build-chainspec-generator, build-polkadot-sdk, build-resolc]
+    needs:
+      [
+        generate-matrix,
+        build-chainspec-generator,
+        build-polkadot-sdk,
+        build-resolc,
+      ]
     if: >-
       !cancelled() &&
       needs.generate-matrix.result == 'success' &&
