@@ -463,9 +463,6 @@ jobs:
             --report-path ./web-report.json \
             --output-path ./benchmark-report.html
 
-      - name: Compress web report
-        run: gzip -9 -k ./web-report.json
-
       - name: Checkout gh-pages
         uses: actions/checkout@v4
         with:
