@@ -21,6 +21,9 @@ on:
       resolc_ref:
         description: "Resolc git ref (commit/branch/tag) to build from source instead of using a release binary"
         required: false
+      benchmark_env:
+        description: "Comma-separated environment variables for benchmark jobs (e.g. RUST_LOG=debug,MY_VAR=value)"
+        required: false
 
 concurrency:
   group: ${{ github.workflow }}
@@ -325,6 +328,14 @@ jobs:
           - zombienet-revm-solc
           - zombienet-polkavm-resolc
     steps:
+      - name: Set custom environment variables
+        if: ${{ inputs.benchmark_env != '' }}
+        run: |
+          IFS=',' read -ra VARS <<< "${{ inputs.benchmark_env }}"
+          for var in "${VARS[@]}"; do
+            echo "$var" >> "$GITHUB_ENV"
+          done
+
       - name: Set artifact name
         id: names
         run: |
