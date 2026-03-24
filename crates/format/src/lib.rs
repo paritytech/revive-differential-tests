@@ -20,6 +20,7 @@ pub(crate) mod internal_prelude {
     pub use revive_dt_node_interaction::prelude::*;
 
     pub use std::borrow::Cow;
+    pub use std::sync::Arc;
     pub use std::cmp::Ordering;
     pub use std::collections::{BTreeMap, HashMap};
     pub use std::fmt::Display;

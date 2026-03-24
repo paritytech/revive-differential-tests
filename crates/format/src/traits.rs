@@ -1,5 +1,8 @@
 use crate::internal_prelude::*;
 
+/// The deployed contract information keyed by contract instance name.
+pub type DeployedContracts = HashMap<ContractInstance, Arc<(ContractIdent, Address, JsonAbi)>>;
+
 #[derive(Clone, Copy, Default)]
 /// Contextual information required by the code that's performing the resolution.
 pub struct ResolutionContext<'a> {
@@ -7,7 +10,7 @@ pub struct ResolutionContext<'a> {
     metadata: Option<&'a Metadata>,
 
     /// When provided the contracts provided here will be used for resolutions.
-    deployed_contracts: Option<&'a HashMap<ContractInstance, (ContractIdent, Address, JsonAbi)>>,
+    deployed_contracts: Option<&'a DeployedContracts>,
 
     /// When provided the variables in here will be used for performing resolutions.
     variables: Option<&'a HashMap<String, U256>>,
@@ -34,9 +37,7 @@ impl<'a> ResolutionContext<'a> {
 
     pub fn with_deployed_contracts(
         mut self,
-        deployed_contracts: impl Into<
-            Option<&'a HashMap<ContractInstance, (ContractIdent, Address, JsonAbi)>>,
-        >,
+        deployed_contracts: impl Into<Option<&'a DeployedContracts>>,
     ) -> Self {
         self.deployed_contracts = deployed_contracts.into();
         self
@@ -89,6 +90,7 @@ impl<'a> ResolutionContext<'a> {
         let instance = self.contract_instance(instance).await?;
         self.deployed_contracts
             .and_then(|deployed_contracts| deployed_contracts.get(&instance))
+            .map(|arc| arc.as_ref())
     }
 
     pub async fn deployed_contract_address<'b>(

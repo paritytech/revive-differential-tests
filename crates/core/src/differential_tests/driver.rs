@@ -955,11 +955,12 @@ where
         calldata: Option<&Calldata>,
         value: Option<EtherValue>,
     ) -> Result<(Address, JsonAbi, Option<TransactionReceipt>)> {
-        if let Some((_, address, abi)) = self
+        if let Some(entry) = self
             .execution_state
             .deployed_contracts
             .get(contract_instance)
         {
+            let (_, address, abi) = entry.as_ref();
             info!(
                 %address,
                 "Contract instance already deployed."
@@ -1010,9 +1011,8 @@ where
             )
         };
 
-        let Some((code, abi)) = self
-            .execution_state
-            .compiled_contracts
+        let compiled_contracts = self.execution_state.compiled_contracts.lock().await;
+        let Some((code, abi)) = compiled_contracts
             .get(&contract_source_path)
             .and_then(|source_file_contracts| source_file_contracts.get(contract_ident.as_ref()))
             .cloned()
@@ -1022,6 +1022,7 @@ where
                 contract_instance
             )
         };
+        drop(compiled_contracts);
 
         let mut code = match alloy::hex::decode(&code) {
             Ok(code) => code,
@@ -1077,7 +1078,7 @@ where
 
         self.execution_state.deployed_contracts.insert(
             contract_instance.clone(),
-            (contract_ident, address, abi.clone()),
+            Arc::new((contract_ident, address, abi.clone())),
         );
 
         Ok((address, abi, receipt))

@@ -1192,7 +1192,7 @@ mod tests {
         let mut contracts = HashMap::new();
         contracts.insert(
             ContractInstance::new("Contract"),
-            (ContractIdent::new("Contract"), Address::ZERO, parsed_abi),
+            Arc::new((ContractIdent::new("Contract"), Address::ZERO, parsed_abi)),
         );
 
         let resolver = MockResolver::new();
@@ -1236,7 +1236,7 @@ mod tests {
         let mut contracts = HashMap::new();
         contracts.insert(
             ContractInstance::new("Contract"),
-            (ContractIdent::new("Contract"), Address::ZERO, parsed_abi),
+            Arc::new((ContractIdent::new("Contract"), Address::ZERO, parsed_abi)),
         );
 
         let resolver = MockResolver::new();
@@ -1283,7 +1283,7 @@ mod tests {
         let mut contracts = HashMap::new();
         contracts.insert(
             ContractInstance::new("Contract"),
-            (ContractIdent::new("Contract"), Address::ZERO, parsed_abi),
+            Arc::new((ContractIdent::new("Contract"), Address::ZERO, parsed_abi)),
         );
 
         let resolver = MockResolver::new();
@@ -1301,7 +1301,7 @@ mod tests {
 
     async fn resolve_calldata_item(
         input: &str,
-        deployed_contracts: &HashMap<ContractInstance, (ContractIdent, Address, JsonAbi)>,
+        deployed_contracts: &HashMap<ContractInstance, Arc<(ContractIdent, Address, JsonAbi)>>,
         resolver: &(impl NodeApi + ?Sized),
     ) -> anyhow::Result<U256> {
         let context = ResolutionContext::default().with_deployed_contracts(deployed_contracts);

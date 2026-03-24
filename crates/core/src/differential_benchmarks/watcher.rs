@@ -388,7 +388,7 @@ impl Watcher {
                 && !failing_receipts.is_empty()
             {
                 bail!(
-                    "Encountered failing receipts of {} len: {failing_receipts:?}",
+                    "Encountered failing receipts {failing_receipts:?}, len: {}",
                     failing_receipts.len()
                 );
             }
