@@ -33,4 +33,17 @@ impl ExecutionState {
             variables: Default::default(),
         }
     }
+
+    pub fn add_state(
+        &mut self,
+        Self {
+            compiled_contracts,
+            deployed_contracts,
+            variables,
+        }: Self,
+    ) {
+        self.compiled_contracts.extend(compiled_contracts);
+        self.deployed_contracts.extend(deployed_contracts);
+        self.variables.extend(variables);
+    }
 }

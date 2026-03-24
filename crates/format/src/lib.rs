@@ -39,6 +39,7 @@ pub(crate) mod internal_prelude {
     pub use alloy::rpc::types::TransactionRequest;
     pub use anyhow::Context as _;
     pub use futures::{FutureExt, StreamExt, TryFutureExt, TryStreamExt, stream};
+    pub use indexmap::IndexMap;
     pub use itertools::Itertools;
     pub use schemars::JsonSchema;
     pub use semver::VersionReq;

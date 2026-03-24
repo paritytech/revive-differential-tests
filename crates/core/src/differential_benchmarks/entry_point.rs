@@ -205,7 +205,9 @@ pub async fn handle_differential_benchmarks(
                 })
                 .await
                 .context("Failed to run the driver and executor")
-                .inspect(|steps_executed| info!(steps_executed, "Workload Execution Succeeded"))
+                .inspect(|(steps_executed, _)| {
+                    info!(steps_executed, "Workload Execution Succeeded")
+                })
                 .inspect_err(|err| error!(?err, "Workload Execution Failed"))?;
 
             // Stopping auxiliary tasks.
