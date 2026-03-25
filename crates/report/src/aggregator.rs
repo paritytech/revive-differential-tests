@@ -563,21 +563,18 @@ impl ReportAggregator {
             let mut contracts_info_at_path = HashMap::new();
 
             for (contract_name, (bytecode, abi)) in contracts {
-                let (is_valid_hex, bytecode_hash) = Self::hex_decode_and_hash(&bytecode);
-                let requires_linking = !is_valid_hex;
+                let bytecode_hash = Self::hex_decode_and_hash(&bytecode);
                 let info = if include_compiler_output {
                     CompiledContractInformation {
                         abi: Some(abi),
                         bytecode: Some(bytecode),
                         bytecode_hash,
-                        requires_linking,
                     }
                 } else {
                     CompiledContractInformation {
                         abi: None,
                         bytecode: None,
                         bytecode_hash,
-                        requires_linking,
                     }
                 };
                 contracts_info_at_path.insert(contract_name, info);
@@ -592,15 +589,13 @@ impl ReportAggregator {
     /// Attempts to hex decode the input before hashing the result. If the input
     /// is prefixed with `0x`, the prefix is stripped before decoding and hashing.
     ///
-    /// Returns `(true, hash)` if decoding succeeded, with a hash of the raw bytes.
-    /// Returns `(false, hash)` if decoding failed due to invalid hex, with a hash of the string.
-    fn hex_decode_and_hash(input: &str) -> (bool, B256) {
+    /// Returns a hash of the decoded bytes if hex decoding succeeds, otherwise
+    /// a hash of the raw string bytes.
+    fn hex_decode_and_hash(input: &str) -> B256 {
         let input = input.strip_prefix("0x").unwrap_or(input);
+        let bytes = hex::decode(input).unwrap_or_else(|_| input.as_bytes().to_vec());
 
-        match hex::decode(input) {
-            Ok(bytes) => (true, B256::from_slice(&Sha256::digest(&bytes))),
-            Err(_) => (false, B256::from_slice(&Sha256::digest(input.as_bytes()))),
-        }
+        keccak256(&bytes)
     }
 
     /// Removes the case specified by the `specifier` from the tracked remaining cases.
@@ -807,12 +802,10 @@ pub struct CompiledContractInformation {
     /// The contract bytecode. This is only included if the appropriate flag is set in the CLI context.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub bytecode: Option<String>,
-    /// The hash of the bytecode.
-    /// Note that it is the hash of the raw bytecode bytes (the decoded `bytecode` string)
-    /// if `requires_linking` is false, otherwise it is the hash of the `bytecode` string.
+    /// The hash of the decoded bytecode bytes.
+    /// Note that for pre-link compilations, contracts that reference external libraries will
+    /// have a hash of a partially linked intermediate object rather than the final bytecode.
     pub bytecode_hash: B256,
-    /// Whether the bytecode contains unresolved library placeholders and requires linking.
-    pub requires_linking: bool,
 }
 
 /// Information on each step in the execution.
