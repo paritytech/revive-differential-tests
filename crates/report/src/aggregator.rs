@@ -63,8 +63,8 @@ impl ReportAggregator {
                     RunnerEvent::TestCaseDiscovery(event) => {
                         self.handle_test_case_discovery(*event);
                     }
-                    RunnerEvent::PreLinkCompilationDiscovery(event) => {
-                        self.handle_pre_link_compilation_discovery(*event);
+                    RunnerEvent::PostLinkCompilationDiscovery(event) => {
+                        self.handle_post_link_compilation_discovery(*event);
                     }
                     RunnerEvent::TestSucceeded(event) => {
                         self.handle_test_succeeded_event(*event);
@@ -90,8 +90,8 @@ impl ReportAggregator {
                     RunnerEvent::PostLinkContractsCompilationFailed(event) => {
                         self.handle_post_link_contracts_compilation_failed_event(*event)
                     }
-                    RunnerEvent::PreLinkContractsCompilationIgnored(event) => {
-                        self.handle_pre_link_contracts_compilation_ignored_event(*event);
+                    RunnerEvent::PostLinkContractsCompilationIgnored(event) => {
+                        self.handle_post_link_contracts_compilation_ignored_event(*event);
                     }
                     RunnerEvent::LibrariesDeployed(event) => {
                         self.handle_libraries_deployed_event(*event);
@@ -169,17 +169,17 @@ impl ReportAggregator {
             .insert(event.test_specifier.case_idx);
     }
 
-    fn handle_pre_link_compilation_discovery(&mut self, event: PreLinkCompilationDiscoveryEvent) {
+    fn handle_post_link_compilation_discovery(&mut self, event: PostLinkCompilationDiscoveryEvent) {
         self.remaining_compilation_modes
             .entry(
                 event
-                    .pre_link_compilation_specifier
+                    .post_link_compilation_specifier
                     .metadata_file_path
                     .clone()
                     .into(),
             )
             .or_default()
-            .insert(event.pre_link_compilation_specifier.compiler_mode.clone());
+            .insert(event.post_link_compilation_specifier.compiler_mode.clone());
     }
 
     fn handle_test_succeeded_event(&mut self, event: TestSucceededEvent) {
@@ -294,17 +294,8 @@ impl ReportAggregator {
             ),
         };
 
-        match &event.specifier {
-            CompilationSpecifier::Execution(specifier) => {
-                let execution_information = self.execution_information(specifier);
-                execution_information.pre_link_compilation_status = Some(status);
-            }
-            CompilationSpecifier::PreLink(specifier) => {
-                let report = self.pre_link_compilation_report(specifier);
-                report.status = Some(status);
-                self.handle_post_pre_link_contracts_compilation_status_update(specifier);
-            }
-        }
+        let execution_information = self.execution_information(&event.execution_specifier);
+        execution_information.pre_link_compilation_status = Some(status);
     }
 
     fn handle_post_link_contracts_compilation_succeeded_event(
@@ -329,8 +320,17 @@ impl ReportAggregator {
             ),
         };
 
-        let execution_information = self.execution_information(&event.execution_specifier);
-        execution_information.post_link_compilation_status = Some(status);
+        match &event.specifier {
+            CompilationSpecifier::Execution(specifier) => {
+                let execution_information = self.execution_information(specifier);
+                execution_information.post_link_compilation_status = Some(status);
+            }
+            CompilationSpecifier::PostLink(specifier) => {
+                let report = self.post_link_compilation_report(specifier);
+                report.status = Some(status);
+                self.handle_post_post_link_contracts_compilation_status_update(specifier);
+            }
+        }
     }
 
     fn handle_pre_link_contracts_compilation_failed_event(
@@ -344,17 +344,8 @@ impl ReportAggregator {
             compiler_input: event.compiler_input,
         };
 
-        match &event.specifier {
-            CompilationSpecifier::Execution(specifier) => {
-                let execution_information = self.execution_information(specifier);
-                execution_information.pre_link_compilation_status = Some(status);
-            }
-            CompilationSpecifier::PreLink(specifier) => {
-                let report = self.pre_link_compilation_report(specifier);
-                report.status = Some(status);
-                self.handle_post_pre_link_contracts_compilation_status_update(specifier);
-            }
-        }
+        let execution_information = self.execution_information(&event.execution_specifier);
+        execution_information.pre_link_compilation_status = Some(status);
     }
 
     fn handle_post_link_contracts_compilation_failed_event(
@@ -368,29 +359,38 @@ impl ReportAggregator {
             compiler_input: event.compiler_input,
         };
 
-        let execution_information = self.execution_information(&event.execution_specifier);
-        execution_information.post_link_compilation_status = Some(status);
+        match &event.specifier {
+            CompilationSpecifier::Execution(specifier) => {
+                let execution_information = self.execution_information(specifier);
+                execution_information.post_link_compilation_status = Some(status);
+            }
+            CompilationSpecifier::PostLink(specifier) => {
+                let report = self.post_link_compilation_report(specifier);
+                report.status = Some(status);
+                self.handle_post_post_link_contracts_compilation_status_update(specifier);
+            }
+        }
     }
 
-    fn handle_pre_link_contracts_compilation_ignored_event(
+    fn handle_post_link_contracts_compilation_ignored_event(
         &mut self,
-        event: PreLinkContractsCompilationIgnoredEvent,
+        event: PostLinkContractsCompilationIgnoredEvent,
     ) {
         let status = CompilationStatus::Ignored {
             reason: event.reason,
             additional_fields: event.additional_fields,
         };
 
-        let report = self.pre_link_compilation_report(&event.pre_link_compilation_specifier);
+        let report = self.post_link_compilation_report(&event.post_link_compilation_specifier);
         report.status = Some(status.clone());
-        self.handle_post_pre_link_contracts_compilation_status_update(
-            &event.pre_link_compilation_specifier,
+        self.handle_post_post_link_contracts_compilation_status_update(
+            &event.post_link_compilation_specifier,
         );
     }
 
-    fn handle_post_pre_link_contracts_compilation_status_update(
+    fn handle_post_post_link_contracts_compilation_status_update(
         &mut self,
-        specifier: &PreLinkCompilationSpecifier,
+        specifier: &PostLinkCompilationSpecifier,
     ) {
         // Remove this from the set we're tracking since it has completed.
         self.remove_remaining_compilation_mode(specifier);
@@ -539,10 +539,10 @@ impl ReportAggregator {
             .get_or_insert_default()
     }
 
-    fn pre_link_compilation_report(
+    fn post_link_compilation_report(
         &mut self,
-        specifier: &PreLinkCompilationSpecifier,
-    ) -> &mut PreLinkCompilationReport {
+        specifier: &PostLinkCompilationSpecifier,
+    ) -> &mut PostLinkCompilationReport {
         self.report
             .execution_information
             .entry(specifier.metadata_file_path.clone().into())
@@ -614,7 +614,7 @@ impl ReportAggregator {
     }
 
     /// Removes the compilation mode specified by the `specifier` from the tracked remaining compilation modes.
-    fn remove_remaining_compilation_mode(&mut self, specifier: &PreLinkCompilationSpecifier) {
+    fn remove_remaining_compilation_mode(&mut self, specifier: &PostLinkCompilationSpecifier) {
         self.remaining_compilation_modes
             .entry(specifier.metadata_file_path.clone().into())
             .or_default()
@@ -652,7 +652,7 @@ pub struct MetadataFileReport {
     /// The [`CompilationReport`] for each of the [`Mode`]s.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     #[serde_as(as = "BTreeMap<DisplayFromStr, _>")]
-    pub compilation_reports: BTreeMap<Mode, PreLinkCompilationReport>,
+    pub compilation_reports: BTreeMap<Mode, PostLinkCompilationReport>,
 }
 
 #[serde_as]
@@ -744,9 +744,9 @@ pub struct ExecutionInformation {
     pub deployed_libraries: Option<BTreeMap<ContractInstance, Address>>,
 }
 
-/// The pre-link-only compilation report.
+/// The post-link-only compilation report.
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
-pub struct PreLinkCompilationReport {
+pub struct PostLinkCompilationReport {
     /// The compilation status.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub status: Option<CompilationStatus>,

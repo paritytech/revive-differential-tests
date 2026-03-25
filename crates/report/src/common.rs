@@ -37,9 +37,9 @@ pub struct StepExecutionSpecifier {
     pub step_idx: StepPath,
 }
 
-/// An absolute specifier for pre-link-only compilation.
+/// An absolute specifier for post-link-only compilation.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub struct PreLinkCompilationSpecifier {
+pub struct PostLinkCompilationSpecifier {
     pub compiler_mode: Mode,
     pub metadata_file_path: PathBuf,
 }
@@ -49,6 +49,6 @@ pub struct PreLinkCompilationSpecifier {
 pub enum CompilationSpecifier {
     /// Compilation happening as part of test execution.
     Execution(Arc<ExecutionSpecifier>),
-    /// Pre-link-only compilation happening without test execution.
-    PreLink(Arc<PreLinkCompilationSpecifier>),
+    /// Post-link-only compilation happening without test execution.
+    PostLink(Arc<PostLinkCompilationSpecifier>),
 }
