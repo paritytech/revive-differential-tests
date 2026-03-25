@@ -147,7 +147,7 @@ impl ReportAggregator {
             serde_json::to_writer_pretty(&file, &self.report).with_context(|| {
                 format!("Failed to serialize report JSON to {}", file_path.display())
             })?;
-
+            tracing::info!(file_path = %file_path.display(), "Report has been written");
             Ok(self.report)
         })
     }
