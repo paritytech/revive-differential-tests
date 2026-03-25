@@ -1,3 +1,5 @@
+use alloy::primitives::B256;
+
 use crate::internal_prelude::*;
 
 /// The compilation driver.
@@ -42,7 +44,24 @@ impl<'a> Driver<'a> {
     fn build_dummy_deployed_libraries(
         &self,
     ) -> HashMap<ContractInstance, (ContractIdent, Address, JsonAbi)> {
-        // TODO
-        HashMap::new()
+        let mut dummy_deployed_libraries = HashMap::new();
+        let Some(libraries) = self.compilation_definition.metadata.libraries.as_ref() else {
+            return dummy_deployed_libraries;
+        };
+
+        // Addresses must be unique per library to mimic real deployments and avoid LLVM optimization divergence.
+        let mut count: u64 = 1;
+        for libraries_at_path in libraries.values() {
+            for (library_ident, library_instance) in libraries_at_path {
+                let library_address = Address::from_word(B256::from(U256::from(count)));
+                dummy_deployed_libraries.insert(
+                    library_instance.clone(),
+                    (library_ident.clone(), library_address, JsonAbi::default()),
+                );
+                count += 1;
+            }
+        }
+
+        dummy_deployed_libraries
     }
 }
