@@ -12964,6 +12964,7 @@ dependencies = [
  "semver 1.0.27",
  "serde",
  "serde_json",
+ "tempfile",
  "tokio",
  "tracing",
 ]
