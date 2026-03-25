@@ -20,7 +20,6 @@ pub(crate) mod internal_prelude {
     pub use revive_dt_node_interaction::prelude::*;
 
     pub use std::borrow::Cow;
-    pub use std::sync::Arc;
     pub use std::cmp::Ordering;
     pub use std::collections::{BTreeMap, HashMap};
     pub use std::fmt::Display;
@@ -28,6 +27,7 @@ pub(crate) mod internal_prelude {
     pub use std::ops::Deref;
     pub use std::path::{Path, PathBuf};
     pub use std::str::FromStr;
+    pub use std::sync::Arc;
 
     pub use alloy::eips::BlockNumberOrTag;
     pub use alloy::hex::ToHexExt;
