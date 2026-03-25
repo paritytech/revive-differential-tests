@@ -56,13 +56,13 @@ impl<'a> CompilationDefinition<'a> {
                 )
             })?;
 
-            if let Some(version_requirement) = Self::parse_pragma_solidity_requirement(&source) {
-                if !version_requirement.matches(self.compiler.version()) {
-                    incompatible_files.push(json!({
-                        "source_path": source_path.display().to_string(),
-                        "pragma": version_requirement.to_string(),
-                    }));
-                }
+            if let Some(version_requirement) = Self::parse_pragma_solidity_requirement(&source)
+                && !version_requirement.matches(self.compiler.version())
+            {
+                incompatible_files.push(json!({
+                    "source_path": source_path.display().to_string(),
+                    "pragma": version_requirement.to_string(),
+                }));
             }
         }
 
