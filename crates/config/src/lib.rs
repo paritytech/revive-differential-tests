@@ -599,6 +599,9 @@ mod context {
         /// Keeps the tool and the nodes alive if an error happens in any part of the code. This is
         /// useful in debugging transactions in the event that they're failing.
         pub keep_alive_on_failures: bool,
+
+        /// If set, the framework will be kept alive once all benchmarks are completed.
+        pub keep_alive: bool,
     }
 
     impl Context {

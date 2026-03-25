@@ -63,6 +63,12 @@ impl PolkadotOmnichainNode {
     const BASE_POLKADOT_OMNICHAIN_NODE_RPC_PORT: u16 = 9944;
     const BASE_ETH_RPC_PORT: u16 = 8545;
 
+    /// Returns the WebSocket URL for the substrate RPC endpoint of this node.
+    fn substrate_ws_url(&self) -> String {
+        let substrate_rpc_port = Self::BASE_POLKADOT_OMNICHAIN_NODE_RPC_PORT + self.id as u16;
+        format!("ws://127.0.0.1:{substrate_rpc_port}")
+    }
+
     pub fn new(
         context: impl HasWorkingDirectoryConfiguration
         + HasEthRpcConfiguration
@@ -357,8 +363,7 @@ impl NodeApi for PolkadotOmnichainNode {
         revive_dt_common::futures::FrameworkFuture<anyhow::Result<OnlineClient<PolkadotConfig>>>,
     > {
         let provider = self.substrate_provider.clone();
-        let substrate_rpc_port = Self::BASE_POLKADOT_OMNICHAIN_NODE_RPC_PORT + self.id as u16;
-        let connection_string = format!("ws://127.0.0.1:{substrate_rpc_port}");
+        let connection_string = self.substrate_ws_url();
 
         Some(Box::pin(async move {
             provider
@@ -369,6 +374,17 @@ impl NodeApi for PolkadotOmnichainNode {
                 })
                 .await
                 .cloned()
+        }))
+    }
+
+    fn substrate_rpc_client(
+        &self,
+    ) -> Option<FrameworkFuture<Result<subxt::backend::rpc::RpcClient>>> {
+        let url = self.substrate_ws_url();
+        Some(Box::pin(async move {
+            subxt::backend::rpc::RpcClient::from_insecure_url(url)
+                .await
+                .context("Failed to create the substrate RPC client")
         }))
     }
 }

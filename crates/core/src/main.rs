@@ -49,6 +49,7 @@ mod internal_prelude {
     pub use semver::{Version, VersionReq};
     pub use serde::{Deserialize, Serialize};
     pub use serde_json::{self, Value, json};
+    pub use subxt::backend::rpc::RpcClient;
     pub use subxt::tx::Payload;
     pub use subxt::utils::H256;
     pub use subxt::{OnlineClient, PolkadotConfig};

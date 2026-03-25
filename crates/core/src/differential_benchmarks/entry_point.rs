@@ -145,6 +145,14 @@ pub async fn handle_differential_benchmarks(
                 ),
                 None => None,
             };
+            let substrate_rpc_client = match platform_information.node.substrate_rpc_client() {
+                Some(future) => Some(
+                    future
+                        .await
+                        .context("Failed to create the substrate RPC client")?,
+                ),
+                None => None,
+            };
             let (watcher, watcher_tx) = Watcher::new(
                 platform_information
                     .node
@@ -153,6 +161,7 @@ pub async fn handle_differential_benchmarks(
                     .context("Failed to subscribe to full blocks information from the node")?,
                 provider,
                 substrate_provider,
+                substrate_rpc_client,
                 test_definition
                     .reporter
                     .execution_specific_reporter(0usize, platform_identifier),
@@ -239,6 +248,13 @@ pub async fn handle_differential_benchmarks(
                     std::thread::sleep(Duration::from_secs(3600));
                 }
             }
+        }
+    }
+
+    if context.shutdown.keep_alive {
+        info!("Done, keeping framework alive");
+        loop {
+            std::thread::sleep(Duration::from_secs(3600));
         }
     }
 
