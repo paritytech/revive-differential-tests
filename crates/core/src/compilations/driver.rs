@@ -1,5 +1,3 @@
-use alloy::primitives::B256;
-
 use crate::internal_prelude::*;
 
 /// The compilation driver.
