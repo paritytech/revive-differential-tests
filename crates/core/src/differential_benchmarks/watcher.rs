@@ -304,6 +304,7 @@ impl Watcher {
                                         format!("Failed to get block {block_number} after retries")
                                     })
                                     .expect("Can't fail");
+                                info!(block.number = block.number(), "Observed a new receipts block");
 
                                 let receipts =
                                     retry_with_exponential_backoff(10, Duration::from_secs(1), || async {
@@ -356,7 +357,10 @@ impl Watcher {
                                         .get_block_receipts(alloy::eips::BlockId::Number(block_number.into()))
                                         .await
                                     {
-                                        Ok(Some(receipts)) => ControlFlow::Break(receipts),
+                                        Ok(Some(receipts)) => {
+                                            info!(block.number = block_number, "Observed a new receipts block");
+                                            ControlFlow::Break(receipts)
+                                        },
                                         other => {
                                             warn!(
                                                 block_number,

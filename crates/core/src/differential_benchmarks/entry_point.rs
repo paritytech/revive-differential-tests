@@ -193,7 +193,7 @@ pub async fn handle_differential_benchmarks(
             );
 
             // Running the driver.
-            driver
+            let driver_rtn = driver
                 .execute_all()
                 .instrument(info_span!(
                     "Executing Benchmarks",
@@ -208,7 +208,7 @@ pub async fn handle_differential_benchmarks(
                 .inspect(|(steps_executed, _)| {
                     info!(steps_executed, "Workload Execution Succeeded")
                 })
-                .inspect_err(|err| error!(?err, "Workload Execution Failed"))?;
+                .inspect_err(|err| error!(?err, "Workload Execution Failed"));
 
             // Stopping auxiliary tasks.
             watcher_tx
@@ -216,8 +216,29 @@ pub async fn handle_differential_benchmarks(
                 .unwrap();
             inclusion_watcher.stop();
 
-            watcher_task.await??;
-            let _ = inclusion_watcher_task.await;
+            let watcher_rtn = watcher_task.await.context("Watcher failed").flatten();
+            let inclusion_rtn = inclusion_watcher_task.await;
+
+            info!(
+                keep_alive_on_failures = context.shutdown.keep_alive_on_failures,
+                driver_rtn = driver_rtn.is_err(),
+                watcher_rtn = watcher_rtn.is_err(),
+                inclusion_rtn = inclusion_rtn.is_err(),
+            );
+
+            if context.shutdown.keep_alive_on_failures
+                && (driver_rtn.is_err() || watcher_rtn.is_err() || inclusion_rtn.is_err())
+            {
+                error!(
+                    driver_rtn = ?driver_rtn.err(),
+                    watcher_rtn = ?watcher_rtn.err(),
+                    inclusion_rtn = ?inclusion_rtn.err(),
+                    "One of the critical tasks failed, keeping the tool alive to investigate"
+                );
+                loop {
+                    std::thread::sleep(Duration::from_secs(3600));
+                }
+            }
         }
     }
 

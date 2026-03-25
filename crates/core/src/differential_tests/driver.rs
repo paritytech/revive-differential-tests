@@ -641,10 +641,10 @@ where
     ) -> Result<()> {
         let node = self.platform_information.node;
 
-        if let Some(ref version_requirement) = assertion.compiler_version {
-            if !version_requirement.matches(self.platform_information.compiler.version()) {
-                return Ok(());
-            }
+        if let Some(ref version_requirement) = assertion.compiler_version
+            && !version_requirement.matches(self.platform_information.compiler.version())
+        {
+            return Ok(());
         }
 
         let resolution_context = self
