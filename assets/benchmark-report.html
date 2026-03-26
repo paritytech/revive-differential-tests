@@ -1240,6 +1240,20 @@
             <div class="chart-echart" id="proofSizeFullnessChart" role="img" aria-labelledby="proofSizeFullnessChartTitle"></div>
           </div>
         </div>
+        <div class="chart-row-3">
+          <div class="chart-card">
+            <div class="chart-card-title" id="addlCapGasChartTitle">Additional Tx Capacity (Gas)</div>
+            <div class="chart-echart" id="addlCapGasChart" role="img" aria-labelledby="addlCapGasChartTitle"></div>
+          </div>
+          <div class="chart-card">
+            <div class="chart-card-title" id="addlCapRefTimeChartTitle">Additional Tx Capacity (Ref Time)</div>
+            <div class="chart-echart" id="addlCapRefTimeChart" role="img" aria-labelledby="addlCapRefTimeChartTitle"></div>
+          </div>
+          <div class="chart-card">
+            <div class="chart-card-title" id="addlCapProofSizeChartTitle">Additional Tx Capacity (Proof Size)</div>
+            <div class="chart-echart" id="addlCapProofSizeChart" role="img" aria-labelledby="addlCapProofSizeChartTitle"></div>
+          </div>
+        </div>
       </div>
     </div>
     <div class="chart-group">
@@ -1865,6 +1879,9 @@ function renderCharts() {
   renderGasFullnessChart(modeData, enabledPlatforms);
   renderRefTimeFullnessChart(modeData, enabledPlatforms);
   renderProofSizeFullnessChart(modeData, enabledPlatforms);
+  renderAdditionalTxCapacityChart(modeData, enabledPlatforms, 'addlCapGasChart', 'additional_tx_capacity_gas', 'No gas data');
+  renderAdditionalTxCapacityChart(modeData, enabledPlatforms, 'addlCapRefTimeChart', 'additional_tx_capacity_ref_time', 'No substrate data');
+  renderAdditionalTxCapacityChart(modeData, enabledPlatforms, 'addlCapProofSizeChart', 'additional_tx_capacity_proof_size', 'No substrate data');
 
   // Block transaction charts
   renderCumulativeTxChart(modeData, enabledPlatforms);
@@ -2047,6 +2064,47 @@ function renderRefTimeFullnessChart(modeData, enabledPlatforms) {
 
 function renderProofSizeFullnessChart(modeData, enabledPlatforms) {
   renderFullnessChart(modeData, enabledPlatforms, 'proofSizeFullnessChart', 'block_proof_size_fullness', 'No substrate data');
+}
+
+function renderAdditionalTxCapacityChart(modeData, enabledPlatforms, chartId, field, noDataMsg) {
+  const chart = getOrInitChart(chartId);
+  const series = [];
+  const legendData = [];
+
+  modeData.platforms.forEach((platform, i) => {
+    if (!enabledPlatforms.includes(platform)) return;
+
+    const blocks = getBlocksForPlatform(modeData, platform);
+    const filtered = blocks.filter(b => b[field] != null);
+    if (filtered.length === 0) return;
+
+    const data = filtered.map(b => [b.relative_block_number, b[field]]);
+    const color = getColor(i);
+
+    series.push({
+      type: 'bar',
+      name: platform,
+      data,
+      barMaxWidth: 6,
+      itemStyle: { color },
+      emphasis: { focus: 'series' },
+    });
+    legendData.push({ name: platform, itemStyle: { color } });
+  });
+
+  const base = baseChartOption({ yFormatter: v => Math.round(v) + ' tx', legendData });
+
+  chart.setOption({
+    ...base,
+    xAxis: { ...base.xAxis, name: 'Block', nameLocation: 'center', nameGap: 25 },
+    yAxis: { ...base.yAxis, min: 0, name: 'Additional txs', nameLocation: 'center', nameGap: 45 },
+    tooltip: {
+      ...baseTooltip(),
+      formatter: makeTooltipFormatter(' tx', v => Math.round(v)),
+    },
+    graphic: series.length === 0 ? noDataGraphic(noDataMsg) : [],
+    series,
+  }, true);
 }
 
 function renderCumulativeTxChart(modeData, enabledPlatforms) {

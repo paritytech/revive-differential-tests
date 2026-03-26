@@ -354,6 +354,7 @@ fn subscribe_to_full_blocks_information_substrate(
 
         let max_ref_time = limits.ref_time;
         let max_proof_size = limits.proof_size;
+
         let stream = substrate_provider
             .blocks()
             .subscribe_finalized()
