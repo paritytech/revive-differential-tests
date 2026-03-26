@@ -638,9 +638,7 @@ where
                                 .context("Failed to get the provider")?
                                 .get_block_number()
                                 .await
-                                .context(
-                                    "Failed to get the block number of the latest block",
-                                )?,
+                                .context("Failed to get the block number of the latest block")?,
                         })
                         .context("Failed to send message on the watcher's tx")?;
                 }
