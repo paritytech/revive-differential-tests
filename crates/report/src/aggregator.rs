@@ -867,6 +867,16 @@ pub struct MetricsInformation {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub block_proof_size_fullness: Option<u64>,
 
+    // Additional transaction capacity estimates.
+    // How many more transactions could fit assuming each new transaction costs the same as the
+    // average in this block.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub additional_tx_capacity_gas: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub additional_tx_capacity_ref_time: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub additional_tx_capacity_proof_size: Option<u64>,
+
     // Transaction pool fields
     /// The number of transactions pending in the transaction pool at the time this block was
     /// observed.
@@ -980,6 +990,38 @@ pub fn compute_metrics_information(blocks: &[MinedBlockInformation]) -> Vec<Metr
                 (None, None, None)
             };
 
+        // Additional transaction capacity: how many more txs could fit assuming each
+        // new tx costs the same as the average in this block. None when tx_count is 0.
+        let additional_tx_capacity_gas = (tx_count > 0).then(|| {
+            let per_tx = eth.mined_gas / tx_count as u128;
+            if per_tx == 0 {
+                return 0;
+            }
+            (eth.block_gas_limit.saturating_sub(eth.mined_gas) / per_tx) as u64
+        });
+
+        let additional_tx_capacity_ref_time = (tx_count > 0)
+            .then(|| {
+                let s = block.substrate_block_information.as_ref()?;
+                let per_tx = s.ref_time.checked_div(tx_count as u128)?;
+                if per_tx == 0 {
+                    return Some(0u64);
+                }
+                Some(((s.max_ref_time as u128).saturating_sub(s.ref_time) / per_tx) as u64)
+            })
+            .flatten();
+
+        let additional_tx_capacity_proof_size = (tx_count > 0)
+            .then(|| {
+                let s = block.substrate_block_information.as_ref()?;
+                let per_tx = s.proof_size.checked_div(tx_count as u128)?;
+                if per_tx == 0 {
+                    return Some(0u64);
+                }
+                Some(((s.max_proof_size as u128).saturating_sub(s.proof_size) / per_tx) as u64)
+            })
+            .flatten();
+
         result.push(MetricsInformation {
             block_number: eth.block_number,
             relative_block_number: eth.block_number - min_block_number,
@@ -1002,6 +1044,9 @@ pub fn compute_metrics_information(blocks: &[MinedBlockInformation]) -> Vec<Metr
             block_proof_size: proof_size,
             block_proof_size_limit: proof_size_limit,
             block_proof_size_fullness: proof_size_fullness,
+            additional_tx_capacity_gas,
+            additional_tx_capacity_ref_time,
+            additional_tx_capacity_proof_size,
             pending_transaction_count: block.pending_transaction_count,
         });
 
