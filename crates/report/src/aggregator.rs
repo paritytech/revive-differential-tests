@@ -63,8 +63,8 @@ impl ReportAggregator {
                     RunnerEvent::TestCaseDiscovery(event) => {
                         self.handle_test_case_discovery(*event);
                     }
-                    RunnerEvent::PreLinkCompilationDiscovery(event) => {
-                        self.handle_pre_link_compilation_discovery(*event);
+                    RunnerEvent::PostLinkCompilationDiscovery(event) => {
+                        self.handle_post_link_compilation_discovery(*event);
                     }
                     RunnerEvent::TestSucceeded(event) => {
                         self.handle_test_succeeded_event(*event);
@@ -90,8 +90,8 @@ impl ReportAggregator {
                     RunnerEvent::PostLinkContractsCompilationFailed(event) => {
                         self.handle_post_link_contracts_compilation_failed_event(*event)
                     }
-                    RunnerEvent::PreLinkContractsCompilationIgnored(event) => {
-                        self.handle_pre_link_contracts_compilation_ignored_event(*event);
+                    RunnerEvent::PostLinkContractsCompilationIgnored(event) => {
+                        self.handle_post_link_contracts_compilation_ignored_event(*event);
                     }
                     RunnerEvent::LibrariesDeployed(event) => {
                         self.handle_libraries_deployed_event(*event);
@@ -169,17 +169,17 @@ impl ReportAggregator {
             .insert(event.test_specifier.case_idx);
     }
 
-    fn handle_pre_link_compilation_discovery(&mut self, event: PreLinkCompilationDiscoveryEvent) {
+    fn handle_post_link_compilation_discovery(&mut self, event: PostLinkCompilationDiscoveryEvent) {
         self.remaining_compilation_modes
             .entry(
                 event
-                    .pre_link_compilation_specifier
+                    .post_link_compilation_specifier
                     .metadata_file_path
                     .clone()
                     .into(),
             )
             .or_default()
-            .insert(event.pre_link_compilation_specifier.compiler_mode.clone());
+            .insert(event.post_link_compilation_specifier.compiler_mode.clone());
     }
 
     fn handle_test_succeeded_event(&mut self, event: TestSucceededEvent) {
@@ -294,17 +294,8 @@ impl ReportAggregator {
             ),
         };
 
-        match &event.specifier {
-            CompilationSpecifier::Execution(specifier) => {
-                let execution_information = self.execution_information(specifier);
-                execution_information.pre_link_compilation_status = Some(status);
-            }
-            CompilationSpecifier::PreLink(specifier) => {
-                let report = self.pre_link_compilation_report(specifier);
-                report.status = Some(status);
-                self.handle_post_pre_link_contracts_compilation_status_update(specifier);
-            }
-        }
+        let execution_information = self.execution_information(&event.execution_specifier);
+        execution_information.pre_link_compilation_status = Some(status);
     }
 
     fn handle_post_link_contracts_compilation_succeeded_event(
@@ -329,8 +320,17 @@ impl ReportAggregator {
             ),
         };
 
-        let execution_information = self.execution_information(&event.execution_specifier);
-        execution_information.post_link_compilation_status = Some(status);
+        match &event.specifier {
+            CompilationSpecifier::Execution(specifier) => {
+                let execution_information = self.execution_information(specifier);
+                execution_information.post_link_compilation_status = Some(status);
+            }
+            CompilationSpecifier::PostLink(specifier) => {
+                let report = self.post_link_compilation_report(specifier);
+                report.status = Some(status);
+                self.handle_post_post_link_contracts_compilation_status_update(specifier);
+            }
+        }
     }
 
     fn handle_pre_link_contracts_compilation_failed_event(
@@ -344,17 +344,8 @@ impl ReportAggregator {
             compiler_input: event.compiler_input,
         };
 
-        match &event.specifier {
-            CompilationSpecifier::Execution(specifier) => {
-                let execution_information = self.execution_information(specifier);
-                execution_information.pre_link_compilation_status = Some(status);
-            }
-            CompilationSpecifier::PreLink(specifier) => {
-                let report = self.pre_link_compilation_report(specifier);
-                report.status = Some(status);
-                self.handle_post_pre_link_contracts_compilation_status_update(specifier);
-            }
-        }
+        let execution_information = self.execution_information(&event.execution_specifier);
+        execution_information.pre_link_compilation_status = Some(status);
     }
 
     fn handle_post_link_contracts_compilation_failed_event(
@@ -368,29 +359,38 @@ impl ReportAggregator {
             compiler_input: event.compiler_input,
         };
 
-        let execution_information = self.execution_information(&event.execution_specifier);
-        execution_information.post_link_compilation_status = Some(status);
+        match &event.specifier {
+            CompilationSpecifier::Execution(specifier) => {
+                let execution_information = self.execution_information(specifier);
+                execution_information.post_link_compilation_status = Some(status);
+            }
+            CompilationSpecifier::PostLink(specifier) => {
+                let report = self.post_link_compilation_report(specifier);
+                report.status = Some(status);
+                self.handle_post_post_link_contracts_compilation_status_update(specifier);
+            }
+        }
     }
 
-    fn handle_pre_link_contracts_compilation_ignored_event(
+    fn handle_post_link_contracts_compilation_ignored_event(
         &mut self,
-        event: PreLinkContractsCompilationIgnoredEvent,
+        event: PostLinkContractsCompilationIgnoredEvent,
     ) {
         let status = CompilationStatus::Ignored {
             reason: event.reason,
             additional_fields: event.additional_fields,
         };
 
-        let report = self.pre_link_compilation_report(&event.pre_link_compilation_specifier);
+        let report = self.post_link_compilation_report(&event.post_link_compilation_specifier);
         report.status = Some(status.clone());
-        self.handle_post_pre_link_contracts_compilation_status_update(
-            &event.pre_link_compilation_specifier,
+        self.handle_post_post_link_contracts_compilation_status_update(
+            &event.post_link_compilation_specifier,
         );
     }
 
-    fn handle_post_pre_link_contracts_compilation_status_update(
+    fn handle_post_post_link_contracts_compilation_status_update(
         &mut self,
-        specifier: &PreLinkCompilationSpecifier,
+        specifier: &PostLinkCompilationSpecifier,
     ) {
         // Remove this from the set we're tracking since it has completed.
         self.remove_remaining_compilation_mode(specifier);
@@ -539,10 +539,10 @@ impl ReportAggregator {
             .get_or_insert_default()
     }
 
-    fn pre_link_compilation_report(
+    fn post_link_compilation_report(
         &mut self,
-        specifier: &PreLinkCompilationSpecifier,
-    ) -> &mut PreLinkCompilationReport {
+        specifier: &PostLinkCompilationSpecifier,
+    ) -> &mut PostLinkCompilationReport {
         self.report
             .execution_information
             .entry(specifier.metadata_file_path.clone().into())
@@ -563,21 +563,18 @@ impl ReportAggregator {
             let mut contracts_info_at_path = HashMap::new();
 
             for (contract_name, (bytecode, abi)) in contracts {
-                let (is_valid_hex, bytecode_hash) = Self::hex_decode_and_hash(&bytecode);
-                let requires_linking = !is_valid_hex;
+                let bytecode_hash = Self::hex_decode_and_hash(&bytecode);
                 let info = if include_compiler_output {
                     CompiledContractInformation {
                         abi: Some(abi),
                         bytecode: Some(bytecode),
                         bytecode_hash,
-                        requires_linking,
                     }
                 } else {
                     CompiledContractInformation {
                         abi: None,
                         bytecode: None,
                         bytecode_hash,
-                        requires_linking,
                     }
                 };
                 contracts_info_at_path.insert(contract_name, info);
@@ -592,15 +589,13 @@ impl ReportAggregator {
     /// Attempts to hex decode the input before hashing the result. If the input
     /// is prefixed with `0x`, the prefix is stripped before decoding and hashing.
     ///
-    /// Returns `(true, hash)` if decoding succeeded, with a hash of the raw bytes.
-    /// Returns `(false, hash)` if decoding failed due to invalid hex, with a hash of the string.
-    fn hex_decode_and_hash(input: &str) -> (bool, B256) {
+    /// Returns a hash of the decoded bytes if hex decoding succeeds, otherwise
+    /// a hash of the raw string bytes.
+    fn hex_decode_and_hash(input: &str) -> B256 {
         let input = input.strip_prefix("0x").unwrap_or(input);
+        let bytes = hex::decode(input).unwrap_or_else(|_| input.as_bytes().to_vec());
 
-        match hex::decode(input) {
-            Ok(bytes) => (true, B256::from_slice(&Sha256::digest(&bytes))),
-            Err(_) => (false, B256::from_slice(&Sha256::digest(input.as_bytes()))),
-        }
+        keccak256(&bytes)
     }
 
     /// Removes the case specified by the `specifier` from the tracked remaining cases.
@@ -614,7 +609,7 @@ impl ReportAggregator {
     }
 
     /// Removes the compilation mode specified by the `specifier` from the tracked remaining compilation modes.
-    fn remove_remaining_compilation_mode(&mut self, specifier: &PreLinkCompilationSpecifier) {
+    fn remove_remaining_compilation_mode(&mut self, specifier: &PostLinkCompilationSpecifier) {
         self.remaining_compilation_modes
             .entry(specifier.metadata_file_path.clone().into())
             .or_default()
@@ -652,7 +647,7 @@ pub struct MetadataFileReport {
     /// The [`CompilationReport`] for each of the [`Mode`]s.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     #[serde_as(as = "BTreeMap<DisplayFromStr, _>")]
-    pub compilation_reports: BTreeMap<Mode, PreLinkCompilationReport>,
+    pub compilation_reports: BTreeMap<Mode, PostLinkCompilationReport>,
 }
 
 #[serde_as]
@@ -744,9 +739,9 @@ pub struct ExecutionInformation {
     pub deployed_libraries: Option<BTreeMap<ContractInstance, Address>>,
 }
 
-/// The pre-link-only compilation report.
+/// The post-link-only compilation report.
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
-pub struct PreLinkCompilationReport {
+pub struct PostLinkCompilationReport {
     /// The compilation status.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub status: Option<CompilationStatus>,
@@ -807,12 +802,10 @@ pub struct CompiledContractInformation {
     /// The contract bytecode. This is only included if the appropriate flag is set in the CLI context.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub bytecode: Option<String>,
-    /// The hash of the bytecode.
-    /// Note that it is the hash of the raw bytecode bytes (the decoded `bytecode` string)
-    /// if `requires_linking` is false, otherwise it is the hash of the `bytecode` string.
+    /// The hash of the decoded bytecode bytes.
+    /// Note that for pre-link compilations, contracts that reference external libraries will
+    /// have a hash of a partially linked intermediate object rather than the final bytecode.
     pub bytecode_hash: B256,
-    /// Whether the bytecode contains unresolved library placeholders and requires linking.
-    pub requires_linking: bool,
 }
 
 /// Information on each step in the execution.
