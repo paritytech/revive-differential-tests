@@ -6,15 +6,12 @@ use crate::internal_prelude::*;
 /// Returns an error if `base_path` is `Some` but is not a base directory of `path`.
 ///
 /// Purpose of normalization:
-/// 1. **Cross-platform bytecode comparability**: Source paths passed via solc's standard JSON
-///    input are used by the compilers as part of fully qualified library names. For contracts
-///    that reference external libraries, the compilers embed values derived from these names
-///    into the bytecode. Without normalization, each platform's different absolute paths
-///    produce different bytecode for the same contract, preventing cross-platform hash comparison.
-/// 2. **Correct import resolution on Windows**: Without normalization, `canonicalize()` on
+/// 1. **Correct import resolution on Windows**: Without normalization, `canonicalize()` on
 ///    Windows produces extended-length path prefixes (`\\?\D:\a\...`). When solc resolves
 ///    imports from such paths, the resolved path doesn't match the `\\?\`-prefixed path in the
 ///    sources map, causing duplicate declarations and contract compilation failures.
+/// 2. **Consistent hash export keys**: During report processing, ensures the same contract maps
+///    to the same key in exported hash files regardless of which platform produced the report.
 ///
 /// Example:
 /// ```

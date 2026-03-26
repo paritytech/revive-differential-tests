@@ -138,10 +138,10 @@ impl SolidityCompiler for Solc {
                     libraries: Libraries {
                         libs: libraries
                             .into_iter()
-                            .map(|(file_path, libraries)| {
+                            .map(|(source_path, libraries)| {
                                 (
                                     PathBuf::from(
-                                        normalize_path(&file_path, base_path.as_deref()).unwrap(),
+                                        normalize_path(&source_path, base_path.as_deref()).unwrap(),
                                     ),
                                     libraries
                                         .into_iter()
