@@ -23,11 +23,10 @@ pub(crate) fn compute_config_membership<'a>(
 
             let mut matches: Vec<&Ident> = Vec::new();
             for (field_ident, field_ty) in &named {
-                if let Some(ident) = type_ident(field_ty) {
-                    if ident == config_ident {
+                if let Some(ident) = type_ident(field_ty)
+                    && ident == config_ident {
                         matches.push(field_ident);
                     }
-                }
             }
 
             if matches.len() > 1 {

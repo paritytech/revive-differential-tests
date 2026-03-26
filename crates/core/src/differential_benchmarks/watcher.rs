@@ -20,11 +20,6 @@ pub struct Watcher {
     /// this provider only for chains which are substrate based.
     substrate_provider: Option<OnlineClient<PolkadotConfig>>,
 
-    /// The low-level substrate RPC client used for arbitrary RPC calls (e.g. querying the
-    /// transaction pool). Separate from `substrate_provider` because [`OnlineClient`] does not
-    /// expose its underlying [`RpcClient`].
-    substrate_rpc_client: Option<RpcClient>,
-
     /// The reporter used to send events to the report aggregator.
     reporter: ExecutionSpecificReporter,
 }
@@ -34,7 +29,6 @@ impl Watcher {
         blocks_stream: FrameworkStream<MinedBlockInformation>,
         provider: DynProvider,
         substrate_provider: Option<OnlineClient<PolkadotConfig>>,
-        substrate_rpc_client: Option<RpcClient>,
         reporter: ExecutionSpecificReporter,
     ) -> (Self, UnboundedSender<WatcherEvent>) {
         let (tx, rx) = unbounded_channel::<WatcherEvent>();
@@ -44,7 +38,6 @@ impl Watcher {
                 blocks_stream,
                 provider,
                 substrate_provider,
-                substrate_rpc_client,
                 reporter,
             },
             tx,
@@ -97,51 +90,6 @@ impl Watcher {
                     continue;
                 };
                 break ignore_block_before;
-            };
-
-            // Queries the number of transactions currently pending in the transaction pool. On
-            // substrate-based nodes this calls `author_pendingExtrinsics` via the low-level RPC
-            // client; on native Ethereum nodes it falls back to
-            // `eth_getBlockTransactionCountByNumber("pending")`. The closure retries with
-            // exponential backoff and returns 0 if all attempts fail, ensuring that a transient RPC
-            // error never blocks the block observation loop.
-            let query_pending_transaction_count = {
-                let rpc_client = self.substrate_rpc_client.clone();
-                let provider = self.provider.clone();
-                move || {
-                    let rpc_client = rpc_client.clone();
-                    let provider = provider.clone();
-                    async move {
-                        let result = match rpc_client {
-                            Some(rpc_client) => rpc_client
-                                .request::<Vec<String>>(
-                                    "author_pendingExtrinsics",
-                                    Default::default(),
-                                )
-                                .await
-                                .map(|pending| pending.len())
-                                .map_err(|err| anyhow::anyhow!(err)),
-                            None => provider
-                                .get_block_transaction_count_by_number(
-                                    alloy::eips::BlockNumberOrTag::Pending,
-                                )
-                                .await
-                                .map_err(|err| anyhow::anyhow!(err))
-                                .and_then(|count| {
-                                    count
-                                        .map(|c| c as usize)
-                                        .ok_or_else(|| anyhow::anyhow!("Returned None"))
-                                }),
-                        };
-                        match result {
-                            Ok(count) => ControlFlow::Break(count),
-                            Err(err) => {
-                                warn!(?err, "Failed to query pending transaction count");
-                                ControlFlow::Continue(err)
-                            }
-                        }
-                    }
-                }
             };
 
             /* Initializing the shared state between the two tasks we will be spawning */
@@ -211,7 +159,6 @@ impl Watcher {
             let block_subscription_task = tokio::spawn({
                 let is_submission_completed = is_submission_completed.clone();
                 let watch_requests = watch_requests.clone();
-                let mut query_pending_transaction_count = query_pending_transaction_count;
                 async move {
                     // This is a kill switch which we use in cases where it appears like the chain
                     // has stopped processing transactions and appears to have halted. If we have
@@ -278,14 +225,8 @@ impl Watcher {
                             .is_empty();
 
                         let mut block_information = block_information;
-                        block_information.pending_transaction_count =
-                            retry_with_exponential_backoff(
-                                5,
-                                Duration::from_secs(1),
-                                &mut query_pending_transaction_count,
-                            )
-                            .await
-                            .unwrap_or(0);
+                        block_information.pending_transaction_count = requested_transactions_len
+                            .saturating_sub(observed_transaction_hashes.len());
 
                         observed_blocks.push(block_information);
 
@@ -391,16 +332,6 @@ impl Watcher {
                                         )
                                     })
                                     .expect("Can't fail");
-
-
-                                let receipts_len = receipts.len();
-                                let extrinsics_len = block.extrinsics().await.expect("Can't fail").len();
-                                info!(
-                                    block.number = block.number(),
-                                    receipts = receipts_len,
-                                    extrinsics = extrinsics_len,
-                                    "Computed the number of extrinsics in the block"
-                                );
 
                                 receipts
                                     .into_iter()
