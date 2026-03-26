@@ -866,6 +866,12 @@ pub struct MetricsInformation {
     pub block_proof_size_limit: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub block_proof_size_fullness: Option<u64>,
+
+    // Transaction pool fields
+    /// The number of transactions pending in the transaction pool at the time this block was
+    /// observed.
+    #[serde(default)]
+    pub pending_transaction_count: usize,
 }
 
 /// Computes per-block [`MetricsInformation`] from a sorted slice of mined blocks.
@@ -996,6 +1002,7 @@ pub fn compute_metrics_information(blocks: &[MinedBlockInformation]) -> Vec<Metr
             block_proof_size: proof_size,
             block_proof_size_limit: proof_size_limit,
             block_proof_size_fullness: proof_size_fullness,
+            pending_transaction_count: block.pending_transaction_count,
         });
 
         prev_observation_time_millis = Some(this_obs_millis);
@@ -1041,6 +1048,7 @@ mod tests {
             substrate_block_information: substrate,
             tx_counts,
             observation_time,
+            pending_transaction_count: 0,
         }
     }
 

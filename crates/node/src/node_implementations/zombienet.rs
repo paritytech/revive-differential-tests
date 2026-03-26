@@ -542,6 +542,17 @@ impl NodeApi for ZombienetNode {
                 .cloned()
         }))
     }
+
+    fn substrate_rpc_client(
+        &self,
+    ) -> Option<FrameworkFuture<Result<subxt::backend::rpc::RpcClient>>> {
+        let url = self.collator_ws_uri.clone()?;
+        Some(Box::pin(async move {
+            subxt::backend::rpc::RpcClient::from_insecure_url(url)
+                .await
+                .context("Failed to create the substrate RPC client")
+        }))
+    }
 }
 
 impl Node for ZombienetNode {

@@ -227,6 +227,17 @@ pub fn inject_core_assignments(
         }
     };
 
+    // The relay chain scheduler automatically assigns one core to a parachain
+    // when it is registered by zombienet's customize_relay() step. We subtract
+    // that core so the total (scheduler-assigned + injected) equals num_cores.
+    let num_cores = num_cores.saturating_sub(1);
+    if num_cores == 0 {
+        tracing::debug!(
+            "Only 1 core configured; the scheduler's automatic assignment is sufficient"
+        );
+        return Ok(());
+    }
+
     let para_id = toml_value
         .get("parachains")
         .and_then(|p| p.as_array())

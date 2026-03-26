@@ -223,6 +223,11 @@ impl Watcher {
                             .ethereum_block_information
                             .transaction_hashes
                             .is_empty();
+
+                        let mut block_information = block_information;
+                        block_information.pending_transaction_count = requested_transactions_len
+                            .saturating_sub(observed_transaction_hashes.len());
+
                         observed_blocks.push(block_information);
 
                         if !has_transactions {

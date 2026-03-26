@@ -439,7 +439,7 @@
     .chart-group {
       display: flex;
       flex-direction: column;
-      gap: 16px;
+      gap: 24px;
     }
 
     .chart-group-header {
@@ -1256,6 +1256,10 @@
           <div class="chart-echart" id="cumulativeTxChart" role="img" aria-labelledby="cumulativeTxChartTitle"></div>
         </div>
         <div class="chart-card">
+          <div class="chart-card-title" id="pendingTxChartTitle">Pending Transactions (Mempool)</div>
+          <div class="chart-echart" id="pendingTxChart" role="img" aria-labelledby="pendingTxChartTitle"></div>
+        </div>
+        <div class="chart-card">
           <div class="chart-card-title" id="blockTxChartTitle">Transactions per Block &mdash; by Platform &amp; Step</div>
           <div class="chart-echart" id="blockTxChart" role="img" aria-labelledby="blockTxChartTitle"></div>
         </div>
@@ -1864,6 +1868,7 @@ function renderCharts() {
 
   // Block transaction charts
   renderCumulativeTxChart(modeData, enabledPlatforms);
+  renderPendingTxChart(modeData, enabledPlatforms);
   renderBlockTransactionsChart(modeData, enabledPlatforms);
 
   // Raw data
@@ -2086,6 +2091,53 @@ function renderCumulativeTxChart(modeData, enabledPlatforms) {
     tooltip: {
       ...baseTooltip(),
       formatter: makeTooltipFormatter('txs', v => fmtCount(v)),
+    },
+    graphic: series.length === 0 ? noDataGraphic() : [],
+    series,
+  }, true);
+}
+
+function renderPendingTxChart(modeData, enabledPlatforms) {
+  const chart = getOrInitChart('pendingTxChart');
+  const series = [];
+  const legendData = [];
+
+  modeData.platforms.forEach((platform, i) => {
+    if (!enabledPlatforms.includes(platform)) return;
+
+    const blocks = getBlocksForPlatform(modeData, platform);
+    const sorted = [...blocks].sort((a, b) =>
+      a.relative_observation_time_seconds - b.relative_observation_time_seconds
+    );
+    if (sorted.length === 0) return;
+
+    const minT = sorted[0].relative_observation_time_seconds;
+    const data = sorted.map(b => [
+      b.relative_observation_time_seconds - minT,
+      b.pending_transaction_count || 0,
+    ]);
+
+    const color = getColor(i);
+    series.push({
+      ...makeLineSeries(platform, data, i),
+      areaStyle: {
+        color: {
+          type: 'linear', x: 0, y: 0, x2: 0, y2: 1,
+          colorStops: [
+            { offset: 0, color: hexToRgba(color, 0.28) },
+            { offset: 1, color: hexToRgba(color, 0.02) },
+          ],
+        },
+      },
+    });
+    legendData.push({ name: platform, itemStyle: { color } });
+  });
+
+  chart.setOption({
+    ...baseChartOption({ yFormatter: fmtCount, legendData }),
+    tooltip: {
+      ...baseTooltip(),
+      formatter: makeTooltipFormatter('pending txs', v => fmtCount(v)),
     },
     graphic: series.length === 0 ? noDataGraphic() : [],
     series,

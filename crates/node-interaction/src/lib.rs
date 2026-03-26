@@ -234,6 +234,17 @@ pub trait NodeApi {
     fn substrate_provider(&self) -> Option<FrameworkFuture<Result<OnlineClient<PolkadotConfig>>>> {
         None
     }
+
+    /// The low-level substrate RPC client used by the node. None if it's not a substrate node.
+    ///
+    /// This is separate from [`Self::substrate_provider`] because [`OnlineClient`] does not expose
+    /// the underlying [`subxt::backend::rpc::RpcClient`]. Callers that need to issue arbitrary RPC
+    /// requests (e.g. `author_pendingExtrinsics`) should use this method.
+    fn substrate_rpc_client(
+        &self,
+    ) -> Option<FrameworkFuture<Result<subxt::backend::rpc::RpcClient>>> {
+        None
+    }
 }
 
 fn subscribe_to_full_blocks_information_ethereum(
@@ -266,6 +277,7 @@ fn subscribe_to_full_blocks_information_ethereum(
                         substrate_block_information: None,
                         tx_counts: Default::default(),
                         observation_time: SystemTime::now(),
+                        pending_transaction_count: 0,
                     })
                 }),
         );
@@ -445,6 +457,7 @@ fn subscribe_to_full_blocks_information_substrate(
                         }),
                         tx_counts: Default::default(),
                         observation_time,
+                        pending_transaction_count: 0,
                     }
                 }
             })
