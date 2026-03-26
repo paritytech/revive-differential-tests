@@ -27,6 +27,7 @@ pub(crate) mod internal_prelude {
     pub use std::ops::Deref;
     pub use std::path::{Path, PathBuf};
     pub use std::str::FromStr;
+    pub use std::sync::Arc;
 
     pub use alloy::eips::BlockNumberOrTag;
     pub use alloy::hex::ToHexExt;
@@ -39,6 +40,7 @@ pub(crate) mod internal_prelude {
     pub use alloy::rpc::types::TransactionRequest;
     pub use anyhow::Context as _;
     pub use futures::{FutureExt, StreamExt, TryFutureExt, TryStreamExt, stream};
+    pub use indexmap::IndexMap;
     pub use itertools::Itertools;
     pub use schemars::JsonSchema;
     pub use semver::VersionReq;

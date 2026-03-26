@@ -18,6 +18,12 @@ on:
       solc_version:
         description: "Solc compiler version (e.g. v0.8.28)"
         required: false
+      resolc_ref:
+        description: "Resolc git ref (commit/branch/tag) to build from source instead of using a release binary"
+        required: false
+      benchmark_env:
+        description: "Comma-separated environment variables for benchmark jobs (e.g. RUST_LOG=debug,MY_VAR=value)"
+        required: false
 
 concurrency:
   group: ${{ github.workflow }}
@@ -209,6 +215,61 @@ jobs:
             ~/.cargo/bin/eth-rpc
           key: polkadot-sdk-${{ env.POLKADOT_VERSION }}
 
+  build-resolc:
+    name: Build resolc from source
+    if: ${{ inputs.resolc_ref != '' }}
+    runs-on: parity-large
+    outputs:
+      resolc_commit: ${{ steps.resolve-ref.outputs.commit }}
+    env:
+      SCCACHE_GHA_ENABLED: "true"
+      RUSTC_WRAPPER: "sccache"
+    steps:
+      - name: Checkout revive
+        uses: actions/checkout@v4
+        with:
+          repository: paritytech/revive
+          ref: ${{ inputs.resolc_ref }}
+
+      - name: Setup Rust toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+
+      - name: Setup sccache
+        uses: mozilla-actions/sccache-action@v0.0.9
+
+      - name: Install system packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential pkg-config libssl-dev llvm clang libclang-dev cmake ninja-build lld
+
+      - name: Resolve commit hash
+        id: resolve-ref
+        run: echo "commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Restore resolc cache
+        id: cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.cargo/bin/resolc
+          key: resolc-source-${{ steps.resolve-ref.outputs.commit || needs.build-resolc.outputs.resolc_commit }}
+
+      - name: Build LLVM
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: make install-llvm
+
+      - name: Build resolc
+        if: steps.cache.outputs.cache-hit != 'true'
+        env:
+          LLVM_SYS_211_PREFIX: ${{ github.workspace }}/target-llvm/gnu/target-final
+        run: make install-bin
+
+      - name: Save resolc cache
+        if: always() && steps.cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.cargo/bin/resolc
+          key: resolc-source-${{ steps.resolve-ref.outputs.commit || needs.build-resolc.outputs.resolc_commit }}
+
   # ── Generate test matrix dynamically ─────────────────────────────────
   generate-matrix:
     name: Generate test matrix
@@ -250,7 +311,19 @@ jobs:
   # ── Run benchmarks (one job per test x platform) ─────────────────────
   benchmark:
     name: "${{ matrix.platform }} / ${{ matrix.test }}"
-    needs: [generate-matrix, build-chainspec-generator, build-polkadot-sdk]
+    needs:
+      [
+        generate-matrix,
+        build-chainspec-generator,
+        build-polkadot-sdk,
+        build-resolc,
+      ]
+    if: >-
+      !cancelled() &&
+      needs.generate-matrix.result == 'success' &&
+      needs.build-chainspec-generator.result == 'success' &&
+      needs.build-polkadot-sdk.result == 'success' &&
+      contains(fromJSON('["success", "skipped"]'), needs.build-resolc.result)
     runs-on: parity-large
     strategy:
       fail-fast: false
@@ -261,6 +334,14 @@ jobs:
           - zombienet-revm-solc
           - zombienet-polkavm-resolc
     steps:
+      - name: Set custom environment variables
+        if: ${{ inputs.benchmark_env != '' }}
+        run: |
+          IFS=',' read -ra VARS <<< "${{ inputs.benchmark_env }}"
+          for var in "${VARS[@]}"; do
+            echo "$var" >> "$GITHUB_ENV"
+          done
+
       - name: Set artifact name
         id: names
         run: |
@@ -320,11 +401,19 @@ jobs:
             "https://github.com/ethereum/solidity/releases/download/${{ env.SOLC_VERSION }}/solc-static-linux"
           chmod +x ~/.cargo/bin/solc
 
-      - name: Install resolc
+      - name: Install resolc (release binary)
+        if: ${{ inputs.resolc_ref == '' }}
         run: |
           curl -sSLo ~/.cargo/bin/resolc \
             "https://github.com/paritytech/revive/releases/download/${{ env.RESOLC_VERSION }}/resolc-x86_64-unknown-linux-musl"
           chmod +x ~/.cargo/bin/resolc
+
+      - name: Restore resolc cache (from source build)
+        if: ${{ inputs.resolc_ref != '' }}
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.cargo/bin/resolc
+          key: resolc-source-${{ steps.resolve-ref.outputs.commit || needs.build-resolc.outputs.resolc_commit }}
 
       # ── Restore cached binaries ─────────────────────────────────────────
 
@@ -463,29 +552,21 @@ jobs:
             --report-path ./web-report.json \
             --output-path ./benchmark-report.html
 
-      - name: Compress web report
-        run: gzip -9 -k ./web-report.json
-
       - name: Checkout gh-pages
         uses: actions/checkout@v4
         with:
           ref: gh-pages
           path: gh-pages-dir
-          lfs: true
-
-      - name: Setup Git LFS
-        working-directory: gh-pages-dir
-        run: |
-          git lfs install
-          git lfs track "reports/*.json.gz"
-          git lfs track "latest.json.gz"
 
       - name: Add report
         run: |
-          mkdir -p gh-pages-dir/reports
+          # Copy the report as the `index.html` file.
           cp ./benchmark-report.html "gh-pages-dir/index.html"
-          cp ./web-report.json.gz "gh-pages-dir/reports/${REPORT_NAME}.json.gz"
-          cp ./web-report.json.gz "gh-pages-dir/latest.json.gz"
+          # Copy the report as a file with the dat in order to find it later
+          # on if we need it.
+          cp ./benchmark-report.html "gh-pages-dir/reports/${REPORT_NAME}.html"
+          # Move the raw report into a directory for finding later.
+          cp ./web-report.json "gh-pages-dir/raw/${REPORT_NAME}.json"
 
       - name: Push to gh-pages
         working-directory: gh-pages-dir

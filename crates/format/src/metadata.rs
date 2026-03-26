@@ -75,11 +75,11 @@ pub struct Metadata {
     /// If any contract is to be used by the test then it must be included in here first so that the
     /// framework is aware of its path, compiles it, and prepares it.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub contracts: Option<BTreeMap<ContractInstance, ContractPathAndIdent>>,
+    pub contracts: Option<IndexMap<ContractInstance, ContractPathAndIdent>>,
 
     /// The set of libraries that this metadata file requires.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub libraries: Option<BTreeMap<PathBuf, BTreeMap<ContractIdent, ContractInstance>>>,
+    pub libraries: Option<IndexMap<PathBuf, IndexMap<ContractIdent, ContractInstance>>>,
 
     /// This represents a mode that has been parsed from test metadata.
     ///
@@ -560,6 +560,127 @@ pub enum RevertString {
     VerboseDebug,
 }
 
+define_wrapper_type!(
+    /// A reference to a contract instance, resolved at runtime.
+    ///
+    /// Serialized and deserialized as a string with the format `$INSTANCE:{token}`, where `{token}`
+    /// is either a literal index (e.g. `$INSTANCE:0`) or a variable reference
+    /// (e.g. `$INSTANCE:$VARIABLE:I`).
+    #[derive(
+        Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, JsonSchema,
+    )]
+    #[serde(try_from = "String", into = "String")]
+    pub struct ContractInstanceReference(CalldataToken<String>);
+);
+
+impl Display for ContractInstanceReference {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match &self.0 {
+            CalldataToken::Item(s) => write!(f, "$INSTANCE:{s}"),
+            CalldataToken::Operation(op) => write!(f, "$INSTANCE:{op:?}"),
+        }
+    }
+}
+
+impl FromStr for ContractInstanceReference {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let token = s.strip_prefix("$INSTANCE:").ok_or_else(|| {
+            anyhow::anyhow!(
+                "Invalid contract instance reference: expected '$INSTANCE:{{token}}', got '{s}'"
+            )
+        })?;
+        Ok(Self(CalldataToken::Item(token.to_owned())))
+    }
+}
+
+impl TryFrom<String> for ContractInstanceReference {
+    type Error = anyhow::Error;
+
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        value.parse()
+    }
+}
+
+impl From<ContractInstanceReference> for String {
+    fn from(value: ContractInstanceReference) -> Self {
+        value.to_string()
+    }
+}
+
+/// Either a [`ContractInstanceReference`] or a [`ContractInstance`].
+///
+/// Either a [`ContractInstanceReference`] or a [`ContractInstance`].
+///
+/// Deserialized as untagged: strings matching `$INSTANCE:{index}` are parsed as a reference,
+/// everything else is treated as a contract instance name.
+///
+/// The lifetime parameter `'a` allows the enum to borrow its inner values rather than requiring
+/// owned data.
+#[derive(
+    Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, JsonSchema,
+)]
+#[serde(untagged)]
+pub enum ContractInstanceOrReference<'a> {
+    /// A positional reference to a contract instance.
+    Reference(Cow<'a, ContractInstanceReference>),
+    /// A contract instance identified by name.
+    Instance(Cow<'a, ContractInstance>),
+}
+
+impl From<ContractInstanceReference> for ContractInstanceOrReference<'_> {
+    fn from(value: ContractInstanceReference) -> Self {
+        Self::Reference(Cow::Owned(value))
+    }
+}
+
+impl From<ContractInstance> for ContractInstanceOrReference<'_> {
+    fn from(value: ContractInstance) -> Self {
+        Self::Instance(Cow::Owned(value))
+    }
+}
+
+impl<'a> From<&'a ContractInstanceReference> for ContractInstanceOrReference<'a> {
+    fn from(value: &'a ContractInstanceReference) -> Self {
+        Self::Reference(Cow::Borrowed(value))
+    }
+}
+
+impl<'a> From<&'a ContractInstance> for ContractInstanceOrReference<'a> {
+    fn from(value: &'a ContractInstance) -> Self {
+        Self::Instance(Cow::Borrowed(value))
+    }
+}
+
+impl<'a, 'b> From<&'a ContractInstanceOrReference<'b>> for ContractInstanceOrReference<'a> {
+    fn from(value: &'a ContractInstanceOrReference<'b>) -> Self {
+        match value {
+            ContractInstanceOrReference::Reference(cow) => {
+                Self::Reference(Cow::Borrowed(cow.as_ref()))
+            }
+            ContractInstanceOrReference::Instance(cow) => {
+                Self::Instance(Cow::Borrowed(cow.as_ref()))
+            }
+        }
+    }
+}
+
+impl From<String> for ContractInstanceOrReference<'_> {
+    fn from(value: String) -> Self {
+        match value.parse::<ContractInstanceReference>() {
+            Ok(reference) => Self::Reference(Cow::Owned(reference)),
+            Err(_) => Self::Instance(Cow::Owned(ContractInstance::new(value))),
+        }
+    }
+}
+
+impl Default for ContractInstanceOrReference<'_> {
+    fn default() -> Self {
+        Self::Instance(Cow::Owned(ContractInstance::default()))
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -597,5 +718,67 @@ mod test {
 
         // Assert
         metadata.expect("Failed to deserialize metadata");
+    }
+
+    #[test]
+    fn instance_or_reference_deserializes_reference_from_string() {
+        // Arrange
+        let json = r#""$INSTANCE:42""#;
+
+        // Act
+        let value: ContractInstanceOrReference = serde_json::from_str(json).unwrap();
+
+        // Assert
+        assert_eq!(
+            value,
+            ContractInstanceOrReference::from(ContractInstanceReference::new(CalldataToken::Item(
+                "42".into()
+            )))
+        );
+    }
+
+    #[test]
+    fn instance_or_reference_deserializes_instance_from_string() {
+        // Arrange
+        let json = r#""MyContract""#;
+
+        // Act
+        let value: ContractInstanceOrReference = serde_json::from_str(json).unwrap();
+
+        // Assert
+        assert_eq!(
+            value,
+            ContractInstanceOrReference::from(ContractInstance::new("MyContract"))
+        );
+    }
+
+    #[test]
+    fn instance_or_reference_roundtrips_reference() {
+        // Arrange
+        let original = ContractInstanceOrReference::from(ContractInstanceReference::new(
+            CalldataToken::Item("7".into()),
+        ));
+
+        // Act
+        let json = serde_json::to_string(&original).unwrap();
+        let deserialized: ContractInstanceOrReference = serde_json::from_str(&json).unwrap();
+
+        // Assert
+        assert_eq!(json, r#""$INSTANCE:7""#);
+        assert_eq!(deserialized, original);
+    }
+
+    #[test]
+    fn instance_or_reference_roundtrips_instance() {
+        // Arrange
+        let original = ContractInstanceOrReference::from(ContractInstance::new("Token"));
+
+        // Act
+        let json = serde_json::to_string(&original).unwrap();
+        let deserialized: ContractInstanceOrReference = serde_json::from_str(&json).unwrap();
+
+        // Assert
+        assert_eq!(json, r#""Token""#);
+        assert_eq!(deserialized, original);
     }
 }

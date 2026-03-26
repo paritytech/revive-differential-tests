@@ -8,7 +8,7 @@ pub struct CompilationDefinition<'a> {
     pub mode: Cow<'a, Mode>,
     pub compiler_identifier: CompilerIdentifier,
     pub compiler: Box<dyn SolidityCompiler + 'static>,
-    pub reporter: PreLinkCompilationSpecificReporter,
+    pub reporter: PostLinkCompilationSpecificReporter,
 }
 
 impl<'a> CompilationDefinition<'a> {
@@ -56,13 +56,13 @@ impl<'a> CompilationDefinition<'a> {
                 )
             })?;
 
-            if let Some(version_requirement) = Self::parse_pragma_solidity_requirement(&source) {
-                if !version_requirement.matches(self.compiler.version()) {
-                    incompatible_files.push(json!({
-                        "source_path": source_path.display().to_string(),
-                        "pragma": version_requirement.to_string(),
-                    }));
-                }
+            if let Some(version_requirement) = Self::parse_pragma_solidity_requirement(&source)
+                && !version_requirement.matches(self.compiler.version())
+            {
+                incompatible_files.push(json!({
+                    "source_path": source_path.display().to_string(),
+                    "pragma": version_requirement.to_string(),
+                }));
             }
         }
 
@@ -149,8 +149,8 @@ pub async fn create_compilation_definitions_stream<'a>(
                 (
                     metadata_file,
                     Cow::<'_, Mode>::Owned(mode.clone()),
-                    reporter.pre_link_compilation_specific_reporter(Arc::new(
-                        PreLinkCompilationSpecifier {
+                    reporter.post_link_compilation_specific_reporter(Arc::new(
+                        PostLinkCompilationSpecifier {
                             compiler_mode: mode,
                             metadata_file_path: metadata_file.metadata_file_path.clone(),
                         },
@@ -159,7 +159,7 @@ pub async fn create_compilation_definitions_stream<'a>(
             })
             .inspect(|(_, _, reporter)| {
                 reporter
-                    .report_pre_link_compilation_discovery_event()
+                    .report_post_link_compilation_discovery_event()
                     .expect("Can't fail");
             }),
     )
@@ -197,7 +197,7 @@ pub async fn create_compilation_definitions_stream<'a>(
                 );
                 compilation
                     .reporter
-                    .report_pre_link_contracts_compilation_ignored_event(
+                    .report_post_link_contracts_compilation_ignored_event(
                         reason.to_string(),
                         additional_information
                             .into_iter()

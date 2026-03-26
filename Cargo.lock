@@ -13026,6 +13026,7 @@ dependencies = [
  "alloy",
  "anyhow",
  "futures",
+ "indexmap 2.13.0",
  "itertools 0.14.0",
  "revive-common",
  "revive-dt-common",
@@ -13103,7 +13104,6 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_with",
- "sha2 0.10.9",
  "tokio",
  "tracing",
 ]
@@ -14814,6 +14814,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "54e910108742c57a770f492731f99be216a52fadd361b06c8fb59d74ccc267d2"
 dependencies = [
  "dyn-clone",
+ "indexmap 2.13.0",
  "ref-cast",
  "schemars_derive",
  "semver 1.0.27",

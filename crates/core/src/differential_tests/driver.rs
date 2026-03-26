@@ -82,7 +82,11 @@ impl<'a> Driver<'a, StepsIterator> {
         )
         .await
         .context("Failed to execute all of the steps on the driver")?;
-        Ok(results.first().copied().unwrap_or_default())
+        Ok(results
+            .first()
+            .map(|(result, _)| result)
+            .copied()
+            .unwrap_or_default())
     }
     // endregion:Execution
 }
@@ -307,11 +311,11 @@ where
     // endregion:Constructors & Initialization
 
     // region:Step Handling
-    pub async fn execute_all(mut self) -> Result<usize> {
+    pub async fn execute_all(mut self) -> Result<(usize, ExecutionState)> {
         while let Some(result) = self.execute_next_step().await {
             result?
         }
-        Ok(self.steps_executed)
+        Ok((self.steps_executed, self.execution_state))
     }
 
     pub async fn execute_next_step(&mut self) -> Option<Result<()>> {
@@ -432,7 +436,11 @@ where
         step: &FunctionCallStep,
     ) -> Result<HashMap<ContractInstance, TransactionReceipt>> {
         let mut instances_we_must_deploy = IndexMap::<ContractInstance, bool>::new();
-        for instance in step.find_all_contract_instances().into_iter() {
+        for instance in step
+            .find_all_contract_instances(self.default_resolution_context())
+            .await
+            .into_iter()
+        {
             if !self
                 .execution_state
                 .deployed_contracts
@@ -442,8 +450,14 @@ where
             }
         }
         if let Method::Deployer = step.method {
-            instances_we_must_deploy.swap_remove(&step.instance);
-            instances_we_must_deploy.insert(step.instance.clone(), true);
+            let resolution_context = self.default_resolution_context();
+            let instance = resolution_context
+                .contract_instance(&step.instance)
+                .await
+                .context("Failed to get the step's instance")?;
+
+            instances_we_must_deploy.swap_remove(&instance);
+            instances_we_must_deploy.insert(instance, true);
         }
 
         let mut receipts = HashMap::new();
@@ -480,9 +494,16 @@ where
         match step.method {
             // This step was already executed when `handle_step` was called. We just need to
             // lookup the transaction receipt in this case and continue on.
-            Method::Deployer => deployment_receipts
-                .remove(&step.instance)
-                .context("Failed to find deployment receipt for constructor call"),
+            Method::Deployer => {
+                let instance = self
+                    .default_resolution_context()
+                    .contract_instance(&step.instance)
+                    .await
+                    .context("Failed to resolve the step's instance")?;
+                deployment_receipts
+                    .remove(&instance)
+                    .context("Failed to find deployment receipt for constructor call")
+            }
             Method::Fallback | Method::FunctionName(_) => {
                 let mut tx = step
                     .as_transaction(
@@ -620,10 +641,10 @@ where
     ) -> Result<()> {
         let node = self.platform_information.node;
 
-        if let Some(ref version_requirement) = assertion.compiler_version {
-            if !version_requirement.matches(self.platform_information.compiler.version()) {
-                return Ok(());
-            }
+        if let Some(ref version_requirement) = assertion.compiler_version
+            && !version_requirement.matches(self.platform_information.compiler.version())
+        {
+            return Ok(());
         }
 
         let resolution_context = self
@@ -842,33 +863,57 @@ where
         step: &RepeatStep,
     ) -> Result<usize> {
         let tasks = (0..step.repeat)
-            .map(|_| PlatformDriver {
-                platform_information: self.platform_information,
-                test_definition: self.test_definition,
-                private_key_allocator: self.private_key_allocator.clone(),
-                execution_state: self.execution_state.clone(),
-                steps_executed: 0,
-                steps_iterator: {
-                    let steps: Vec<(StepPath, Step)> = step
-                        .steps
-                        .iter()
-                        .cloned()
-                        .enumerate()
-                        .map(|(step_idx, step)| {
-                            let step_idx = StepIdx::new(step_idx);
-                            let step_path = step_path.append(step_idx);
-                            (step_path, step)
-                        })
-                        .collect();
-                    steps.into_iter()
-                },
+            .map(|i| {
+                let mut execution_state = self.execution_state.clone();
+                if let Some(ref index_variable) = step
+                    .capture_index
+                    .as_ref()
+                    .and_then(|capture_index| capture_index.strip_prefix("$VARIABLE:"))
+                {
+                    execution_state.variables.insert(
+                        index_variable.to_string(),
+                        i.try_into()
+                            .expect("Can't fail, we're going into a larger number of bits"),
+                    );
+                }
+
+                PlatformDriver {
+                    platform_information: self.platform_information,
+                    test_definition: self.test_definition,
+                    private_key_allocator: self.private_key_allocator.clone(),
+                    execution_state,
+                    steps_executed: 0,
+                    steps_iterator: {
+                        let steps: Vec<(StepPath, Step)> = step
+                            .steps
+                            .iter()
+                            .cloned()
+                            .enumerate()
+                            .map(|(step_idx, step)| {
+                                let step_idx = StepIdx::new(step_idx);
+                                let step_path = step_path.append(step_idx);
+                                (step_path, step)
+                            })
+                            .collect();
+                        steps.into_iter()
+                    },
+                }
             })
             .map(|driver| driver.execute_all())
             .collect::<Vec<_>>();
-        let res = futures::future::try_join_all(tasks)
+        let (steps_executed, execution_states) = futures::future::try_join_all(tasks)
             .await
-            .context("Repetition execution failed")?;
-        Ok(res.first().copied().unwrap_or_default())
+            .context("Repetition execution failed")?
+            .into_iter()
+            .unzip::<_, _, Vec<_>, Vec<_>>();
+
+        if step.consolidate_state {
+            for state in execution_states.into_iter() {
+                self.execution_state.add_state(state);
+            }
+        }
+
+        Ok(steps_executed.first().copied().unwrap_or_default())
     }
 
     #[instrument(level = "info", skip_all, err(Debug))]
@@ -910,11 +955,12 @@ where
         calldata: Option<&Calldata>,
         value: Option<EtherValue>,
     ) -> Result<(Address, JsonAbi, Option<TransactionReceipt>)> {
-        if let Some((_, address, abi)) = self
+        if let Some(entry) = self
             .execution_state
             .deployed_contracts
             .get(contract_instance)
         {
+            let (_, address, abi) = entry.as_ref();
             info!(
                 %address,
                 "Contract instance already deployed."
@@ -965,9 +1011,8 @@ where
             )
         };
 
-        let Some((code, abi)) = self
-            .execution_state
-            .compiled_contracts
+        let compiled_contracts = self.execution_state.compiled_contracts.lock().await;
+        let Some((code, abi)) = compiled_contracts
             .get(&contract_source_path)
             .and_then(|source_file_contracts| source_file_contracts.get(contract_ident.as_ref()))
             .cloned()
@@ -977,6 +1022,7 @@ where
                 contract_instance
             )
         };
+        drop(compiled_contracts);
 
         let mut code = match alloy::hex::decode(&code) {
             Ok(code) => code,
@@ -1032,7 +1078,7 @@ where
 
         self.execution_state.deployed_contracts.insert(
             contract_instance.clone(),
-            (contract_ident, address, abi.clone()),
+            Arc::new((contract_ident, address, abi.clone())),
         );
 
         Ok((address, abi, receipt))
@@ -1071,6 +1117,8 @@ where
         ResolutionContext::default()
             .with_deployed_contracts(&self.execution_state.deployed_contracts)
             .with_variables(&self.execution_state.variables)
+            .with_metadata(&self.test_definition.metadata.content)
+            .with_node_api(self.platform_information.node)
     }
     // endregion:Resolution & Resolver
 }

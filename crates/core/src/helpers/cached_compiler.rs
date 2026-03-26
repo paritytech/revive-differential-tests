@@ -124,7 +124,10 @@ impl<'a> CachedCompiler<'a> {
 
                 match self.artifacts_cache.get(&cache_key).await {
                     Some(cache_value) => {
-                        reporter
+                        let CompilationReporter::Execution(exec_reporter) = reporter else {
+                            unreachable!();
+                        };
+                        exec_reporter
                             .report_pre_link_contracts_compilation_succeeded_event(
                                 compiler.version().clone(),
                                 compiler.path(),
@@ -211,10 +214,7 @@ async fn compile_contracts(
 
     match (output.as_ref(), deployed_libraries.is_some()) {
         (Ok(output), true) => {
-            let CompilationReporter::Execution(exec_reporter) = reporter else {
-                unreachable!();
-            };
-            exec_reporter
+            reporter
                 .report_post_link_contracts_compilation_succeeded_event(
                     compiler.version().clone(),
                     compiler.path(),
@@ -225,7 +225,10 @@ async fn compile_contracts(
                 .expect("Can't happen");
         }
         (Ok(output), false) => {
-            reporter
+            let CompilationReporter::Execution(exec_reporter) = reporter else {
+                unreachable!();
+            };
+            exec_reporter
                 .report_pre_link_contracts_compilation_succeeded_event(
                     compiler.version().clone(),
                     compiler.path(),
@@ -236,10 +239,7 @@ async fn compile_contracts(
                 .expect("Can't happen");
         }
         (Err(err), true) => {
-            let CompilationReporter::Execution(exec_reporter) = reporter else {
-                unreachable!();
-            };
-            exec_reporter
+            reporter
                 .report_post_link_contracts_compilation_failed_event(
                     compiler.version().clone(),
                     compiler.path().to_path_buf(),
@@ -249,7 +249,10 @@ async fn compile_contracts(
                 .expect("Can't happen");
         }
         (Err(err), false) => {
-            reporter
+            let CompilationReporter::Execution(exec_reporter) = reporter else {
+                unreachable!();
+            };
+            exec_reporter
                 .report_pre_link_contracts_compilation_failed_event(
                     compiler.version().clone(),
                     compiler.path().to_path_buf(),
