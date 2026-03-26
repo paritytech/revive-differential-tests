@@ -141,7 +141,7 @@ impl SolidityCompiler for Resolc {
                     .into_iter()
                     .map(|(path, source)| {
                         (
-                            normalize_path(&path, base_path.as_deref()).unwrap(),
+                            clean_input_source_path(path).to_string_lossy().into_owned(),
                             source.into(),
                         )
                     })
@@ -153,7 +153,9 @@ impl SolidityCompiler for Resolc {
                             .into_iter()
                             .map(|(source_path, libraries_map)| {
                                 (
-                                    normalize_path(&source_path, base_path.as_deref()).unwrap(),
+                                    clean_input_source_path(source_path)
+                                        .to_string_lossy()
+                                        .into_owned(),
                                     libraries_map
                                         .into_iter()
                                         .map(|(library_ident, library_address)| {
@@ -282,8 +284,7 @@ impl SolidityCompiler for Resolc {
 
             let mut compiler_output = CompilerOutput::default();
             for (source_path, contracts) in parsed.contracts.into_iter() {
-                let source_path =
-                    resolve_output_source_path(&PathBuf::from(&source_path), base_path.as_deref())?;
+                let source_path = resolve_output_source_path(&PathBuf::from(&source_path))?;
 
                 let contracts_at_path = compiler_output.contracts.entry(source_path).or_default();
                 for (contract_name, contract_information) in contracts.into_iter() {

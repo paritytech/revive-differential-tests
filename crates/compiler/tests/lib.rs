@@ -187,7 +187,6 @@ async fn bytecode_is_source_path_independent_when_calling_external_library() {
         let contract_path = directory.join("main.sol");
         let library_path = directory.join("lib.sol");
         let output = Compiler::new()
-            .with_base_path(directory.to_path_buf())
             .with_allow_path(directory)
             .with_source(&contract_path)
             .unwrap()
