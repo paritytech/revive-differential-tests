@@ -27,14 +27,13 @@ pub(crate) mod internal_prelude {
 
     pub use alloy::hex;
     pub use alloy::json_abi::JsonAbi;
-    pub use alloy::primitives::{Address, B256, BlockNumber, TxHash};
+    pub use alloy::primitives::{Address, B256, BlockNumber, TxHash, keccak256};
     pub use anyhow::Context as _;
     pub use anyhow::Result;
     pub use indexmap::IndexMap;
     pub use semver::Version;
     pub use serde::{Deserialize, Serialize};
     pub use serde_with::{DisplayFromStr, serde_as};
-    pub use sha2::{Digest, Sha256};
     pub use tokio::sync::{
         broadcast::{self, Sender, channel},
         mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel},

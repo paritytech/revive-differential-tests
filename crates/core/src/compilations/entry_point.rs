@@ -26,7 +26,7 @@ impl CorpusDefinitionProcessor for CompilationDefinitionProcessor {
     fn on_ignored(definition: &Self::Definition<'_>, reason: String) -> anyhow::Result<()> {
         definition
             .reporter
-            .report_pre_link_contracts_compilation_ignored_event(reason, IndexMap::new())?;
+            .report_post_link_contracts_compilation_ignored_event(reason, IndexMap::new())?;
         Ok(())
     }
 
@@ -37,7 +37,7 @@ impl CorpusDefinitionProcessor for CompilationDefinitionProcessor {
         fail_fast.fail_fast.then(|| {
             let reporter = definition.reporter.clone();
             Box::new(move || {
-                let _ = reporter.report_pre_link_contracts_compilation_ignored_event(
+                let _ = reporter.report_post_link_contracts_compilation_ignored_event(
                     "Aborted due to fail-fast".to_string(),
                     IndexMap::new(),
                 );
