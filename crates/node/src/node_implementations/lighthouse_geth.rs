@@ -153,9 +153,10 @@ impl LighthouseGethNode {
                 execution_layer_extra_parameters: vec![
                     "--syncmode=full".to_string(),
                     "--nodiscover".to_string(),
-                    "--cache=4096".to_string(),
+                    "--cache=4294967295".to_string(),
                     "--txlookuplimit=0".to_string(),
                     "--gcmode=archive".to_string(),
+                    "--state.scheme=path".to_string(),
                     "--txpool.globalslots=500000".to_string(),
                     "--txpool.globalqueue=500000".to_string(),
                     "--txpool.accountslots=32768".to_string(),

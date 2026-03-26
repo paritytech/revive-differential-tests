@@ -87,6 +87,7 @@ mod context {
         pub concurrency: ConcurrencyConfiguration,
         pub compilation: CompilationConfiguration,
         pub report: ReportConfiguration,
+        pub shutdown: ShutdownConfiguration,
     }
 
     /// Exports the genesis file of the desired platform.
@@ -590,6 +591,14 @@ mod context {
         fn default() -> Self {
             IgnoreCasesConfiguration::parse_from(["ignore-cases-configuration"])
         }
+    }
+
+    /// A set of configurations for the tool's shutdown behavior.
+    #[configuration(key = "shutdown")]
+    pub struct ShutdownConfiguration {
+        /// Keeps the tool and the nodes alive if an error happens in any part of the code. This is
+        /// useful in debugging transactions in the event that they're failing.
+        pub keep_alive_on_failures: bool,
     }
 
     impl Context {

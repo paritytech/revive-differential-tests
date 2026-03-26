@@ -1,8 +1,7 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-#[allow(unused_imports, reason = "only used in documentation")]
-use revive_dt_common::fs::normalize_path;
+use alloy::primitives::Address;
 use revive_dt_common::types::VersionOrRequirement;
 use revive_dt_compiler::{
     Compiler, ModeOptimizerLevel, ModeOptimizerSetting, revive_resolc::Resolc, solc::Solc,
@@ -150,10 +149,9 @@ async fn bytecode_differs_across_optimization_modes() {
 }
 
 /// Asserts that compiling a contract that calls an external library from two
-/// different absolute paths produces identical bytecode when `base_path` is set.
-/// See [`normalize_path`] for why this matters.
+/// different absolute paths produces identical bytecode.
 #[tokio::test]
-async fn bytecode_is_identical_across_base_paths_when_calling_library() {
+async fn bytecode_is_source_path_independent_when_calling_external_library() {
     let args = Test::default();
     let resolc = Resolc::new(
         args.clone(),
@@ -182,14 +180,18 @@ async fn bytecode_is_identical_across_base_paths_when_calling_library() {
         "Temporary directories must differ"
     );
 
+    let dummy_library_address = Address::with_last_byte(1);
     let mut bytecodes = Vec::new();
+
     for directory in [directory_a.path(), directory_b.path()] {
         let contract_path = directory.join("main.sol");
+        let library_path = directory.join("lib.sol");
         let output = Compiler::new()
             .with_base_path(directory.to_path_buf())
             .with_allow_path(directory)
             .with_source(&contract_path)
             .unwrap()
+            .with_library(&library_path, "MathLib", dummy_library_address)
             .try_build(&resolc)
             .await
             .expect("Failed to compile");
@@ -205,6 +207,6 @@ async fn bytecode_is_identical_across_base_paths_when_calling_library() {
     assert_eq!(bytecodes.len(), 2);
     assert_eq!(
         bytecodes[0], bytecodes[1],
-        "The bytecode should be identical regardless of base path"
+        "The bytecode should be identical regardless of path"
     );
 }

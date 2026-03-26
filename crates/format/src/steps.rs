@@ -42,7 +42,7 @@ pub struct FunctionCallStep {
 
     /// The contract instance that's being called in this transaction step.
     #[serde(default = "FunctionCallStep::default_instance")]
-    pub instance: ContractInstance,
+    pub instance: ContractInstanceOrReference<'static>,
 
     /// The method that's being called in this step.
     pub method: Method,
@@ -121,7 +121,7 @@ pub struct StorageEmptyAssertionStep {
 #[derive(Clone, Debug, Default, Serialize, Deserialize, Eq, PartialEq, JsonSchema)]
 pub struct RepeatStep {
     /// An optional comment on the repetition step.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub comment: Option<String>,
 
     /// This parameter controls if the driver performing the execution should await for the the
@@ -129,6 +129,18 @@ pub struct RepeatStep {
     /// By default, this is set to false and it isn't a required parameter to be provided.
     #[serde(default)]
     pub await_transaction_inclusion: bool,
+
+    /// This parameters allows for the index of the repeat step to be captured to a variable to be
+    /// referenced later on in the execution.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub capture_index: Option<String>,
+
+    /// This parameter controls if the primary driver should consolidate the execution state of the
+    /// drivers that it spawned after running all of them. There are certain cases where this may be
+    /// useful such as in cases where the repeat step is being used more as a for loop rather than
+    /// anything else.
+    #[serde(default)]
+    pub consolidate_state: bool,
 
     /// The number of repetitions that the steps should be repeated for.
     pub repeat: usize,
@@ -286,13 +298,13 @@ define_wrapper_type! {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-enum CalldataToken<T> {
+pub enum CalldataToken<T> {
     Item(T),
     Operation(Operation),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-enum Operation {
+pub enum Operation {
     Addition,
     Subtraction,
     Multiplication,
@@ -411,8 +423,8 @@ impl FunctionCallStep {
         StepAddress::Address(Self::default_caller_address())
     }
 
-    fn default_instance() -> ContractInstance {
-        ContractInstance::new("Test")
+    fn default_instance() -> ContractInstanceOrReference<'static> {
+        ContractInstance::new("Test").into()
     }
 
     pub async fn encoded_input(
@@ -431,8 +443,8 @@ impl FunctionCallStep {
                 Ok(calldata.into())
             }
             Method::FunctionName(ref function_name) => {
-                let Some(abi) = context.deployed_contract_abi(&self.instance) else {
-                    anyhow::bail!("ABI for instance '{}' not found", self.instance.as_ref());
+                let Some(abi) = context.deployed_contract_abi(&self.instance).await else {
+                    anyhow::bail!("ABI for instance '{:?}' not found", self.instance);
                 };
 
                 // We follow the same logic that's implemented in the matter-labs-tester where they resolve
@@ -505,19 +517,27 @@ impl FunctionCallStep {
             _ => Ok(transaction_request
                 .to(context
                     .deployed_contract_address(&self.instance)
+                    .await
                     .context("Failed to get the contract address")
                     .copied()?)
                 .input(input_data.into())),
         }
     }
 
-    pub fn find_all_contract_instances(&self) -> Vec<ContractInstance> {
+    pub async fn find_all_contract_instances(
+        &self,
+        context: ResolutionContext<'_>,
+    ) -> Vec<ContractInstance> {
         let mut vec = Vec::new();
         vec.push(self.instance.clone());
+        self.calldata
+            .find_all_contract_instances_or_references(&mut vec);
 
-        self.calldata.find_all_contract_instances(&mut vec);
-
-        vec
+        stream::iter(vec.into_iter())
+            .then(|instance_or_reference| context.contract_instance(instance_or_reference))
+            .filter_map(futures::future::ready)
+            .collect::<Vec<_>>()
+            .await
     }
 }
 
@@ -563,13 +583,16 @@ impl Calldata {
         )
     }
 
-    pub fn find_all_contract_instances(&self, vec: &mut Vec<ContractInstance>) {
+    pub fn find_all_contract_instances_or_references(
+        &self,
+        vec: &mut Vec<ContractInstanceOrReference<'static>>,
+    ) {
         if let Calldata::Compound(compound) = self {
             for item in compound {
-                if let Some(instance) =
+                if let Some(instance_or_reference) =
                     item.strip_suffix(CalldataToken::<()>::ADDRESS_VARIABLE_SUFFIX)
                 {
-                    vec.push(ContractInstance::new(instance))
+                    vec.push(instance_or_reference.to_owned().into())
                 }
             }
         }
@@ -780,7 +803,7 @@ impl<T: AsRef<str>> CalldataToken<T> {
     /// This piece of code is taken from the matter-labs-tester repository which is licensed under
     /// MIT or Apache. The original source code can be found here:
     /// https://github.com/matter-labs/era-compiler-tester/blob/0ed598a27f6eceee7008deab3ff2311075a2ec69/compiler_tester/src/test/case/input/value.rs#L43-L146
-    async fn resolve(
+    pub async fn resolve(
         self,
         resolver: &(impl NodeApi + ?Sized),
         context: ResolutionContext<'_>,
@@ -791,7 +814,8 @@ impl<T: AsRef<str>> CalldataToken<T> {
                 let value = if let Some(instance) = item.strip_suffix(Self::ADDRESS_VARIABLE_SUFFIX)
                 {
                     context
-                        .deployed_contract_address(&ContractInstance::new(instance))
+                        .deployed_contract_address(ContractInstance::new(instance))
+                        .await
                         .ok_or_else(|| anyhow::anyhow!("Instance `{}` not found", instance))
                         .map(AsRef::as_ref)
                         .map(U256::from_be_slice)
@@ -1159,7 +1183,7 @@ mod tests {
             .0;
 
         let input = FunctionCallStep {
-            instance: ContractInstance::new("Contract"),
+            instance: ContractInstance::new("Contract").into(),
             method: Method::FunctionName("store".to_owned()),
             calldata: Calldata::new_compound(["42"]),
             ..Default::default()
@@ -1168,7 +1192,7 @@ mod tests {
         let mut contracts = HashMap::new();
         contracts.insert(
             ContractInstance::new("Contract"),
-            (ContractIdent::new("Contract"), Address::ZERO, parsed_abi),
+            Arc::new((ContractIdent::new("Contract"), Address::ZERO, parsed_abi)),
         );
 
         let resolver = MockResolver::new();
@@ -1212,7 +1236,7 @@ mod tests {
         let mut contracts = HashMap::new();
         contracts.insert(
             ContractInstance::new("Contract"),
-            (ContractIdent::new("Contract"), Address::ZERO, parsed_abi),
+            Arc::new((ContractIdent::new("Contract"), Address::ZERO, parsed_abi)),
         );
 
         let resolver = MockResolver::new();
@@ -1250,7 +1274,7 @@ mod tests {
             .0;
 
         let input: FunctionCallStep = FunctionCallStep {
-            instance: ContractInstance::new("Contract"),
+            instance: ContractInstance::new("Contract").into(),
             method: Method::FunctionName("send".to_owned()),
             calldata: Calldata::new_compound(["0x1000000000000000000000000000000000000001"]),
             ..Default::default()
@@ -1259,7 +1283,7 @@ mod tests {
         let mut contracts = HashMap::new();
         contracts.insert(
             ContractInstance::new("Contract"),
-            (ContractIdent::new("Contract"), Address::ZERO, parsed_abi),
+            Arc::new((ContractIdent::new("Contract"), Address::ZERO, parsed_abi)),
         );
 
         let resolver = MockResolver::new();
@@ -1277,7 +1301,7 @@ mod tests {
 
     async fn resolve_calldata_item(
         input: &str,
-        deployed_contracts: &HashMap<ContractInstance, (ContractIdent, Address, JsonAbi)>,
+        deployed_contracts: &HashMap<ContractInstance, Arc<(ContractIdent, Address, JsonAbi)>>,
         resolver: &(impl NodeApi + ?Sized),
     ) -> anyhow::Result<U256> {
         let context = ResolutionContext::default().with_deployed_contracts(deployed_contracts);

@@ -151,9 +151,9 @@ impl SolidityCompiler for Resolc {
                     libraries: SolcStandardJsonInputSettingsLibraries {
                         inner: libraries
                             .into_iter()
-                            .map(|(source_code, libraries_map)| {
+                            .map(|(source_path, libraries_map)| {
                                 (
-                                    normalize_path(&source_code, base_path.as_deref()).unwrap(),
+                                    normalize_path(&source_path, base_path.as_deref()).unwrap(),
                                     libraries_map
                                         .into_iter()
                                         .map(|(library_ident, library_address)| {

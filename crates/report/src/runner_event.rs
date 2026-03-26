@@ -23,10 +23,10 @@ revive_dt_proc_macros::define_runner_event! {
             },
             /// Reports the completion of the run.
             Completion {},
-            /// An event emitted by the runners when the compilation of the pre-link contracts
-            /// has succeeded. Uses CompilationSpecifier to support both execution and pre-link-only
+            /// An event emitted by the runners when the compilation of the post-link contracts
+            /// has succeeded. Uses CompilationSpecifier to support both execution and post-link-only
             /// compilation contexts.
-            PreLinkContractsCompilationSucceeded {
+            PostLinkContractsCompilationSucceeded {
                 /// A specifier for the compilation taking place.
                 specifier: CompilationSpecifier,
                 /// The version of the compiler used to compile the contracts.
@@ -42,9 +42,9 @@ revive_dt_proc_macros::define_runner_event! {
                 /// The output of the compiler.
                 compiler_output: CompilerOutput,
             },
-            /// An event emitted by the runners when the compilation of the pre-link contract
+            /// An event emitted by the runners when the compilation of the post-link contract
             /// has failed.
-            PreLinkContractsCompilationFailed {
+            PostLinkContractsCompilationFailed {
                 /// A specifier for the compilation taking place.
                 specifier: CompilationSpecifier,
                 /// The version of the compiler used to compile the contracts.
@@ -94,9 +94,9 @@ revive_dt_proc_macros::define_runner_event! {
         // Events on ExecutionSpecificReporter — execution_specifier: Arc<ExecutionSpecifier>
         // auto-filled.
         ExecutionSpecifier => {
-            /// An event emitted by the runners when the compilation of the post-link contracts
+            /// An event emitted by the runners when the compilation of the pre-link contracts
             /// has succeeded.
-            PostLinkContractsCompilationSucceeded {
+            PreLinkContractsCompilationSucceeded {
                 /// The version of the compiler used to compile the contracts.
                 compiler_version: Version,
                 /// The path of the compiler used to compile the contracts.
@@ -110,9 +110,9 @@ revive_dt_proc_macros::define_runner_event! {
                 /// The output of the compiler.
                 compiler_output: CompilerOutput,
             },
-            /// An event emitted by the runners when the compilation of the post-link contract
+            /// An event emitted by the runners when the compilation of the pre-link contract
             /// has failed.
-            PostLinkContractsCompilationFailed {
+            PreLinkContractsCompilationFailed {
                 /// The version of the compiler used to compile the contracts.
                 compiler_version: Option<Version>,
                 /// The path of the compiler used to compile the contracts.
@@ -159,13 +159,13 @@ revive_dt_proc_macros::define_runner_event! {
             },
         },
 
-        // Events on PreLinkCompilationSpecificReporter —
-        // pre_link_compilation_specifier: Arc<PreLinkCompilationSpecifier> auto-filled.
-        PreLinkCompilationSpecifier => {
-            /// An event emitted by the runners when they discover a pre-link-only compilation.
-            PreLinkCompilationDiscovery {},
-            /// An event emitted by the runners when a pre-link-only compilation is ignored.
-            PreLinkContractsCompilationIgnored {
+        // Events on PostLinkCompilationSpecificReporter —
+        // post_link_compilation_specifier: Arc<PostLinkCompilationSpecifier> auto-filled.
+        PostLinkCompilationSpecifier => {
+            /// An event emitted by the runners when they discover a post-link-only compilation.
+            PostLinkCompilationDiscovery {},
+            /// An event emitted by the runners when a post-link-only compilation is ignored.
+            PostLinkContractsCompilationIgnored {
                 /// A reason for the compilation to be ignored.
                 reason: String,
                 /// Additional fields that describe more information on why the compilation was ignored.
@@ -186,13 +186,13 @@ impl Reporter {
         }
     }
 
-    pub fn pre_link_compilation_specific_reporter(
+    pub fn post_link_compilation_specific_reporter(
         &self,
-        compilation_specifier: impl Into<Arc<PreLinkCompilationSpecifier>>,
-    ) -> PreLinkCompilationSpecificReporter {
-        PreLinkCompilationSpecificReporter {
+        compilation_specifier: impl Into<Arc<PostLinkCompilationSpecifier>>,
+    ) -> PostLinkCompilationSpecificReporter {
+        PostLinkCompilationSpecificReporter {
             reporter: self.clone(),
-            pre_link_compilation_specifier: compilation_specifier.into(),
+            post_link_compilation_specifier: compilation_specifier.into(),
         }
     }
 
@@ -224,14 +224,14 @@ impl TestSpecificReporter {
 /// A wrapper that allows functions to accept either reporter type for compilation events.
 pub enum CompilationReporter<'a> {
     Execution(&'a ExecutionSpecificReporter),
-    PreLink(&'a PreLinkCompilationSpecificReporter),
+    PostLink(&'a PostLinkCompilationSpecificReporter),
 }
 
 impl CompilationReporter<'_> {
     fn reporter(&self) -> &Reporter {
         match self {
             CompilationReporter::Execution(r) => &r.reporter,
-            CompilationReporter::PreLink(r) => &r.reporter,
+            CompilationReporter::PostLink(r) => &r.reporter,
         }
     }
 
@@ -240,13 +240,13 @@ impl CompilationReporter<'_> {
             CompilationReporter::Execution(r) => {
                 CompilationSpecifier::Execution(r.execution_specifier.clone())
             }
-            CompilationReporter::PreLink(r) => {
-                CompilationSpecifier::PreLink(r.pre_link_compilation_specifier.clone())
+            CompilationReporter::PostLink(r) => {
+                CompilationSpecifier::PostLink(r.post_link_compilation_specifier.clone())
             }
         }
     }
 
-    pub fn report_pre_link_contracts_compilation_succeeded_event(
+    pub fn report_post_link_contracts_compilation_succeeded_event(
         &self,
         compiler_version: impl Into<Version>,
         compiler_path: impl Into<PathBuf>,
@@ -255,7 +255,7 @@ impl CompilationReporter<'_> {
         compiler_output: impl Into<CompilerOutput>,
     ) -> anyhow::Result<()> {
         self.reporter()
-            .report_pre_link_contracts_compilation_succeeded_event(
+            .report_post_link_contracts_compilation_succeeded_event(
                 self.compilation_specifier(),
                 compiler_version,
                 compiler_path,
@@ -265,7 +265,7 @@ impl CompilationReporter<'_> {
             )
     }
 
-    pub fn report_pre_link_contracts_compilation_failed_event(
+    pub fn report_post_link_contracts_compilation_failed_event(
         &self,
         compiler_version: impl Into<Option<Version>>,
         compiler_path: impl Into<Option<PathBuf>>,
@@ -273,7 +273,7 @@ impl CompilationReporter<'_> {
         reason: impl Into<String>,
     ) -> anyhow::Result<()> {
         self.reporter()
-            .report_pre_link_contracts_compilation_failed_event(
+            .report_post_link_contracts_compilation_failed_event(
                 self.compilation_specifier(),
                 compiler_version,
                 compiler_path,

@@ -92,10 +92,12 @@ impl Case {
             Box::new(self.steps_iterator()) as Box<_>
         } else {
             Box::new(std::iter::once(Step::Repeat(Box::new(RepeatStep {
-                comment: None,
                 repeat: default_repeat_count,
-                await_transaction_inclusion: Default::default(),
                 steps: self.steps_iterator().collect(),
+                comment: Default::default(),
+                capture_index: Default::default(),
+                consolidate_state: Default::default(),
+                await_transaction_inclusion: Default::default(),
             })))) as Box<_>
         }
     }
