@@ -77,7 +77,7 @@ pub fn extract_hashes(
                             if let Some(CompilationStatus::Success {
                                 compiled_contracts_info,
                                 ..
-                            }) = &execution_info.pre_link_compilation_status
+                            }) = &execution_info.post_link_compilation_status
                             {
                                 populate_hashes(
                                     &mut hashes,
