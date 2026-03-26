@@ -624,22 +624,26 @@ where
                     .context("Running the first initialization driver failed")?;
 
                 // Send the start event to the watcher after the first (warm-up) driver has
-                // completed. This ensures that blocks produced during the warm-up phase
-                // (contract deployment, gas estimation, receipt confirmations) are excluded
-                // from the benchmark metrics.
-                self.watcher_tx
-                    .send(WatcherEvent::StartEvent {
-                        ignore_block_before: self
-                            .platform_information
-                            .node
-                            .provider()
-                            .await
-                            .context("Failed to get the provider")?
-                            .get_block_number()
-                            .await
-                            .context("Failed to get the block number of the latest block")?,
-                    })
-                    .context("Failed to send message on the watcher's tx")?;
+                // completed only if this repeat step is marked as the benchmark start point.
+                // This ensures that blocks produced during setup steps (e.g., contract
+                // deployments) are excluded from the benchmark metrics.
+                if step.start_watcher {
+                    self.watcher_tx
+                        .send(WatcherEvent::StartEvent {
+                            ignore_block_before: self
+                                .platform_information
+                                .node
+                                .provider()
+                                .await
+                                .context("Failed to get the provider")?
+                                .get_block_number()
+                                .await
+                                .context(
+                                    "Failed to get the block number of the latest block",
+                                )?,
+                        })
+                        .context("Failed to send message on the watcher's tx")?;
+                }
 
                 let (steps_executed, execution_states) = futures::future::try_join_all(tasks)
                     .await

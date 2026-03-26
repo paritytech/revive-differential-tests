@@ -98,6 +98,7 @@ impl Case {
                 capture_index: Default::default(),
                 consolidate_state: Default::default(),
                 await_transaction_inclusion: Default::default(),
+                start_watcher: true,
             })))) as Box<_>
         }
     }
