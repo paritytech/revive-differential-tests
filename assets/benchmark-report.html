@@ -1832,20 +1832,24 @@ function makeLineSeries(platform, data, colorIdx) {
 }
 
 /**
- * Create a shared tooltip formatter for time-series charts.
+ * Create a shared tooltip formatter for charts.
  * @param {string} unitSuffix - Unit label appended after the value (e.g. 'tx/s').
  * @param {function} valueFmt - Formats the numeric value for display.
+ * @param {object} [opts] - Optional settings.
+ * @param {function} [opts.headerFmt] - Formats the axis value into the tooltip header line.
+ *   Defaults to a time-based header (`t = Xs`).
  */
-function makeTooltipFormatter(unitSuffix, valueFmt) {
+function makeTooltipFormatter(unitSuffix, valueFmt, opts) {
+  const headerFmt = opts?.headerFmt ?? (v => `t = ${Number(v).toFixed(1)}s`);
   return params => {
     if (!params.length) return '';
-    const t = params[0].axisValue;
+    const axisVal = params[0].axisValue;
     const rows = params.map(p =>
       `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${p.color};margin-right:5px"></span>`
       + `<span style="color:#78716c">${escapeHtml(p.seriesName)}:</span> `
       + `<strong>${valueFmt(Number(p.value[1]))} ${unitSuffix}</strong>`
     ).join('<br>');
-    return `<div style="font-family:${FONT_SANS};font-size:11px;margin-bottom:4px;color:#a8a29e">t = ${Number(t).toFixed(1)}s</div>${rows}`;
+    return `<div style="font-family:${FONT_SANS};font-size:11px;margin-bottom:4px;color:#a8a29e">${headerFmt(axisVal)}</div>${rows}`;
   };
 }
 
@@ -2101,11 +2105,11 @@ function renderAdditionalTxCapacityChart(modeData, enabledPlatforms, chartId, fi
 
   chart.setOption({
     ...base,
-    xAxis: { ...base.xAxis, name: 'Block', nameLocation: 'center', nameGap: 25 },
+    xAxis: { ...base.xAxis, name: 'Relative Block', nameLocation: 'center', nameGap: 25 },
     yAxis: { ...base.yAxis, min: 0, name: 'Additional txs', nameLocation: 'center', nameGap: 45 },
     tooltip: {
       ...baseTooltip(),
-      formatter: makeTooltipFormatter(' tx', v => Math.round(v)),
+      formatter: makeTooltipFormatter(' tx', v => Math.round(v), { headerFmt: v => `Relative Block #${v}` }),
     },
     graphic: series.length === 0 ? noDataGraphic(noDataMsg) : [],
     series,
@@ -2335,7 +2339,7 @@ function renderBlockTransactionsChart(modeData, enabledPlatforms) {
           byPlatform[platform].segments.push({ step, value: p.value || 0 });
         });
 
-        let html = `<div style="font-family:${FONT_SANS};font-size:11px;margin-bottom:8px;color:#a8a29e;letter-spacing:0.03em">Block #${blockNum}</div>`;
+        let html = `<div style="font-family:${FONT_SANS};font-size:11px;margin-bottom:8px;color:#a8a29e;letter-spacing:0.03em">Relative Block #${blockNum}</div>`;
 
         enabledPlatforms.forEach(platform => {
           const info = byPlatform[platform];
