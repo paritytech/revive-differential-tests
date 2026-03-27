@@ -1192,7 +1192,7 @@
     <div class="chart-group">
       <div class="chart-group-header">
         <span class="chart-group-label">Throughput</span>
-        <span class="chart-sync-badge">synced axes</span>
+        <span class="chart-sync-badge">synced: relative time</span>
         <button class="collapsible-toggle" aria-expanded="true" aria-controls="throughputContent" aria-label="Toggle Throughput section">
           <svg class="collapsible-chevron" width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M3 5l3 3 3-3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </button>
@@ -1221,6 +1221,8 @@
     <div class="chart-group">
       <div class="chart-group-header">
         <span class="chart-group-label">Utilization</span>
+        <span class="chart-sync-badge">synced: relative time</span>
+        <span class="chart-sync-badge">synced: relative block</span>
         <button class="collapsible-toggle" aria-expanded="true" aria-controls="utilizationContent" aria-label="Toggle Utilization section">
           <svg class="collapsible-chevron" width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M3 5l3 3 3-3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </button>
@@ -1259,7 +1261,8 @@
     <div class="chart-group">
       <div class="chart-group-header">
         <span class="chart-group-label">Block Transactions</span>
-        <span class="chart-sync-badge">synced axes</span>
+        <span class="chart-sync-badge">synced: relative time</span>
+        <span class="chart-sync-badge">synced: relative block</span>
         <button class="collapsible-toggle" aria-expanded="true" aria-controls="blockTxContent" aria-label="Toggle Block Transactions section">
           <svg class="collapsible-chevron" width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M3 5l3 3 3-3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </button>
@@ -1707,14 +1710,15 @@ function renderSelectionBar(selEl, platforms) {
 // ═══════════════════════════════════════════════════════════════════════════
 
 const echartsInstances = {};
-const SYNC_GROUP = 'benchmark';
+const SYNC_GROUP_TIME = 'benchmark-time';
+const SYNC_GROUP_BLOCK = 'benchmark-block';
 
 /** Get or initialize an ECharts instance by DOM element ID. */
-function getOrInitChart(id, joinSync = true) {
+function getOrInitChart(id, syncGroup = SYNC_GROUP_TIME) {
   const el = document.getElementById(id);
   if (!echartsInstances[id]) {
     const instance = echarts.init(el, null, { renderer: 'canvas' });
-    if (joinSync) instance.group = SYNC_GROUP;
+    if (syncGroup) instance.group = syncGroup;
     echartsInstances[id] = instance;
     new ResizeObserver(() => instance.resize()).observe(el);
   }
@@ -1891,7 +1895,8 @@ function renderCharts() {
   // Raw data
   renderRawDataTable(modeData, enabledPlatforms);
 
-  echarts.connect(SYNC_GROUP);
+  echarts.connect(SYNC_GROUP_TIME);
+  echarts.connect(SYNC_GROUP_BLOCK);
 }
 
 function renderTpsChart(modeData, enabledPlatforms) {
@@ -2067,7 +2072,7 @@ function renderProofSizeFullnessChart(modeData, enabledPlatforms) {
 }
 
 function renderAdditionalTxCapacityChart(modeData, enabledPlatforms, chartId, field, noDataMsg) {
-  const chart = getOrInitChart(chartId);
+  const chart = getOrInitChart(chartId, SYNC_GROUP_BLOCK);
   const series = [];
   const legendData = [];
 
@@ -2203,7 +2208,7 @@ function renderPendingTxChart(modeData, enabledPlatforms) {
 }
 
 function renderBlockTransactionsChart(modeData, enabledPlatforms) {
-  const chart = getOrInitChart('blockTxChart', false);
+  const chart = getOrInitChart('blockTxChart', SYNC_GROUP_BLOCK);
 
   if (enabledPlatforms.length === 0) {
     chart.setOption({ series: [], graphic: noDataGraphic() }, true);
