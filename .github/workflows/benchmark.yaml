@@ -46,18 +46,12 @@ jobs:
   build-retester:
     name: Build retester
     runs-on: parity-large
-    env:
-      SCCACHE_GHA_ENABLED: "true"
-      RUSTC_WRAPPER: "sccache"
     steps:
       - name: Setup Rust toolchain
         uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           target: wasm32-unknown-unknown
           components: rust-src
-
-      - name: Setup sccache
-        uses: mozilla-actions/sccache-action@v0.0.9
 
       - name: Install system packages
         run: |
@@ -96,18 +90,12 @@ jobs:
   build-chainspec-generator:
     name: Build chainspec-generator
     runs-on: parity-large
-    env:
-      SCCACHE_GHA_ENABLED: "true"
-      RUSTC_WRAPPER: "sccache"
     steps:
       - name: Setup Rust toolchain
         uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           target: wasm32-unknown-unknown
           components: rust-src
-
-      - name: Setup sccache
-        uses: mozilla-actions/sccache-action@v0.0.9
 
       - name: Install system packages
         run: |
@@ -147,18 +135,12 @@ jobs:
   build-polkadot-sdk:
     name: Build polkadot-sdk
     runs-on: parity-large
-    env:
-      SCCACHE_GHA_ENABLED: "true"
-      RUSTC_WRAPPER: "sccache"
     steps:
       - name: Setup Rust toolchain
         uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           target: wasm32-unknown-unknown
           components: rust-src
-
-      - name: Setup sccache
-        uses: mozilla-actions/sccache-action@v0.0.9
 
       - name: Install system packages
         run: |
@@ -221,9 +203,6 @@ jobs:
     runs-on: parity-large
     outputs:
       resolc_commit: ${{ steps.resolve-ref.outputs.commit }}
-    env:
-      SCCACHE_GHA_ENABLED: "true"
-      RUSTC_WRAPPER: "sccache"
     steps:
       - name: Checkout revive
         uses: actions/checkout@v4
@@ -233,9 +212,6 @@ jobs:
 
       - name: Setup Rust toolchain
         uses: actions-rust-lang/setup-rust-toolchain@v1
-
-      - name: Setup sccache
-        uses: mozilla-actions/sccache-action@v0.0.9
 
       - name: Install system packages
         run: |
