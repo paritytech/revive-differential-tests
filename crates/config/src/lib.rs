@@ -311,6 +311,17 @@ mod context {
         /// and parachain collators.
         #[clap(value_hint = ValueHint::FilePath)]
         pub config_path: Option<PathBuf>,
+
+        /// The maximum amount of time in milliseconds to wait for the parachain to start
+        /// producing blocks after the zombienet network is spawned.
+        ///
+        /// After zombienet spawns, the parachain needs to be onboarded through the relay chain
+        /// which takes several epochs. This timeout controls how long we poll for the first
+        /// block before giving up. With `fast-runtime` enabled, 300 seconds is typically
+        /// sufficient. Without it, the onboarding process takes significantly longer and a
+        /// timeout of several hours may be needed.
+        #[clap(default_value = "300000", value_parser = parse_duration)]
+        pub block_production_timeout_ms: Duration,
     }
 
     /// A set of configuration parameters for Polkadot Parachain.
