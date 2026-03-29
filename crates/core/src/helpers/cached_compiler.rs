@@ -184,7 +184,7 @@ async fn compile_contracts(
         .collect::<Vec<_>>();
 
     let compilation = Compiler::new()
-        .with_allow_path(metadata_directory)
+        .with_allow_path(&metadata_directory)
         // Handling the modes
         .with_optimization(mode.optimize_setting)
         .with_pipeline(mode.pipeline)

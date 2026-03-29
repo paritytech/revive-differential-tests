@@ -139,16 +139,23 @@ impl SolidityCompiler for Resolc {
                 language: SolcStandardJsonInputLanguage::Solidity,
                 sources: sources
                     .into_iter()
-                    .map(|(path, source)| (path.display().to_string(), source.into()))
+                    .map(|(path, source)| {
+                        (
+                            clean_input_source_path(path).to_string_lossy().into_owned(),
+                            source.into(),
+                        )
+                    })
                     .collect(),
                 settings: SolcStandardJsonInputSettings {
                     evm_version,
                     libraries: SolcStandardJsonInputSettingsLibraries {
                         inner: libraries
                             .into_iter()
-                            .map(|(source_code, libraries_map)| {
+                            .map(|(source_path, libraries_map)| {
                                 (
-                                    source_code.display().to_string(),
+                                    clean_input_source_path(source_path)
+                                        .to_string_lossy()
+                                        .into_owned(),
                                     libraries_map
                                         .into_iter()
                                         .map(|(library_ident, library_address)| {
@@ -277,10 +284,7 @@ impl SolidityCompiler for Resolc {
 
             let mut compiler_output = CompilerOutput::default();
             for (source_path, contracts) in parsed.contracts.into_iter() {
-                let src_for_msg = source_path.clone();
-                let source_path = PathBuf::from(source_path)
-                    .canonicalize()
-                    .with_context(|| format!("Failed to canonicalize path {src_for_msg}"))?;
+                let source_path = resolve_output_source_path(&PathBuf::from(&source_path))?;
 
                 let contracts_at_path = compiler_output.contracts.entry(source_path).or_default();
                 for (contract_name, contract_information) in contracts.into_iter() {

@@ -86,7 +86,7 @@ pub struct Metadata {
     /// Mode strings can take the following form (in pseudo-regex):
     ///
     /// ```text
-    /// [YEILV][+-]? (M[0123sz])? <semver>?
+    /// [YEILV][+-]? (M[0123sz])? (S[+-])? <semver>?
     /// ```
     #[serde(skip_serializing_if = "Option::is_none")]
     pub modes: Option<Vec<ParsedMode>>,

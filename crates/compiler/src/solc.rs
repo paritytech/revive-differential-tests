@@ -107,7 +107,12 @@ impl SolidityCompiler for Solc {
                 sources: Sources(
                     sources
                         .into_iter()
-                        .map(|(source_path, source_code)| (source_path, Source::new(source_code)))
+                        .map(|(source_path, source_code)| {
+                            (
+                                clean_input_source_path(source_path),
+                                Source::new(source_code),
+                            )
+                        })
                         .collect(),
                 ),
                 settings: Settings {
@@ -131,9 +136,9 @@ impl SolidityCompiler for Solc {
                     libraries: Libraries {
                         libs: libraries
                             .into_iter()
-                            .map(|(file_path, libraries)| {
+                            .map(|(source_path, libraries)| {
                                 (
-                                    file_path,
+                                    clean_input_source_path(source_path),
                                     libraries
                                         .into_iter()
                                         .map(|(library_name, library_address)| {
@@ -233,12 +238,7 @@ impl SolidityCompiler for Solc {
             for (contract_path, contracts) in parsed.contracts {
                 let contracts_at_path = compiler_output
                     .contracts
-                    .entry(contract_path.canonicalize().with_context(|| {
-                        format!(
-                            "Failed to canonicalize contract path {}",
-                            contract_path.display()
-                        )
-                    })?)
+                    .entry(resolve_output_source_path(&contract_path)?)
                     .or_default();
                 for (contract_name, contract_info) in contracts.into_iter() {
                     let source_code = contract_info

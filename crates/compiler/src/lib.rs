@@ -18,7 +18,9 @@ pub mod prelude {
 }
 
 pub(crate) mod internal_prelude {
+    pub use crate::clean_input_source_path;
     pub use crate::prelude::*;
+    pub use crate::resolve_output_source_path;
     pub use revive_dt_config::prelude::*;
 
     pub use std::collections::{BTreeSet, HashMap};
@@ -207,4 +209,24 @@ pub enum RevertString {
     Debug,
     Strip,
     VerboseDebug,
+}
+
+/// Cleans a standard JSON compiler input source path.
+/// On Windows, strips the extended-length path prefix (`\\?\`) that `canonicalize()`
+/// adds, which otherwise causes solc to see duplicate source units when resolving imports.
+pub fn clean_input_source_path(path: PathBuf) -> PathBuf {
+    #[cfg(windows)]
+    {
+        let s = path.to_string_lossy();
+        if let Some(stripped) = s.strip_prefix(r"\\?\") {
+            return PathBuf::from(stripped);
+        }
+    }
+    path
+}
+
+/// Resolves a compiler output source path to an absolute, canonicalized file system path.
+pub fn resolve_output_source_path(path: &Path) -> Result<PathBuf> {
+    path.canonicalize()
+        .with_context(|| format!("Failed to canonicalize path {}", path.display()))
 }
