@@ -18,7 +18,6 @@ pub mod prelude {
 }
 
 pub(crate) mod internal_prelude {
-    pub use crate::clean_input_source_path;
     pub use crate::prelude::*;
     pub use crate::resolve_output_source_path;
     pub use revive_dt_config::prelude::*;
@@ -60,6 +59,7 @@ pub(crate) mod internal_prelude {
 
     pub use revive_common::EVMVersion;
     pub use revive_dt_common::cached_fs::read_to_string;
+    pub use revive_dt_common::fs::normalize_path;
     pub use revive_dt_common::futures::FrameworkFuture;
     pub use revive_dt_common::types::VersionOrRequirement;
     pub use revive_dt_solc_binaries::download_solc;
@@ -211,22 +211,16 @@ pub enum RevertString {
     VerboseDebug,
 }
 
-/// Cleans a standard JSON compiler input source path.
-/// On Windows, strips the extended-length path prefix (`\\?\`) that `canonicalize()`
-/// adds, which otherwise causes solc to see duplicate source units when resolving imports.
-pub fn clean_input_source_path(path: PathBuf) -> PathBuf {
-    #[cfg(windows)]
-    {
-        let s = path.to_string_lossy();
-        if let Some(stripped) = s.strip_prefix(r"\\?\") {
-            return PathBuf::from(stripped);
-        }
-    }
-    path
-}
-
 /// Resolves a compiler output source path to an absolute, canonicalized file system path.
-pub fn resolve_output_source_path(path: &Path) -> Result<PathBuf> {
-    path.canonicalize()
-        .with_context(|| format!("Failed to canonicalize path {}", path.display()))
+///
+/// If `base_path` is `Some` and `path` is relative, joins it with the base before canonicalizing.
+/// This is needed if the input source paths have been normalized to relative paths.
+pub fn resolve_output_source_path(path: &Path, base_path: Option<&Path>) -> Result<PathBuf> {
+    let path_buf = match base_path {
+        Some(base) if !path.is_absolute() => base.join(path),
+        Some(_) | None => path.to_path_buf(),
+    };
+    path_buf
+        .canonicalize()
+        .with_context(|| format!("Failed to canonicalize path {}", path_buf.display()))
 }
