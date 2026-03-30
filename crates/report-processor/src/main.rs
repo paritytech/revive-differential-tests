@@ -17,9 +17,17 @@ use anyhow::{Context as _, Error, Result, bail};
 use clap::{Parser, ValueEnum};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
-use revive_dt_common::types::{Mode, ParsedTestSpecifier};
+use revive_dt_common::types::{Mode, ParsedMode, ParsedTestSpecifier};
 use revive_dt_report::{Report, TestCaseStatus};
 use strum::EnumString;
+
+use crate::{
+    compare_hashes::{build_comparison_summary, compare_hashes},
+    export_hashes::{HashData, extract_hashes},
+};
+
+mod compare_hashes;
+mod export_hashes;
 
 fn main() -> Result<()> {
     let cli = Cli::try_parse().context("Failed to parse the CLI arguments")?;
@@ -90,14 +98,7 @@ fn main() -> Result<()> {
                 })
                 .collect::<Expectations>();
 
-            let output_file = OpenOptions::new()
-                .truncate(true)
-                .create(true)
-                .write(true)
-                .open(output_file)
-                .context("Failed to create the output file")?;
-            serde_json::to_writer_pretty(output_file, &expectations)
-                .context("Failed to write the expectations to file")?;
+            write_or_overwrite_json(&output_file, &expectations)?;
         }
         Cli::CompareExpectationFiles {
             base_expectations: base_expectation_path,
@@ -283,9 +284,76 @@ fn main() -> Result<()> {
                 format!("Failed to write HTML report to {}", output_path.display())
             })?;
         }
+        Cli::ExportHashes {
+            report,
+            output_path,
+            remove_prefix,
+            platform_label,
+        } => {
+            let remove_prefix = remove_prefix
+                .canonicalize()
+                .context("Failed to canonicalize the remove-prefix path")?;
+
+            let platform_hash_data = extract_hashes(&report, &remove_prefix, &platform_label)?;
+            write_or_overwrite_json(&output_path, &platform_hash_data)?;
+
+            println!(
+                "Exported {} hashes across {} modes to {}.\nModes:\n- {}",
+                platform_hash_data.count_hashes(),
+                platform_hash_data.hashes.len(),
+                output_path.display(),
+                platform_hash_data
+                    .hashes
+                    .keys()
+                    .cloned()
+                    .collect::<Vec<_>>()
+                    .join("\n- ")
+            );
+        }
+        Cli::CompareHashes {
+            hashes,
+            modes,
+            output_path,
+        } => {
+            let hashes: Vec<HashData> = hashes
+                .into_iter()
+                .map(|json_file| json_file.into_inner())
+                .collect();
+
+            let explicit_modes: Option<Vec<String>> = modes.map(|parsed_modes| {
+                ParsedMode::many_to_modes(parsed_modes.iter())
+                    .map(|mode| mode.to_string())
+                    .collect()
+            });
+
+            let result = compare_hashes(&hashes, explicit_modes.as_deref())?;
+            let summary = build_comparison_summary(&result);
+            println!("{summary}");
+            write_or_overwrite_json(&output_path, &result)?;
+            println!(
+                "Full comparison result written to: {}",
+                output_path.display()
+            );
+
+            if result.count_mismatches() > 0 {
+                bail!("Mismatches detected");
+            }
+        }
     };
 
     Ok(())
+}
+
+/// Creates the file at `output_path` and writes `value` as pretty-printed JSON,
+/// or overwrites the file if it already exists.
+fn write_or_overwrite_json(output_path: &Path, value: &impl Serialize) -> Result<()> {
+    let output_file = OpenOptions::new()
+        .create(true)
+        .write(true)
+        .truncate(true)
+        .open(output_path)
+        .context("Failed to create output file")?;
+    serde_json::to_writer_pretty(output_file, value).context("Failed to write JSON to output file")
 }
 
 /// Serialize `value` as JSON, gzip-compress it at maximum compression, and return a standard
@@ -314,9 +382,9 @@ pub enum Cli {
         ///
         /// Note that we expect that:
         /// 1. The provided path points to a JSON file.
-        /// 1. The ancestor's of the provided path already exist such that no directory creations
+        /// 2. The ancestor's of the provided path already exist such that no directory creations
         ///    are required.
-        #[clap(long)]
+        #[clap(long, verbatim_doc_comment)]
         output_path: PathBuf,
 
         /// Prefix paths to remove from the paths in the final expectations file.
@@ -371,6 +439,51 @@ pub enum Cli {
         reports: Vec<JsonFile<Report>>,
 
         /// The path of the merged output report JSON file.
+        #[clap(long)]
+        output_path: PathBuf,
+    },
+
+    /// Extracts and exports the bytecode hashes from pre-link compilations from a [`Report`].
+    ExportHashes {
+        /// The path to the report's JSON file.
+        #[clap(long = "report-path")]
+        report: JsonFile<Report>,
+
+        /// The path of the output JSON file to generate.
+        #[clap(long)]
+        output_path: PathBuf,
+
+        /// The relative or absolute prefix path to remove from each source path found
+        /// in the [`Report`] when added to the exported file. The path is resolved to
+        /// its absolute canonical form before stripping. This is essential for normalization
+        /// if the hashes are used for cross-platform comparison. For cross-platform comparison,
+        /// this value should be the path to the base directory shared by all contracts,
+        /// e.g. "/home/runner/work/contracts" or "C:\\Users\\runner\\work\\contracts".
+        ///
+        /// Note that the normalized paths added to the exported file should thereby not
+        /// be used to access the filesystem.
+        #[clap(long)]
+        remove_prefix: PathBuf,
+
+        /// The platform to be associated with the hashes (e.g. "linux" or "macos"),
+        /// indicating which platform the hashes were generated on. This is included
+        /// in the exported file.
+        #[clap(long)]
+        platform_label: String,
+    },
+
+    /// Compares hashes from multiple platforms and reports mismatches.
+    CompareHashes {
+        /// The paths to the files containing the hashes.
+        #[clap(long = "hash-path")]
+        hashes: Vec<JsonFile<HashData>>,
+
+        /// The mode(s) to compare across the files provided.
+        /// If omitted, the union of all modes found in the files will be compared.
+        #[clap(short = 'm', long = "mode")]
+        modes: Option<Vec<ParsedMode>>,
+
+        /// The path of the output JSON file to write the comparison result.
         #[clap(long)]
         output_path: PathBuf,
     },
@@ -464,6 +577,12 @@ impl<T> Display for JsonFile<T> {
 impl<T> From<JsonFile<T>> for String {
     fn from(value: JsonFile<T>) -> Self {
         value.to_string()
+    }
+}
+
+impl<T> JsonFile<T> {
+    pub fn into_inner(self) -> T {
+        *self.content
     }
 }
 
