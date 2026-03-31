@@ -616,58 +616,80 @@ mod tests {
             (
                 "S+",
                 vec![
-                    "Y M0 S+", "Y M1 S+", "Y M2 S+", "Y M3 S+", "Y Ms S+", "Y Mz S+",
-                    "E M0 S+", "E M1 S+", "E M2 S+", "E M3 S+", "E Ms S+", "E Mz S+",
+                    "Y M0 S+", "Y M1 S+", "Y M2 S+", "Y M3 S+", "Y Ms S+", "Y Mz S+", "E M0 S+",
+                    "E M1 S+", "E M2 S+", "E M3 S+", "E Ms S+", "E Mz S+",
                 ],
             ),
             (
                 "Y",
                 vec![
-                    "Y M0 S+", "Y M0 S-", "Y M1 S+", "Y M1 S-", "Y M2 S+", "Y M2 S-",
-                    "Y M3 S+", "Y M3 S-", "Y Ms S+", "Y Ms S-", "Y Mz S+", "Y Mz S-",
+                    "Y M0 S+", "Y M0 S-", "Y M1 S+", "Y M1 S-", "Y M2 S+", "Y M2 S-", "Y M3 S+",
+                    "Y M3 S-", "Y Ms S+", "Y Ms S-", "Y Mz S+", "Y Mz S-",
                 ],
             ),
             (
                 "E",
                 vec![
-                    "E M0 S+", "E M0 S-", "E M1 S+", "E M1 S-", "E M2 S+", "E M2 S-",
-                    "E M3 S+", "E M3 S-", "E Ms S+", "E Ms S-", "E Mz S+", "E Mz S-",
+                    "E M0 S+", "E M0 S-", "E M1 S+", "E M1 S-", "E M2 S+", "E M2 S-", "E M3 S+",
+                    "E M3 S-", "E Ms S+", "E Ms S-", "E Mz S+", "E Mz S-",
                 ],
             ),
             (
                 "Y+",
-                vec!["Y M0 S+", "Y M1 S+", "Y M2 S+", "Y M3 S+", "Y Ms S+", "Y Mz S+"],
+                vec![
+                    "Y M0 S+", "Y M1 S+", "Y M2 S+", "Y M3 S+", "Y Ms S+", "Y Mz S+",
+                ],
             ),
             (
                 "Y-",
-                vec!["Y M0 S-", "Y M1 S-", "Y M2 S-", "Y M3 S-", "Y Ms S-", "Y Mz S-"],
+                vec![
+                    "Y M0 S-", "Y M1 S-", "Y M2 S-", "Y M3 S-", "Y Ms S-", "Y Mz S-",
+                ],
             ),
             (
                 "Y <=0.8",
                 vec![
-                    "Y M0 S+ <=0.8", "Y M0 S- <=0.8",
-                    "Y M1 S+ <=0.8", "Y M1 S- <=0.8",
-                    "Y M2 S+ <=0.8", "Y M2 S- <=0.8",
-                    "Y M3 S+ <=0.8", "Y M3 S- <=0.8",
-                    "Y Ms S+ <=0.8", "Y Ms S- <=0.8",
-                    "Y Mz S+ <=0.8", "Y Mz S- <=0.8",
+                    "Y M0 S+ <=0.8",
+                    "Y M0 S- <=0.8",
+                    "Y M1 S+ <=0.8",
+                    "Y M1 S- <=0.8",
+                    "Y M2 S+ <=0.8",
+                    "Y M2 S- <=0.8",
+                    "Y M3 S+ <=0.8",
+                    "Y M3 S- <=0.8",
+                    "Y Ms S+ <=0.8",
+                    "Y Ms S- <=0.8",
+                    "Y Mz S+ <=0.8",
+                    "Y Mz S- <=0.8",
                 ],
             ),
             (
                 "<=0.8",
                 vec![
-                    "Y M0 S+ <=0.8", "Y M0 S- <=0.8",
-                    "Y M1 S+ <=0.8", "Y M1 S- <=0.8",
-                    "Y M2 S+ <=0.8", "Y M2 S- <=0.8",
-                    "Y M3 S+ <=0.8", "Y M3 S- <=0.8",
-                    "Y Ms S+ <=0.8", "Y Ms S- <=0.8",
-                    "Y Mz S+ <=0.8", "Y Mz S- <=0.8",
-                    "E M0 S+ <=0.8", "E M0 S- <=0.8",
-                    "E M1 S+ <=0.8", "E M1 S- <=0.8",
-                    "E M2 S+ <=0.8", "E M2 S- <=0.8",
-                    "E M3 S+ <=0.8", "E M3 S- <=0.8",
-                    "E Ms S+ <=0.8", "E Ms S- <=0.8",
-                    "E Mz S+ <=0.8", "E Mz S- <=0.8",
+                    "Y M0 S+ <=0.8",
+                    "Y M0 S- <=0.8",
+                    "Y M1 S+ <=0.8",
+                    "Y M1 S- <=0.8",
+                    "Y M2 S+ <=0.8",
+                    "Y M2 S- <=0.8",
+                    "Y M3 S+ <=0.8",
+                    "Y M3 S- <=0.8",
+                    "Y Ms S+ <=0.8",
+                    "Y Ms S- <=0.8",
+                    "Y Mz S+ <=0.8",
+                    "Y Mz S- <=0.8",
+                    "E M0 S+ <=0.8",
+                    "E M0 S- <=0.8",
+                    "E M1 S+ <=0.8",
+                    "E M1 S- <=0.8",
+                    "E M2 S+ <=0.8",
+                    "E M2 S- <=0.8",
+                    "E M3 S+ <=0.8",
+                    "E M3 S- <=0.8",
+                    "E Ms S+ <=0.8",
+                    "E Ms S- <=0.8",
+                    "E Mz S+ <=0.8",
+                    "E Mz S- <=0.8",
                 ],
             ),
             ("Y M3", vec!["Y M3 S+", "Y M3 S-"]),
@@ -707,7 +729,10 @@ mod tests {
         .into_iter()
         .map(String::from)
         .collect();
-        assert_eq!(expected, actual, "'Y+' should expand to all Y optimizer levels with S+");
+        assert_eq!(
+            expected, actual,
+            "'Y+' should expand to all Y optimizer levels with S+"
+        );
     }
 
     #[test]
@@ -725,7 +750,10 @@ mod tests {
         .into_iter()
         .map(String::from)
         .collect();
-        assert_eq!(expected, actual, "'Y-' should expand to all Y optimizer levels with S-");
+        assert_eq!(
+            expected, actual,
+            "'Y-' should expand to all Y optimizer levels with S-"
+        );
     }
 
     #[test]
@@ -743,7 +771,10 @@ mod tests {
         .into_iter()
         .map(String::from)
         .collect();
-        assert_eq!(expected, actual, "'E+' should expand to all E optimizer levels with S+");
+        assert_eq!(
+            expected, actual,
+            "'E+' should expand to all E optimizer levels with S+"
+        );
     }
 
     #[test]
@@ -761,7 +792,10 @@ mod tests {
         .into_iter()
         .map(String::from)
         .collect();
-        assert_eq!(expected, actual, "'E-' should expand to all E optimizer levels with S-");
+        assert_eq!(
+            expected, actual,
+            "'E-' should expand to all E optimizer levels with S-"
+        );
     }
 
     #[test]
@@ -774,17 +808,16 @@ mod tests {
 
         // Assert
         let expected: HashSet<String> = [
-            "Y M0 S+", "Y M0 S-",
-            "Y M1 S+", "Y M1 S-",
-            "Y M2 S+", "Y M2 S-",
-            "Y M3 S+", "Y M3 S-",
-            "Y Ms S+", "Y Ms S-",
-            "Y Mz S+", "Y Mz S-",
+            "Y M0 S+", "Y M0 S-", "Y M1 S+", "Y M1 S-", "Y M2 S+", "Y M2 S-", "Y M3 S+", "Y M3 S-",
+            "Y Ms S+", "Y Ms S-", "Y Mz S+", "Y Mz S-",
         ]
         .into_iter()
         .map(String::from)
         .collect();
-        assert_eq!(expected, actual, "'Y' should expand to all 12 Y modes (Y+ union Y-)");
+        assert_eq!(
+            expected, actual,
+            "'Y' should expand to all 12 Y modes (Y+ union Y-)"
+        );
     }
 
     #[test]
@@ -797,16 +830,15 @@ mod tests {
 
         // Assert
         let expected: HashSet<String> = [
-            "E M0 S+", "E M0 S-",
-            "E M1 S+", "E M1 S-",
-            "E M2 S+", "E M2 S-",
-            "E M3 S+", "E M3 S-",
-            "E Ms S+", "E Ms S-",
-            "E Mz S+", "E Mz S-",
+            "E M0 S+", "E M0 S-", "E M1 S+", "E M1 S-", "E M2 S+", "E M2 S-", "E M3 S+", "E M3 S-",
+            "E Ms S+", "E Ms S-", "E Mz S+", "E Mz S-",
         ]
         .into_iter()
         .map(String::from)
         .collect();
-        assert_eq!(expected, actual, "'E' should expand to all 12 E modes (E+ union E-)");
+        assert_eq!(
+            expected, actual,
+            "'E' should expand to all 12 E modes (E+ union E-)"
+        );
     }
 }
