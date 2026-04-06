@@ -198,11 +198,34 @@ where
             const RUNTIME_PALLET_ADDRESS: Address =
                 address!("0x6d6f646c70792f70616464720000000000000000");
 
+            // Build a set of (file_path, contract_name) pairs from the metadata's
+            // contracts map so we only upload the contracts the test actually needs,
+            // rather than every contract the compiler found in the source files.
+            let requested_contracts: std::collections::HashSet<(PathBuf, String)> = self
+                .test_definition
+                .metadata
+                .contract_sources()
+                .unwrap_or_default()
+                .values()
+                .map(|source| {
+                    (
+                        source.contract_source_path.clone(),
+                        source.contract_ident.to_string(),
+                    )
+                })
+                .collect();
+
             let code_upload_tasks = compiler_output
                 .contracts
-                .values()
-                .flat_map(|item| item.values())
-                .map(|(code_string, _)| {
+                .iter()
+                .flat_map(|(file_path, contracts)| {
+                    contracts.iter().map(move |(contract_name, value)| (file_path, contract_name, value))
+                })
+                .filter(|(file_path, contract_name, _)| {
+                    requested_contracts.is_empty()
+                        || requested_contracts.contains(&(file_path.to_path_buf(), contract_name.to_string()))
+                })
+                .map(|(_, _, (code_string, _))| {
                     let metadata = metadata.clone();
                     let node = self.platform_information.node;
                     async move {
