@@ -475,6 +475,20 @@ jobs:
             --report.file-name report.json \
             > ./workdir/retester.log 2>&1
 
+      - name: Capture collator and relay chain logs from zombienet
+        if: always()
+        run: |
+          mkdir -p ./workdir/collator-logs
+          for zombie_dir in /tmp/zombie-*/; do
+            if [ -d "$zombie_dir" ]; then
+              # Copy everything we can find - logs, stderr, stdout from all nodes
+              find "$zombie_dir" -name "*.log" -exec cp {} ./workdir/collator-logs/ \; 2>/dev/null || true
+              find "$zombie_dir" -name "stderr" -exec sh -c 'cp "$1" ./workdir/collator-logs/$(echo "$1" | sed "s|/tmp/zombie-[^/]*/||;s|/|-|g")' _ {} \; 2>/dev/null || true
+              find "$zombie_dir" -name "stdout" -exec sh -c 'cp "$1" ./workdir/collator-logs/$(echo "$1" | sed "s|/tmp/zombie-[^/]*/||;s|/|-|g")' _ {} \; 2>/dev/null || true
+            fi
+          done
+          ls -la ./workdir/collator-logs/ 2>/dev/null || echo "No logs found"
+
       - name: Upload workdir
         if: always()
         uses: actions/upload-artifact@v4
