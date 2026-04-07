@@ -304,7 +304,8 @@ jobs:
         id: matrix
         run: |
           TESTS=$(retester export-test-specifiers \
-            --test ./compiler-tests/fixtures/solidity/workloads \
+            --test ./compiler-tests/fixtures/solidity/workloads/ethereum \
+            --test ./compiler-tests/fixtures/solidity/workloads/erc20-transfers \
             | jq -R . | jq -sc .)
           echo "tests=${TESTS}" >> "$GITHUB_OUTPUT"
 
