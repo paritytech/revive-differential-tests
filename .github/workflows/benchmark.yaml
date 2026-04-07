@@ -21,6 +21,10 @@ on:
       resolc_ref:
         description: "Resolc git ref (commit/branch/tag) to build from source instead of using a release binary"
         required: false
+      westend:
+        description: "Benchmark against Westend Asset Hub instead of Polkadot Asset Hub"
+        type: boolean
+        default: false
       disable_fast_runtime:
         description: "Disable the fast-runtime feature (requires rebuilding polkadot-sdk and chainspec-generator binaries)"
         type: boolean
@@ -35,7 +39,7 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
-  POLKADOT_VERSION: ${{ inputs.polkadot_version || 'polkadot-stable2512-2' }}
+  POLKADOT_VERSION: ${{ inputs.polkadot_version || (inputs.westend == true && '42fe5e1e3702d427d37e7b151c71a7833ec3c34b') || 'polkadot-stable2512-2' }}
   RUNTIMES_VERSION: ${{ inputs.runtimes_version || '220928aa6e87b11cf2b40a6ad893bdbd6efd87d6' }}
   ADDITIONAL_KEYS: ${{ inputs.additional_keys || '200010' }}
   RESOLC_VERSION: ${{ inputs.resolc_version || 'v0.6.0' }}
@@ -467,7 +471,7 @@ jobs:
             --concurrency.number-of-nodes 1 \
             --concurrency.number-of-threads 12 \
             --concurrency.number-of-concurrent-tasks 1000 \
-            --zombienet.config-path ./assets/polkadot-assethub-zombienet.toml \
+            --zombienet.config-path ./assets/${{ inputs.westend == true && 'westend-assethub-zombienet.toml' || 'polkadot-assethub-zombienet.toml' }} \
             --zombienet.block-production-timeout-ms ${{ steps.zombienet-timeout.outputs.timeout_ms }} \
             --wallet.additional-keys ${{ env.ADDITIONAL_KEYS }} \
             --report.file-name report.json \
