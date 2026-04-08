@@ -57,7 +57,7 @@ cumulus_based = true
 name = "asset-hub-collator-1"
 command = "polkadot-parachain"
 args = [
-  "-lerror,evm=debug,sc_rpc_server=info,runtime::revive=debug",
+  "-lerror,evm=debug,sc_rpc_server=info,runtime::revive=trace",
   "--authoring=slot-based",
   "--rpc-methods=unsafe",
   "--rpc-cors=all",
