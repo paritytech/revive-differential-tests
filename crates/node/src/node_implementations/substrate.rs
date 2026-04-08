@@ -42,6 +42,12 @@ impl SubstrateNode {
 
     pub const REVIVE_DEV_NODE_EXPORT_CHAINSPEC_COMMAND: &str = "build-spec";
 
+    /// Returns the WebSocket URL for the substrate RPC endpoint of this node.
+    fn substrate_ws_url(&self) -> String {
+        let substrate_rpc_port = Self::BASE_SUBSTRATE_RPC_PORT + self.id as u16;
+        format!("ws://127.0.0.1:{substrate_rpc_port}")
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         node_path: PathBuf,
@@ -172,6 +178,10 @@ impl SubstrateNode {
                     .arg("Unsafe")
                     .arg("--rpc-cors")
                     .arg("all")
+                    .arg("--rpc-max-request-size")
+                    .arg(u32::MAX.to_string())
+                    .arg("--rpc-max-response-size")
+                    .arg(u32::MAX.to_string())
                     .arg("--rpc-max-connections")
                     .arg(u32::MAX.to_string())
                     .arg("--pool-limit")
@@ -359,8 +369,7 @@ impl NodeApi for SubstrateNode {
         revive_dt_common::futures::FrameworkFuture<anyhow::Result<OnlineClient<PolkadotConfig>>>,
     > {
         let provider = self.substrate_provider.clone();
-        let substrate_rpc_port = Self::BASE_SUBSTRATE_RPC_PORT + self.id as u16;
-        let connection_string = format!("ws://127.0.0.1:{substrate_rpc_port}");
+        let connection_string = self.substrate_ws_url();
 
         Some(Box::pin(async move {
             provider
@@ -371,6 +380,17 @@ impl NodeApi for SubstrateNode {
                 })
                 .await
                 .cloned()
+        }))
+    }
+
+    fn substrate_rpc_client(
+        &self,
+    ) -> Option<FrameworkFuture<Result<subxt::backend::rpc::RpcClient>>> {
+        let url = self.substrate_ws_url();
+        Some(Box::pin(async move {
+            subxt::backend::rpc::RpcClient::from_insecure_url(url)
+                .await
+                .context("Failed to create the substrate RPC client")
         }))
     }
 }

@@ -21,6 +21,10 @@ on:
       resolc_ref:
         description: "Resolc git ref (commit/branch/tag) to build from source instead of using a release binary"
         required: false
+      disable_fast_runtime:
+        description: "Disable the fast-runtime feature (requires rebuilding polkadot-sdk and chainspec-generator binaries)"
+        type: boolean
+        default: false
       benchmark_env:
         description: "Comma-separated environment variables for benchmark jobs (e.g. RUST_LOG=debug,MY_VAR=value)"
         required: false
@@ -36,6 +40,7 @@ env:
   ADDITIONAL_KEYS: ${{ inputs.additional_keys || '200010' }}
   RESOLC_VERSION: ${{ inputs.resolc_version || 'v0.6.0' }}
   SOLC_VERSION: ${{ inputs.solc_version || 'v0.8.30' }}
+  FAST_RUNTIME: ${{ inputs.disable_fast_runtime != true }}
 
 permissions:
   contents: write
@@ -46,18 +51,12 @@ jobs:
   build-retester:
     name: Build retester
     runs-on: parity-large
-    env:
-      SCCACHE_GHA_ENABLED: "true"
-      RUSTC_WRAPPER: "sccache"
     steps:
       - name: Setup Rust toolchain
         uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           target: wasm32-unknown-unknown
           components: rust-src
-
-      - name: Setup sccache
-        uses: mozilla-actions/sccache-action@v0.0.9
 
       - name: Install system packages
         run: |
@@ -96,18 +95,12 @@ jobs:
   build-chainspec-generator:
     name: Build chainspec-generator
     runs-on: parity-large
-    env:
-      SCCACHE_GHA_ENABLED: "true"
-      RUSTC_WRAPPER: "sccache"
     steps:
       - name: Setup Rust toolchain
         uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           target: wasm32-unknown-unknown
           components: rust-src
-
-      - name: Setup sccache
-        uses: mozilla-actions/sccache-action@v0.0.9
 
       - name: Install system packages
         run: |
@@ -120,12 +113,21 @@ jobs:
           repository: polkadot-fellows/runtimes
           ref: ${{ env.RUNTIMES_VERSION }}
 
+      - name: Resolve chainspec-generator features
+        id: chainspec-features
+        run: |
+          if [ "${{ env.FAST_RUNTIME }}" = "true" ]; then
+            echo "features=polkadot,asset-hub-polkadot,fast-runtime" >> "$GITHUB_OUTPUT"
+          else
+            echo "features=polkadot,asset-hub-polkadot" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Restore chainspec-generator cache
         id: cache
         uses: actions/cache/restore@v4
         with:
           path: ~/.cargo/bin/chain-spec-generator
-          key: chainspec-generator-${{ env.RUNTIMES_VERSION }}
+          key: chainspec-generator-${{ env.RUNTIMES_VERSION }}-fast-runtime-${{ env.FAST_RUNTIME }}
 
       - name: Build chainspec-generator
         if: steps.cache.outputs.cache-hit != 'true'
@@ -133,7 +135,7 @@ jobs:
           cargo build --locked --profile production \
             --manifest-path chain-spec-generator/Cargo.toml \
             --no-default-features \
-            --features polkadot,asset-hub-polkadot,fast-runtime
+            --features ${{ steps.chainspec-features.outputs.features }}
           cp -t ~/.cargo/bin \
             target/production/chain-spec-generator
 
@@ -142,23 +144,17 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: ~/.cargo/bin/chain-spec-generator
-          key: chainspec-generator-${{ env.RUNTIMES_VERSION }}
+          key: chainspec-generator-${{ env.RUNTIMES_VERSION }}-fast-runtime-${{ env.FAST_RUNTIME }}
 
   build-polkadot-sdk:
     name: Build polkadot-sdk
     runs-on: parity-large
-    env:
-      SCCACHE_GHA_ENABLED: "true"
-      RUSTC_WRAPPER: "sccache"
     steps:
       - name: Setup Rust toolchain
         uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           target: wasm32-unknown-unknown
           components: rust-src
-
-      - name: Setup sccache
-        uses: mozilla-actions/sccache-action@v0.0.9
 
       - name: Install system packages
         run: |
@@ -171,6 +167,15 @@ jobs:
           repository: paritytech/polkadot-sdk
           ref: ${{ env.POLKADOT_VERSION }}
 
+      - name: Resolve polkadot-sdk features
+        id: polkadot-features
+        run: |
+          if [ "${{ env.FAST_RUNTIME }}" = "true" ]; then
+            echo "features=--features polkadot/fast-runtime" >> "$GITHUB_OUTPUT"
+          else
+            echo "features=" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Restore polkadot-sdk cache
         id: cache
         uses: actions/cache/restore@v4
@@ -181,7 +186,7 @@ jobs:
             ~/.cargo/bin/polkadot-execute-worker
             ~/.cargo/bin/polkadot-parachain
             ~/.cargo/bin/eth-rpc
-          key: polkadot-sdk-${{ env.POLKADOT_VERSION }}
+          key: polkadot-sdk-${{ env.POLKADOT_VERSION }}-fast-runtime-${{ env.FAST_RUNTIME }}
 
       - name: Build polkadot-sdk binaries
         if: steps.cache.outputs.cache-hit != 'true'
@@ -190,7 +195,7 @@ jobs:
         run: |
           cargo build --locked --profile production \
             -p polkadot -p polkadot-parachain-bin -p pallet-revive-eth-rpc \
-            --features polkadot/fast-runtime \
+            ${{ steps.polkadot-features.outputs.features }} \
             --bin polkadot \
             --bin polkadot-prepare-worker \
             --bin polkadot-execute-worker \
@@ -213,7 +218,7 @@ jobs:
             ~/.cargo/bin/polkadot-execute-worker
             ~/.cargo/bin/polkadot-parachain
             ~/.cargo/bin/eth-rpc
-          key: polkadot-sdk-${{ env.POLKADOT_VERSION }}
+          key: polkadot-sdk-${{ env.POLKADOT_VERSION }}-fast-runtime-${{ env.FAST_RUNTIME }}
 
   build-resolc:
     name: Build resolc from source
@@ -221,9 +226,6 @@ jobs:
     runs-on: parity-large
     outputs:
       resolc_commit: ${{ steps.resolve-ref.outputs.commit }}
-    env:
-      SCCACHE_GHA_ENABLED: "true"
-      RUSTC_WRAPPER: "sccache"
     steps:
       - name: Checkout revive
         uses: actions/checkout@v4
@@ -233,9 +235,6 @@ jobs:
 
       - name: Setup Rust toolchain
         uses: actions-rust-lang/setup-rust-toolchain@v1
-
-      - name: Setup sccache
-        uses: mozilla-actions/sccache-action@v0.0.9
 
       - name: Install system packages
         run: |
@@ -429,7 +428,7 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: ~/.cargo/bin/chain-spec-generator
-          key: chainspec-generator-${{ env.RUNTIMES_VERSION }}
+          key: chainspec-generator-${{ env.RUNTIMES_VERSION }}-fast-runtime-${{ env.FAST_RUNTIME }}
 
       - name: Restore polkadot-sdk cache
         uses: actions/cache/restore@v4
@@ -440,9 +439,18 @@ jobs:
             ~/.cargo/bin/polkadot-execute-worker
             ~/.cargo/bin/polkadot-parachain
             ~/.cargo/bin/eth-rpc
-          key: polkadot-sdk-${{ env.POLKADOT_VERSION }}
+          key: polkadot-sdk-${{ env.POLKADOT_VERSION }}-fast-runtime-${{ env.FAST_RUNTIME }}
 
       # ── Run benchmarks ───────────────────────────────────────────────────
+
+      - name: Resolve zombienet block production timeout
+        id: zombienet-timeout
+        run: |
+          if [ "${{ env.FAST_RUNTIME }}" = "true" ]; then
+            echo "timeout_ms=300000" >> "$GITHUB_OUTPUT"
+          else
+            echo "timeout_ms=28800000" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Create working directory
         run: mkdir -p ./workdir
@@ -460,6 +468,7 @@ jobs:
             --concurrency.number-of-threads 12 \
             --concurrency.number-of-concurrent-tasks 1000 \
             --zombienet.config-path ./assets/polkadot-assethub-zombienet.toml \
+            --zombienet.block-production-timeout-ms ${{ steps.zombienet-timeout.outputs.timeout_ms }} \
             --wallet.additional-keys ${{ env.ADDITIONAL_KEYS }} \
             --report.file-name report.json \
             > ./workdir/retester.log 2>&1

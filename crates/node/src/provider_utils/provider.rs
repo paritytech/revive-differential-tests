@@ -30,7 +30,7 @@ where
     // requests at any point of time and no more than that. This is done in an effort to stabilize
     // the framework from some of the interment issues that we've been seeing related to RPC calls.
     static GLOBAL_CONCURRENCY_LIMITER_LAYER: LazyLock<ConcurrencyLimiterLayer> =
-        LazyLock::new(|| ConcurrencyLimiterLayer::new(1_500));
+        LazyLock::new(|| ConcurrencyLimiterLayer::new(10));
 
     let client = ClientBuilder::default()
         .layer(RetryLayer::default())

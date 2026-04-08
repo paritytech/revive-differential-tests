@@ -18,8 +18,8 @@ chain_spec_command = "chain-spec-generator {{chainName}}"
 # Requires num_validators > num_cores (4 validators for 3 cores).
 # Source: polkadot-fellows/runtimes system-parachains/constants/src/polkadot.rs
 num_cores = 3
-# Must be 3 for async backing; lower values degrade parachain block times.
-lookahead = 3
+# Must be 5 for async backing; lower values degrade parachain block times.
+lookahead = 5
 
 [relaychain.genesis.runtimeGenesis.patch.configuration.config.async_backing_params]
 # polkadot-local defaults to max_candidate_depth=2, but mainnet was updated to 3
@@ -62,6 +62,7 @@ args = [
   "--rpc-methods=unsafe",
   "--rpc-cors=all",
   "--rpc-max-connections=4294967295",
+  "--rpc-max-response-size=4294967295",
   "--pool-limit=4294967295",
   "--pool-kbytes=4294967295",
   "--no-hardware-benchmarks",

@@ -235,22 +235,31 @@ impl ModeOptimizerLevel {
         }
     }
 
-    /// An iterator over the available optimizer levels that we'd like to test,
-    /// when an explicit optimizer level was not specified.
+    /// An iterator over all available LLVM optimizer levels.
+    ///
+    /// This is used whenever a mode string does not specify an explicit optimizer level
+    /// and we need to expand into all possibilities. The full set is:
+    ///
+    /// - `M0`: No LLVM optimizations
+    /// - `M1`: Less than default optimizations
+    /// - `M2`: Default optimizations
+    /// - `M3`: Aggressive performance optimizations
+    /// - `Ms`: Optimize for code size
+    /// - `Mz`: Aggressively optimize for code size
     pub fn test_cases() -> impl Iterator<Item = ModeOptimizerLevel> + Clone {
         [
-            // No optimizations:
             ModeOptimizerLevel::M0,
-            // Aggressive performance optimizations:
+            ModeOptimizerLevel::M1,
+            ModeOptimizerLevel::M2,
             ModeOptimizerLevel::M3,
-            // Aggressive size optimizations:
+            ModeOptimizerLevel::Ms,
             ModeOptimizerLevel::Mz,
         ]
         .into_iter()
     }
 }
 
-/// This represents a mode that has been parsed from test metadata.
+/// A mode parsed from test metadata, before expansion into concrete [`Mode`]s.
 ///
 /// Mode strings can take the following form (in pseudo-regex):
 ///
@@ -258,21 +267,41 @@ impl ModeOptimizerLevel {
 /// [YEILV][+-]? (M[0123sz])? (S[+-])? <semver>?
 /// ```
 ///
-/// - `[YEILV]`: Pipeline — `Y` (via Yul IR) or `E` (via EVM Assembly), ILV (legacy aliases)
-/// - `[+-]`: Optimization shorthand — `+` (optimized: M3, solc optimizer enabled) or `-` (unoptimized: M0, solc optimizer disabled)
-/// - `M[0123sz]`: Resolc/LLVM optimization level — `M0`..`M3`, `Ms`, `Mz`
-/// - `S[+-]`: Solc optimizer — `S+` (enabled) or `S-` (disabled)
-/// - `<semver>`: Solc version requirement
+/// ## Components
 ///
-/// Priority:
-/// - Explicit `M`/`S` settings override the `+`/`-` shorthand.
-/// - If omitted, expands to all combinations we'd like to test. E.g.:
-///   - `Y M3` → `Y M3 S+` and `Y M3 S-`
-///   - `Y S+` → `Y M0 S+`, `Y M3 S+`, and `Y Mz S+`
+/// - `[YEILV]`: Pipeline — `Y` (via Yul IR) or `E` (via EVM Assembly). `I`, `L`, `V` are
+///   legacy aliases.
+/// - `[+-]`: Solc optimizer shorthand — `+` (solc optimizer enabled) or `-` (solc optimizer
+///   disabled). Expands across **all** LLVM optimizer levels (M0 through Mz).
+/// - `M[0123sz]`: LLVM optimizer level — `M0` (none), `M1` (light), `M2` (default),
+///   `M3` (aggressive performance), `Ms` (size), `Mz` (aggressive size).
+/// - `S[+-]`: Solc optimizer — `S+` (enabled) or `S-` (disabled).
+/// - `<semver>`: Solc version requirement.
 ///
-/// Examples: `Y+`, `Y M3`, `Y Mz S- >=0.8.0`
+/// ## Expansion rules
 ///
-/// We can parse valid mode strings into [`ParsedMode`] using [`ParsedMode::from_str`].
+/// Any omitted component expands to all of its possible values. Explicit `M`/`S` settings
+/// always override the `+`/`-` shorthand.
+///
+/// | Shorthand | Expands to |
+/// |-----------|------------|
+/// | `Y+`      | `Y M0 S+`, `Y M1 S+`, `Y M2 S+`, `Y M3 S+`, `Y Ms S+`, `Y Mz S+` |
+/// | `Y-`      | `Y M0 S-`, `Y M1 S-`, `Y M2 S-`, `Y M3 S-`, `Y Ms S-`, `Y Mz S-` |
+/// | `Y`       | `Y+` ∪ `Y-` = all 12 Y modes |
+/// | `E+`      | `E M0 S+`, `E M1 S+`, `E M2 S+`, `E M3 S+`, `E Ms S+`, `E Mz S+` |
+/// | `E-`      | `E M0 S-`, `E M1 S-`, `E M2 S-`, `E M3 S-`, `E Ms S-`, `E Mz S-` |
+/// | `E`       | `E+` ∪ `E-` = all 12 E modes |
+/// | `Y M3`    | `Y M3 S+`, `Y M3 S-` |
+/// | `Y S+`    | `Y M0 S+`, `Y M1 S+`, `Y M2 S+`, `Y M3 S+`, `Y Ms S+`, `Y Mz S+` |
+/// | `Y M3 S+` | `Y M3 S+` (fully specified) |
+///
+/// See [`ParsedMode::to_modes()`] for the full expansion logic.
+///
+/// ## Examples
+///
+/// `Y+`, `Y M3`, `Y Mz S- >=0.8.0`
+///
+/// Use [`ParsedMode::from_str`] to parse a mode string.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Deserialize, Serialize, JsonSchema)]
 #[serde(try_from = "String", into = "String")]
 pub struct ParsedMode {
@@ -406,53 +435,81 @@ impl TryFrom<String> for ParsedMode {
 }
 
 impl ParsedMode {
-    /// This takes a [`ParsedMode`] and expands it into a list of [`Mode`]s that we should try.
+    /// Expands a [`ParsedMode`] into the concrete [`Mode`]s it represents.
+    ///
+    /// # Expansion rules
+    ///
+    /// A mode string has four optional components: pipeline (`Y`/`E`), optimize flag
+    /// (`+`/`-`), LLVM optimizer level (`M0`..`M3`, `Ms`, `Mz`), and solc optimizer
+    /// (`S+`/`S-`). Each omitted component expands to all of its possible values.
+    ///
+    /// ## The `+`/`-` shorthand
+    ///
+    /// The `+`/`-` flag pins the **solc optimizer** setting and expands across all
+    /// **LLVM optimizer levels**:
+    ///
+    /// - `Y+` → `Y M0 S+`, `Y M1 S+`, `Y M2 S+`, `Y M3 S+`, `Y Ms S+`, `Y Mz S+`
+    /// - `Y-` → `Y M0 S-`, `Y M1 S-`, `Y M2 S-`, `Y M3 S-`, `Y Ms S-`, `Y Mz S-`
+    /// - `E+` → `E M0 S+`, `E M1 S+`, `E M2 S+`, `E M3 S+`, `E Ms S+`, `E Mz S+`
+    /// - `E-` → `E M0 S-`, `E M1 S-`, `E M2 S-`, `E M3 S-`, `E Ms S-`, `E Mz S-`
+    ///
+    /// ## Pipeline-only
+    ///
+    /// When only the pipeline is specified, it expands to all 12 modes for that pipeline
+    /// (equivalent to the union of `+` and `-`):
+    ///
+    /// - `Y` → `Y+` ∪ `Y-` (12 modes)
+    /// - `E` → `E+` ∪ `E-` (12 modes)
+    ///
+    /// ## Explicit level and/or solc optimizer
+    ///
+    /// Explicit `M`/`S` settings always take priority over the `+`/`-` shorthand:
+    ///
+    /// - `Y M3` → `Y M3 S+`, `Y M3 S-` (fixed level, both solc settings)
+    /// - `Y S+` → `Y M0 S+`, `Y M1 S+`, ..., `Y Mz S+` (fixed solc, all levels)
+    /// - `Y M3 S+` → `Y M3 S+` (fully specified, single mode)
     pub fn to_modes(&self) -> impl Iterator<Item = Mode> {
         let pipeline_iter = self.pipeline.as_ref().map_or_else(
             || EitherIter::A(ModePipeline::test_cases()),
             |p| EitherIter::B(std::iter::once(*p)),
         );
 
-        let optimize_flag_setting = self.optimize_flag.map(|flag| {
-            if flag {
-                ModeOptimizerSetting {
-                    solc_optimizer_enabled: true,
-                    level: ModeOptimizerLevel::M3,
-                }
-            } else {
-                ModeOptimizerSetting {
-                    solc_optimizer_enabled: false,
-                    level: ModeOptimizerLevel::M0,
-                }
-            }
-        });
-
-        let optimize_flag_iter = match optimize_flag_setting {
-            Some(setting) => EitherIter::A(std::iter::once(setting)),
-            None => EitherIter::B(ModeOptimizerSetting::test_cases()),
-        };
-
         let optimize_settings: Vec<ModeOptimizerSetting> =
             match (self.solc_optimizer_enabled, self.optimize_level) {
+                // Fully specified: single optimizer setting.
                 (Some(solc_optimizer_enabled), Some(level)) => {
                     vec![ModeOptimizerSetting {
                         solc_optimizer_enabled,
                         level,
                     }]
                 }
+                // Level specified, solc not: expand across both solc settings.
                 (None, Some(level)) => ModeOptimizerSetting::solc_optimizer_test_cases()
                     .map(|solc_optimizer_enabled| ModeOptimizerSetting {
                         solc_optimizer_enabled,
                         level,
                     })
                     .collect(),
+                // Solc specified, level not: expand across all LLVM levels.
                 (Some(solc_optimizer_enabled), None) => ModeOptimizerLevel::test_cases()
                     .map(|level| ModeOptimizerSetting {
                         solc_optimizer_enabled,
                         level,
                     })
                     .collect(),
-                (None, None) => optimize_flag_iter.collect(),
+                // Neither specified: use the +/- flag if present, otherwise all combinations.
+                (None, None) => match self.optimize_flag {
+                    Some(flag) => {
+                        let solc_optimizer_enabled = flag;
+                        ModeOptimizerLevel::test_cases()
+                            .map(move |level| ModeOptimizerSetting {
+                                solc_optimizer_enabled,
+                                level,
+                            })
+                            .collect()
+                    }
+                    None => ModeOptimizerSetting::test_cases().collect(),
+                },
             };
 
         pipeline_iter.flat_map(move |pipeline| {
@@ -559,30 +616,49 @@ mod tests {
             (
                 "S+",
                 vec![
-                    "Y M0 S+", "Y M3 S+", "Y Mz S+", "E M0 S+", "E M3 S+", "E Mz S+",
+                    "Y M0 S+", "Y M1 S+", "Y M2 S+", "Y M3 S+", "Y Ms S+", "Y Mz S+", "E M0 S+",
+                    "E M1 S+", "E M2 S+", "E M3 S+", "E Ms S+", "E Mz S+",
                 ],
             ),
             (
                 "Y",
                 vec![
-                    "Y M0 S+", "Y M0 S-", "Y M3 S+", "Y M3 S-", "Y Mz S+", "Y Mz S-",
+                    "Y M0 S+", "Y M0 S-", "Y M1 S+", "Y M1 S-", "Y M2 S+", "Y M2 S-", "Y M3 S+",
+                    "Y M3 S-", "Y Ms S+", "Y Ms S-", "Y Mz S+", "Y Mz S-",
                 ],
             ),
             (
                 "E",
                 vec![
-                    "E M0 S+", "E M0 S-", "E M3 S+", "E M3 S-", "E Mz S+", "E Mz S-",
+                    "E M0 S+", "E M0 S-", "E M1 S+", "E M1 S-", "E M2 S+", "E M2 S-", "E M3 S+",
+                    "E M3 S-", "E Ms S+", "E Ms S-", "E Mz S+", "E Mz S-",
                 ],
             ),
-            ("Y+", vec!["Y M3 S+"]),
-            ("Y-", vec!["Y M0 S-"]),
+            (
+                "Y+",
+                vec![
+                    "Y M0 S+", "Y M1 S+", "Y M2 S+", "Y M3 S+", "Y Ms S+", "Y Mz S+",
+                ],
+            ),
+            (
+                "Y-",
+                vec![
+                    "Y M0 S-", "Y M1 S-", "Y M2 S-", "Y M3 S-", "Y Ms S-", "Y Mz S-",
+                ],
+            ),
             (
                 "Y <=0.8",
                 vec![
                     "Y M0 S+ <=0.8",
                     "Y M0 S- <=0.8",
+                    "Y M1 S+ <=0.8",
+                    "Y M1 S- <=0.8",
+                    "Y M2 S+ <=0.8",
+                    "Y M2 S- <=0.8",
                     "Y M3 S+ <=0.8",
                     "Y M3 S- <=0.8",
+                    "Y Ms S+ <=0.8",
+                    "Y Ms S- <=0.8",
                     "Y Mz S+ <=0.8",
                     "Y Mz S- <=0.8",
                 ],
@@ -592,14 +668,26 @@ mod tests {
                 vec![
                     "Y M0 S+ <=0.8",
                     "Y M0 S- <=0.8",
+                    "Y M1 S+ <=0.8",
+                    "Y M1 S- <=0.8",
+                    "Y M2 S+ <=0.8",
+                    "Y M2 S- <=0.8",
                     "Y M3 S+ <=0.8",
                     "Y M3 S- <=0.8",
+                    "Y Ms S+ <=0.8",
+                    "Y Ms S- <=0.8",
                     "Y Mz S+ <=0.8",
                     "Y Mz S- <=0.8",
                     "E M0 S+ <=0.8",
                     "E M0 S- <=0.8",
+                    "E M1 S+ <=0.8",
+                    "E M1 S- <=0.8",
+                    "E M2 S+ <=0.8",
+                    "E M2 S- <=0.8",
                     "E M3 S+ <=0.8",
                     "E M3 S- <=0.8",
+                    "E Ms S+ <=0.8",
+                    "E Ms S- <=0.8",
                     "E Mz S+ <=0.8",
                     "E Mz S- <=0.8",
                 ],
@@ -608,6 +696,7 @@ mod tests {
             ("E M0", vec!["E M0 S+", "E M0 S-"]),
             ("Y M3 S+", vec!["Y M3 S+"]),
             ("E M0 S-", vec!["E M0 S-"]),
+            // Explicit M/S override the +/- flag.
             ("Y+ M3 S+", vec!["Y M3 S+"]),
             ("E- M0 S-", vec!["E M0 S-"]),
         ];
@@ -623,5 +712,133 @@ mod tests {
                 "Mode string '{actual}' did not expand to '{expected_set:?}': got '{actual_set:?}'"
             );
         }
+    }
+
+    #[test]
+    fn y_plus_expands_to_all_optimizer_levels_with_solc_enabled() {
+        // Arrange
+        let parsed = ParsedMode::from_str("Y+").expect("Failed to parse 'Y+'");
+
+        // Act
+        let actual: HashSet<String> = parsed.to_modes().map(|m| m.to_string()).collect();
+
+        // Assert
+        let expected: HashSet<String> = [
+            "Y M0 S+", "Y M1 S+", "Y M2 S+", "Y M3 S+", "Y Ms S+", "Y Mz S+",
+        ]
+        .into_iter()
+        .map(String::from)
+        .collect();
+        assert_eq!(
+            expected, actual,
+            "'Y+' should expand to all Y optimizer levels with S+"
+        );
+    }
+
+    #[test]
+    fn y_minus_expands_to_all_optimizer_levels_with_solc_disabled() {
+        // Arrange
+        let parsed = ParsedMode::from_str("Y-").expect("Failed to parse 'Y-'");
+
+        // Act
+        let actual: HashSet<String> = parsed.to_modes().map(|m| m.to_string()).collect();
+
+        // Assert
+        let expected: HashSet<String> = [
+            "Y M0 S-", "Y M1 S-", "Y M2 S-", "Y M3 S-", "Y Ms S-", "Y Mz S-",
+        ]
+        .into_iter()
+        .map(String::from)
+        .collect();
+        assert_eq!(
+            expected, actual,
+            "'Y-' should expand to all Y optimizer levels with S-"
+        );
+    }
+
+    #[test]
+    fn e_plus_expands_to_all_optimizer_levels_with_solc_enabled() {
+        // Arrange
+        let parsed = ParsedMode::from_str("E+").expect("Failed to parse 'E+'");
+
+        // Act
+        let actual: HashSet<String> = parsed.to_modes().map(|m| m.to_string()).collect();
+
+        // Assert
+        let expected: HashSet<String> = [
+            "E M0 S+", "E M1 S+", "E M2 S+", "E M3 S+", "E Ms S+", "E Mz S+",
+        ]
+        .into_iter()
+        .map(String::from)
+        .collect();
+        assert_eq!(
+            expected, actual,
+            "'E+' should expand to all E optimizer levels with S+"
+        );
+    }
+
+    #[test]
+    fn e_minus_expands_to_all_optimizer_levels_with_solc_disabled() {
+        // Arrange
+        let parsed = ParsedMode::from_str("E-").expect("Failed to parse 'E-'");
+
+        // Act
+        let actual: HashSet<String> = parsed.to_modes().map(|m| m.to_string()).collect();
+
+        // Assert
+        let expected: HashSet<String> = [
+            "E M0 S-", "E M1 S-", "E M2 S-", "E M3 S-", "E Ms S-", "E Mz S-",
+        ]
+        .into_iter()
+        .map(String::from)
+        .collect();
+        assert_eq!(
+            expected, actual,
+            "'E-' should expand to all E optimizer levels with S-"
+        );
+    }
+
+    #[test]
+    fn y_expands_to_all_y_modes() {
+        // Arrange
+        let parsed = ParsedMode::from_str("Y").expect("Failed to parse 'Y'");
+
+        // Act
+        let actual: HashSet<String> = parsed.to_modes().map(|m| m.to_string()).collect();
+
+        // Assert
+        let expected: HashSet<String> = [
+            "Y M0 S+", "Y M0 S-", "Y M1 S+", "Y M1 S-", "Y M2 S+", "Y M2 S-", "Y M3 S+", "Y M3 S-",
+            "Y Ms S+", "Y Ms S-", "Y Mz S+", "Y Mz S-",
+        ]
+        .into_iter()
+        .map(String::from)
+        .collect();
+        assert_eq!(
+            expected, actual,
+            "'Y' should expand to all 12 Y modes (Y+ union Y-)"
+        );
+    }
+
+    #[test]
+    fn e_expands_to_all_e_modes() {
+        // Arrange
+        let parsed = ParsedMode::from_str("E").expect("Failed to parse 'E'");
+
+        // Act
+        let actual: HashSet<String> = parsed.to_modes().map(|m| m.to_string()).collect();
+
+        // Assert
+        let expected: HashSet<String> = [
+            "E M0 S+", "E M0 S-", "E M1 S+", "E M1 S-", "E M2 S+", "E M2 S-", "E M3 S+", "E M3 S-",
+            "E Ms S+", "E Ms S-", "E Mz S+", "E Mz S-",
+        ]
+        .into_iter()
+        .map(String::from)
+        .collect();
+        assert_eq!(
+            expected, actual,
+            "'E' should expand to all 12 E modes (E+ union E-)"
+        );
     }
 }

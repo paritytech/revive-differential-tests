@@ -142,6 +142,14 @@ pub struct RepeatStep {
     #[serde(default)]
     pub consolidate_state: bool,
 
+    /// This parameter controls if the watcher should be started after the warm-up phase of this
+    /// repeat step completes. When set to `true`, the driver will send the watcher start event
+    /// after the first (warm-up) iteration finishes. This should be set on the repeat step that
+    /// represents the actual benchmark workload so that blocks produced during setup steps
+    /// (e.g., contract deployments) are excluded from the benchmark metrics.
+    #[serde(default)]
+    pub start_watcher: bool,
+
     /// The number of repetitions that the steps should be repeated for.
     pub repeat: usize,
 

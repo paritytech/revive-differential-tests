@@ -242,5 +242,12 @@ pub async fn handle_differential_benchmarks(
         }
     }
 
+    if context.shutdown.keep_alive {
+        info!("Done, keeping framework alive");
+        loop {
+            std::thread::sleep(Duration::from_secs(3600));
+        }
+    }
+
     Ok(())
 }

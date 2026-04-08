@@ -138,7 +138,9 @@ where
                 }
 
                 debug!(%method, ?polling_duration, ?initial_backoff, ?max_backoff, "Retry layer: starting retry loop");
-                timeout(polling_duration, async {
+                let mut attempt_errors = Vec::<String>::new();
+
+                let result = timeout(polling_duration, async {
                     let mut backoff = initial_backoff;
                     let mut attempt: u32 = 0;
 
@@ -150,21 +152,32 @@ where
                         let resp = match resp {
                             Ok(resp) => resp,
                             Err(err) => {
+                                let msg = format!("attempt {attempt}: transport error: {err}");
                                 debug!(%method, attempt, ?backoff, %err, "Retry layer: transport error, retrying");
+                                attempt_errors.push(msg);
                                 sleep(backoff).await;
                                 backoff = (backoff * 2).min(max_backoff);
                                 continue;
                             }
                         };
                         let response = resp.as_single().expect("Can't fail");
-                        if response.is_error() {
+                        if let Some(error_response) = response.payload().as_error() {
+                            let msg = format!("attempt {attempt}: RPC error: {:?}", error_response);
                             debug!(
                                 %method,
                                 attempt,
                                 ?backoff,
-                                error = ?response.payload(),
+                                error = ?error_response,
                                 "Retry layer: RPC error response, retrying"
                             );
+
+                            // There are certain errors which we can't recover
+                            // from if they do happen.
+                            if error_response.message.contains("BasicBlockTooLarge") {
+                                break resp;
+                            };
+
+                            attempt_errors.push(msg);
                             sleep(backoff).await;
                             backoff = (backoff * 2).min(max_backoff);
                             continue;
@@ -183,6 +196,7 @@ where
                             debug!(%method, attempt, "Retry layer: received successful response");
                             return resp;
                         } else {
+                            let msg = format!("attempt {attempt}: receipt response was null/unparseable: {response:?}");
                             debug!(
                                 %method,
                                 attempt,
@@ -190,20 +204,28 @@ where
                                 ?response,
                                 "Retry layer: receipt response was null/unparseable, retrying"
                             );
+                            attempt_errors.push(msg);
                             sleep(backoff).await;
                             backoff = (backoff * 2).min(max_backoff);
                             continue;
                         }
                     }
                 })
-                .await
-                .map_err(|_| {
-                    debug!(
+                .await;
+
+                result.map_err(|_| {
+                    let error_summary = attempt_errors.join("\n  ");
+                    error!(
                         %method,
                         ?polling_duration,
+                        %error_summary,
                         "Retry layer: timed out waiting for successful response"
                     );
-                    TransportErrorKind::custom_str("Timeout when retrying request")
+                    TransportErrorKind::custom_str(
+                        &format!(
+                            "Timeout when retrying {method} after {polling_duration:?}. Attempt errors:\n  {error_summary}"
+                        )
+                    )
                 })
             }
             .instrument(debug_span!("Handling request", request = tracing::field::Empty)),

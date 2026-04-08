@@ -21,16 +21,11 @@ jobs:
   machete:
     name: Check for Unneeded Dependencies
     runs-on: ubuntu-24.04
-    env:
-      SCCACHE_GHA_ENABLED: "true"
-      RUSTC_WRAPPER: "sccache"
     steps:
       - name: Checkout This Repository
         uses: actions/checkout@v4
         with:
           submodules: recursive
-      - name: Run Sccache
-        uses: mozilla-actions/sccache-action@v0.0.9
       - name: Install the Rust Toolchain
         uses: actions-rust-lang/setup-rust-toolchain@v1
       - name: Install the Cargo Make Binary
@@ -40,16 +35,11 @@ jobs:
   check-fmt:
     name: Check Formatting
     runs-on: ubuntu-24.04
-    env:
-      SCCACHE_GHA_ENABLED: "true"
-      RUSTC_WRAPPER: "sccache"
     steps:
       - name: Checkout This Repository
         uses: actions/checkout@v4
         with:
           submodules: recursive
-      - name: Run Sccache
-        uses: mozilla-actions/sccache-action@v0.0.9
       - name: Install the Rust Toolchain
         uses: actions-rust-lang/setup-rust-toolchain@v1
       - name: Install the Cargo Make Binary
@@ -59,16 +49,11 @@ jobs:
   check-clippy:
     name: Check Clippy Lints
     runs-on: ubuntu-24.04
-    env:
-      SCCACHE_GHA_ENABLED: "true"
-      RUSTC_WRAPPER: "sccache"
     steps:
       - name: Checkout This Repository
         uses: actions/checkout@v4
         with:
           submodules: recursive
-      - name: Run Sccache
-        uses: mozilla-actions/sccache-action@v0.0.9
       - name: Install the Rust Toolchain
         uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
@@ -90,16 +75,12 @@ jobs:
       matrix:
         os: [ubuntu-24.04, macos-14]
     env:
-      SCCACHE_GHA_ENABLED: "true"
-      RUSTC_WRAPPER: "sccache"
       POLKADOT_SDK_COMMIT_HASH: "30cda2aad8612a10ff729d494acd9d5353294d63"
     steps:
       - name: Checkout This Repository
         uses: actions/checkout@v4
         with:
           submodules: recursive
-      - name: Run Sccache
-        uses: mozilla-actions/sccache-action@v0.0.9
       - name: Install the Rust Toolchain
         uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
@@ -175,8 +156,6 @@ jobs:
       matrix:
         os: [ubuntu-24.04, macos-14]
     env:
-      SCCACHE_GHA_ENABLED: "true"
-      RUSTC_WRAPPER: "sccache"
       RUSTFLAGS: "-Awarnings"
       POLKADOT_SDK_COMMIT_HASH: "30cda2aad8612a10ff729d494acd9d5353294d63"
     steps:
@@ -195,9 +174,6 @@ jobs:
           repository: paritytech/polkadot-sdk
           ref: ${{ env.POLKADOT_SDK_COMMIT_HASH }}
           submodules: recursive
-      - name: Run Sccache
-        uses: mozilla-actions/sccache-action@v0.0.9
-        if: steps.cache-step.outputs.cache-hit != 'true'
       - name: Install the Rust Toolchain
         uses: actions-rust-lang/setup-rust-toolchain@v1
         if: steps.cache-step.outputs.cache-hit != 'true'

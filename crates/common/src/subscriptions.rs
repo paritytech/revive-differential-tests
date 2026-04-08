@@ -6,6 +6,11 @@ pub struct MinedBlockInformation {
     pub substrate_block_information: Option<SubstrateMinedBlockInformation>,
     pub tx_counts: BTreeMap<StepPath, usize>,
     pub observation_time: SystemTime,
+
+    /// The number of transactions pending in the transaction pool at the time this block was
+    /// observed. Populated by the benchmark watcher; defaults to zero when not measured.
+    #[serde(default)]
+    pub pending_transaction_count: usize,
 }
 
 impl MinedBlockInformation {

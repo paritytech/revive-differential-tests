@@ -69,6 +69,10 @@ pub struct ZombienetNode {
 
     eth_rpc_logging_level: String,
 
+    /// The maximum duration to wait for the parachain to start producing blocks after the
+    /// zombienet network is spawned.
+    block_production_timeout: Duration,
+
     /// The tokio runtime that the zombienet SDK tasks run on. Must be kept alive
     /// so that the log-reading tasks continue draining the process output pipes.
     /// Without this, the child processes block on stderr writes when the pipe buffer fills.
@@ -123,6 +127,7 @@ impl ZombienetNode {
             substrate_provider: Default::default(),
             use_fallback_gas_filler,
             eth_rpc_logging_level: context.as_eth_rpc_configuration().logging_level.clone(),
+            block_production_timeout: zombienet_configuration.block_production_timeout_ms,
             zombienet_runtime: None,
         }
     }
@@ -381,7 +386,10 @@ impl ZombienetNode {
     }
 
     fn wait_for_first_block(&self) -> anyhow::Result<()> {
-        tracing::info!("Waiting for parachain to produce first block...");
+        tracing::info!(
+            timeout_secs = self.block_production_timeout.as_secs(),
+            "Waiting for parachain to produce first block..."
+        );
 
         let connection_string = self.connection_string.clone();
         let rt = self
@@ -395,7 +403,7 @@ impl ZombienetNode {
                     .context("Invalid connection string")?,
             );
 
-            let timeout = Duration::from_secs(300);
+            let timeout = self.block_production_timeout;
             let start = std::time::Instant::now();
             let poll_interval = Duration::from_secs(5);
 
@@ -540,6 +548,17 @@ impl NodeApi for ZombienetNode {
                 })
                 .await
                 .cloned()
+        }))
+    }
+
+    fn substrate_rpc_client(
+        &self,
+    ) -> Option<FrameworkFuture<Result<subxt::backend::rpc::RpcClient>>> {
+        let url = self.collator_ws_uri.clone()?;
+        Some(Box::pin(async move {
+            subxt::backend::rpc::RpcClient::from_insecure_url(url)
+                .await
+                .context("Failed to create the substrate RPC client")
         }))
     }
 }

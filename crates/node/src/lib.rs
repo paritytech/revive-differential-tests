@@ -36,7 +36,7 @@ pub(crate) mod internal_prelude {
     pub use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
     pub use alloy::{
-        consensus::{BlockHeader, constants::GWEI_TO_WEI},
+        consensus::BlockHeader,
         eips::BlockNumberOrTag,
         genesis::{Genesis, GenesisAccount},
         network::{

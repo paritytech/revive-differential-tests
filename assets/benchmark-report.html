@@ -439,7 +439,7 @@
     .chart-group {
       display: flex;
       flex-direction: column;
-      gap: 16px;
+      gap: 24px;
     }
 
     .chart-group-header {
@@ -1192,7 +1192,7 @@
     <div class="chart-group">
       <div class="chart-group-header">
         <span class="chart-group-label">Throughput</span>
-        <span class="chart-sync-badge">synced axes</span>
+        <span class="chart-sync-badge">synced: relative time</span>
         <button class="collapsible-toggle" aria-expanded="true" aria-controls="throughputContent" aria-label="Toggle Throughput section">
           <svg class="collapsible-chevron" width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M3 5l3 3 3-3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </button>
@@ -1221,6 +1221,8 @@
     <div class="chart-group">
       <div class="chart-group-header">
         <span class="chart-group-label">Utilization</span>
+        <span class="chart-sync-badge">synced: relative time</span>
+        <span class="chart-sync-badge">synced: relative block</span>
         <button class="collapsible-toggle" aria-expanded="true" aria-controls="utilizationContent" aria-label="Toggle Utilization section">
           <svg class="collapsible-chevron" width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M3 5l3 3 3-3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </button>
@@ -1240,12 +1242,27 @@
             <div class="chart-echart" id="proofSizeFullnessChart" role="img" aria-labelledby="proofSizeFullnessChartTitle"></div>
           </div>
         </div>
+        <div class="chart-row-3">
+          <div class="chart-card">
+            <div class="chart-card-title" id="addlCapGasChartTitle">Additional Tx Capacity (Gas)</div>
+            <div class="chart-echart" id="addlCapGasChart" role="img" aria-labelledby="addlCapGasChartTitle"></div>
+          </div>
+          <div class="chart-card">
+            <div class="chart-card-title" id="addlCapRefTimeChartTitle">Additional Tx Capacity (Ref Time)</div>
+            <div class="chart-echart" id="addlCapRefTimeChart" role="img" aria-labelledby="addlCapRefTimeChartTitle"></div>
+          </div>
+          <div class="chart-card">
+            <div class="chart-card-title" id="addlCapProofSizeChartTitle">Additional Tx Capacity (Proof Size)</div>
+            <div class="chart-echart" id="addlCapProofSizeChart" role="img" aria-labelledby="addlCapProofSizeChartTitle"></div>
+          </div>
+        </div>
       </div>
     </div>
     <div class="chart-group">
       <div class="chart-group-header">
         <span class="chart-group-label">Block Transactions</span>
-        <span class="chart-sync-badge">synced axes</span>
+        <span class="chart-sync-badge">synced: relative time</span>
+        <span class="chart-sync-badge">synced: relative block</span>
         <button class="collapsible-toggle" aria-expanded="true" aria-controls="blockTxContent" aria-label="Toggle Block Transactions section">
           <svg class="collapsible-chevron" width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M3 5l3 3 3-3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </button>
@@ -1254,6 +1271,10 @@
         <div class="chart-card">
           <div class="chart-card-title" id="cumulativeTxChartTitle">Cumulative Transactions</div>
           <div class="chart-echart" id="cumulativeTxChart" role="img" aria-labelledby="cumulativeTxChartTitle"></div>
+        </div>
+        <div class="chart-card">
+          <div class="chart-card-title" id="pendingTxChartTitle">Pending Transactions (Mempool)</div>
+          <div class="chart-echart" id="pendingTxChart" role="img" aria-labelledby="pendingTxChartTitle"></div>
         </div>
         <div class="chart-card">
           <div class="chart-card-title" id="blockTxChartTitle">Transactions per Block &mdash; by Platform &amp; Step</div>
@@ -1689,14 +1710,15 @@ function renderSelectionBar(selEl, platforms) {
 // ═══════════════════════════════════════════════════════════════════════════
 
 const echartsInstances = {};
-const SYNC_GROUP = 'benchmark';
+const SYNC_GROUP_TIME = 'benchmark-time';
+const SYNC_GROUP_BLOCK = 'benchmark-block';
 
 /** Get or initialize an ECharts instance by DOM element ID. */
-function getOrInitChart(id, joinSync = true) {
+function getOrInitChart(id, syncGroup = SYNC_GROUP_TIME) {
   const el = document.getElementById(id);
   if (!echartsInstances[id]) {
     const instance = echarts.init(el, null, { renderer: 'canvas' });
-    if (joinSync) instance.group = SYNC_GROUP;
+    if (syncGroup) instance.group = syncGroup;
     echartsInstances[id] = instance;
     new ResizeObserver(() => instance.resize()).observe(el);
   }
@@ -1810,20 +1832,24 @@ function makeLineSeries(platform, data, colorIdx) {
 }
 
 /**
- * Create a shared tooltip formatter for time-series charts.
+ * Create a shared tooltip formatter for charts.
  * @param {string} unitSuffix - Unit label appended after the value (e.g. 'tx/s').
  * @param {function} valueFmt - Formats the numeric value for display.
+ * @param {object} [opts] - Optional settings.
+ * @param {function} [opts.headerFmt] - Formats the axis value into the tooltip header line.
+ *   Defaults to a time-based header (`t = Xs`).
  */
-function makeTooltipFormatter(unitSuffix, valueFmt) {
+function makeTooltipFormatter(unitSuffix, valueFmt, opts) {
+  const headerFmt = opts?.headerFmt ?? (v => `t = ${Number(v).toFixed(1)}s`);
   return params => {
     if (!params.length) return '';
-    const t = params[0].axisValue;
+    const axisVal = params[0].axisValue;
     const rows = params.map(p =>
       `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${p.color};margin-right:5px"></span>`
       + `<span style="color:#78716c">${escapeHtml(p.seriesName)}:</span> `
       + `<strong>${valueFmt(Number(p.value[1]))} ${unitSuffix}</strong>`
     ).join('<br>');
-    return `<div style="font-family:${FONT_SANS};font-size:11px;margin-bottom:4px;color:#a8a29e">t = ${Number(t).toFixed(1)}s</div>${rows}`;
+    return `<div style="font-family:${FONT_SANS};font-size:11px;margin-bottom:4px;color:#a8a29e">${headerFmt(axisVal)}</div>${rows}`;
   };
 }
 
@@ -1861,15 +1887,20 @@ function renderCharts() {
   renderGasFullnessChart(modeData, enabledPlatforms);
   renderRefTimeFullnessChart(modeData, enabledPlatforms);
   renderProofSizeFullnessChart(modeData, enabledPlatforms);
+  renderAdditionalTxCapacityChart(modeData, enabledPlatforms, 'addlCapGasChart', 'additional_tx_capacity_gas', 'No gas data');
+  renderAdditionalTxCapacityChart(modeData, enabledPlatforms, 'addlCapRefTimeChart', 'additional_tx_capacity_ref_time', 'No substrate data');
+  renderAdditionalTxCapacityChart(modeData, enabledPlatforms, 'addlCapProofSizeChart', 'additional_tx_capacity_proof_size', 'No substrate data');
 
   // Block transaction charts
   renderCumulativeTxChart(modeData, enabledPlatforms);
+  renderPendingTxChart(modeData, enabledPlatforms);
   renderBlockTransactionsChart(modeData, enabledPlatforms);
 
   // Raw data
   renderRawDataTable(modeData, enabledPlatforms);
 
-  echarts.connect(SYNC_GROUP);
+  echarts.connect(SYNC_GROUP_TIME);
+  echarts.connect(SYNC_GROUP_BLOCK);
 }
 
 function renderTpsChart(modeData, enabledPlatforms) {
@@ -2044,6 +2075,47 @@ function renderProofSizeFullnessChart(modeData, enabledPlatforms) {
   renderFullnessChart(modeData, enabledPlatforms, 'proofSizeFullnessChart', 'block_proof_size_fullness', 'No substrate data');
 }
 
+function renderAdditionalTxCapacityChart(modeData, enabledPlatforms, chartId, field, noDataMsg) {
+  const chart = getOrInitChart(chartId, SYNC_GROUP_BLOCK);
+  const series = [];
+  const legendData = [];
+
+  modeData.platforms.forEach((platform, i) => {
+    if (!enabledPlatforms.includes(platform)) return;
+
+    const blocks = getBlocksForPlatform(modeData, platform);
+    const filtered = blocks.filter(b => b[field] != null);
+    if (filtered.length === 0) return;
+
+    const data = filtered.map(b => [b.relative_block_number, b[field]]);
+    const color = getColor(i);
+
+    series.push({
+      type: 'bar',
+      name: platform,
+      data,
+      barMaxWidth: 6,
+      itemStyle: { color },
+      emphasis: { focus: 'series' },
+    });
+    legendData.push({ name: platform, itemStyle: { color } });
+  });
+
+  const base = baseChartOption({ yFormatter: v => Math.round(v) + ' tx', legendData });
+
+  chart.setOption({
+    ...base,
+    xAxis: { ...base.xAxis, name: 'Relative Block', nameLocation: 'center', nameGap: 25 },
+    yAxis: { ...base.yAxis, min: 0, name: 'Additional txs', nameLocation: 'center', nameGap: 45 },
+    tooltip: {
+      ...baseTooltip(),
+      formatter: makeTooltipFormatter(' tx', v => Math.round(v), { headerFmt: v => `Relative Block #${v}` }),
+    },
+    graphic: series.length === 0 ? noDataGraphic(noDataMsg) : [],
+    series,
+  }, true);
+}
+
 function renderCumulativeTxChart(modeData, enabledPlatforms) {
   const chart = getOrInitChart('cumulativeTxChart');
   const series = [];
@@ -2092,8 +2164,55 @@ function renderCumulativeTxChart(modeData, enabledPlatforms) {
   }, true);
 }
 
+function renderPendingTxChart(modeData, enabledPlatforms) {
+  const chart = getOrInitChart('pendingTxChart');
+  const series = [];
+  const legendData = [];
+
+  modeData.platforms.forEach((platform, i) => {
+    if (!enabledPlatforms.includes(platform)) return;
+
+    const blocks = getBlocksForPlatform(modeData, platform);
+    const sorted = [...blocks].sort((a, b) =>
+      a.relative_observation_time_seconds - b.relative_observation_time_seconds
+    );
+    if (sorted.length === 0) return;
+
+    const minT = sorted[0].relative_observation_time_seconds;
+    const data = sorted.map(b => [
+      b.relative_observation_time_seconds - minT,
+      b.pending_transaction_count || 0,
+    ]);
+
+    const color = getColor(i);
+    series.push({
+      ...makeLineSeries(platform, data, i),
+      areaStyle: {
+        color: {
+          type: 'linear', x: 0, y: 0, x2: 0, y2: 1,
+          colorStops: [
+            { offset: 0, color: hexToRgba(color, 0.28) },
+            { offset: 1, color: hexToRgba(color, 0.02) },
+          ],
+        },
+      },
+    });
+    legendData.push({ name: platform, itemStyle: { color } });
+  });
+
+  chart.setOption({
+    ...baseChartOption({ yFormatter: fmtCount, legendData }),
+    tooltip: {
+      ...baseTooltip(),
+      formatter: makeTooltipFormatter('pending txs', v => fmtCount(v)),
+    },
+    graphic: series.length === 0 ? noDataGraphic() : [],
+    series,
+  }, true);
+}
+
 function renderBlockTransactionsChart(modeData, enabledPlatforms) {
-  const chart = getOrInitChart('blockTxChart', false);
+  const chart = getOrInitChart('blockTxChart', SYNC_GROUP_BLOCK);
 
   if (enabledPlatforms.length === 0) {
     chart.setOption({ series: [], graphic: noDataGraphic() }, true);
@@ -2220,7 +2339,7 @@ function renderBlockTransactionsChart(modeData, enabledPlatforms) {
           byPlatform[platform].segments.push({ step, value: p.value || 0 });
         });
 
-        let html = `<div style="font-family:${FONT_SANS};font-size:11px;margin-bottom:8px;color:#a8a29e;letter-spacing:0.03em">Block #${blockNum}</div>`;
+        let html = `<div style="font-family:${FONT_SANS};font-size:11px;margin-bottom:8px;color:#a8a29e;letter-spacing:0.03em">Relative Block #${blockNum}</div>`;
 
         enabledPlatforms.forEach(platform => {
           const info = byPlatform[platform];

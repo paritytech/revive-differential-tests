@@ -491,6 +491,28 @@
             "null"
           ]
         },
+        "await_transaction_inclusion": {
+          "description": "This parameter controls if the driver performing the execution should await for the transactions within the repeat step to be included before moving on to the next transaction.",
+          "type": "boolean",
+          "default": false
+        },
+        "capture_index": {
+          "description": "This parameter allows for the index of the repeat step to be captured to a variable to be referenced later on in the execution.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "consolidate_state": {
+          "description": "This parameter controls if the primary driver should consolidate the execution state of the drivers that it spawned after running all of them.",
+          "type": "boolean",
+          "default": false
+        },
+        "start_watcher": {
+          "description": "This parameter controls if the watcher should be started after the warm-up phase of this repeat step completes. When set to true, the driver will send the watcher start event after the first (warm-up) iteration finishes. This should be set on the repeat step that represents the actual benchmark workload so that blocks produced during setup steps are excluded from the benchmark metrics.",
+          "type": "boolean",
+          "default": false
+        },
         "repeat": {
           "description": "The number of repetitions that the steps should be repeated for.",
           "type": "integer",
