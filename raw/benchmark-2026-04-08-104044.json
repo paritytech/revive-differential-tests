@@ -1,0 +1,3196 @@
+{
+  "context": {
+    "Benchmark": {
+      "profile": {
+        "profile": "Default"
+      },
+      "log": {
+        "log_format": "Json"
+      },
+      "platforms": {
+        "platforms": [
+          "lighthouse-geth-evm-solc"
+        ]
+      },
+      "working_directory": {
+        "working_directory": "/home/runner/_work/revive-differential-tests/revive-differential-tests/workdir"
+      },
+      "benchmark_run": {
+        "default_repetition_count": 1000
+      },
+      "corpus": {
+        "test_specifiers": [
+          "/home/runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/ethereum/test.json::0::Y Ms S-"
+        ]
+      },
+      "solc": {
+        "version": "0.8.29"
+      },
+      "resolc": {
+        "path": "resolc",
+        "heap_size": null,
+        "stack_size": null
+      },
+      "polkadot_parachain": {
+        "path": "polkadot-parachain",
+        "start_timeout_ms": {
+          "secs": 5,
+          "nanos": 0
+        }
+      },
+      "geth": {
+        "path": "geth",
+        "start_timeout_ms": {
+          "secs": 30,
+          "nanos": 0
+        },
+        "logging_level": "3"
+      },
+      "kurtosis": {
+        "path": "kurtosis"
+      },
+      "revive_dev_node": {
+        "path": "revive-dev-node",
+        "start_timeout_ms": {
+          "secs": 30,
+          "nanos": 0
+        },
+        "consensus": "instant-seal",
+        "logging_level": "error,evm=debug,sc_rpc_server=info,runtime::revive=debug",
+        "existing_rpc_url": []
+      },
+      "polkadot_omnichain_node": {
+        "path": "polkadot-omni-node",
+        "start_timeout_ms": {
+          "secs": 90,
+          "nanos": 0
+        },
+        "block_time_ms": {
+          "secs": 0,
+          "nanos": 200000000
+        },
+        "chain_spec_path": null,
+        "parachain_id": null,
+        "logging_level": "error,evm=debug,sc_rpc_server=info,runtime::revive=debug"
+      },
+      "zombienet": {
+        "config_path": "./assets/polkadot-assethub-zombienet.toml",
+        "block_production_timeout_ms": {
+          "secs": 300,
+          "nanos": 0
+        }
+      },
+      "eth_rpc": {
+        "path": "eth-rpc",
+        "start_timeout_ms": {
+          "secs": 30,
+          "nanos": 0
+        },
+        "logging_level": "info,eth-rpc=debug"
+      },
+      "wallet": {
+        "default_private_key": "0x4f3edf983ac636a65a842ce7c78d9aa706d3b113bce9c46f30d7d21715b23b1d",
+        "additional_keys": 200010
+      },
+      "concurrency": {
+        "number_of_nodes": 1,
+        "number_of_threads": 12,
+        "number_of_concurrent_tasks": 1000
+      },
+      "compilation": {
+        "invalidate_cache": false
+      },
+      "report": {
+        "include_compiler_input": false,
+        "include_compiler_output": false,
+        "file_name": "report.json"
+      },
+      "shutdown": {
+        "keep_alive_on_failures": false,
+        "keep_alive": false
+      }
+    }
+  },
+  "metadata_files": [
+    "/home/runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/ethereum/test.json"
+  ],
+  "execution_information": {
+    "/home/runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/ethereum/test.json": {
+      "case_reports": {
+        "0": {
+          "mode_execution_reports": {
+            "Y Ms S-": {
+              "metrics_information": {
+                "lighthouse-geth-evm-solc": [
+                  {
+                    "block_number": 10,
+                    "relative_block_number": 0,
+                    "block_timestamp_seconds": 1775644558,
+                    "relative_block_timestamp_seconds": 0,
+                    "observation_time_seconds": 1775644558,
+                    "relative_observation_time_seconds": 0,
+                    "transaction_count": 18,
+                    "step_count": {
+                      "1.1": 4,
+                      "1.2.0": 12
+                    },
+                    "block_gas_mined": 706426,
+                    "block_gas_limit": 60000000,
+                    "block_gas_fullness": 1,
+                    "additional_tx_capacity_gas": 1510,
+                    "pending_transaction_count": 0
+                  }
+                ],
+                "zombienet-polkavm-resolc": [
+                  {
+                    "block_number": 17,
+                    "relative_block_number": 0,
+                    "block_timestamp_seconds": 1775644716,
+                    "relative_block_timestamp_seconds": 0,
+                    "observation_time_seconds": 1775644727,
+                    "relative_observation_time_seconds": 0,
+                    "transaction_count": 6,
+                    "step_count": {
+                      "1.1": 4
+                    },
+                    "block_gas_mined": 16204,
+                    "block_gas_limit": 18446744073709551615,
+                    "block_gas_fullness": 0,
+                    "block_ref_time": 20115945058,
+                    "block_ref_time_limit": 1599875000000,
+                    "block_ref_time_fullness": 1,
+                    "block_proof_size": 652608,
+                    "block_proof_size_limit": 8388608,
+                    "block_proof_size_fullness": 7,
+                    "additional_tx_capacity_gas": 6832127434707235,
+                    "additional_tx_capacity_ref_time": 471,
+                    "additional_tx_capacity_proof_size": 71,
+                    "pending_transaction_count": 10
+                  },
+                  {
+                    "block_number": 18,
+                    "relative_block_number": 1,
+                    "block_timestamp_seconds": 1775644716,
+                    "relative_block_timestamp_seconds": 0,
+                    "observation_time_seconds": 1775644729,
+                    "relative_observation_time_seconds": 2,
+                    "transaction_count": 12,
+                    "step_count": {
+                      "1.2.0": 12
+                    },
+                    "transactions_per_second": 5.9760956175298805,
+                    "ref_time_per_second": 15149589483.06773,
+                    "proof_size_per_second": 324106.57370517927,
+                    "gas_per_second": 7816.733067729084,
+                    "block_gas_mined": 15696,
+                    "block_gas_limit": 18446744073709551615,
+                    "block_gas_fullness": 0,
+                    "block_ref_time": 30420375682,
+                    "block_ref_time_limit": 1599875000000,
+                    "block_ref_time_fullness": 1,
+                    "block_proof_size": 650806,
+                    "block_proof_size_limit": 8388608,
+                    "block_proof_size_fullness": 7,
+                    "additional_tx_capacity_gas": 14103015346872733,
+                    "additional_tx_capacity_ref_time": 619,
+                    "additional_tx_capacity_proof_size": 142,
+                    "pending_transaction_count": 0
+                  }
+                ],
+                "zombienet-revm-solc": [
+                  {
+                    "block_number": 14,
+                    "relative_block_number": 0,
+                    "block_timestamp_seconds": 1775644716,
+                    "relative_block_timestamp_seconds": 0,
+                    "observation_time_seconds": 1775644725,
+                    "relative_observation_time_seconds": 0,
+                    "transaction_count": 6,
+                    "step_count": {
+                      "1.1": 4
+                    },
+                    "block_gas_mined": 15080,
+                    "block_gas_limit": 18446744073709551615,
+                    "block_gas_fullness": 0,
+                    "block_ref_time": 20076420794,
+                    "block_ref_time_limit": 1599875000000,
+                    "block_ref_time_fullness": 1,
+                    "block_proof_size": 723480,
+                    "block_proof_size_limit": 8388608,
+                    "block_proof_size_fullness": 8,
+                    "additional_tx_capacity_gas": 7340526889657595,
+                    "additional_tx_capacity_ref_time": 472,
+                    "additional_tx_capacity_proof_size": 63,
+                    "pending_transaction_count": 10
+                  },
+                  {
+                    "block_number": 15,
+                    "relative_block_number": 1,
+                    "block_timestamp_seconds": 1775644716,
+                    "relative_block_timestamp_seconds": 0,
+                    "observation_time_seconds": 1775644729,
+                    "relative_observation_time_seconds": 4,
+                    "transaction_count": 12,
+                    "step_count": {
+                      "1.2.0": 12
+                    },
+                    "transactions_per_second": 2.997002997002997,
+                    "ref_time_per_second": 7506871668.83117,
+                    "proof_size_per_second": 159003.99600399603,
+                    "gas_per_second": 3356.643356643357,
+                    "block_gas_mined": 13440,
+                    "block_gas_limit": 18446744073709551615,
+                    "block_gas_fullness": 0,
+                    "block_ref_time": 30057514162,
+                    "block_ref_time_limit": 1599875000000,
+                    "block_ref_time_fullness": 1,
+                    "block_proof_size": 636652,
+                    "block_proof_size_limit": 8388608,
+                    "block_proof_size_fullness": 7,
+                    "additional_tx_capacity_gas": 16470307208669230,
+                    "additional_tx_capacity_ref_time": 626,
+                    "additional_tx_capacity_proof_size": 146,
+                    "pending_transaction_count": 0
+                  }
+                ]
+              },
+              "platform_execution": {
+                "lighthouse-geth-evm-solc": {
+                  "node": {
+                    "id": 0,
+                    "platform_identifier": "lighthouse-geth-evm-solc",
+                    "connection_string": "ws://127.0.0.1:32004"
+                  },
+                  "pre_link_compilation_status": {
+                    "status": "Success",
+                    "is_cached": false,
+                    "compiler_version": "0.8.29",
+                    "compiler_path": "/home/runner/_work/revive-differential-tests/revive-differential-tests/workdir/solc/0.8.29/linux-amd64",
+                    "compiled_contracts_info": {
+                      "/home/runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/ethereum/weth.sol": {
+                        "WETH9": {
+                          "bytecode_hash": "0xfcc1b73b021216ab0c0c2551f816488287348018ade28609c37f1f9cc772be9c"
+                        }
+                      },
+                      "/home/runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/ethereum/tether.sol": {
+                        "BasicToken": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "TetherBenchmark": {
+                          "bytecode_hash": "0xfa82160bf1afae991a88c5e9788ce29814e7112b3495a3b81d89c8a4ae52ada1"
+                        },
+                        "Ownable": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "UpgradedStandardToken": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "TetherToken": {
+                          "bytecode_hash": "0x924fcc8b314145fa087c401dcbda125b48583ab96faff3459afffefe8178527d"
+                        },
+                        "BlackList": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "StandardToken": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "ERC20": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "Pausable": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "ERC20Basic": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "SafeMath": {
+                          "bytecode_hash": "0x613a465cc3d30ea468350670b8e9d043fb0b40ce50a0fafecc6a6bded0d89f97"
+                        }
+                      },
+                      "/home/runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/ethereum/xen/xen_minter.sol": {
+                        "CoinTool_App": {
+                          "bytecode_hash": "0x17a9c1ec0a74569031051d51e79108d7808a57f92a85bce4754bd201b8ae884e"
+                        },
+                        "IERC20": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "CoinTool_Benchmark": {
+                          "bytecode_hash": "0x04b53caf7191489c418e702f2bc3d62e38f6bcdae8c3493ed935b6811447785a"
+                        },
+                        "CoinTool_Proxy": {
+                          "bytecode_hash": "0x32cb7906fd5967b8dcd64067f3ddfc1307c472e5741c71280a70393c30a73e6a"
+                        }
+                      },
+                      "/home/runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/ethereum/xen/xen_token.sol": {
+                        "IERC165": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "BadBurner": {
+                          "bytecode_hash": "0x8850da1a8f9250ef4ce869d4cb9b00943dba83c5046c89745229d678e747b8da"
+                        },
+                        "XENMath": {
+                          "bytecode_hash": "0xabf95951f4ee42819519f41f38fbba48f60d29d9910bc78185268dfa75de323a"
+                        },
+                        "XENCrypto": {
+                          "bytecode_hash": "0x5b7291d20ce58b98e5940f0bf935a34f194485a6538872357db60492d24c8be6"
+                        },
+                        "IBurnRedeemable": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "IERC20": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "IRankedMintingToken": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "ABDKMath64x64": {
+                          "bytecode_hash": "0x19683edc5a3420b19ab32a8d5b28a420cd2be617c63f657c3ea37bf4d8099343"
+                        },
+                        "ERC20": {
+                          "bytecode_hash": "0xc7d8b38583618638ca00905f792919a3661d125e57da8d984cb3497454aab4c4"
+                        },
+                        "Burner": {
+                          "bytecode_hash": "0x9d6a960c83428edd7e41b19da3ae0ac21e07725bc2f2d3d4be7165bfcae3957e"
+                        },
+                        "Context": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "IBurnableToken": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "XENCrypto25mm1": {
+                          "bytecode_hash": "0x3704779b5b91079f1c00774f39d9c80ce63096382e6d3c092aa3173baeb5157f"
+                        },
+                        "IERC20Metadata": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "XENCrypto5001": {
+                          "bytecode_hash": "0x2c21547853ad2723eb0ab3581c4b078903ad51d55d85dd8b0b14b6135d835c8a"
+                        },
+                        "RevertingBurner": {
+                          "bytecode_hash": "0x16f5027c562f03b6e324fec691b2cbf02c79f9a0d26efeeccbe8ca6e6975a79c"
+                        },
+                        "XENCrypto100001": {
+                          "bytecode_hash": "0x3b85bf652c3c0c0b8a689a59fc604f99daf5291b72f33d9f7ed0e1ba5f5c5321"
+                        },
+                        "IStakingToken": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        }
+                      }
+                    }
+                  },
+                  "post_link_compilation_status": {
+                    "status": "Success",
+                    "is_cached": false,
+                    "compiler_version": "0.8.29",
+                    "compiler_path": "/home/runner/_work/revive-differential-tests/revive-differential-tests/workdir/solc/0.8.29/linux-amd64",
+                    "compiled_contracts_info": {
+                      "/home/runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/ethereum/tether.sol": {
+                        "TetherToken": {
+                          "bytecode_hash": "0x1340c2db134734a00addf7104405a78698585ff551b183dc41696bc728240886"
+                        },
+                        "TetherBenchmark": {
+                          "bytecode_hash": "0x3fbb4013fa20c864a59929cea8e5608324a20ff158bad9184d56634d46b16e57"
+                        },
+                        "Ownable": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "BasicToken": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "UpgradedStandardToken": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "ERC20": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "SafeMath": {
+                          "bytecode_hash": "0x6ff28d7c458a3073dfa51d20492119724fd78887c45db8dd71fcf3c41329dc02"
+                        },
+                        "ERC20Basic": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "Pausable": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "StandardToken": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "BlackList": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        }
+                      },
+                      "/home/runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/ethereum/xen/xen_minter.sol": {
+                        "CoinTool_App": {
+                          "bytecode_hash": "0x3798bdd0f178c67336294879a037b4cb5421d87659b3616a9337922b179478c1"
+                        },
+                        "IERC20": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "CoinTool_Proxy": {
+                          "bytecode_hash": "0x0933358c3ea39a0dd9977b7efc93e9eb7458f1d55788f34d6a278bf55fef83ac"
+                        },
+                        "CoinTool_Benchmark": {
+                          "bytecode_hash": "0x457eb7ef9752c3e1b05bc62c60b4686f0cdf2f1263e33abf7af827b268275815"
+                        }
+                      },
+                      "/home/runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/ethereum/xen/xen_token.sol": {
+                        "Burner": {
+                          "bytecode_hash": "0xd12f013fdacc9672a4e9dab269bb215e53fd27322a8efc28dd5faa8739cf22c3"
+                        },
+                        "BadBurner": {
+                          "bytecode_hash": "0x1f6eb1a9b340bb02e499fe13009004e61081b80d1edf96b8a205f348705b6665"
+                        },
+                        "XENCrypto25mm1": {
+                          "bytecode_hash": "0x9963f2efbd9c20fb2d76a6d5108bc2c7bd1ac4e8ee7de80743987ba4f003c7bf"
+                        },
+                        "IStakingToken": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "ERC20": {
+                          "bytecode_hash": "0x7824cf26c35cccb625e064bab6eacd48e56eb720dffc3546349659d1f91b6da2"
+                        },
+                        "XENCrypto100001": {
+                          "bytecode_hash": "0x9f69eddba402b007df6ccd8841b91744a0508d443a322179dfac2b6bcece7914"
+                        },
+                        "IERC20Metadata": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "IBurnableToken": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "IERC165": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "IBurnRedeemable": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "XENCrypto5001": {
+                          "bytecode_hash": "0x4862146ca4c7451d63425ce3bfe66280d9f4afaf34072101b3f5e2b608c7010b"
+                        },
+                        "ABDKMath64x64": {
+                          "bytecode_hash": "0x9403e766badd8ff65e35d7eed8749d49bda7c100427371f506f419ba6ba0bc4a"
+                        },
+                        "IERC20": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "Context": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "XENCrypto": {
+                          "bytecode_hash": "0x8bb9ffd7b80a0500b7ac16fa968b6aab42e23808911cbbc6db390d57b6239d3e"
+                        },
+                        "IRankedMintingToken": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "XENMath": {
+                          "bytecode_hash": "0x670b12b7fab2c5ed7c496d38c2a0c2fceb5bc1d82f8c83296658c3148bd8cc52"
+                        },
+                        "RevertingBurner": {
+                          "bytecode_hash": "0xe0817408701adc68d446cf18b8a0ddeef17b386ac47eaeb2b5240a049293db2f"
+                        }
+                      },
+                      "/home/runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/ethereum/weth.sol": {
+                        "WETH9": {
+                          "bytecode_hash": "0x9ccb257dfc04411b1d39bbe743c15bb4fe583505a0df7f0c39f778b6611c0ec8"
+                        }
+                      }
+                    }
+                  },
+                  "deployed_contracts": {
+                    "WETH": "0x2946259e0334f33a064106302415ad3391bed384"
+                  }
+                },
+                "zombienet-polkavm-resolc": {
+                  "node": {
+                    "id": 0,
+                    "platform_identifier": "zombienet-polkavm-resolc",
+                    "connection_string": "http://localhost:8545"
+                  },
+                  "pre_link_compilation_status": {
+                    "status": "Success",
+                    "is_cached": false,
+                    "compiler_version": "0.8.29",
+                    "compiler_path": "resolc",
+                    "compiled_contracts_info": {
+                      "/home/runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/ethereum/xen/xen_token.sol": {
+                        "RevertingBurner": {
+                          "bytecode_hash": "0xe99a415359d4a445134956ccd0215e323c48d4bb72d9b4a2ebfa3581a939177b"
+                        },
+                        "ABDKMath64x64": {
+                          "bytecode_hash": "0x2e2b2f7b9564e8d033c6ab167e73e1714fa1482160773078123a588a29c48278"
+                        },
+                        "XENCrypto100001": {
+                          "bytecode_hash": "0x26e71d0a90749524c4ae92fb5acff2c315a0c095a6883f614cd8e13d262e91ee"
+                        },
+                        "XENCrypto": {
+                          "bytecode_hash": "0x2ecb6b91768d95b767ddf912bea0d3e6bf1a445eb6a43b305559530da1d6daed"
+                        },
+                        "XENCrypto5001": {
+                          "bytecode_hash": "0xb7a8be2ebf91961cbe17fed439fcee46b1bd02bdd6216875cbedcf2de4ecc4ef"
+                        },
+                        "BadBurner": {
+                          "bytecode_hash": "0xcbb0d1f3b07ca1711b92a0b65d712def82b1c2dcb83c9e3c5c61074c28ff8296"
+                        },
+                        "XENMath": {
+                          "bytecode_hash": "0x043dcfcd53c56424a78a4ebdf762bdf5b744446c3d6de7a8278610adf2b490d5"
+                        },
+                        "Burner": {
+                          "bytecode_hash": "0xa29507250247fe0969eb0bc4d0b15d1a09d9a633673c6d1caeab961355c6c706"
+                        },
+                        "XENCrypto25mm1": {
+                          "bytecode_hash": "0xdb420eba936603ac6a9069c8d7a7fc8e9ef097791f63a013b536759bb140420c"
+                        },
+                        "ERC20": {
+                          "bytecode_hash": "0x175c0f127df08b032d73b5bfc0a1cf0f7b981e952ef19074a74c0ddc16898c4d"
+                        }
+                      },
+                      "/home/runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/ethereum/xen/xen_minter.sol": {
+                        "CoinTool_Proxy": {
+                          "bytecode_hash": "0x9eff6249b1c05e701b5e6c4f86ee751093c61ed616c9b20c50ff2a552a978296"
+                        },
+                        "CoinTool_App": {
+                          "bytecode_hash": "0x99565b3fa5e929b0dbaf38062cf4c7a79e223ddfd4606b64a207661c60b56a30"
+                        },
+                        "CoinTool_Benchmark": {
+                          "bytecode_hash": "0x2a2def9bfaffdf8928f0c28b595f79af9726e7371beddfa070c333a23cd6a049"
+                        }
+                      },
+                      "/home/runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/ethereum/weth.sol": {
+                        "WETH9": {
+                          "bytecode_hash": "0xee92996c69252def87f67d796570e2dbbbf684485b0b84624a132e12e4a37444"
+                        }
+                      },
+                      "/home/runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/ethereum/tether.sol": {
+                        "SafeMath": {
+                          "bytecode_hash": "0x2e2b2f7b9564e8d033c6ab167e73e1714fa1482160773078123a588a29c48278"
+                        },
+                        "TetherToken": {
+                          "bytecode_hash": "0xac698c0693b1a0683d93806747da5f88e09a507636ca7399cfd0b765e27b7cef"
+                        },
+                        "TetherBenchmark": {
+                          "bytecode_hash": "0x1d8efd4da1f7aec4c0222ce348e7a419c9e20ab9e071749844f2c45d7228d054"
+                        }
+                      }
+                    }
+                  },
+                  "post_link_compilation_status": {
+                    "status": "Success",
+                    "is_cached": false,
+                    "compiler_version": "0.8.29",
+                    "compiler_path": "resolc",
+                    "compiled_contracts_info": {
+                      "/home/runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/ethereum/weth.sol": {
+                        "WETH9": {
+                          "bytecode_hash": "0xee92996c69252def87f67d796570e2dbbbf684485b0b84624a132e12e4a37444"
+                        }
+                      },
+                      "/home/runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/ethereum/tether.sol": {
+                        "TetherBenchmark": {
+                          "bytecode_hash": "0x1d8efd4da1f7aec4c0222ce348e7a419c9e20ab9e071749844f2c45d7228d054"
+                        },
+                        "SafeMath": {
+                          "bytecode_hash": "0x2e2b2f7b9564e8d033c6ab167e73e1714fa1482160773078123a588a29c48278"
+                        },
+                        "TetherToken": {
+                          "bytecode_hash": "0xac698c0693b1a0683d93806747da5f88e09a507636ca7399cfd0b765e27b7cef"
+                        }
+                      },
+                      "/home/runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/ethereum/xen/xen_token.sol": {
+                        "BadBurner": {
+                          "bytecode_hash": "0xcbb0d1f3b07ca1711b92a0b65d712def82b1c2dcb83c9e3c5c61074c28ff8296"
+                        },
+                        "XENCrypto5001": {
+                          "bytecode_hash": "0xb7a8be2ebf91961cbe17fed439fcee46b1bd02bdd6216875cbedcf2de4ecc4ef"
+                        },
+                        "Burner": {
+                          "bytecode_hash": "0xa29507250247fe0969eb0bc4d0b15d1a09d9a633673c6d1caeab961355c6c706"
+                        },
+                        "ABDKMath64x64": {
+                          "bytecode_hash": "0x2e2b2f7b9564e8d033c6ab167e73e1714fa1482160773078123a588a29c48278"
+                        },
+                        "RevertingBurner": {
+                          "bytecode_hash": "0xe99a415359d4a445134956ccd0215e323c48d4bb72d9b4a2ebfa3581a939177b"
+                        },
+                        "XENMath": {
+                          "bytecode_hash": "0x043dcfcd53c56424a78a4ebdf762bdf5b744446c3d6de7a8278610adf2b490d5"
+                        },
+                        "XENCrypto": {
+                          "bytecode_hash": "0x2ca4a5b6cffc4bcfe67b80f3272071340a0a8ceb3412683f8512e86aa8762d31"
+                        },
+                        "XENCrypto25mm1": {
+                          "bytecode_hash": "0xdb420eba936603ac6a9069c8d7a7fc8e9ef097791f63a013b536759bb140420c"
+                        },
+                        "ERC20": {
+                          "bytecode_hash": "0x175c0f127df08b032d73b5bfc0a1cf0f7b981e952ef19074a74c0ddc16898c4d"
+                        },
+                        "XENCrypto100001": {
+                          "bytecode_hash": "0x26e71d0a90749524c4ae92fb5acff2c315a0c095a6883f614cd8e13d262e91ee"
+                        }
+                      },
+                      "/home/runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/ethereum/xen/xen_minter.sol": {
+                        "CoinTool_Benchmark": {
+                          "bytecode_hash": "0xfb97461299c0a482e564f7480a3ede8a3aba3218791bf1270505724c0f58c7a7"
+                        },
+                        "CoinTool_Proxy": {
+                          "bytecode_hash": "0x9eff6249b1c05e701b5e6c4f86ee751093c61ed616c9b20c50ff2a552a978296"
+                        },
+                        "CoinTool_App": {
+                          "bytecode_hash": "0xae2d1f5bbbf2e00d6b1f5993c5ffa1b4965eaa36b1a2d5031aa9240e9e03a7fa"
+                        }
+                      }
+                    }
+                  },
+                  "deployed_contracts": {
+                    "WETH": "0x66a15edcc3b50a663e72f1457ffd49b9ae284ddc"
+                  }
+                },
+                "zombienet-revm-solc": {
+                  "node": {
+                    "id": 0,
+                    "platform_identifier": "zombienet-revm-solc",
+                    "connection_string": "http://localhost:8545"
+                  },
+                  "pre_link_compilation_status": {
+                    "status": "Success",
+                    "is_cached": false,
+                    "compiler_version": "0.8.29",
+                    "compiler_path": "/home/runner/_work/revive-differential-tests/revive-differential-tests/workdir/solc/0.8.29/linux-amd64",
+                    "compiled_contracts_info": {
+                      "/home/runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/ethereum/tether.sol": {
+                        "ERC20": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "Pausable": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "BasicToken": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "BlackList": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "ERC20Basic": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "StandardToken": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "SafeMath": {
+                          "bytecode_hash": "0x613a465cc3d30ea468350670b8e9d043fb0b40ce50a0fafecc6a6bded0d89f97"
+                        },
+                        "TetherToken": {
+                          "bytecode_hash": "0x924fcc8b314145fa087c401dcbda125b48583ab96faff3459afffefe8178527d"
+                        },
+                        "UpgradedStandardToken": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "Ownable": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "TetherBenchmark": {
+                          "bytecode_hash": "0xfa82160bf1afae991a88c5e9788ce29814e7112b3495a3b81d89c8a4ae52ada1"
+                        }
+                      },
+                      "/home/runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/ethereum/xen/xen_token.sol": {
+                        "RevertingBurner": {
+                          "bytecode_hash": "0x16f5027c562f03b6e324fec691b2cbf02c79f9a0d26efeeccbe8ca6e6975a79c"
+                        },
+                        "IRankedMintingToken": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "IERC165": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "IERC20Metadata": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "ABDKMath64x64": {
+                          "bytecode_hash": "0x19683edc5a3420b19ab32a8d5b28a420cd2be617c63f657c3ea37bf4d8099343"
+                        },
+                        "Context": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "ERC20": {
+                          "bytecode_hash": "0xc7d8b38583618638ca00905f792919a3661d125e57da8d984cb3497454aab4c4"
+                        },
+                        "XENCrypto5001": {
+                          "bytecode_hash": "0x2c21547853ad2723eb0ab3581c4b078903ad51d55d85dd8b0b14b6135d835c8a"
+                        },
+                        "XENCrypto": {
+                          "bytecode_hash": "0x5b7291d20ce58b98e5940f0bf935a34f194485a6538872357db60492d24c8be6"
+                        },
+                        "IBurnRedeemable": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "IERC20": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "Burner": {
+                          "bytecode_hash": "0x9d6a960c83428edd7e41b19da3ae0ac21e07725bc2f2d3d4be7165bfcae3957e"
+                        },
+                        "IStakingToken": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "XENMath": {
+                          "bytecode_hash": "0xabf95951f4ee42819519f41f38fbba48f60d29d9910bc78185268dfa75de323a"
+                        },
+                        "XENCrypto100001": {
+                          "bytecode_hash": "0x3b85bf652c3c0c0b8a689a59fc604f99daf5291b72f33d9f7ed0e1ba5f5c5321"
+                        },
+                        "BadBurner": {
+                          "bytecode_hash": "0x8850da1a8f9250ef4ce869d4cb9b00943dba83c5046c89745229d678e747b8da"
+                        },
+                        "IBurnableToken": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "XENCrypto25mm1": {
+                          "bytecode_hash": "0x3704779b5b91079f1c00774f39d9c80ce63096382e6d3c092aa3173baeb5157f"
+                        }
+                      },
+                      "/home/runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/ethereum/weth.sol": {
+                        "WETH9": {
+                          "bytecode_hash": "0xfcc1b73b021216ab0c0c2551f816488287348018ade28609c37f1f9cc772be9c"
+                        }
+                      },
+                      "/home/runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/ethereum/xen/xen_minter.sol": {
+                        "CoinTool_Proxy": {
+                          "bytecode_hash": "0x32cb7906fd5967b8dcd64067f3ddfc1307c472e5741c71280a70393c30a73e6a"
+                        },
+                        "CoinTool_App": {
+                          "bytecode_hash": "0x17a9c1ec0a74569031051d51e79108d7808a57f92a85bce4754bd201b8ae884e"
+                        },
+                        "IERC20": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "CoinTool_Benchmark": {
+                          "bytecode_hash": "0x04b53caf7191489c418e702f2bc3d62e38f6bcdae8c3493ed935b6811447785a"
+                        }
+                      }
+                    }
+                  },
+                  "post_link_compilation_status": {
+                    "status": "Success",
+                    "is_cached": false,
+                    "compiler_version": "0.8.29",
+                    "compiler_path": "/home/runner/_work/revive-differential-tests/revive-differential-tests/workdir/solc/0.8.29/linux-amd64",
+                    "compiled_contracts_info": {
+                      "/home/runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/ethereum/xen/xen_minter.sol": {
+                        "IERC20": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "CoinTool_Proxy": {
+                          "bytecode_hash": "0x0933358c3ea39a0dd9977b7efc93e9eb7458f1d55788f34d6a278bf55fef83ac"
+                        },
+                        "CoinTool_App": {
+                          "bytecode_hash": "0x3798bdd0f178c67336294879a037b4cb5421d87659b3616a9337922b179478c1"
+                        },
+                        "CoinTool_Benchmark": {
+                          "bytecode_hash": "0x457eb7ef9752c3e1b05bc62c60b4686f0cdf2f1263e33abf7af827b268275815"
+                        }
+                      },
+                      "/home/runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/ethereum/tether.sol": {
+                        "ERC20": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "ERC20Basic": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "Ownable": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "BasicToken": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "StandardToken": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "SafeMath": {
+                          "bytecode_hash": "0x6ff28d7c458a3073dfa51d20492119724fd78887c45db8dd71fcf3c41329dc02"
+                        },
+                        "UpgradedStandardToken": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "BlackList": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "TetherToken": {
+                          "bytecode_hash": "0x1340c2db134734a00addf7104405a78698585ff551b183dc41696bc728240886"
+                        },
+                        "TetherBenchmark": {
+                          "bytecode_hash": "0x3fbb4013fa20c864a59929cea8e5608324a20ff158bad9184d56634d46b16e57"
+                        },
+                        "Pausable": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        }
+                      },
+                      "/home/runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/ethereum/xen/xen_token.sol": {
+                        "IERC20": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "ABDKMath64x64": {
+                          "bytecode_hash": "0x9403e766badd8ff65e35d7eed8749d49bda7c100427371f506f419ba6ba0bc4a"
+                        },
+                        "IBurnRedeemable": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "XENCrypto": {
+                          "bytecode_hash": "0x8bb9ffd7b80a0500b7ac16fa968b6aab42e23808911cbbc6db390d57b6239d3e"
+                        },
+                        "BadBurner": {
+                          "bytecode_hash": "0x1f6eb1a9b340bb02e499fe13009004e61081b80d1edf96b8a205f348705b6665"
+                        },
+                        "XENCrypto100001": {
+                          "bytecode_hash": "0x9f69eddba402b007df6ccd8841b91744a0508d443a322179dfac2b6bcece7914"
+                        },
+                        "ERC20": {
+                          "bytecode_hash": "0x7824cf26c35cccb625e064bab6eacd48e56eb720dffc3546349659d1f91b6da2"
+                        },
+                        "Burner": {
+                          "bytecode_hash": "0xd12f013fdacc9672a4e9dab269bb215e53fd27322a8efc28dd5faa8739cf22c3"
+                        },
+                        "Context": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "IBurnableToken": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "RevertingBurner": {
+                          "bytecode_hash": "0xe0817408701adc68d446cf18b8a0ddeef17b386ac47eaeb2b5240a049293db2f"
+                        },
+                        "XENCrypto5001": {
+                          "bytecode_hash": "0x4862146ca4c7451d63425ce3bfe66280d9f4afaf34072101b3f5e2b608c7010b"
+                        },
+                        "IRankedMintingToken": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "XENMath": {
+                          "bytecode_hash": "0x670b12b7fab2c5ed7c496d38c2a0c2fceb5bc1d82f8c83296658c3148bd8cc52"
+                        },
+                        "IStakingToken": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "IERC165": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "XENCrypto25mm1": {
+                          "bytecode_hash": "0x9963f2efbd9c20fb2d76a6d5108bc2c7bd1ac4e8ee7de80743987ba4f003c7bf"
+                        },
+                        "IERC20Metadata": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        }
+                      },
+                      "/home/runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/ethereum/weth.sol": {
+                        "WETH9": {
+                          "bytecode_hash": "0x9ccb257dfc04411b1d39bbe743c15bb4fe583505a0df7f0c39f778b6611c0ec8"
+                        }
+                      }
+                    }
+                  },
+                  "deployed_contracts": {
+                    "WETH": "0x2946259e0334f33a064106302415ad3391bed384"
+                  }
+                }
+              },
+              "compiled_contracts": {
+                "/home/runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/ethereum/tether.sol": {
+                  "BasicToken": {
+                    "contract_size": {
+                      "lighthouse-geth-evm-solc": 0,
+                      "zombienet-revm-solc": 0
+                    }
+                  },
+                  "BlackList": {
+                    "contract_size": {
+                      "lighthouse-geth-evm-solc": 0,
+                      "zombienet-revm-solc": 0
+                    }
+                  },
+                  "ERC20": {
+                    "contract_size": {
+                      "lighthouse-geth-evm-solc": 0,
+                      "zombienet-revm-solc": 0
+                    }
+                  },
+                  "ERC20Basic": {
+                    "contract_size": {
+                      "lighthouse-geth-evm-solc": 0,
+                      "zombienet-revm-solc": 0
+                    }
+                  },
+                  "Ownable": {
+                    "contract_size": {
+                      "lighthouse-geth-evm-solc": 0,
+                      "zombienet-revm-solc": 0
+                    }
+                  },
+                  "Pausable": {
+                    "contract_size": {
+                      "lighthouse-geth-evm-solc": 0,
+                      "zombienet-revm-solc": 0
+                    }
+                  },
+                  "SafeMath": {
+                    "contract_size": {
+                      "lighthouse-geth-evm-solc": 106,
+                      "zombienet-polkavm-resolc": 1065,
+                      "zombienet-revm-solc": 106
+                    }
+                  },
+                  "StandardToken": {
+                    "contract_size": {
+                      "lighthouse-geth-evm-solc": 0,
+                      "zombienet-revm-solc": 0
+                    }
+                  },
+                  "TetherBenchmark": {
+                    "contract_size": {
+                      "lighthouse-geth-evm-solc": 1671,
+                      "zombienet-polkavm-resolc": 6069,
+                      "zombienet-revm-solc": 1671
+                    }
+                  },
+                  "TetherToken": {
+                    "contract_size": {
+                      "lighthouse-geth-evm-solc": 12065,
+                      "zombienet-polkavm-resolc": 59102,
+                      "zombienet-revm-solc": 12065
+                    }
+                  },
+                  "UpgradedStandardToken": {
+                    "contract_size": {
+                      "lighthouse-geth-evm-solc": 0,
+                      "zombienet-revm-solc": 0
+                    }
+                  }
+                },
+                "/home/runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/ethereum/weth.sol": {
+                  "WETH9": {
+                    "contract_size": {
+                      "lighthouse-geth-evm-solc": 3918,
+                      "zombienet-polkavm-resolc": 17055,
+                      "zombienet-revm-solc": 3918
+                    }
+                  }
+                },
+                "/home/runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/ethereum/xen/xen_minter.sol": {
+                  "CoinTool_App": {
+                    "contract_size": {
+                      "lighthouse-geth-evm-solc": 7012,
+                      "zombienet-polkavm-resolc": 39322,
+                      "zombienet-revm-solc": 7012
+                    }
+                  },
+                  "CoinTool_Benchmark": {
+                    "contract_size": {
+                      "lighthouse-geth-evm-solc": 7771,
+                      "zombienet-polkavm-resolc": 45951,
+                      "zombienet-revm-solc": 7771
+                    }
+                  },
+                  "CoinTool_Proxy": {
+                    "contract_size": {
+                      "lighthouse-geth-evm-solc": 903,
+                      "zombienet-polkavm-resolc": 3079,
+                      "zombienet-revm-solc": 903
+                    }
+                  },
+                  "IERC20": {
+                    "contract_size": {
+                      "lighthouse-geth-evm-solc": 0,
+                      "zombienet-revm-solc": 0
+                    }
+                  }
+                },
+                "/home/runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/ethereum/xen/xen_token.sol": {
+                  "ABDKMath64x64": {
+                    "contract_size": {
+                      "lighthouse-geth-evm-solc": 106,
+                      "zombienet-polkavm-resolc": 1065,
+                      "zombienet-revm-solc": 106
+                    }
+                  },
+                  "BadBurner": {
+                    "contract_size": {
+                      "lighthouse-geth-evm-solc": 6507,
+                      "zombienet-polkavm-resolc": 32307,
+                      "zombienet-revm-solc": 6507
+                    }
+                  },
+                  "Burner": {
+                    "contract_size": {
+                      "lighthouse-geth-evm-solc": 7225,
+                      "zombienet-polkavm-resolc": 35824,
+                      "zombienet-revm-solc": 7225
+                    }
+                  },
+                  "Context": {
+                    "contract_size": {
+                      "lighthouse-geth-evm-solc": 0,
+                      "zombienet-revm-solc": 0
+                    }
+                  },
+                  "ERC20": {
+                    "contract_size": {
+                      "lighthouse-geth-evm-solc": 5304,
+                      "zombienet-polkavm-resolc": 31115,
+                      "zombienet-revm-solc": 5304
+                    }
+                  },
+                  "IBurnRedeemable": {
+                    "contract_size": {
+                      "lighthouse-geth-evm-solc": 0,
+                      "zombienet-revm-solc": 0
+                    }
+                  },
+                  "IBurnableToken": {
+                    "contract_size": {
+                      "lighthouse-geth-evm-solc": 0,
+                      "zombienet-revm-solc": 0
+                    }
+                  },
+                  "IERC165": {
+                    "contract_size": {
+                      "lighthouse-geth-evm-solc": 0,
+                      "zombienet-revm-solc": 0
+                    }
+                  },
+                  "IERC20": {
+                    "contract_size": {
+                      "lighthouse-geth-evm-solc": 0,
+                      "zombienet-revm-solc": 0
+                    }
+                  },
+                  "IERC20Metadata": {
+                    "contract_size": {
+                      "lighthouse-geth-evm-solc": 0,
+                      "zombienet-revm-solc": 0
+                    }
+                  },
+                  "IRankedMintingToken": {
+                    "contract_size": {
+                      "lighthouse-geth-evm-solc": 0,
+                      "zombienet-revm-solc": 0
+                    }
+                  },
+                  "IStakingToken": {
+                    "contract_size": {
+                      "lighthouse-geth-evm-solc": 0,
+                      "zombienet-revm-solc": 0
+                    }
+                  },
+                  "RevertingBurner": {
+                    "contract_size": {
+                      "lighthouse-geth-evm-solc": 6331,
+                      "zombienet-polkavm-resolc": 31963,
+                      "zombienet-revm-solc": 6331
+                    }
+                  },
+                  "XENCrypto": {
+                    "contract_size": {
+                      "lighthouse-geth-evm-solc": 23693,
+                      "zombienet-polkavm-resolc": 133415,
+                      "zombienet-revm-solc": 23693
+                    }
+                  },
+                  "XENCrypto100001": {
+                    "contract_size": {
+                      "lighthouse-geth-evm-solc": 22918,
+                      "zombienet-polkavm-resolc": 130948,
+                      "zombienet-revm-solc": 22918
+                    }
+                  },
+                  "XENCrypto25mm1": {
+                    "contract_size": {
+                      "lighthouse-geth-evm-solc": 22920,
+                      "zombienet-polkavm-resolc": 130949,
+                      "zombienet-revm-solc": 22920
+                    }
+                  },
+                  "XENCrypto5001": {
+                    "contract_size": {
+                      "lighthouse-geth-evm-solc": 22916,
+                      "zombienet-polkavm-resolc": 130947,
+                      "zombienet-revm-solc": 22916
+                    }
+                  },
+                  "XENMath": {
+                    "contract_size": {
+                      "lighthouse-geth-evm-solc": 2750,
+                      "zombienet-polkavm-resolc": 5008,
+                      "zombienet-revm-solc": 2750
+                    }
+                  }
+                }
+              },
+              "contract_addresses": {
+                "WETH": {
+                  "lighthouse-geth-evm-solc": [
+                    "0x2946259e0334f33a064106302415ad3391bed384"
+                  ],
+                  "zombienet-polkavm-resolc": [
+                    "0x66a15edcc3b50a663e72f1457ffd49b9ae284ddc"
+                  ],
+                  "zombienet-revm-solc": [
+                    "0x2946259e0334f33a064106302415ad3391bed384"
+                  ]
+                }
+              },
+              "mined_block_information": {},
+              "steps": {
+                "1.1": {
+                  "transactions": {}
+                },
+                "1.2.0": {
+                  "transactions": {}
+                }
+              }
+            }
+          }
+        },
+        "1": {
+          "mode_execution_reports": {
+            "Y Ms S-": {
+              "metrics_information": {
+                "lighthouse-geth-evm-solc": [
+                  {
+                    "block_number": 20,
+                    "relative_block_number": 0,
+                    "block_timestamp_seconds": 1775644680,
+                    "relative_block_timestamp_seconds": 0,
+                    "observation_time_seconds": 1775644680,
+                    "relative_observation_time_seconds": 0,
+                    "transaction_count": 26,
+                    "step_count": {
+                      "4.1": 4,
+                      "4.2": 4,
+                      "4.3": 4,
+                      "4.4.0": 12
+                    },
+                    "block_gas_mined": 1503842,
+                    "block_gas_limit": 60000000,
+                    "block_gas_fullness": 2,
+                    "additional_tx_capacity_gas": 1011,
+                    "pending_transaction_count": 0
+                  }
+                ],
+                "zombienet-polkavm-resolc": [
+                  {
+                    "block_number": 27,
+                    "relative_block_number": 0,
+                    "block_timestamp_seconds": 1775644740,
+                    "relative_block_timestamp_seconds": 0,
+                    "observation_time_seconds": 1775644753,
+                    "relative_observation_time_seconds": 0,
+                    "transaction_count": 9,
+                    "step_count": {
+                      "4.1": 4,
+                      "4.2": 3
+                    },
+                    "block_gas_mined": 28594,
+                    "block_gas_limit": 18446744073709551615,
+                    "block_gas_fullness": 0,
+                    "block_ref_time": 28727931684,
+                    "block_ref_time_limit": 1599875000000,
+                    "block_ref_time_fullness": 1,
+                    "block_proof_size": 702784,
+                    "block_proof_size_limit": 8388608,
+                    "block_proof_size_fullness": 8,
+                    "additional_tx_capacity_gas": 5806340596068468,
+                    "additional_tx_capacity_ref_time": 492,
+                    "additional_tx_capacity_proof_size": 98,
+                    "pending_transaction_count": 15
+                  },
+                  {
+                    "block_number": 28,
+                    "relative_block_number": 1,
+                    "block_timestamp_seconds": 1775644740,
+                    "relative_block_timestamp_seconds": 0,
+                    "observation_time_seconds": 1775644755,
+                    "relative_observation_time_seconds": 2,
+                    "transaction_count": 17,
+                    "step_count": {
+                      "4.2": 1,
+                      "4.3": 4,
+                      "4.4.0": 12
+                    },
+                    "transactions_per_second": 8.432539682539682,
+                    "ref_time_per_second": 25070624019.84127,
+                    "proof_size_per_second": 368924.1071428571,
+                    "gas_per_second": 21881.944444444445,
+                    "block_gas_mined": 44114,
+                    "block_gas_limit": 18446744073709551615,
+                    "block_gas_fullness": 0,
+                    "block_ref_time": 50542378024,
+                    "block_ref_time_limit": 1599875000000,
+                    "block_ref_time_fullness": 3,
+                    "block_proof_size": 743751,
+                    "block_proof_size_limit": 8388608,
+                    "block_proof_size_fullness": 8,
+                    "additional_tx_capacity_gas": 7111312287474752,
+                    "additional_tx_capacity_ref_time": 521,
+                    "additional_tx_capacity_proof_size": 174,
+                    "pending_transaction_count": 0
+                  }
+                ],
+                "zombienet-revm-solc": [
+                  {
+                    "block_number": 24,
+                    "relative_block_number": 0,
+                    "block_timestamp_seconds": 1775644740,
+                    "relative_block_timestamp_seconds": 0,
+                    "observation_time_seconds": 1775644747,
+                    "relative_observation_time_seconds": 0,
+                    "transaction_count": 8,
+                    "step_count": {
+                      "4.1": 4,
+                      "4.2": 2
+                    },
+                    "block_gas_mined": 20616,
+                    "block_gas_limit": 18446744073709551615,
+                    "block_gas_fullness": 0,
+                    "block_ref_time": 25986461310,
+                    "block_ref_time_limit": 1599875000000,
+                    "block_ref_time_fullness": 1,
+                    "block_proof_size": 648886,
+                    "block_proof_size_limit": 8388608,
+                    "block_proof_size_fullness": 7,
+                    "additional_tx_capacity_gas": 7158224320415029,
+                    "additional_tx_capacity_ref_time": 484,
+                    "additional_tx_capacity_proof_size": 95,
+                    "pending_transaction_count": 16
+                  },
+                  {
+                    "block_number": 25,
+                    "relative_block_number": 1,
+                    "block_timestamp_seconds": 1775644740,
+                    "relative_block_timestamp_seconds": 0,
+                    "observation_time_seconds": 1775644749,
+                    "relative_observation_time_seconds": 2,
+                    "transaction_count": 18,
+                    "step_count": {
+                      "4.2": 2,
+                      "4.3": 4,
+                      "4.4.0": 12
+                    },
+                    "transactions_per_second": 8.810572687224669,
+                    "ref_time_per_second": 25113152155.65345,
+                    "proof_size_per_second": 337666.17719040625,
+                    "gas_per_second": 16506.118453255014,
+                    "block_gas_mined": 33722,
+                    "block_gas_limit": 18446744073709551615,
+                    "block_gas_fullness": 0,
+                    "block_ref_time": 51306169854,
+                    "block_ref_time_limit": 1599875000000,
+                    "block_ref_time_fullness": 3,
+                    "block_proof_size": 689852,
+                    "block_proof_size_limit": 8388608,
+                    "block_proof_size_fullness": 8,
+                    "additional_tx_capacity_gas": 9848768859428466,
+                    "additional_tx_capacity_ref_time": 543,
+                    "additional_tx_capacity_proof_size": 200,
+                    "pending_transaction_count": 0
+                  }
+                ]
+              },
+              "platform_execution": {
+                "lighthouse-geth-evm-solc": {
+                  "node": {
+                    "id": 0,
+                    "platform_identifier": "lighthouse-geth-evm-solc",
+                    "connection_string": "ws://127.0.0.1:32004"
+                  },
+                  "pre_link_compilation_status": {
+                    "status": "Success",
+                    "is_cached": false,
+                    "compiler_version": "0.8.29",
+                    "compiler_path": "/home/runner/_work/revive-differential-tests/revive-differential-tests/workdir/solc/0.8.29/linux-amd64",
+                    "compiled_contracts_info": {
+                      "/home/runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/ethereum/xen/xen_token.sol": {
+                        "ERC20": {
+                          "bytecode_hash": "0xc7d8b38583618638ca00905f792919a3661d125e57da8d984cb3497454aab4c4"
+                        },
+                        "RevertingBurner": {
+                          "bytecode_hash": "0x16f5027c562f03b6e324fec691b2cbf02c79f9a0d26efeeccbe8ca6e6975a79c"
+                        },
+                        "IERC165": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "IRankedMintingToken": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "BadBurner": {
+                          "bytecode_hash": "0x8850da1a8f9250ef4ce869d4cb9b00943dba83c5046c89745229d678e747b8da"
+                        },
+                        "IERC20": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "XENCrypto5001": {
+                          "bytecode_hash": "0x2c21547853ad2723eb0ab3581c4b078903ad51d55d85dd8b0b14b6135d835c8a"
+                        },
+                        "IBurnableToken": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "IStakingToken": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "XENCrypto25mm1": {
+                          "bytecode_hash": "0x3704779b5b91079f1c00774f39d9c80ce63096382e6d3c092aa3173baeb5157f"
+                        },
+                        "IBurnRedeemable": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "XENCrypto100001": {
+                          "bytecode_hash": "0x3b85bf652c3c0c0b8a689a59fc604f99daf5291b72f33d9f7ed0e1ba5f5c5321"
+                        },
+                        "IERC20Metadata": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "Context": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "XENCrypto": {
+                          "bytecode_hash": "0x5b7291d20ce58b98e5940f0bf935a34f194485a6538872357db60492d24c8be6"
+                        },
+                        "Burner": {
+                          "bytecode_hash": "0x9d6a960c83428edd7e41b19da3ae0ac21e07725bc2f2d3d4be7165bfcae3957e"
+                        },
+                        "ABDKMath64x64": {
+                          "bytecode_hash": "0x19683edc5a3420b19ab32a8d5b28a420cd2be617c63f657c3ea37bf4d8099343"
+                        },
+                        "XENMath": {
+                          "bytecode_hash": "0xabf95951f4ee42819519f41f38fbba48f60d29d9910bc78185268dfa75de323a"
+                        }
+                      },
+                      "/home/runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/ethereum/tether.sol": {
+                        "Ownable": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "BasicToken": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "UpgradedStandardToken": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "StandardToken": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "TetherBenchmark": {
+                          "bytecode_hash": "0xfa82160bf1afae991a88c5e9788ce29814e7112b3495a3b81d89c8a4ae52ada1"
+                        },
+                        "TetherToken": {
+                          "bytecode_hash": "0x924fcc8b314145fa087c401dcbda125b48583ab96faff3459afffefe8178527d"
+                        },
+                        "ERC20Basic": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "ERC20": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "SafeMath": {
+                          "bytecode_hash": "0x613a465cc3d30ea468350670b8e9d043fb0b40ce50a0fafecc6a6bded0d89f97"
+                        },
+                        "Pausable": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "BlackList": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        }
+                      },
+                      "/home/runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/ethereum/xen/xen_minter.sol": {
+                        "CoinTool_Benchmark": {
+                          "bytecode_hash": "0x04b53caf7191489c418e702f2bc3d62e38f6bcdae8c3493ed935b6811447785a"
+                        },
+                        "CoinTool_App": {
+                          "bytecode_hash": "0x17a9c1ec0a74569031051d51e79108d7808a57f92a85bce4754bd201b8ae884e"
+                        },
+                        "IERC20": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "CoinTool_Proxy": {
+                          "bytecode_hash": "0x32cb7906fd5967b8dcd64067f3ddfc1307c472e5741c71280a70393c30a73e6a"
+                        }
+                      },
+                      "/home/runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/ethereum/weth.sol": {
+                        "WETH9": {
+                          "bytecode_hash": "0xfcc1b73b021216ab0c0c2551f816488287348018ade28609c37f1f9cc772be9c"
+                        }
+                      }
+                    }
+                  },
+                  "post_link_compilation_status": {
+                    "status": "Success",
+                    "is_cached": false,
+                    "compiler_version": "0.8.29",
+                    "compiler_path": "/home/runner/_work/revive-differential-tests/revive-differential-tests/workdir/solc/0.8.29/linux-amd64",
+                    "compiled_contracts_info": {
+                      "/home/runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/ethereum/xen/xen_minter.sol": {
+                        "IERC20": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "CoinTool_App": {
+                          "bytecode_hash": "0x3798bdd0f178c67336294879a037b4cb5421d87659b3616a9337922b179478c1"
+                        },
+                        "CoinTool_Proxy": {
+                          "bytecode_hash": "0x0933358c3ea39a0dd9977b7efc93e9eb7458f1d55788f34d6a278bf55fef83ac"
+                        },
+                        "CoinTool_Benchmark": {
+                          "bytecode_hash": "0x457eb7ef9752c3e1b05bc62c60b4686f0cdf2f1263e33abf7af827b268275815"
+                        }
+                      },
+                      "/home/runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/ethereum/xen/xen_token.sol": {
+                        "BadBurner": {
+                          "bytecode_hash": "0x1f6eb1a9b340bb02e499fe13009004e61081b80d1edf96b8a205f348705b6665"
+                        },
+                        "RevertingBurner": {
+                          "bytecode_hash": "0xe0817408701adc68d446cf18b8a0ddeef17b386ac47eaeb2b5240a049293db2f"
+                        },
+                        "IERC20Metadata": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "IRankedMintingToken": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "Burner": {
+                          "bytecode_hash": "0xd12f013fdacc9672a4e9dab269bb215e53fd27322a8efc28dd5faa8739cf22c3"
+                        },
+                        "IBurnableToken": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "IBurnRedeemable": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "IStakingToken": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "ERC20": {
+                          "bytecode_hash": "0x7824cf26c35cccb625e064bab6eacd48e56eb720dffc3546349659d1f91b6da2"
+                        },
+                        "XENCrypto5001": {
+                          "bytecode_hash": "0x4862146ca4c7451d63425ce3bfe66280d9f4afaf34072101b3f5e2b608c7010b"
+                        },
+                        "XENCrypto": {
+                          "bytecode_hash": "0x8bb9ffd7b80a0500b7ac16fa968b6aab42e23808911cbbc6db390d57b6239d3e"
+                        },
+                        "XENCrypto25mm1": {
+                          "bytecode_hash": "0x9963f2efbd9c20fb2d76a6d5108bc2c7bd1ac4e8ee7de80743987ba4f003c7bf"
+                        },
+                        "IERC20": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "XENMath": {
+                          "bytecode_hash": "0x670b12b7fab2c5ed7c496d38c2a0c2fceb5bc1d82f8c83296658c3148bd8cc52"
+                        },
+                        "Context": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "ABDKMath64x64": {
+                          "bytecode_hash": "0x9403e766badd8ff65e35d7eed8749d49bda7c100427371f506f419ba6ba0bc4a"
+                        },
+                        "IERC165": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "XENCrypto100001": {
+                          "bytecode_hash": "0x9f69eddba402b007df6ccd8841b91744a0508d443a322179dfac2b6bcece7914"
+                        }
+                      },
+                      "/home/runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/ethereum/weth.sol": {
+                        "WETH9": {
+                          "bytecode_hash": "0x9ccb257dfc04411b1d39bbe743c15bb4fe583505a0df7f0c39f778b6611c0ec8"
+                        }
+                      },
+                      "/home/runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/ethereum/tether.sol": {
+                        "UpgradedStandardToken": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "ERC20Basic": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "Ownable": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "ERC20": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "BasicToken": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "TetherBenchmark": {
+                          "bytecode_hash": "0x3fbb4013fa20c864a59929cea8e5608324a20ff158bad9184d56634d46b16e57"
+                        },
+                        "Pausable": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "TetherToken": {
+                          "bytecode_hash": "0x1340c2db134734a00addf7104405a78698585ff551b183dc41696bc728240886"
+                        },
+                        "StandardToken": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "SafeMath": {
+                          "bytecode_hash": "0x6ff28d7c458a3073dfa51d20492119724fd78887c45db8dd71fcf3c41329dc02"
+                        },
+                        "BlackList": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        }
+                      }
+                    }
+                  },
+                  "deployed_contracts": {
+                    "TetherBenchmark": "0xde09e74d4888bc4e65f589e8c13bce9f71ddf4c7",
+                    "TetherToken": "0x2946259e0334f33a064106302415ad3391bed384"
+                  }
+                },
+                "zombienet-polkavm-resolc": {
+                  "node": {
+                    "id": 0,
+                    "platform_identifier": "zombienet-polkavm-resolc",
+                    "connection_string": "http://localhost:8545"
+                  },
+                  "pre_link_compilation_status": {
+                    "status": "Success",
+                    "is_cached": false,
+                    "compiler_version": "0.8.29",
+                    "compiler_path": "resolc",
+                    "compiled_contracts_info": {
+                      "/home/runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/ethereum/xen/xen_minter.sol": {
+                        "CoinTool_Benchmark": {
+                          "bytecode_hash": "0x2a2def9bfaffdf8928f0c28b595f79af9726e7371beddfa070c333a23cd6a049"
+                        },
+                        "CoinTool_Proxy": {
+                          "bytecode_hash": "0x9eff6249b1c05e701b5e6c4f86ee751093c61ed616c9b20c50ff2a552a978296"
+                        },
+                        "CoinTool_App": {
+                          "bytecode_hash": "0x99565b3fa5e929b0dbaf38062cf4c7a79e223ddfd4606b64a207661c60b56a30"
+                        }
+                      },
+                      "/home/runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/ethereum/weth.sol": {
+                        "WETH9": {
+                          "bytecode_hash": "0xee92996c69252def87f67d796570e2dbbbf684485b0b84624a132e12e4a37444"
+                        }
+                      },
+                      "/home/runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/ethereum/xen/xen_token.sol": {
+                        "XENCrypto": {
+                          "bytecode_hash": "0x2ecb6b91768d95b767ddf912bea0d3e6bf1a445eb6a43b305559530da1d6daed"
+                        },
+                        "XENMath": {
+                          "bytecode_hash": "0x043dcfcd53c56424a78a4ebdf762bdf5b744446c3d6de7a8278610adf2b490d5"
+                        },
+                        "RevertingBurner": {
+                          "bytecode_hash": "0xe99a415359d4a445134956ccd0215e323c48d4bb72d9b4a2ebfa3581a939177b"
+                        },
+                        "XENCrypto25mm1": {
+                          "bytecode_hash": "0xdb420eba936603ac6a9069c8d7a7fc8e9ef097791f63a013b536759bb140420c"
+                        },
+                        "XENCrypto5001": {
+                          "bytecode_hash": "0xb7a8be2ebf91961cbe17fed439fcee46b1bd02bdd6216875cbedcf2de4ecc4ef"
+                        },
+                        "ERC20": {
+                          "bytecode_hash": "0x175c0f127df08b032d73b5bfc0a1cf0f7b981e952ef19074a74c0ddc16898c4d"
+                        },
+                        "ABDKMath64x64": {
+                          "bytecode_hash": "0x2e2b2f7b9564e8d033c6ab167e73e1714fa1482160773078123a588a29c48278"
+                        },
+                        "Burner": {
+                          "bytecode_hash": "0xa29507250247fe0969eb0bc4d0b15d1a09d9a633673c6d1caeab961355c6c706"
+                        },
+                        "XENCrypto100001": {
+                          "bytecode_hash": "0x26e71d0a90749524c4ae92fb5acff2c315a0c095a6883f614cd8e13d262e91ee"
+                        },
+                        "BadBurner": {
+                          "bytecode_hash": "0xcbb0d1f3b07ca1711b92a0b65d712def82b1c2dcb83c9e3c5c61074c28ff8296"
+                        }
+                      },
+                      "/home/runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/ethereum/tether.sol": {
+                        "SafeMath": {
+                          "bytecode_hash": "0x2e2b2f7b9564e8d033c6ab167e73e1714fa1482160773078123a588a29c48278"
+                        },
+                        "TetherBenchmark": {
+                          "bytecode_hash": "0x1d8efd4da1f7aec4c0222ce348e7a419c9e20ab9e071749844f2c45d7228d054"
+                        },
+                        "TetherToken": {
+                          "bytecode_hash": "0xac698c0693b1a0683d93806747da5f88e09a507636ca7399cfd0b765e27b7cef"
+                        }
+                      }
+                    }
+                  },
+                  "post_link_compilation_status": {
+                    "status": "Success",
+                    "is_cached": false,
+                    "compiler_version": "0.8.29",
+                    "compiler_path": "resolc",
+                    "compiled_contracts_info": {
+                      "/home/runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/ethereum/weth.sol": {
+                        "WETH9": {
+                          "bytecode_hash": "0xee92996c69252def87f67d796570e2dbbbf684485b0b84624a132e12e4a37444"
+                        }
+                      },
+                      "/home/runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/ethereum/xen/xen_token.sol": {
+                        "XENMath": {
+                          "bytecode_hash": "0x043dcfcd53c56424a78a4ebdf762bdf5b744446c3d6de7a8278610adf2b490d5"
+                        },
+                        "XENCrypto": {
+                          "bytecode_hash": "0x2ca4a5b6cffc4bcfe67b80f3272071340a0a8ceb3412683f8512e86aa8762d31"
+                        },
+                        "Burner": {
+                          "bytecode_hash": "0xa29507250247fe0969eb0bc4d0b15d1a09d9a633673c6d1caeab961355c6c706"
+                        },
+                        "XENCrypto25mm1": {
+                          "bytecode_hash": "0xdb420eba936603ac6a9069c8d7a7fc8e9ef097791f63a013b536759bb140420c"
+                        },
+                        "BadBurner": {
+                          "bytecode_hash": "0xcbb0d1f3b07ca1711b92a0b65d712def82b1c2dcb83c9e3c5c61074c28ff8296"
+                        },
+                        "ABDKMath64x64": {
+                          "bytecode_hash": "0x2e2b2f7b9564e8d033c6ab167e73e1714fa1482160773078123a588a29c48278"
+                        },
+                        "ERC20": {
+                          "bytecode_hash": "0x175c0f127df08b032d73b5bfc0a1cf0f7b981e952ef19074a74c0ddc16898c4d"
+                        },
+                        "XENCrypto5001": {
+                          "bytecode_hash": "0xb7a8be2ebf91961cbe17fed439fcee46b1bd02bdd6216875cbedcf2de4ecc4ef"
+                        },
+                        "XENCrypto100001": {
+                          "bytecode_hash": "0x26e71d0a90749524c4ae92fb5acff2c315a0c095a6883f614cd8e13d262e91ee"
+                        },
+                        "RevertingBurner": {
+                          "bytecode_hash": "0xe99a415359d4a445134956ccd0215e323c48d4bb72d9b4a2ebfa3581a939177b"
+                        }
+                      },
+                      "/home/runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/ethereum/tether.sol": {
+                        "SafeMath": {
+                          "bytecode_hash": "0x2e2b2f7b9564e8d033c6ab167e73e1714fa1482160773078123a588a29c48278"
+                        },
+                        "TetherBenchmark": {
+                          "bytecode_hash": "0x1d8efd4da1f7aec4c0222ce348e7a419c9e20ab9e071749844f2c45d7228d054"
+                        },
+                        "TetherToken": {
+                          "bytecode_hash": "0xac698c0693b1a0683d93806747da5f88e09a507636ca7399cfd0b765e27b7cef"
+                        }
+                      },
+                      "/home/runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/ethereum/xen/xen_minter.sol": {
+                        "CoinTool_App": {
+                          "bytecode_hash": "0xae2d1f5bbbf2e00d6b1f5993c5ffa1b4965eaa36b1a2d5031aa9240e9e03a7fa"
+                        },
+                        "CoinTool_Proxy": {
+                          "bytecode_hash": "0x9eff6249b1c05e701b5e6c4f86ee751093c61ed616c9b20c50ff2a552a978296"
+                        },
+                        "CoinTool_Benchmark": {
+                          "bytecode_hash": "0xfb97461299c0a482e564f7480a3ede8a3aba3218791bf1270505724c0f58c7a7"
+                        }
+                      }
+                    }
+                  },
+                  "deployed_contracts": {
+                    "TetherBenchmark": "0x00de48310d77a4d56aa400248b0b1613508f5b73",
+                    "TetherToken": "0x66a15edcc3b50a663e72f1457ffd49b9ae284ddc"
+                  }
+                },
+                "zombienet-revm-solc": {
+                  "node": {
+                    "id": 0,
+                    "platform_identifier": "zombienet-revm-solc",
+                    "connection_string": "http://localhost:8545"
+                  },
+                  "pre_link_compilation_status": {
+                    "status": "Success",
+                    "is_cached": false,
+                    "compiler_version": "0.8.29",
+                    "compiler_path": "/home/runner/_work/revive-differential-tests/revive-differential-tests/workdir/solc/0.8.29/linux-amd64",
+                    "compiled_contracts_info": {
+                      "/home/runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/ethereum/xen/xen_token.sol": {
+                        "XENCrypto25mm1": {
+                          "bytecode_hash": "0x3704779b5b91079f1c00774f39d9c80ce63096382e6d3c092aa3173baeb5157f"
+                        },
+                        "RevertingBurner": {
+                          "bytecode_hash": "0x16f5027c562f03b6e324fec691b2cbf02c79f9a0d26efeeccbe8ca6e6975a79c"
+                        },
+                        "Context": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "ERC20": {
+                          "bytecode_hash": "0xc7d8b38583618638ca00905f792919a3661d125e57da8d984cb3497454aab4c4"
+                        },
+                        "XENCrypto100001": {
+                          "bytecode_hash": "0x3b85bf652c3c0c0b8a689a59fc604f99daf5291b72f33d9f7ed0e1ba5f5c5321"
+                        },
+                        "ABDKMath64x64": {
+                          "bytecode_hash": "0x19683edc5a3420b19ab32a8d5b28a420cd2be617c63f657c3ea37bf4d8099343"
+                        },
+                        "IBurnRedeemable": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "BadBurner": {
+                          "bytecode_hash": "0x8850da1a8f9250ef4ce869d4cb9b00943dba83c5046c89745229d678e747b8da"
+                        },
+                        "IRankedMintingToken": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "IERC20": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "IBurnableToken": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "XENCrypto": {
+                          "bytecode_hash": "0x5b7291d20ce58b98e5940f0bf935a34f194485a6538872357db60492d24c8be6"
+                        },
+                        "IERC20Metadata": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "XENCrypto5001": {
+                          "bytecode_hash": "0x2c21547853ad2723eb0ab3581c4b078903ad51d55d85dd8b0b14b6135d835c8a"
+                        },
+                        "XENMath": {
+                          "bytecode_hash": "0xabf95951f4ee42819519f41f38fbba48f60d29d9910bc78185268dfa75de323a"
+                        },
+                        "IStakingToken": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "Burner": {
+                          "bytecode_hash": "0x9d6a960c83428edd7e41b19da3ae0ac21e07725bc2f2d3d4be7165bfcae3957e"
+                        },
+                        "IERC165": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        }
+                      },
+                      "/home/runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/ethereum/tether.sol": {
+                        "ERC20": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "TetherBenchmark": {
+                          "bytecode_hash": "0xfa82160bf1afae991a88c5e9788ce29814e7112b3495a3b81d89c8a4ae52ada1"
+                        },
+                        "TetherToken": {
+                          "bytecode_hash": "0x924fcc8b314145fa087c401dcbda125b48583ab96faff3459afffefe8178527d"
+                        },
+                        "Pausable": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "StandardToken": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "ERC20Basic": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "SafeMath": {
+                          "bytecode_hash": "0x613a465cc3d30ea468350670b8e9d043fb0b40ce50a0fafecc6a6bded0d89f97"
+                        },
+                        "BasicToken": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "BlackList": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "UpgradedStandardToken": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "Ownable": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        }
+                      },
+                      "/home/runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/ethereum/weth.sol": {
+                        "WETH9": {
+                          "bytecode_hash": "0xfcc1b73b021216ab0c0c2551f816488287348018ade28609c37f1f9cc772be9c"
+                        }
+                      },
+                      "/home/runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/ethereum/xen/xen_minter.sol": {
+                        "CoinTool_Benchmark": {
+                          "bytecode_hash": "0x04b53caf7191489c418e702f2bc3d62e38f6bcdae8c3493ed935b6811447785a"
+                        },
+                        "CoinTool_Proxy": {
+                          "bytecode_hash": "0x32cb7906fd5967b8dcd64067f3ddfc1307c472e5741c71280a70393c30a73e6a"
+                        },
+                        "CoinTool_App": {
+                          "bytecode_hash": "0x17a9c1ec0a74569031051d51e79108d7808a57f92a85bce4754bd201b8ae884e"
+                        },
+                        "IERC20": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        }
+                      }
+                    }
+                  },
+                  "post_link_compilation_status": {
+                    "status": "Success",
+                    "is_cached": false,
+                    "compiler_version": "0.8.29",
+                    "compiler_path": "/home/runner/_work/revive-differential-tests/revive-differential-tests/workdir/solc/0.8.29/linux-amd64",
+                    "compiled_contracts_info": {
+                      "/home/runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/ethereum/xen/xen_minter.sol": {
+                        "CoinTool_Benchmark": {
+                          "bytecode_hash": "0x457eb7ef9752c3e1b05bc62c60b4686f0cdf2f1263e33abf7af827b268275815"
+                        },
+                        "CoinTool_App": {
+                          "bytecode_hash": "0x3798bdd0f178c67336294879a037b4cb5421d87659b3616a9337922b179478c1"
+                        },
+                        "IERC20": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "CoinTool_Proxy": {
+                          "bytecode_hash": "0x0933358c3ea39a0dd9977b7efc93e9eb7458f1d55788f34d6a278bf55fef83ac"
+                        }
+                      },
+                      "/home/runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/ethereum/tether.sol": {
+                        "BasicToken": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "UpgradedStandardToken": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "ERC20": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "StandardToken": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "Ownable": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "BlackList": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "TetherBenchmark": {
+                          "bytecode_hash": "0x3fbb4013fa20c864a59929cea8e5608324a20ff158bad9184d56634d46b16e57"
+                        },
+                        "SafeMath": {
+                          "bytecode_hash": "0x6ff28d7c458a3073dfa51d20492119724fd78887c45db8dd71fcf3c41329dc02"
+                        },
+                        "Pausable": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "ERC20Basic": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "TetherToken": {
+                          "bytecode_hash": "0x1340c2db134734a00addf7104405a78698585ff551b183dc41696bc728240886"
+                        }
+                      },
+                      "/home/runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/ethereum/xen/xen_token.sol": {
+                        "IBurnableToken": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "Context": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "IERC20Metadata": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "XENCrypto": {
+                          "bytecode_hash": "0x8bb9ffd7b80a0500b7ac16fa968b6aab42e23808911cbbc6db390d57b6239d3e"
+                        },
+                        "XENCrypto25mm1": {
+                          "bytecode_hash": "0x9963f2efbd9c20fb2d76a6d5108bc2c7bd1ac4e8ee7de80743987ba4f003c7bf"
+                        },
+                        "ABDKMath64x64": {
+                          "bytecode_hash": "0x9403e766badd8ff65e35d7eed8749d49bda7c100427371f506f419ba6ba0bc4a"
+                        },
+                        "BadBurner": {
+                          "bytecode_hash": "0x1f6eb1a9b340bb02e499fe13009004e61081b80d1edf96b8a205f348705b6665"
+                        },
+                        "Burner": {
+                          "bytecode_hash": "0xd12f013fdacc9672a4e9dab269bb215e53fd27322a8efc28dd5faa8739cf22c3"
+                        },
+                        "IRankedMintingToken": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "IStakingToken": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "RevertingBurner": {
+                          "bytecode_hash": "0xe0817408701adc68d446cf18b8a0ddeef17b386ac47eaeb2b5240a049293db2f"
+                        },
+                        "IERC20": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "XENMath": {
+                          "bytecode_hash": "0x670b12b7fab2c5ed7c496d38c2a0c2fceb5bc1d82f8c83296658c3148bd8cc52"
+                        },
+                        "XENCrypto100001": {
+                          "bytecode_hash": "0x9f69eddba402b007df6ccd8841b91744a0508d443a322179dfac2b6bcece7914"
+                        },
+                        "ERC20": {
+                          "bytecode_hash": "0x7824cf26c35cccb625e064bab6eacd48e56eb720dffc3546349659d1f91b6da2"
+                        },
+                        "IBurnRedeemable": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "XENCrypto5001": {
+                          "bytecode_hash": "0x4862146ca4c7451d63425ce3bfe66280d9f4afaf34072101b3f5e2b608c7010b"
+                        },
+                        "IERC165": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        }
+                      },
+                      "/home/runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/ethereum/weth.sol": {
+                        "WETH9": {
+                          "bytecode_hash": "0x9ccb257dfc04411b1d39bbe743c15bb4fe583505a0df7f0c39f778b6611c0ec8"
+                        }
+                      }
+                    }
+                  },
+                  "deployed_contracts": {
+                    "TetherBenchmark": "0xde09e74d4888bc4e65f589e8c13bce9f71ddf4c7",
+                    "TetherToken": "0x2946259e0334f33a064106302415ad3391bed384"
+                  }
+                }
+              },
+              "compiled_contracts": {
+                "/home/runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/ethereum/tether.sol": {
+                  "BasicToken": {
+                    "contract_size": {
+                      "lighthouse-geth-evm-solc": 0,
+                      "zombienet-revm-solc": 0
+                    }
+                  },
+                  "BlackList": {
+                    "contract_size": {
+                      "lighthouse-geth-evm-solc": 0,
+                      "zombienet-revm-solc": 0
+                    }
+                  },
+                  "ERC20": {
+                    "contract_size": {
+                      "lighthouse-geth-evm-solc": 0,
+                      "zombienet-revm-solc": 0
+                    }
+                  },
+                  "ERC20Basic": {
+                    "contract_size": {
+                      "lighthouse-geth-evm-solc": 0,
+                      "zombienet-revm-solc": 0
+                    }
+                  },
+                  "Ownable": {
+                    "contract_size": {
+                      "lighthouse-geth-evm-solc": 0,
+                      "zombienet-revm-solc": 0
+                    }
+                  },
+                  "Pausable": {
+                    "contract_size": {
+                      "lighthouse-geth-evm-solc": 0,
+                      "zombienet-revm-solc": 0
+                    }
+                  },
+                  "SafeMath": {
+                    "contract_size": {
+                      "lighthouse-geth-evm-solc": 106,
+                      "zombienet-polkavm-resolc": 1065,
+                      "zombienet-revm-solc": 106
+                    }
+                  },
+                  "StandardToken": {
+                    "contract_size": {
+                      "lighthouse-geth-evm-solc": 0,
+                      "zombienet-revm-solc": 0
+                    }
+                  },
+                  "TetherBenchmark": {
+                    "contract_size": {
+                      "lighthouse-geth-evm-solc": 1671,
+                      "zombienet-polkavm-resolc": 6069,
+                      "zombienet-revm-solc": 1671
+                    }
+                  },
+                  "TetherToken": {
+                    "contract_size": {
+                      "lighthouse-geth-evm-solc": 12065,
+                      "zombienet-polkavm-resolc": 59102,
+                      "zombienet-revm-solc": 12065
+                    }
+                  },
+                  "UpgradedStandardToken": {
+                    "contract_size": {
+                      "lighthouse-geth-evm-solc": 0,
+                      "zombienet-revm-solc": 0
+                    }
+                  }
+                },
+                "/home/runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/ethereum/weth.sol": {
+                  "WETH9": {
+                    "contract_size": {
+                      "lighthouse-geth-evm-solc": 3918,
+                      "zombienet-polkavm-resolc": 17055,
+                      "zombienet-revm-solc": 3918
+                    }
+                  }
+                },
+                "/home/runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/ethereum/xen/xen_minter.sol": {
+                  "CoinTool_App": {
+                    "contract_size": {
+                      "lighthouse-geth-evm-solc": 7012,
+                      "zombienet-polkavm-resolc": 39322,
+                      "zombienet-revm-solc": 7012
+                    }
+                  },
+                  "CoinTool_Benchmark": {
+                    "contract_size": {
+                      "lighthouse-geth-evm-solc": 7771,
+                      "zombienet-polkavm-resolc": 45951,
+                      "zombienet-revm-solc": 7771
+                    }
+                  },
+                  "CoinTool_Proxy": {
+                    "contract_size": {
+                      "lighthouse-geth-evm-solc": 903,
+                      "zombienet-polkavm-resolc": 3079,
+                      "zombienet-revm-solc": 903
+                    }
+                  },
+                  "IERC20": {
+                    "contract_size": {
+                      "lighthouse-geth-evm-solc": 0,
+                      "zombienet-revm-solc": 0
+                    }
+                  }
+                },
+                "/home/runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/ethereum/xen/xen_token.sol": {
+                  "ABDKMath64x64": {
+                    "contract_size": {
+                      "lighthouse-geth-evm-solc": 106,
+                      "zombienet-polkavm-resolc": 1065,
+                      "zombienet-revm-solc": 106
+                    }
+                  },
+                  "BadBurner": {
+                    "contract_size": {
+                      "lighthouse-geth-evm-solc": 6507,
+                      "zombienet-polkavm-resolc": 32307,
+                      "zombienet-revm-solc": 6507
+                    }
+                  },
+                  "Burner": {
+                    "contract_size": {
+                      "lighthouse-geth-evm-solc": 7225,
+                      "zombienet-polkavm-resolc": 35824,
+                      "zombienet-revm-solc": 7225
+                    }
+                  },
+                  "Context": {
+                    "contract_size": {
+                      "lighthouse-geth-evm-solc": 0,
+                      "zombienet-revm-solc": 0
+                    }
+                  },
+                  "ERC20": {
+                    "contract_size": {
+                      "lighthouse-geth-evm-solc": 5304,
+                      "zombienet-polkavm-resolc": 31115,
+                      "zombienet-revm-solc": 5304
+                    }
+                  },
+                  "IBurnRedeemable": {
+                    "contract_size": {
+                      "lighthouse-geth-evm-solc": 0,
+                      "zombienet-revm-solc": 0
+                    }
+                  },
+                  "IBurnableToken": {
+                    "contract_size": {
+                      "lighthouse-geth-evm-solc": 0,
+                      "zombienet-revm-solc": 0
+                    }
+                  },
+                  "IERC165": {
+                    "contract_size": {
+                      "lighthouse-geth-evm-solc": 0,
+                      "zombienet-revm-solc": 0
+                    }
+                  },
+                  "IERC20": {
+                    "contract_size": {
+                      "lighthouse-geth-evm-solc": 0,
+                      "zombienet-revm-solc": 0
+                    }
+                  },
+                  "IERC20Metadata": {
+                    "contract_size": {
+                      "lighthouse-geth-evm-solc": 0,
+                      "zombienet-revm-solc": 0
+                    }
+                  },
+                  "IRankedMintingToken": {
+                    "contract_size": {
+                      "lighthouse-geth-evm-solc": 0,
+                      "zombienet-revm-solc": 0
+                    }
+                  },
+                  "IStakingToken": {
+                    "contract_size": {
+                      "lighthouse-geth-evm-solc": 0,
+                      "zombienet-revm-solc": 0
+                    }
+                  },
+                  "RevertingBurner": {
+                    "contract_size": {
+                      "lighthouse-geth-evm-solc": 6331,
+                      "zombienet-polkavm-resolc": 31963,
+                      "zombienet-revm-solc": 6331
+                    }
+                  },
+                  "XENCrypto": {
+                    "contract_size": {
+                      "lighthouse-geth-evm-solc": 23693,
+                      "zombienet-polkavm-resolc": 133415,
+                      "zombienet-revm-solc": 23693
+                    }
+                  },
+                  "XENCrypto100001": {
+                    "contract_size": {
+                      "lighthouse-geth-evm-solc": 22918,
+                      "zombienet-polkavm-resolc": 130948,
+                      "zombienet-revm-solc": 22918
+                    }
+                  },
+                  "XENCrypto25mm1": {
+                    "contract_size": {
+                      "lighthouse-geth-evm-solc": 22920,
+                      "zombienet-polkavm-resolc": 130949,
+                      "zombienet-revm-solc": 22920
+                    }
+                  },
+                  "XENCrypto5001": {
+                    "contract_size": {
+                      "lighthouse-geth-evm-solc": 22916,
+                      "zombienet-polkavm-resolc": 130947,
+                      "zombienet-revm-solc": 22916
+                    }
+                  },
+                  "XENMath": {
+                    "contract_size": {
+                      "lighthouse-geth-evm-solc": 2750,
+                      "zombienet-polkavm-resolc": 5008,
+                      "zombienet-revm-solc": 2750
+                    }
+                  }
+                }
+              },
+              "contract_addresses": {
+                "TetherBenchmark": {
+                  "lighthouse-geth-evm-solc": [
+                    "0xde09e74d4888bc4e65f589e8c13bce9f71ddf4c7"
+                  ],
+                  "zombienet-polkavm-resolc": [
+                    "0x00de48310d77a4d56aa400248b0b1613508f5b73"
+                  ],
+                  "zombienet-revm-solc": [
+                    "0xde09e74d4888bc4e65f589e8c13bce9f71ddf4c7"
+                  ]
+                },
+                "TetherToken": {
+                  "lighthouse-geth-evm-solc": [
+                    "0x2946259e0334f33a064106302415ad3391bed384"
+                  ],
+                  "zombienet-polkavm-resolc": [
+                    "0x66a15edcc3b50a663e72f1457ffd49b9ae284ddc"
+                  ],
+                  "zombienet-revm-solc": [
+                    "0x2946259e0334f33a064106302415ad3391bed384"
+                  ]
+                }
+              },
+              "mined_block_information": {},
+              "steps": {
+                "4.1": {
+                  "transactions": {}
+                },
+                "4.2": {
+                  "transactions": {}
+                },
+                "4.3": {
+                  "transactions": {}
+                },
+                "4.4.0": {
+                  "transactions": {}
+                }
+              }
+            }
+          }
+        },
+        "2": {
+          "mode_execution_reports": {
+            "Y Ms S-": {
+              "metrics_information": {
+                "lighthouse-geth-evm-solc": [
+                  {
+                    "block_number": 10,
+                    "relative_block_number": 0,
+                    "block_timestamp_seconds": 1775644559,
+                    "relative_block_timestamp_seconds": 0,
+                    "observation_time_seconds": 1775644559,
+                    "relative_observation_time_seconds": 0,
+                    "transaction_count": 4,
+                    "step_count": {
+                      "2.0": 4
+                    },
+                    "block_gas_mined": 2816548,
+                    "block_gas_limit": 60000000,
+                    "block_gas_fullness": 4,
+                    "additional_tx_capacity_gas": 81,
+                    "pending_transaction_count": 0
+                  }
+                ],
+                "zombienet-polkavm-resolc": [
+                  {
+                    "block_number": 17,
+                    "relative_block_number": 0,
+                    "block_timestamp_seconds": 1775644728,
+                    "relative_block_timestamp_seconds": 0,
+                    "observation_time_seconds": 1775644745,
+                    "relative_observation_time_seconds": 0,
+                    "transaction_count": 4,
+                    "step_count": {
+                      "2.0": 4
+                    },
+                    "block_gas_mined": 730400,
+                    "block_gas_limit": 18446744073709551615,
+                    "block_gas_fullness": 0,
+                    "block_ref_time": 42634450806,
+                    "block_ref_time_limit": 1599875000000,
+                    "block_ref_time_fullness": 2,
+                    "block_proof_size": 844951,
+                    "block_proof_size_limit": 8388608,
+                    "block_proof_size_fullness": 10,
+                    "additional_tx_capacity_gas": 101022694817682,
+                    "additional_tx_capacity_ref_time": 146,
+                    "additional_tx_capacity_proof_size": 35,
+                    "pending_transaction_count": 0
+                  }
+                ],
+                "zombienet-revm-solc": [
+                  {
+                    "block_number": 14,
+                    "relative_block_number": 0,
+                    "block_timestamp_seconds": 1775644716,
+                    "relative_block_timestamp_seconds": 0,
+                    "observation_time_seconds": 1775644725,
+                    "relative_observation_time_seconds": 0,
+                    "transaction_count": 4,
+                    "step_count": {
+                      "2.0": 4
+                    },
+                    "block_gas_mined": 502980,
+                    "block_gas_limit": 18446744073709551615,
+                    "block_gas_fullness": 0,
+                    "block_ref_time": 40152744206,
+                    "block_ref_time_limit": 1599875000000,
+                    "block_ref_time_fullness": 2,
+                    "block_proof_size": 774502,
+                    "block_proof_size_limit": 8388608,
+                    "block_proof_size_fullness": 9,
+                    "additional_tx_capacity_gas": 146699622837560,
+                    "additional_tx_capacity_ref_time": 155,
+                    "additional_tx_capacity_proof_size": 39,
+                    "pending_transaction_count": 0
+                  }
+                ]
+              },
+              "platform_execution": {
+                "lighthouse-geth-evm-solc": {
+                  "node": {
+                    "id": 0,
+                    "platform_identifier": "lighthouse-geth-evm-solc",
+                    "connection_string": "ws://127.0.0.1:32004"
+                  },
+                  "pre_link_compilation_status": {
+                    "status": "Success",
+                    "is_cached": false,
+                    "compiler_version": "0.8.29",
+                    "compiler_path": "/home/runner/_work/revive-differential-tests/revive-differential-tests/workdir/solc/0.8.29/linux-amd64",
+                    "compiled_contracts_info": {
+                      "/home/runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/ethereum/xen/xen_minter.sol": {
+                        "CoinTool_App": {
+                          "bytecode_hash": "0x17a9c1ec0a74569031051d51e79108d7808a57f92a85bce4754bd201b8ae884e"
+                        },
+                        "IERC20": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "CoinTool_Proxy": {
+                          "bytecode_hash": "0x32cb7906fd5967b8dcd64067f3ddfc1307c472e5741c71280a70393c30a73e6a"
+                        },
+                        "CoinTool_Benchmark": {
+                          "bytecode_hash": "0x04b53caf7191489c418e702f2bc3d62e38f6bcdae8c3493ed935b6811447785a"
+                        }
+                      },
+                      "/home/runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/ethereum/tether.sol": {
+                        "Ownable": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "ERC20": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "BlackList": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "UpgradedStandardToken": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "StandardToken": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "TetherBenchmark": {
+                          "bytecode_hash": "0xfa82160bf1afae991a88c5e9788ce29814e7112b3495a3b81d89c8a4ae52ada1"
+                        },
+                        "BasicToken": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "ERC20Basic": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "TetherToken": {
+                          "bytecode_hash": "0x924fcc8b314145fa087c401dcbda125b48583ab96faff3459afffefe8178527d"
+                        },
+                        "SafeMath": {
+                          "bytecode_hash": "0x613a465cc3d30ea468350670b8e9d043fb0b40ce50a0fafecc6a6bded0d89f97"
+                        },
+                        "Pausable": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        }
+                      },
+                      "/home/runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/ethereum/weth.sol": {
+                        "WETH9": {
+                          "bytecode_hash": "0xfcc1b73b021216ab0c0c2551f816488287348018ade28609c37f1f9cc772be9c"
+                        }
+                      },
+                      "/home/runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/ethereum/xen/xen_token.sol": {
+                        "Context": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "XENCrypto5001": {
+                          "bytecode_hash": "0x2c21547853ad2723eb0ab3581c4b078903ad51d55d85dd8b0b14b6135d835c8a"
+                        },
+                        "ABDKMath64x64": {
+                          "bytecode_hash": "0x19683edc5a3420b19ab32a8d5b28a420cd2be617c63f657c3ea37bf4d8099343"
+                        },
+                        "Burner": {
+                          "bytecode_hash": "0x9d6a960c83428edd7e41b19da3ae0ac21e07725bc2f2d3d4be7165bfcae3957e"
+                        },
+                        "XENCrypto": {
+                          "bytecode_hash": "0x5b7291d20ce58b98e5940f0bf935a34f194485a6538872357db60492d24c8be6"
+                        },
+                        "XENMath": {
+                          "bytecode_hash": "0xabf95951f4ee42819519f41f38fbba48f60d29d9910bc78185268dfa75de323a"
+                        },
+                        "IBurnRedeemable": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "XENCrypto100001": {
+                          "bytecode_hash": "0x3b85bf652c3c0c0b8a689a59fc604f99daf5291b72f33d9f7ed0e1ba5f5c5321"
+                        },
+                        "XENCrypto25mm1": {
+                          "bytecode_hash": "0x3704779b5b91079f1c00774f39d9c80ce63096382e6d3c092aa3173baeb5157f"
+                        },
+                        "IBurnableToken": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "IStakingToken": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "ERC20": {
+                          "bytecode_hash": "0xc7d8b38583618638ca00905f792919a3661d125e57da8d984cb3497454aab4c4"
+                        },
+                        "BadBurner": {
+                          "bytecode_hash": "0x8850da1a8f9250ef4ce869d4cb9b00943dba83c5046c89745229d678e747b8da"
+                        },
+                        "IERC20": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "RevertingBurner": {
+                          "bytecode_hash": "0x16f5027c562f03b6e324fec691b2cbf02c79f9a0d26efeeccbe8ca6e6975a79c"
+                        },
+                        "IERC165": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "IRankedMintingToken": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "IERC20Metadata": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        }
+                      }
+                    }
+                  },
+                  "post_link_compilation_status": {
+                    "status": "Success",
+                    "is_cached": false,
+                    "compiler_version": "0.8.29",
+                    "compiler_path": "/home/runner/_work/revive-differential-tests/revive-differential-tests/workdir/solc/0.8.29/linux-amd64",
+                    "compiled_contracts_info": {
+                      "/home/runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/ethereum/xen/xen_token.sol": {
+                        "XENCrypto5001": {
+                          "bytecode_hash": "0x4862146ca4c7451d63425ce3bfe66280d9f4afaf34072101b3f5e2b608c7010b"
+                        },
+                        "XENMath": {
+                          "bytecode_hash": "0x670b12b7fab2c5ed7c496d38c2a0c2fceb5bc1d82f8c83296658c3148bd8cc52"
+                        },
+                        "XENCrypto25mm1": {
+                          "bytecode_hash": "0x9963f2efbd9c20fb2d76a6d5108bc2c7bd1ac4e8ee7de80743987ba4f003c7bf"
+                        },
+                        "IERC20": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "IStakingToken": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "RevertingBurner": {
+                          "bytecode_hash": "0xe0817408701adc68d446cf18b8a0ddeef17b386ac47eaeb2b5240a049293db2f"
+                        },
+                        "XENCrypto100001": {
+                          "bytecode_hash": "0x9f69eddba402b007df6ccd8841b91744a0508d443a322179dfac2b6bcece7914"
+                        },
+                        "IERC20Metadata": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "IRankedMintingToken": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "Context": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "Burner": {
+                          "bytecode_hash": "0xd12f013fdacc9672a4e9dab269bb215e53fd27322a8efc28dd5faa8739cf22c3"
+                        },
+                        "ABDKMath64x64": {
+                          "bytecode_hash": "0x9403e766badd8ff65e35d7eed8749d49bda7c100427371f506f419ba6ba0bc4a"
+                        },
+                        "XENCrypto": {
+                          "bytecode_hash": "0x8bb9ffd7b80a0500b7ac16fa968b6aab42e23808911cbbc6db390d57b6239d3e"
+                        },
+                        "BadBurner": {
+                          "bytecode_hash": "0x1f6eb1a9b340bb02e499fe13009004e61081b80d1edf96b8a205f348705b6665"
+                        },
+                        "IBurnableToken": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "IBurnRedeemable": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "ERC20": {
+                          "bytecode_hash": "0x7824cf26c35cccb625e064bab6eacd48e56eb720dffc3546349659d1f91b6da2"
+                        },
+                        "IERC165": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        }
+                      },
+                      "/home/runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/ethereum/tether.sol": {
+                        "ERC20Basic": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "UpgradedStandardToken": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "BasicToken": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "Pausable": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "StandardToken": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "TetherToken": {
+                          "bytecode_hash": "0x1340c2db134734a00addf7104405a78698585ff551b183dc41696bc728240886"
+                        },
+                        "Ownable": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "SafeMath": {
+                          "bytecode_hash": "0x6ff28d7c458a3073dfa51d20492119724fd78887c45db8dd71fcf3c41329dc02"
+                        },
+                        "ERC20": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "TetherBenchmark": {
+                          "bytecode_hash": "0x3fbb4013fa20c864a59929cea8e5608324a20ff158bad9184d56634d46b16e57"
+                        },
+                        "BlackList": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        }
+                      },
+                      "/home/runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/ethereum/weth.sol": {
+                        "WETH9": {
+                          "bytecode_hash": "0x9ccb257dfc04411b1d39bbe743c15bb4fe583505a0df7f0c39f778b6611c0ec8"
+                        }
+                      },
+                      "/home/runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/ethereum/xen/xen_minter.sol": {
+                        "CoinTool_Benchmark": {
+                          "bytecode_hash": "0x457eb7ef9752c3e1b05bc62c60b4686f0cdf2f1263e33abf7af827b268275815"
+                        },
+                        "IERC20": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "CoinTool_App": {
+                          "bytecode_hash": "0x3798bdd0f178c67336294879a037b4cb5421d87659b3616a9337922b179478c1"
+                        },
+                        "CoinTool_Proxy": {
+                          "bytecode_hash": "0x0933358c3ea39a0dd9977b7efc93e9eb7458f1d55788f34d6a278bf55fef83ac"
+                        }
+                      }
+                    }
+                  },
+                  "deployed_contracts": {
+                    "CoinTool_Benchmark": "0xde09e74d4888bc4e65f589e8c13bce9f71ddf4c7",
+                    "XENCrypto": "0x2946259e0334f33a064106302415ad3391bed384"
+                  }
+                },
+                "zombienet-polkavm-resolc": {
+                  "node": {
+                    "id": 0,
+                    "platform_identifier": "zombienet-polkavm-resolc",
+                    "connection_string": "http://localhost:8545"
+                  },
+                  "pre_link_compilation_status": {
+                    "status": "Success",
+                    "is_cached": false,
+                    "compiler_version": "0.8.29",
+                    "compiler_path": "resolc",
+                    "compiled_contracts_info": {
+                      "/home/runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/ethereum/tether.sol": {
+                        "SafeMath": {
+                          "bytecode_hash": "0x2e2b2f7b9564e8d033c6ab167e73e1714fa1482160773078123a588a29c48278"
+                        },
+                        "TetherToken": {
+                          "bytecode_hash": "0xac698c0693b1a0683d93806747da5f88e09a507636ca7399cfd0b765e27b7cef"
+                        },
+                        "TetherBenchmark": {
+                          "bytecode_hash": "0x1d8efd4da1f7aec4c0222ce348e7a419c9e20ab9e071749844f2c45d7228d054"
+                        }
+                      },
+                      "/home/runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/ethereum/weth.sol": {
+                        "WETH9": {
+                          "bytecode_hash": "0xee92996c69252def87f67d796570e2dbbbf684485b0b84624a132e12e4a37444"
+                        }
+                      },
+                      "/home/runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/ethereum/xen/xen_minter.sol": {
+                        "CoinTool_App": {
+                          "bytecode_hash": "0x99565b3fa5e929b0dbaf38062cf4c7a79e223ddfd4606b64a207661c60b56a30"
+                        },
+                        "CoinTool_Benchmark": {
+                          "bytecode_hash": "0x2a2def9bfaffdf8928f0c28b595f79af9726e7371beddfa070c333a23cd6a049"
+                        },
+                        "CoinTool_Proxy": {
+                          "bytecode_hash": "0x9eff6249b1c05e701b5e6c4f86ee751093c61ed616c9b20c50ff2a552a978296"
+                        }
+                      },
+                      "/home/runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/ethereum/xen/xen_token.sol": {
+                        "XENCrypto100001": {
+                          "bytecode_hash": "0x26e71d0a90749524c4ae92fb5acff2c315a0c095a6883f614cd8e13d262e91ee"
+                        },
+                        "XENCrypto": {
+                          "bytecode_hash": "0x2ecb6b91768d95b767ddf912bea0d3e6bf1a445eb6a43b305559530da1d6daed"
+                        },
+                        "BadBurner": {
+                          "bytecode_hash": "0xcbb0d1f3b07ca1711b92a0b65d712def82b1c2dcb83c9e3c5c61074c28ff8296"
+                        },
+                        "RevertingBurner": {
+                          "bytecode_hash": "0xe99a415359d4a445134956ccd0215e323c48d4bb72d9b4a2ebfa3581a939177b"
+                        },
+                        "XENCrypto5001": {
+                          "bytecode_hash": "0xb7a8be2ebf91961cbe17fed439fcee46b1bd02bdd6216875cbedcf2de4ecc4ef"
+                        },
+                        "XENMath": {
+                          "bytecode_hash": "0x043dcfcd53c56424a78a4ebdf762bdf5b744446c3d6de7a8278610adf2b490d5"
+                        },
+                        "ABDKMath64x64": {
+                          "bytecode_hash": "0x2e2b2f7b9564e8d033c6ab167e73e1714fa1482160773078123a588a29c48278"
+                        },
+                        "ERC20": {
+                          "bytecode_hash": "0x175c0f127df08b032d73b5bfc0a1cf0f7b981e952ef19074a74c0ddc16898c4d"
+                        },
+                        "Burner": {
+                          "bytecode_hash": "0xa29507250247fe0969eb0bc4d0b15d1a09d9a633673c6d1caeab961355c6c706"
+                        },
+                        "XENCrypto25mm1": {
+                          "bytecode_hash": "0xdb420eba936603ac6a9069c8d7a7fc8e9ef097791f63a013b536759bb140420c"
+                        }
+                      }
+                    }
+                  },
+                  "post_link_compilation_status": {
+                    "status": "Success",
+                    "is_cached": false,
+                    "compiler_version": "0.8.29",
+                    "compiler_path": "resolc",
+                    "compiled_contracts_info": {
+                      "/home/runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/ethereum/xen/xen_token.sol": {
+                        "BadBurner": {
+                          "bytecode_hash": "0xcbb0d1f3b07ca1711b92a0b65d712def82b1c2dcb83c9e3c5c61074c28ff8296"
+                        },
+                        "XENMath": {
+                          "bytecode_hash": "0x043dcfcd53c56424a78a4ebdf762bdf5b744446c3d6de7a8278610adf2b490d5"
+                        },
+                        "Burner": {
+                          "bytecode_hash": "0xa29507250247fe0969eb0bc4d0b15d1a09d9a633673c6d1caeab961355c6c706"
+                        },
+                        "XENCrypto100001": {
+                          "bytecode_hash": "0x26e71d0a90749524c4ae92fb5acff2c315a0c095a6883f614cd8e13d262e91ee"
+                        },
+                        "ERC20": {
+                          "bytecode_hash": "0x175c0f127df08b032d73b5bfc0a1cf0f7b981e952ef19074a74c0ddc16898c4d"
+                        },
+                        "ABDKMath64x64": {
+                          "bytecode_hash": "0x2e2b2f7b9564e8d033c6ab167e73e1714fa1482160773078123a588a29c48278"
+                        },
+                        "XENCrypto5001": {
+                          "bytecode_hash": "0xb7a8be2ebf91961cbe17fed439fcee46b1bd02bdd6216875cbedcf2de4ecc4ef"
+                        },
+                        "RevertingBurner": {
+                          "bytecode_hash": "0xe99a415359d4a445134956ccd0215e323c48d4bb72d9b4a2ebfa3581a939177b"
+                        },
+                        "XENCrypto": {
+                          "bytecode_hash": "0x2ca4a5b6cffc4bcfe67b80f3272071340a0a8ceb3412683f8512e86aa8762d31"
+                        },
+                        "XENCrypto25mm1": {
+                          "bytecode_hash": "0xdb420eba936603ac6a9069c8d7a7fc8e9ef097791f63a013b536759bb140420c"
+                        }
+                      },
+                      "/home/runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/ethereum/weth.sol": {
+                        "WETH9": {
+                          "bytecode_hash": "0xee92996c69252def87f67d796570e2dbbbf684485b0b84624a132e12e4a37444"
+                        }
+                      },
+                      "/home/runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/ethereum/xen/xen_minter.sol": {
+                        "CoinTool_Proxy": {
+                          "bytecode_hash": "0x9eff6249b1c05e701b5e6c4f86ee751093c61ed616c9b20c50ff2a552a978296"
+                        },
+                        "CoinTool_Benchmark": {
+                          "bytecode_hash": "0xfb97461299c0a482e564f7480a3ede8a3aba3218791bf1270505724c0f58c7a7"
+                        },
+                        "CoinTool_App": {
+                          "bytecode_hash": "0xae2d1f5bbbf2e00d6b1f5993c5ffa1b4965eaa36b1a2d5031aa9240e9e03a7fa"
+                        }
+                      },
+                      "/home/runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/ethereum/tether.sol": {
+                        "TetherBenchmark": {
+                          "bytecode_hash": "0x1d8efd4da1f7aec4c0222ce348e7a419c9e20ab9e071749844f2c45d7228d054"
+                        },
+                        "SafeMath": {
+                          "bytecode_hash": "0x2e2b2f7b9564e8d033c6ab167e73e1714fa1482160773078123a588a29c48278"
+                        },
+                        "TetherToken": {
+                          "bytecode_hash": "0xac698c0693b1a0683d93806747da5f88e09a507636ca7399cfd0b765e27b7cef"
+                        }
+                      }
+                    }
+                  },
+                  "deployed_contracts": {
+                    "CoinTool_Benchmark": "0x00de48310d77a4d56aa400248b0b1613508f5b73",
+                    "XENCrypto": "0x66a15edcc3b50a663e72f1457ffd49b9ae284ddc"
+                  }
+                },
+                "zombienet-revm-solc": {
+                  "node": {
+                    "id": 0,
+                    "platform_identifier": "zombienet-revm-solc",
+                    "connection_string": "http://localhost:8545"
+                  },
+                  "pre_link_compilation_status": {
+                    "status": "Success",
+                    "is_cached": false,
+                    "compiler_version": "0.8.29",
+                    "compiler_path": "/home/runner/_work/revive-differential-tests/revive-differential-tests/workdir/solc/0.8.29/linux-amd64",
+                    "compiled_contracts_info": {
+                      "/home/runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/ethereum/xen/xen_token.sol": {
+                        "IERC20": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "XENCrypto25mm1": {
+                          "bytecode_hash": "0x3704779b5b91079f1c00774f39d9c80ce63096382e6d3c092aa3173baeb5157f"
+                        },
+                        "XENMath": {
+                          "bytecode_hash": "0xabf95951f4ee42819519f41f38fbba48f60d29d9910bc78185268dfa75de323a"
+                        },
+                        "Context": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "IERC20Metadata": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "IBurnRedeemable": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "IStakingToken": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "XENCrypto": {
+                          "bytecode_hash": "0x5b7291d20ce58b98e5940f0bf935a34f194485a6538872357db60492d24c8be6"
+                        },
+                        "IRankedMintingToken": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "Burner": {
+                          "bytecode_hash": "0x9d6a960c83428edd7e41b19da3ae0ac21e07725bc2f2d3d4be7165bfcae3957e"
+                        },
+                        "XENCrypto100001": {
+                          "bytecode_hash": "0x3b85bf652c3c0c0b8a689a59fc604f99daf5291b72f33d9f7ed0e1ba5f5c5321"
+                        },
+                        "XENCrypto5001": {
+                          "bytecode_hash": "0x2c21547853ad2723eb0ab3581c4b078903ad51d55d85dd8b0b14b6135d835c8a"
+                        },
+                        "ERC20": {
+                          "bytecode_hash": "0xc7d8b38583618638ca00905f792919a3661d125e57da8d984cb3497454aab4c4"
+                        },
+                        "RevertingBurner": {
+                          "bytecode_hash": "0x16f5027c562f03b6e324fec691b2cbf02c79f9a0d26efeeccbe8ca6e6975a79c"
+                        },
+                        "IERC165": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "BadBurner": {
+                          "bytecode_hash": "0x8850da1a8f9250ef4ce869d4cb9b00943dba83c5046c89745229d678e747b8da"
+                        },
+                        "IBurnableToken": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "ABDKMath64x64": {
+                          "bytecode_hash": "0x19683edc5a3420b19ab32a8d5b28a420cd2be617c63f657c3ea37bf4d8099343"
+                        }
+                      },
+                      "/home/runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/ethereum/xen/xen_minter.sol": {
+                        "CoinTool_Benchmark": {
+                          "bytecode_hash": "0x04b53caf7191489c418e702f2bc3d62e38f6bcdae8c3493ed935b6811447785a"
+                        },
+                        "CoinTool_App": {
+                          "bytecode_hash": "0x17a9c1ec0a74569031051d51e79108d7808a57f92a85bce4754bd201b8ae884e"
+                        },
+                        "IERC20": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "CoinTool_Proxy": {
+                          "bytecode_hash": "0x32cb7906fd5967b8dcd64067f3ddfc1307c472e5741c71280a70393c30a73e6a"
+                        }
+                      },
+                      "/home/runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/ethereum/weth.sol": {
+                        "WETH9": {
+                          "bytecode_hash": "0xfcc1b73b021216ab0c0c2551f816488287348018ade28609c37f1f9cc772be9c"
+                        }
+                      },
+                      "/home/runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/ethereum/tether.sol": {
+                        "ERC20Basic": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "BasicToken": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "SafeMath": {
+                          "bytecode_hash": "0x613a465cc3d30ea468350670b8e9d043fb0b40ce50a0fafecc6a6bded0d89f97"
+                        },
+                        "ERC20": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "BlackList": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "Pausable": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "TetherToken": {
+                          "bytecode_hash": "0x924fcc8b314145fa087c401dcbda125b48583ab96faff3459afffefe8178527d"
+                        },
+                        "TetherBenchmark": {
+                          "bytecode_hash": "0xfa82160bf1afae991a88c5e9788ce29814e7112b3495a3b81d89c8a4ae52ada1"
+                        },
+                        "UpgradedStandardToken": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "StandardToken": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "Ownable": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        }
+                      }
+                    }
+                  },
+                  "post_link_compilation_status": {
+                    "status": "Success",
+                    "is_cached": false,
+                    "compiler_version": "0.8.29",
+                    "compiler_path": "/home/runner/_work/revive-differential-tests/revive-differential-tests/workdir/solc/0.8.29/linux-amd64",
+                    "compiled_contracts_info": {
+                      "/home/runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/ethereum/tether.sol": {
+                        "UpgradedStandardToken": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "Pausable": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "StandardToken": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "BasicToken": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "SafeMath": {
+                          "bytecode_hash": "0x6ff28d7c458a3073dfa51d20492119724fd78887c45db8dd71fcf3c41329dc02"
+                        },
+                        "ERC20": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "ERC20Basic": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "Ownable": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "TetherToken": {
+                          "bytecode_hash": "0x1340c2db134734a00addf7104405a78698585ff551b183dc41696bc728240886"
+                        },
+                        "TetherBenchmark": {
+                          "bytecode_hash": "0x3fbb4013fa20c864a59929cea8e5608324a20ff158bad9184d56634d46b16e57"
+                        },
+                        "BlackList": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        }
+                      },
+                      "/home/runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/ethereum/xen/xen_minter.sol": {
+                        "CoinTool_Benchmark": {
+                          "bytecode_hash": "0x457eb7ef9752c3e1b05bc62c60b4686f0cdf2f1263e33abf7af827b268275815"
+                        },
+                        "CoinTool_Proxy": {
+                          "bytecode_hash": "0x0933358c3ea39a0dd9977b7efc93e9eb7458f1d55788f34d6a278bf55fef83ac"
+                        },
+                        "CoinTool_App": {
+                          "bytecode_hash": "0x3798bdd0f178c67336294879a037b4cb5421d87659b3616a9337922b179478c1"
+                        },
+                        "IERC20": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        }
+                      },
+                      "/home/runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/ethereum/weth.sol": {
+                        "WETH9": {
+                          "bytecode_hash": "0x9ccb257dfc04411b1d39bbe743c15bb4fe583505a0df7f0c39f778b6611c0ec8"
+                        }
+                      },
+                      "/home/runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/ethereum/xen/xen_token.sol": {
+                        "Context": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "ABDKMath64x64": {
+                          "bytecode_hash": "0x9403e766badd8ff65e35d7eed8749d49bda7c100427371f506f419ba6ba0bc4a"
+                        },
+                        "XENCrypto100001": {
+                          "bytecode_hash": "0x9f69eddba402b007df6ccd8841b91744a0508d443a322179dfac2b6bcece7914"
+                        },
+                        "XENCrypto25mm1": {
+                          "bytecode_hash": "0x9963f2efbd9c20fb2d76a6d5108bc2c7bd1ac4e8ee7de80743987ba4f003c7bf"
+                        },
+                        "Burner": {
+                          "bytecode_hash": "0xd12f013fdacc9672a4e9dab269bb215e53fd27322a8efc28dd5faa8739cf22c3"
+                        },
+                        "XENCrypto": {
+                          "bytecode_hash": "0x8bb9ffd7b80a0500b7ac16fa968b6aab42e23808911cbbc6db390d57b6239d3e"
+                        },
+                        "RevertingBurner": {
+                          "bytecode_hash": "0xe0817408701adc68d446cf18b8a0ddeef17b386ac47eaeb2b5240a049293db2f"
+                        },
+                        "IERC20": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "BadBurner": {
+                          "bytecode_hash": "0x1f6eb1a9b340bb02e499fe13009004e61081b80d1edf96b8a205f348705b6665"
+                        },
+                        "IRankedMintingToken": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "XENMath": {
+                          "bytecode_hash": "0x670b12b7fab2c5ed7c496d38c2a0c2fceb5bc1d82f8c83296658c3148bd8cc52"
+                        },
+                        "IBurnableToken": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "IBurnRedeemable": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "IStakingToken": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "IERC20Metadata": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "XENCrypto5001": {
+                          "bytecode_hash": "0x4862146ca4c7451d63425ce3bfe66280d9f4afaf34072101b3f5e2b608c7010b"
+                        },
+                        "IERC165": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "ERC20": {
+                          "bytecode_hash": "0x7824cf26c35cccb625e064bab6eacd48e56eb720dffc3546349659d1f91b6da2"
+                        }
+                      }
+                    }
+                  },
+                  "deployed_contracts": {
+                    "CoinTool_Benchmark": "0xde09e74d4888bc4e65f589e8c13bce9f71ddf4c7",
+                    "XENCrypto": "0x2946259e0334f33a064106302415ad3391bed384"
+                  }
+                }
+              },
+              "compiled_contracts": {
+                "/home/runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/ethereum/tether.sol": {
+                  "BasicToken": {
+                    "contract_size": {
+                      "lighthouse-geth-evm-solc": 0,
+                      "zombienet-revm-solc": 0
+                    }
+                  },
+                  "BlackList": {
+                    "contract_size": {
+                      "lighthouse-geth-evm-solc": 0,
+                      "zombienet-revm-solc": 0
+                    }
+                  },
+                  "ERC20": {
+                    "contract_size": {
+                      "lighthouse-geth-evm-solc": 0,
+                      "zombienet-revm-solc": 0
+                    }
+                  },
+                  "ERC20Basic": {
+                    "contract_size": {
+                      "lighthouse-geth-evm-solc": 0,
+                      "zombienet-revm-solc": 0
+                    }
+                  },
+                  "Ownable": {
+                    "contract_size": {
+                      "lighthouse-geth-evm-solc": 0,
+                      "zombienet-revm-solc": 0
+                    }
+                  },
+                  "Pausable": {
+                    "contract_size": {
+                      "lighthouse-geth-evm-solc": 0,
+                      "zombienet-revm-solc": 0
+                    }
+                  },
+                  "SafeMath": {
+                    "contract_size": {
+                      "lighthouse-geth-evm-solc": 106,
+                      "zombienet-polkavm-resolc": 1065,
+                      "zombienet-revm-solc": 106
+                    }
+                  },
+                  "StandardToken": {
+                    "contract_size": {
+                      "lighthouse-geth-evm-solc": 0,
+                      "zombienet-revm-solc": 0
+                    }
+                  },
+                  "TetherBenchmark": {
+                    "contract_size": {
+                      "lighthouse-geth-evm-solc": 1671,
+                      "zombienet-polkavm-resolc": 6069,
+                      "zombienet-revm-solc": 1671
+                    }
+                  },
+                  "TetherToken": {
+                    "contract_size": {
+                      "lighthouse-geth-evm-solc": 12065,
+                      "zombienet-polkavm-resolc": 59102,
+                      "zombienet-revm-solc": 12065
+                    }
+                  },
+                  "UpgradedStandardToken": {
+                    "contract_size": {
+                      "lighthouse-geth-evm-solc": 0,
+                      "zombienet-revm-solc": 0
+                    }
+                  }
+                },
+                "/home/runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/ethereum/weth.sol": {
+                  "WETH9": {
+                    "contract_size": {
+                      "lighthouse-geth-evm-solc": 3918,
+                      "zombienet-polkavm-resolc": 17055,
+                      "zombienet-revm-solc": 3918
+                    }
+                  }
+                },
+                "/home/runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/ethereum/xen/xen_minter.sol": {
+                  "CoinTool_App": {
+                    "contract_size": {
+                      "lighthouse-geth-evm-solc": 7012,
+                      "zombienet-polkavm-resolc": 39322,
+                      "zombienet-revm-solc": 7012
+                    }
+                  },
+                  "CoinTool_Benchmark": {
+                    "contract_size": {
+                      "lighthouse-geth-evm-solc": 7771,
+                      "zombienet-polkavm-resolc": 45951,
+                      "zombienet-revm-solc": 7771
+                    }
+                  },
+                  "CoinTool_Proxy": {
+                    "contract_size": {
+                      "lighthouse-geth-evm-solc": 903,
+                      "zombienet-polkavm-resolc": 3079,
+                      "zombienet-revm-solc": 903
+                    }
+                  },
+                  "IERC20": {
+                    "contract_size": {
+                      "lighthouse-geth-evm-solc": 0,
+                      "zombienet-revm-solc": 0
+                    }
+                  }
+                },
+                "/home/runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/ethereum/xen/xen_token.sol": {
+                  "ABDKMath64x64": {
+                    "contract_size": {
+                      "lighthouse-geth-evm-solc": 106,
+                      "zombienet-polkavm-resolc": 1065,
+                      "zombienet-revm-solc": 106
+                    }
+                  },
+                  "BadBurner": {
+                    "contract_size": {
+                      "lighthouse-geth-evm-solc": 6507,
+                      "zombienet-polkavm-resolc": 32307,
+                      "zombienet-revm-solc": 6507
+                    }
+                  },
+                  "Burner": {
+                    "contract_size": {
+                      "lighthouse-geth-evm-solc": 7225,
+                      "zombienet-polkavm-resolc": 35824,
+                      "zombienet-revm-solc": 7225
+                    }
+                  },
+                  "Context": {
+                    "contract_size": {
+                      "lighthouse-geth-evm-solc": 0,
+                      "zombienet-revm-solc": 0
+                    }
+                  },
+                  "ERC20": {
+                    "contract_size": {
+                      "lighthouse-geth-evm-solc": 5304,
+                      "zombienet-polkavm-resolc": 31115,
+                      "zombienet-revm-solc": 5304
+                    }
+                  },
+                  "IBurnRedeemable": {
+                    "contract_size": {
+                      "lighthouse-geth-evm-solc": 0,
+                      "zombienet-revm-solc": 0
+                    }
+                  },
+                  "IBurnableToken": {
+                    "contract_size": {
+                      "lighthouse-geth-evm-solc": 0,
+                      "zombienet-revm-solc": 0
+                    }
+                  },
+                  "IERC165": {
+                    "contract_size": {
+                      "lighthouse-geth-evm-solc": 0,
+                      "zombienet-revm-solc": 0
+                    }
+                  },
+                  "IERC20": {
+                    "contract_size": {
+                      "lighthouse-geth-evm-solc": 0,
+                      "zombienet-revm-solc": 0
+                    }
+                  },
+                  "IERC20Metadata": {
+                    "contract_size": {
+                      "lighthouse-geth-evm-solc": 0,
+                      "zombienet-revm-solc": 0
+                    }
+                  },
+                  "IRankedMintingToken": {
+                    "contract_size": {
+                      "lighthouse-geth-evm-solc": 0,
+                      "zombienet-revm-solc": 0
+                    }
+                  },
+                  "IStakingToken": {
+                    "contract_size": {
+                      "lighthouse-geth-evm-solc": 0,
+                      "zombienet-revm-solc": 0
+                    }
+                  },
+                  "RevertingBurner": {
+                    "contract_size": {
+                      "lighthouse-geth-evm-solc": 6331,
+                      "zombienet-polkavm-resolc": 31963,
+                      "zombienet-revm-solc": 6331
+                    }
+                  },
+                  "XENCrypto": {
+                    "contract_size": {
+                      "lighthouse-geth-evm-solc": 23693,
+                      "zombienet-polkavm-resolc": 133415,
+                      "zombienet-revm-solc": 23693
+                    }
+                  },
+                  "XENCrypto100001": {
+                    "contract_size": {
+                      "lighthouse-geth-evm-solc": 22918,
+                      "zombienet-polkavm-resolc": 130948,
+                      "zombienet-revm-solc": 22918
+                    }
+                  },
+                  "XENCrypto25mm1": {
+                    "contract_size": {
+                      "lighthouse-geth-evm-solc": 22920,
+                      "zombienet-polkavm-resolc": 130949,
+                      "zombienet-revm-solc": 22920
+                    }
+                  },
+                  "XENCrypto5001": {
+                    "contract_size": {
+                      "lighthouse-geth-evm-solc": 22916,
+                      "zombienet-polkavm-resolc": 130947,
+                      "zombienet-revm-solc": 22916
+                    }
+                  },
+                  "XENMath": {
+                    "contract_size": {
+                      "lighthouse-geth-evm-solc": 2750,
+                      "zombienet-polkavm-resolc": 5008,
+                      "zombienet-revm-solc": 2750
+                    }
+                  }
+                }
+              },
+              "contract_addresses": {
+                "CoinTool_Benchmark": {
+                  "lighthouse-geth-evm-solc": [
+                    "0xde09e74d4888bc4e65f589e8c13bce9f71ddf4c7"
+                  ],
+                  "zombienet-polkavm-resolc": [
+                    "0x00de48310d77a4d56aa400248b0b1613508f5b73"
+                  ],
+                  "zombienet-revm-solc": [
+                    "0xde09e74d4888bc4e65f589e8c13bce9f71ddf4c7"
+                  ]
+                },
+                "XENCrypto": {
+                  "lighthouse-geth-evm-solc": [
+                    "0x2946259e0334f33a064106302415ad3391bed384"
+                  ],
+                  "zombienet-polkavm-resolc": [
+                    "0x66a15edcc3b50a663e72f1457ffd49b9ae284ddc"
+                  ],
+                  "zombienet-revm-solc": [
+                    "0x2946259e0334f33a064106302415ad3391bed384"
+                  ]
+                }
+              },
+              "mined_block_information": {},
+              "steps": {
+                "2.0": {
+                  "transactions": {}
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
