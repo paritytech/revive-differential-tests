@@ -199,7 +199,7 @@ mod context {
     /// Configuration for fail-fast behavior.
     #[configuration]
     pub struct FailFastConfiguration {
-        /// Abort test execution after the first failure. Remaining tests are marked as ignored in
+        /// Abort executing the tasks after the first failure. Remaining tasks are marked as ignored in
         /// the report.
         #[arg(long = "fail-fast")]
         pub fail_fast: bool,
@@ -248,8 +248,8 @@ mod context {
         ///
         /// - `Y`: Pipeline (via Yul IR)
         /// - `[+-]`: Optimization shorthand
-        ///           - `+` (optimized:   M3, solc optimizer enabled)
-        ///           - `-` (unoptimized: M0, solc optimizer disabled)
+        ///           - `+` (`M0`..`M3`, `Ms`, `Mz`, and solc optimizer enabled)
+        ///           - `-` (`M0`..`M3`, `Ms`, `Mz`, and solc optimizer disabled)
         /// - `M[0123sz]`: Resolc/LLVM optimization level
         /// - `S[+-]`: Solc optimizer
         ///           - `S+` (enabled)
@@ -259,8 +259,9 @@ mod context {
         /// Priority:
         /// - Explicit `M`/`S` settings override the `+`/`-` shorthand.
         /// - If omitted, expands to all combinations we'd like to test. E.g.:
+        ///   - `Y M3 S+` → `Y M3 S+`
         ///   - `Y M3` → `Y M3 S+` and `Y M3 S-`
-        ///   - `Y S+` → `Y M0 S+`, `Y M3 S+`, and `Y Mz S+`
+        ///   - `Y S+` → `Y M0 S+`, `Y M1 S+`, `Y M2 S+`, `Y M3 S+`, `Y Ms S+`, and `Y Mz S+`
         #[serde_as(as = "Vec<serde_with::DisplayFromStr>")]
         #[arg(
             short = 'm',

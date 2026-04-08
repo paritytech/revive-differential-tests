@@ -21,7 +21,7 @@ pub struct Case {
     /// Mode strings can take the following form (in pseudo-regex):
     ///
     /// ```text
-    /// [YEILV][+-]? (M[0123sz])? <semver>?
+    /// [YEILV][+-]? (M[0123sz])? (S[+-])? <semver>?
     /// ```
     ///
     /// If this is provided then it takes higher priority than the modes specified in the metadata

@@ -276,7 +276,7 @@ impl ModeOptimizerLevel {
 /// - `M[0123sz]`: LLVM optimizer level — `M0` (none), `M1` (light), `M2` (default),
 ///   `M3` (aggressive performance), `Ms` (size), `Mz` (aggressive size).
 /// - `S[+-]`: Solc optimizer — `S+` (enabled) or `S-` (disabled).
-/// - `<semver>`: Version requirement.
+/// - `<semver>`: Solc version requirement.
 ///
 /// ## Expansion rules
 ///
@@ -309,7 +309,7 @@ pub struct ParsedMode {
     pub optimize_flag: Option<bool>,
     pub optimize_level: Option<ModeOptimizerLevel>,
     pub solc_optimizer_enabled: Option<bool>,
-    pub version: Option<semver::VersionReq>,
+    pub solc_version: Option<semver::VersionReq>,
 }
 
 impl FromStr for ParsedMode {
@@ -325,7 +325,7 @@ impl FromStr for ParsedMode {
                 \s*
                 (?:S(?P<solc_optimizer_enabled>[+-]))?             # Solc optimizer e.g. S+, S-
                 \s*
-                (?P<version>[>=<^]*\d+(?:\.\d+)*)?                 # Optional semver version e.g. >=0.8.0, 0.7, <0.8
+                (?P<solc_version>[>=<^]*\d+(?:\.\d+)*)?            # Optional semver version e.g. >=0.8.0, 0.7, <0.8
                 $
             ",
             )
@@ -358,12 +358,12 @@ impl FromStr for ParsedMode {
             .name("solc_optimizer_enabled")
             .map(|m| m.as_str() == "+");
 
-        let version = match caps.name("version") {
+        let solc_version = match caps.name("solc_version") {
             Some(m) => Some(
                 semver::VersionReq::parse(m.as_str())
                     .map_err(|e| {
                         anyhow::anyhow!(
-                            "Cannot parse the version requirement '{}': {e}",
+                            "Cannot parse the solc version requirement '{}': {e}",
                             m.as_str()
                         )
                     })
@@ -377,7 +377,7 @@ impl FromStr for ParsedMode {
             optimize_flag,
             optimize_level,
             solc_optimizer_enabled,
-            version,
+            solc_version,
         })
     }
 }
@@ -410,11 +410,11 @@ impl Display for ParsedMode {
             has_written = true;
         }
 
-        if let Some(version) = &self.version {
+        if let Some(solc_version) = &self.solc_version {
             if has_written {
                 f.write_str(" ")?;
             }
-            version.fmt(f)?;
+            solc_version.fmt(f)?;
         }
 
         Ok(())
@@ -519,7 +519,7 @@ impl ParsedMode {
                 .map(move |optimize_setting| Mode {
                     pipeline,
                     optimize_setting,
-                    solc_version: self.version.clone(),
+                    solc_version: self.solc_version.clone(),
                 })
         })
     }
