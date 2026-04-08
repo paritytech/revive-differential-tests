@@ -1235,6 +1235,8 @@ mod tests {
             proof_size: 3000,
             max_proof_size: 6000,
             block_hash: [0u8; 32],
+            pre_dispatch_ref_time: 0,
+            pre_dispatch_proof_size: 0,
         };
         let blocks = vec![
             make_block(
