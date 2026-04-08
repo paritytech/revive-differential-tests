@@ -118,6 +118,7 @@ runs:
           ${SOLC_VERSION:+--solc.version "$SOLC_VERSION"} \
           --report.file-name "$REPORT_FILE_NAME" \
           --report.include-compiler-output \
+          --report.include-compiler-input \
           --working-directory ./workdir \
           --concurrency.number-of-threads 10 \
           --concurrency.number-of-concurrent-tasks 100 \
