@@ -6,12 +6,13 @@ use crate::internal_prelude::*;
 /// Returns an error if `base_path` is `Some` but is not a base directory of `path`.
 ///
 /// Purpose of normalization:
-/// 1. **Correct import resolution on Windows**: (TODO: Temporarily adding normalization here
-///    for the purpose stated, in order to work around a solc bug and isolate remaining mismatches
-///    found for easier investigation.) Solc's Standard JSON mode stores source keys verbatim
+/// 1. **Correct import resolution on Windows**: Solc's standard JSON mode stores source keys verbatim
 ///    but resolves relative imports after normalizing to forward slashes, causing source lookup
 ///    misses (e.g. trying to look up `D:/a/fixtures/lib.sol` instead of `D:\a\fixtures\lib.sol`).
-///    This in turn causes duplicate declaration errors and library linker symbol mismatches.
+///    This in turn causes duplicate declaration errors and library linker symbol mismatches
+///    (see [Solidity Issue #16579](https://github.com/argotorg/solidity/issues/16579)).
+///    We therefore normalize the standard JSON input source paths in `sources` and `libraries`,
+///    allowing more contracts to be compiled.
 /// 2. **Consistent hash export keys**: During report processing, ensures the same contract maps
 ///    to the same key in exported hash files regardless of which platform produced the report,
 ///    allowing for hash comparison across platforms.
@@ -89,6 +90,18 @@ mod tests {
             normalize_path(
                 Path::new("/home/runner/fixtures/solidity/simple/default.sol"),
                 Some(Path::new("/home/runner/fixtures/")),
+            )
+            .unwrap(),
+            "solidity/simple/default.sol"
+        );
+    }
+
+    #[test]
+    fn normalize_path_extended_length() {
+        assert_eq!(
+            normalize_path(
+                Path::new("\\\\?\\C:\\Users\\runner\\fixtures\\solidity\\simple\\default.sol"),
+                Some(Path::new("\\\\?\\C:\\Users\\runner\\fixtures")),
             )
             .unwrap(),
             "solidity/simple/default.sol"

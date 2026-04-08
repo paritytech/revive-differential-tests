@@ -454,8 +454,8 @@ pub enum Cli {
         output_path: PathBuf,
 
         /// The relative or absolute prefix path to remove from each source path found
-        /// in the [`Report`] when added to the exported file. The path is resolved to
-        /// its absolute canonical form before stripping. This is essential for normalization
+        /// in the [`Report`] when added to the exported file (the path is resolved to
+        /// its absolute canonical form before stripping). This is essential for normalization
         /// if the hashes are used for cross-platform comparison. For cross-platform comparison,
         /// this value should be the path to the base directory shared by all contracts,
         /// e.g. "/home/runner/work/contracts" or "C:\\Users\\runner\\work\\contracts".
