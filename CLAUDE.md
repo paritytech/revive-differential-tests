@@ -86,7 +86,7 @@ report-processor generate-expectations-file \
     --include-status failed
 ```
 
-## Supported Platforms
+### Supported Platforms
 
 | Platform CLI Name | Description |
 |-------------------|-------------|
@@ -98,6 +98,64 @@ report-processor generate-expectations-file \
 | `zombienet-revm-solc` | Zombienet REVM + Solc |
 | `polkadot-omni-node-polkavm-resolc` | Polkadot Omni Node + Resolc |
 | `polkadot-omni-node-revm-solc` | Polkadot Omni Node + Solc |
+
+## Running Compilations and Comparing Bytecode Hashes
+
+You can compile contracts using different resolc builds (e.g. for Linux, macOS, and Windows) without executing differential tests. The compilation modes to compile each contract with (e.g. `Y M3 S+`) are passed via `--mode` arguments.
+
+The bytecode hashes generated are included in the compilation report and can be exported and then compared in order to verify that the bytecode produced by each build is identical for the specified mode.
+
+### Compiling Contracts
+
+How to compile (for each platform/build):
+
+```bash
+retester compile \
+    --compile ./resolc-compiler-tests/fixtures/solidity/simple \
+    --compile ./resolc-compiler-tests/fixtures/solidity/complex \
+    --compile ./resolc-compiler-tests/fixtures/solidity/translated_semantic_tests \
+    --mode "Y M0 S+" \
+    --mode "Y M3 S+" \
+    --mode "Y Mz S+" \
+    --resolc.path /path/to/resolc \
+    --resolc.heap-size 500000 \
+    --solc.version "0.8.33" \
+    --report.file-name report-compile.json \
+    --report.include-compiler-input \
+    --report.include-compiler-output \
+    --working-directory ./workdir \
+    --concurrency.number-of-threads 10 \
+    --concurrency.number-of-concurrent-tasks 100 \
+    > logs-compile.log \
+    2> output-compile.log
+```
+
+### Exporting Bytecode Hashes
+
+How to export bytecode hashes (for each platform/build):
+
+```bash
+report-processor export-hashes \
+    --report-path ./workdir/report-compile.json \
+    --output-path ./exported-hashes/hashes-macos.json \
+    --remove-prefix ./resolc-compiler-tests \
+    --platform-label macos
+```
+
+### Comparing Bytecode Hashes
+
+How to compare bytecode hashes:
+
+```bash
+report-processor compare-hashes \
+    --hash-path ./exported-hashes/hashes-macos.json \
+    --hash-path ./exported-hashes/hashes-linux.json \
+    --hash-path ./exported-hashes/hashes-windows.json \
+    --mode "Y M0 S+" \
+    --mode "Y M3 S+" \
+    --mode "Y Mz S+" \
+    --output-path ./hash-comparison.json
+```
 
 ## Architecture
 
@@ -151,7 +209,7 @@ For tests that fail gas estimation (e.g., due to `consume_all_gas` behavior in r
 ## External Dependencies
 
 **Always required:**
-- Solc (Solidity compiler) - auto-downloaded but resolc needs it in PATH
+- Solc (Solidity compiler) - auto-downloaded
 
 **Platform-specific:**
 | Platform | Required Tools |
