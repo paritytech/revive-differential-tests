@@ -1,55 +1,64 @@
-use alloy::serde::WithOtherFields;
-
 use crate::internal_prelude::*;
+use alloy::{eips::eip2718::Encodable2718, providers::Provider};
+use pallet_revive::{
+    EthTransactError, Weight,
+    codec::{Decode, Encode},
+};
+use subxt::utils::H256 as SubxtH256;
 
-/// Substrate weight as returned by the execution tracer's `baseCallWeight` and `weightConsumed`
-/// fields.
-#[derive(Debug, Clone, Default, Deserialize)]
-#[serde(default)]
-struct TraceWeight {
-    /// The ref time component of the weight.
-    ref_time: u64,
-    /// The proof size component of the weight.
-    proof_size: u64,
-}
+const ETH_PRE_DISPATCH_WEIGHT_RUNTIME_API: &str = "ReviveApi_eth_pre_dispatch_weight";
 
-/// Minimal execution trace frame that captures only the top-level fields we need from the execution
-/// tracer response. Tracer-specific extras such as `baseCallWeight` land in the `OtherFields` bag
-/// when wrapped with [`WithOtherFields`].
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[serde(default, rename_all = "camelCase")]
-struct MinimalExecutionTrace {
-    /// Whether the transaction failed.
-    failed: bool,
-    /// Total gas used by the transaction.
-    gas: u64,
-}
+async fn eth_pre_dispatch_weight(
+    substrate_provider: &OnlineClient<PolkadotConfig>,
+    block_hash: SubxtH256,
+    signed_payload: Vec<u8>,
+) -> Result<Weight> {
+    let encoded_args = signed_payload.encode();
 
-/// A single entry from a `debug_traceBlockByNumber`
-/// response array, mirroring alloy's
-/// [`TraceResult`](alloy::rpc::types::trace::common::TraceResult)
-/// but using our own result type so that the extra
-/// weight fields are preserved.
-#[derive(Debug, Deserialize)]
-#[serde(untagged)]
-enum ExecutionTraceResult {
-    /// The trace was produced successfully.
-    Success {
-        /// The trace result with additional fields.
-        result: WithOtherFields<MinimalExecutionTrace>,
-        /// The hash of the traced transaction.
-        #[serde(rename = "txHash")]
-        tx_hash: Option<TxHash>,
-    },
-    /// The tracer returned an error for this
-    /// transaction.
-    Error {
-        /// The error message from the tracer.
-        error: String,
-        /// The hash of the traced transaction.
-        #[serde(rename = "txHash")]
-        tx_hash: Option<TxHash>,
-    },
+    let result_bytes = retry_with_exponential_backoff(10, Duration::from_secs(1), || async {
+        match substrate_provider
+            .runtime_api()
+            .at(block_hash)
+            .call_raw(
+                ETH_PRE_DISPATCH_WEIGHT_RUNTIME_API,
+                Some(encoded_args.as_slice()),
+            )
+            .await
+        {
+            Ok(result) => ControlFlow::Break(result),
+            Err(err) => {
+                warn!(
+                    ?block_hash,
+                    ?err,
+                    "Failed to call eth_pre_dispatch_weight runtime API, retrying"
+                );
+                ControlFlow::Continue(anyhow::anyhow!("{err:?}"))
+            }
+        }
+    })
+    .await
+    .with_context(|| {
+        format!(
+            "Failed to call {ETH_PRE_DISPATCH_WEIGHT_RUNTIME_API} at block {block_hash:?} \
+             after retries"
+        )
+    })?;
+
+    let mut result_bytes = result_bytes.as_slice();
+    let result =
+        Result::<Weight, EthTransactError>::decode(&mut result_bytes).with_context(|| {
+            format!(
+                "Failed to decode {ETH_PRE_DISPATCH_WEIGHT_RUNTIME_API} result at block \
+                 {block_hash:?}"
+            )
+        })?;
+
+    result.map_err(|err| {
+        anyhow::anyhow!(
+            "{ETH_PRE_DISPATCH_WEIGHT_RUNTIME_API} returned an error at block {block_hash:?}: \
+             {err:?}"
+        )
+    })
 }
 
 /// This struct defines the watcher used in the benchmarks. A watcher is only valid for 1 workload
@@ -313,202 +322,195 @@ impl Watcher {
             });
 
             // Execute both of the tasks concurrently until they both complete.
-            let (transaction_registration_information, mut observed_blocks) =
+            let (transaction_registration_information, observed_blocks) =
                 try_join(registration_task, block_subscription_task).await?;
 
-            // The registration and the block observation tasks are done. We can now verify that all
-            // submitted transactions succeeded. For substrate platforms we use the execution tracer
-            // which also gives us pre-dispatch weights; for non-substrate platforms we fall back to
-            // fetching receipts from the eth RPC.
-            match self.substrate_provider {
-                Some(_) => {
-                    let trace_options = serde_json::json!({
-                        "tracer": "executionTracer"
-                    });
-
-                    let mut failed_count = 0usize;
-
-                    for block in &mut observed_blocks {
-                        let Some(substrate_info) =
-                            &mut block.substrate_block_information
-                        else {
-                            continue;
-                        };
-
-                        let block_number =
-                            block.ethereum_block_information.block_number;
-                        let params = serde_json::value::to_raw_value(&(
-                            format!("0x{block_number:x}"),
-                            &trace_options,
-                        ))
-                        .context("Failed to serialize trace params")?;
-
-                        let raw_result = retry_with_exponential_backoff(
-                            10,
-                            Duration::from_secs(1),
-                            || async {
-                                match self
-                                    .provider
-                                    .raw_request_dyn(
-                                        "debug_traceBlockByNumber".into(),
-                                        &params,
-                                    )
-                                    .await
-                                {
-                                    Ok(result) => ControlFlow::Break(result),
-                                    Err(err) => {
-                                        warn!(
-                                            block_number,
-                                            ?err,
-                                            "Failed to trace block, retrying"
-                                        );
-                                        ControlFlow::Continue(err)
-                                    }
-                                }
-                            },
-                        )
+            // The registration and the block observation tasks are done. We can now try to get the
+            // receipts of all of the transactions that were submitted. We will get them through the
+            // rpc depending on the platform. The range of receipts we get is the ones for all of
+            // the blocks which we've observed.
+            let observed_receipts: Vec<TransactionReceipt> = match self.substrate_provider {
+                Some(ref substrate_provider) => {
+                    let receipt_extractor = ReceiptExtractor::new(substrate_provider.clone(), None)
                         .await
-                        .with_context(|| {
-                            format!(
-                                "Failed to trace block {block_number} \
-                                 after retries"
-                            )
-                        })?;
+                        .context("Failed to create the receipt extractor")
+                        .map(Arc::new)?;
+                    let block_data: Vec<_> = observed_blocks
+                        .iter()
+                        .map(|b| {
+                            let block_hash = b
+                                .substrate_block_information
+                                .as_ref()
+                                .expect("Substrate block information must be present")
+                                .block_hash;
+                            (block_hash, b.ethereum_block_information.block_number)
+                        })
+                        .collect();
+                    stream::iter(block_data)
+                        .map(|(block_hash, block_number)| {
+                            let receipt_extractor = receipt_extractor.clone();
+                            let substrate_provider = substrate_provider.clone();
+                            async move {
+                                let block =
+                                    retry_with_exponential_backoff(10, Duration::from_secs(1), || async {
+                                        match substrate_provider.blocks().at(H256(block_hash)).await {
+                                            Ok(block) => ControlFlow::Break(block),
+                                            Err(err) => {
+                                                warn!(
+                                                    block_number,
+                                                    ?err,
+                                                    "Failed to get the block, retrying"
+                                                );
+                                                ControlFlow::Continue(err)
+                                            }
+                                        }
+                                    })
+                                    .await
+                                    .with_context(|| {
+                                        format!("Failed to get block {block_number} after retries")
+                                    })
+                                    .expect("Can't fail");
+                                info!(block.number = block.number(), "Observed a new receipts block");
 
-                        let traces: Vec<ExecutionTraceResult> =
-                            serde_json::from_str(raw_result.get())
-                                .with_context(|| {
-                                    format!(
-                                        "Failed to deserialize execution \
-                                         traces for block {block_number}"
-                                    )
-                                })?;
+                                let receipts =
+                                    retry_with_exponential_backoff(10, Duration::from_secs(1), || async {
+                                        match receipt_extractor.extract_from_block(&block).await {
+                                            Ok(receipts) => ControlFlow::Break(receipts),
+                                            Err(err) => {
+                                                warn!(
+                                                    block_number,
+                                                    ?err,
+                                                    "Failed to get the receipts for block, retrying"
+                                                );
+                                                ControlFlow::Continue(err)
+                                            }
+                                        }
+                                    })
+                                    .await
+                                    .with_context(|| {
+                                        format!(
+                                            "Failed to get receipts for block {block_number} after retries"
+                                        )
+                                    })
+                                    .expect("Can't fail");
 
-                        let mut total_ref_time: u128 = 0;
-                        let mut total_proof_size: u128 = 0;
-
-                        for entry in &traces {
-                            match entry {
-                                ExecutionTraceResult::Success {
-                                    result: trace,
-                                    tx_hash,
-                                } => {
-                                    let weight: TraceWeight = trace
-                                        .other
-                                        .get_deserialized("baseCallWeight")
-                                        .and_then(|r| r.ok())
-                                        .unwrap_or_default();
-
-                                    total_ref_time +=
-                                        weight.ref_time as u128;
-                                    total_proof_size +=
-                                        weight.proof_size as u128;
-
-                                    if trace.inner.failed {
-                                        failed_count += 1;
-                                        warn!(
-                                            block_number,
-                                            ?tx_hash,
-                                            gas = trace.inner.gas,
-                                            base_call_ref_time =
-                                                weight.ref_time,
-                                            base_call_proof_size =
-                                                weight.proof_size,
-                                            "Transaction failed \
-                                             (execution trace)"
-                                        );
-                                    }
-                                }
-                                ExecutionTraceResult::Error {
-                                    error,
-                                    tx_hash,
-                                } => {
-                                    failed_count += 1;
-                                    warn!(
-                                        block_number,
-                                        ?tx_hash,
-                                        error,
-                                        "Execution tracer returned an \
-                                         error for transaction"
-                                    );
-                                }
+                                receipts
+                                    .into_iter()
+                                    .map(|(_, receipt)| {
+                                        let serialized = serde_json::to_vec(&receipt).expect("Can't fail");
+                                        serde_json::from_slice::<TransactionReceipt>(&serialized)
+                                            .expect("Can't fail")
+                                    })
+                                    .collect::<Vec<_>>()
                             }
-                        }
-
-                        substrate_info.pre_dispatch_ref_time =
-                            total_ref_time;
-                        substrate_info.pre_dispatch_proof_size =
-                            total_proof_size;
-
-                        info!(
-                            block_number,
-                            total_ref_time,
-                            total_proof_size,
-                            traced_transactions = traces.len(),
-                            "Pre-dispatch weights collected for block"
-                        );
-                    }
-
-                    if failed_count > 0 {
-                        bail!(
-                            "Encountered {failed_count} failing \
-                             transaction(s) via execution traces"
-                        );
-                    }
+                        })
+                        .buffer_unordered(1000)
+                        .flat_map(|receipts| stream::iter(receipts.into_iter()))
+                        .collect::<Vec<_>>()
+                        .await
                 }
                 None => {
                     let block_numbers: Vec<_> = observed_blocks
                         .iter()
                         .map(|b| b.ethereum_block_information.block_number)
                         .collect();
-                    let observed_receipts: Vec<TransactionReceipt> =
-                        stream::iter(block_numbers)
-                            .map(|block_number| {
-                                let provider = self.provider.clone();
-                                async move {
-                                    retry_with_exponential_backoff(10, Duration::from_secs(1), || async {
-                                        match provider
-                                            .get_block_receipts(alloy::eips::BlockId::Number(block_number.into()))
-                                            .await
-                                        {
-                                            Ok(Some(receipts)) => {
-                                                info!(block.number = block_number, "Observed a new receipts block");
-                                                ControlFlow::Break(receipts)
-                                            },
-                                            other => {
-                                                warn!(
-                                                    block_number,
-                                                    result = ?other,
-                                                    "Failed to get the receipts for block, retrying"
-                                                );
-                                                ControlFlow::Continue(anyhow::anyhow!("{other:?}"))
-                                            }
+                    stream::iter(block_numbers)
+                        .map(|block_number| {
+                            let provider = self.provider.clone();
+                            async move {
+                                retry_with_exponential_backoff(10, Duration::from_secs(1), || async {
+                                    match provider
+                                        .get_block_receipts(alloy::eips::BlockId::Number(block_number.into()))
+                                        .await
+                                    {
+                                        Ok(Some(receipts)) => {
+                                            info!(block.number = block_number, "Observed a new receipts block");
+                                            ControlFlow::Break(receipts)
+                                        },
+                                        other => {
+                                            warn!(
+                                                block_number,
+                                                result = ?other,
+                                                "Failed to get the receipts for block, retrying"
+                                            );
+                                            ControlFlow::Continue(anyhow::anyhow!("{other:?}"))
                                         }
-                                    })
-                                    .await
-                                    .with_context(|| {
-                                        format!("Failed to get receipts for block {block_number} after retries")
-                                    })
-                                    .expect("Can't fail")
-                                }
-                            })
-                            .buffer_unordered(100)
-                            .flat_map(|receipts| stream::iter(receipts.into_iter()))
-                            .collect::<Vec<_>>()
-                            .await;
-
-                    if let failing_receipts = observed_receipts
-                        .into_iter()
-                        .filter(|receipt| !receipt.status())
+                                    }
+                                })
+                                .await
+                                .with_context(|| {
+                                    format!("Failed to get receipts for block {block_number} after retries")
+                                })
+                                .expect("Can't fail")
+                            }
+                        })
+                        .buffer_unordered(100)
+                        .flat_map(|receipts| stream::iter(receipts.into_iter()))
                         .collect::<Vec<_>>()
-                        && !failing_receipts.is_empty()
-                    {
-                        bail!(
-                            "Encountered failing receipts \
-                             {failing_receipts:?}, len: {}",
-                            failing_receipts.len()
-                        );
+                        .await
+                }
+            };
+
+            if let failing_receipts = observed_receipts
+                .into_iter()
+                .filter(|receipt| !receipt.status())
+                .collect::<Vec<_>>()
+                && !failing_receipts.is_empty()
+            {
+                bail!(
+                    "Encountered failing receipts {failing_receipts:?}, len: {}",
+                    failing_receipts.len()
+                );
+            }
+
+            // Getting the pre-dispatch weights for each one of the transaction steps that we have.
+            // Then, injecting this data into the block by estimating what the block's pre-dispatch
+            // weights would've been.
+            let mut pre_dispatch_weight_of_step = HashMap::new();
+            if let Some(substrate_provider) = &self.substrate_provider {
+                let block_hash = substrate_provider
+                    .blocks()
+                    .at_latest()
+                    .await
+                    .context("Failed to fetch latest substrate block for pre-dispatch weight")?
+                    .hash();
+
+                for (tx_hash, (path, _)) in transaction_registration_information.iter() {
+                    if pre_dispatch_weight_of_step.contains_key(path) {
+                        continue;
                     }
+
+                    let signed_payload = self
+                        .provider
+                        .get_transaction_by_hash(*tx_hash)
+                        .await
+                        .with_context(|| {
+                            format!("Failed to fetch the signed transaction for step {path}")
+                        })?
+                        .with_context(|| {
+                            format!(
+                                "Transaction {tx_hash} for step {path} was not found by \
+                                 eth_getTransactionByHash"
+                            )
+                        })?
+                        .into_inner()
+                        .encoded_2718();
+                    let pre_dispatch_weight =
+                        eth_pre_dispatch_weight(substrate_provider, block_hash, signed_payload)
+                            .await
+                            .with_context(|| {
+                                format!("Failed to compute pre-dispatch weight for step {path}")
+                            })?;
+
+                    info!(
+                        step_path = %path,
+                        %tx_hash,
+                        ref_time = pre_dispatch_weight.ref_time(),
+                        proof_size = pre_dispatch_weight.proof_size(),
+                        "Collected pre-dispatch weight for step"
+                    );
+
+                    pre_dispatch_weight_of_step.insert(path.clone(), pre_dispatch_weight);
                 }
             }
 
@@ -522,6 +524,30 @@ impl Watcher {
                         continue;
                     };
                     *block.tx_counts.entry(step_path.clone()).or_default() += 1;
+                }
+
+                if let Some(substrate_info) = &mut block.substrate_block_information {
+                    let mut pre_dispatch_ref_time = 0u128;
+                    let mut pre_dispatch_proof_size = 0u128;
+
+                    for (step_path, tx_count) in block.tx_counts.iter() {
+                        let weight =
+                            pre_dispatch_weight_of_step
+                                .get(step_path)
+                                .with_context(|| {
+                                    format!("Missing pre-dispatch weight for step {step_path}")
+                                })?;
+                        let tx_count = *tx_count as u128;
+
+                        pre_dispatch_ref_time = pre_dispatch_ref_time
+                            .saturating_add(u128::from(weight.ref_time()).saturating_mul(tx_count));
+                        pre_dispatch_proof_size = pre_dispatch_proof_size.saturating_add(
+                            u128::from(weight.proof_size()).saturating_mul(tx_count),
+                        );
+                    }
+
+                    substrate_info.pre_dispatch_ref_time = pre_dispatch_ref_time;
+                    substrate_info.pre_dispatch_proof_size = pre_dispatch_proof_size;
                 }
 
                 // Report information about the transactions within a block.

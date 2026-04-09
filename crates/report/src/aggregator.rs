@@ -876,6 +876,10 @@ pub struct MetricsInformation {
     pub additional_tx_capacity_ref_time: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub additional_tx_capacity_proof_size: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub additional_tx_capacity_pre_dispatch_ref_time: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub additional_tx_capacity_pre_dispatch_proof_size: Option<u64>,
 
     // Transaction pool fields
     /// The number of transactions pending in the transaction pool at the time this block was
@@ -1022,6 +1026,34 @@ pub fn compute_metrics_information(blocks: &[MinedBlockInformation]) -> Vec<Metr
             })
             .flatten();
 
+        let additional_tx_capacity_pre_dispatch_ref_time = (tx_count > 0)
+            .then(|| {
+                let s = block.substrate_block_information.as_ref()?;
+                let per_tx = s.pre_dispatch_ref_time.checked_div(tx_count as u128)?;
+                if per_tx == 0 {
+                    return Some(0u64);
+                }
+                Some(
+                    ((s.max_ref_time as u128).saturating_sub(s.pre_dispatch_ref_time) / per_tx)
+                        as u64,
+                )
+            })
+            .flatten();
+
+        let additional_tx_capacity_pre_dispatch_proof_size = (tx_count > 0)
+            .then(|| {
+                let s = block.substrate_block_information.as_ref()?;
+                let per_tx = s.pre_dispatch_proof_size.checked_div(tx_count as u128)?;
+                if per_tx == 0 {
+                    return Some(0u64);
+                }
+                Some(
+                    ((s.max_proof_size as u128).saturating_sub(s.pre_dispatch_proof_size) / per_tx)
+                        as u64,
+                )
+            })
+            .flatten();
+
         result.push(MetricsInformation {
             block_number: eth.block_number,
             relative_block_number: eth.block_number - min_block_number,
@@ -1047,6 +1079,8 @@ pub fn compute_metrics_information(blocks: &[MinedBlockInformation]) -> Vec<Metr
             additional_tx_capacity_gas,
             additional_tx_capacity_ref_time,
             additional_tx_capacity_proof_size,
+            additional_tx_capacity_pre_dispatch_ref_time,
+            additional_tx_capacity_pre_dispatch_proof_size,
             pending_transaction_count: block.pending_transaction_count,
         });
 
@@ -1367,6 +1401,38 @@ mod tests {
         assert_eq!(result[2].relative_block_timestamp_seconds, 20);
         assert_eq!(result[2].observation_time_seconds, 5020);
         assert_eq!(result[2].relative_observation_time_seconds, 20);
+    }
+
+    #[test]
+    fn pre_dispatch_additional_tx_capacity_computation() {
+        let substrate = SubstrateMinedBlockInformation {
+            ref_time: 5000,
+            max_ref_time: 10000,
+            proof_size: 3000,
+            max_proof_size: 6000,
+            block_hash: [0u8; 32],
+            pre_dispatch_ref_time: 4000,
+            pre_dispatch_proof_size: 2000,
+        };
+        let blocks = vec![make_block(
+            1,
+            100,
+            2,
+            600,
+            1000,
+            Some(substrate),
+            BTreeMap::new(),
+            obs(1000),
+        )];
+        let result = compute_metrics_information(&blocks);
+
+        assert_eq!(result.len(), 1);
+        let m = &result[0];
+        assert_eq!(m.additional_tx_capacity_gas, Some(1));
+        assert_eq!(m.additional_tx_capacity_ref_time, Some(2));
+        assert_eq!(m.additional_tx_capacity_proof_size, Some(2));
+        assert_eq!(m.additional_tx_capacity_pre_dispatch_ref_time, Some(3));
+        assert_eq!(m.additional_tx_capacity_pre_dispatch_proof_size, Some(4));
     }
 
     #[test]
