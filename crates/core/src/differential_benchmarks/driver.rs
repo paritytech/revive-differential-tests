@@ -259,8 +259,10 @@ where
 
         for (contract_path, contract_name_to_info_mapping) in compiler_output.contracts.iter() {
             for (contract_name, (contract_bytecode, _)) in contract_name_to_info_mapping.iter() {
-                let contract_bytecode = hex::decode(contract_bytecode)
-                    .expect("Impossible for us to get an undecodable bytecode after linking");
+                let Ok(contract_bytecode) = hex::decode(contract_bytecode) else {
+                    // Skip contracts with unlinked library placeholders
+                    continue;
+                };
 
                 self.platform_information
                     .reporter
