@@ -35,8 +35,8 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
-  POLKADOT_VERSION: ${{ inputs.polkadot_version || 'polkadot-stable2512-2' }}
-  RUNTIMES_VERSION: ${{ inputs.runtimes_version || '220928aa6e87b11cf2b40a6ad893bdbd6efd87d6' }}
+  POLKADOT_VERSION: ${{ inputs.polkadot_version || '0bf65ec8994dd0477995451e5db4695ba40a7e39' }}
+  RUNTIMES_VERSION: ${{ inputs.runtimes_version || 'f9368530e10d1b4da6f529f6aba193374e81734f' }}
   ADDITIONAL_KEYS: ${{ inputs.additional_keys || '200010' }}
   RESOLC_VERSION: ${{ inputs.resolc_version || 'v0.6.0' }}
   SOLC_VERSION: ${{ inputs.solc_version || 'v0.8.30' }}
@@ -110,7 +110,7 @@ jobs:
       - name: Checkout runtimes
         uses: actions/checkout@v4
         with:
-          repository: polkadot-fellows/runtimes
+          repository: paritytech/polkadot-runtimes-lite
           ref: ${{ env.RUNTIMES_VERSION }}
 
       - name: Resolve chainspec-generator features
