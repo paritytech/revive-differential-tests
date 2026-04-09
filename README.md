@@ -42,13 +42,12 @@ This section describes the required dependencies that this framework requires to
 - Geth - When doing differential testing against the PVM we submit transactions to a Geth node and to Revive Dev Node to compare them.
 - Revive Dev Node - When doing differential testing against the PVM we submit transactions to a Geth node and to Revive Dev Node to compare them.
 - ETH-RPC - All communication with Revive Dev Node is done through the ETH RPC.
-- Solc - This is actually a transitive dependency, while this tool doesn't require solc as it downloads the versions that it requires, resolc requires that Solc is installed and available in the path.
 - Resolc - This is required to compile the contracts to PolkaVM bytecode.
 - Kurtosis - The Kurtosis CLI tool is required for the production Ethereum mainnet-like node configuration with Geth as the execution layer and lighthouse as the consensus layer. Kurtosis also requires docker to be installed since it runs everything inside of docker containers.
 
 All of the above need to be installed and available in the path in order for the tool to work.
 
-## Running The Tool
+## Running Differential Tests
 
 This tool is being updated quite frequently. Therefore, it's recommended that you don't install the tool and then run it, but rather that you run it from the root of the directory using `cargo run --release --bin retester`. The help command of the tool gives you all of the information you need to know about each of the options and flags that the tool offers.
 
@@ -118,3 +117,61 @@ RUST_LOG="info" retester test \
 ```
 
 </details>
+
+## Running Compilations and Comparing Bytecode Hashes
+
+You can compile contracts using different resolc builds (e.g. for Linux, macOS, and Windows) without executing differential tests. The compilation modes to compile each contract with (e.g. `Y M3 S+`) are passed via `--mode` arguments.
+
+The bytecode hashes generated are included in the compilation report and can be exported and then compared in order to verify that the bytecode produced by each build is identical for the specified mode.
+
+### Compiling Contracts
+
+How to compile (for each platform/build):
+
+```bash
+retester compile \
+    --compile ./resolc-compiler-tests/fixtures/solidity/simple \
+    --compile ./resolc-compiler-tests/fixtures/solidity/complex \
+    --compile ./resolc-compiler-tests/fixtures/solidity/translated_semantic_tests \
+    --mode "Y M0 S+" \
+    --mode "Y M3 S+" \
+    --mode "Y Mz S+" \
+    --resolc.path /path/to/resolc \
+    --resolc.heap-size 500000 \
+    --solc.version "0.8.33" \
+    --report.file-name report-compile.json \
+    --report.include-compiler-input \
+    --report.include-compiler-output \
+    --working-directory ./workdir \
+    --concurrency.number-of-threads 10 \
+    --concurrency.number-of-concurrent-tasks 100 \
+    > logs-compile.log \
+    2> output-compile.log
+```
+
+### Exporting Bytecode Hashes
+
+How to export bytecode hashes (for each platform/build):
+
+```bash
+report-processor export-hashes \
+    --report-path ./workdir/report-compile.json \
+    --output-path ./exported-hashes/hashes-macos.json \
+    --remove-prefix ./resolc-compiler-tests \
+    --platform-label macos
+```
+
+### Comparing Bytecode Hashes
+
+How to compare bytecode hashes:
+
+```bash
+report-processor compare-hashes \
+    --hash-path ./exported-hashes/hashes-macos.json \
+    --hash-path ./exported-hashes/hashes-linux.json \
+    --hash-path ./exported-hashes/hashes-windows.json \
+    --mode "Y M0 S+" \
+    --mode "Y M3 S+" \
+    --mode "Y Mz S+" \
+    --output-path ./hash-comparison.json
+```
