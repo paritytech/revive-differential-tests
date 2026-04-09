@@ -1033,10 +1033,7 @@ pub fn compute_metrics_information(blocks: &[MinedBlockInformation]) -> Vec<Metr
                 if per_tx == 0 {
                     return Some(0u64);
                 }
-                Some(
-                    ((s.max_ref_time as u128).saturating_sub(s.pre_dispatch_ref_time) / per_tx)
-                        as u64,
-                )
+                Some(((s.max_ref_time as u128).saturating_sub(s.ref_time) / per_tx) as u64)
             })
             .flatten();
 
@@ -1047,10 +1044,7 @@ pub fn compute_metrics_information(blocks: &[MinedBlockInformation]) -> Vec<Metr
                 if per_tx == 0 {
                     return Some(0u64);
                 }
-                Some(
-                    ((s.max_proof_size as u128).saturating_sub(s.pre_dispatch_proof_size) / per_tx)
-                        as u64,
-                )
+                Some(((s.max_proof_size as u128).saturating_sub(s.proof_size) / per_tx) as u64)
             })
             .flatten();
 
@@ -1431,8 +1425,8 @@ mod tests {
         assert_eq!(m.additional_tx_capacity_gas, Some(1));
         assert_eq!(m.additional_tx_capacity_ref_time, Some(2));
         assert_eq!(m.additional_tx_capacity_proof_size, Some(2));
-        assert_eq!(m.additional_tx_capacity_pre_dispatch_ref_time, Some(3));
-        assert_eq!(m.additional_tx_capacity_pre_dispatch_proof_size, Some(4));
+        assert_eq!(m.additional_tx_capacity_pre_dispatch_ref_time, Some(2));
+        assert_eq!(m.additional_tx_capacity_pre_dispatch_proof_size, Some(3));
     }
 
     #[test]
