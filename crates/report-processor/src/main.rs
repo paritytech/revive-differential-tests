@@ -443,7 +443,7 @@ pub enum Cli {
         output_path: PathBuf,
     },
 
-    /// Extracts and exports the bytecode hashes from pre-link compilations from a [`Report`].
+    /// Extracts and exports the bytecode hashes from post-link compilations from a [`Report`].
     ExportHashes {
         /// The path to the report's JSON file.
         #[clap(long = "report-path")]
