@@ -43,7 +43,7 @@ env:
   FAST_RUNTIME: ${{ inputs.disable_fast_runtime != true }}
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   # ── Build jobs (run in parallel) ─────────────────────────────────────
@@ -496,34 +496,20 @@ jobs:
           name: workdir-${{ steps.names.outputs.artifact }}
           path: ./workdir
 
-  # ── Merge reports and publish to GitHub Pages ────────────────────────
-  publish:
-    name: Publish Report
+  # ── Merge reports and generate HTML ──────────────────────────────────
+  report:
+    name: Generate Report
     if: always()
     needs: benchmark
     runs-on: parity-large
-    permissions:
-      contents: write
     steps:
       - name: Add cargo bin to PATH
         run: |
           mkdir -p "$HOME/.cargo/bin"
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
 
-      - name: Install git-lfs
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y git-lfs
-
       - name: Checkout This Repository
         uses: actions/checkout@v4
-
-      - name: Checkout resolc-compiler-tests
-        uses: actions/checkout@v4
-        with:
-          repository: paritytech/resolc-compiler-tests
-          ref: feature/ethereum-workloads
-          path: compiler-tests
 
       - name: Restore retester cache
         uses: actions/cache/restore@v4
@@ -557,49 +543,16 @@ jobs:
             $REPORT_ARGS \
             --output-path ./merged-report.json
 
-      - name: Strip raw data from report for web publishing
-        run: |
-          jq '
-            .execution_information |= map_values(
-              .case_reports |= map_values(
-                .mode_execution_reports |= map_values(
-                  .mined_block_information = {}
-                  | .steps |= (if . then map_values(.transactions = {}) else . end)
-                )
-              )
-            )
-          ' ./merged-report.json > ./web-report.json
-
       - name: Generate HTML report
         run: |
-          REPORT_NAME="benchmark-$(date -u +%Y-%m-%d-%H%M%S)"
-          echo "REPORT_NAME=${REPORT_NAME}" >> "$GITHUB_ENV"
           report-processor generate-benchmarks-html-report \
-            --report-path ./web-report.json \
+            --report-path ./merged-report.json \
             --output-path ./benchmark-report.html
 
-      - name: Checkout gh-pages
-        uses: actions/checkout@v4
+      - name: Upload merged report
+        uses: actions/upload-artifact@v4
         with:
-          ref: gh-pages
-          path: gh-pages-dir
-
-      - name: Add report
-        run: |
-          # Copy the report as the `index.html` file.
-          cp ./benchmark-report.html "gh-pages-dir/index.html"
-          # Copy the report as a file with the dat in order to find it later
-          # on if we need it.
-          cp ./benchmark-report.html "gh-pages-dir/reports/${REPORT_NAME}.html"
-          # Move the raw report into a directory for finding later.
-          cp ./web-report.json "gh-pages-dir/raw/${REPORT_NAME}.json"
-
-      - name: Push to gh-pages
-        working-directory: gh-pages-dir
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add .gitattributes
-          git add .
-          git commit -m "Update benchmark report"
-          git push
+          name: benchmark-report
+          path: |
+            ./merged-report.json
+            ./benchmark-report.html
