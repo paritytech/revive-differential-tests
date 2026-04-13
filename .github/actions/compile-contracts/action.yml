@@ -1,0 +1,142 @@
+name: "Compile Contracts"
+description: "Compiles contracts using retester, and uploads the compilation report."
+
+inputs:
+  revive-differential-tests-path:
+    description: "The path to an existing checkout of revive-differential-tests. If empty, revive-differential-tests-ref is checked out."
+    required: false
+    default: ""
+  revive-differential-tests-ref:
+    description: "The branch, tag, or SHA to checkout if revive-differential-tests-path is not provided."
+    required: false
+    default: "main"
+  resolc-path:
+    description: "The path to the resolc binary."
+    required: true
+  solc-version:
+    description: "The solc version to use. If empty, retester's default is used."
+    required: false
+    default: ""
+  modes:
+    description: "Comma-separated compiler modes to compile with (e.g. 'Y M0 S+, Y M3 S+, Y Mz S+'). If empty, retester's default is used."
+    required: false
+    default: ""
+  upload-artifact-name:
+    description: "The name for the uploaded compilation report artifact."
+    required: true
+
+outputs:
+  report-path:
+    description: "The path to the generated compilation report JSON file."
+    value: ${{ steps.compile.outputs.report-path }}
+  contracts-source-prefix:
+    description: "The path prefix common to all source paths in the compilation report. (Can be used as the `remove-prefix` input when exporting bytecode hashes.)"
+    value: ${{ steps.compile.outputs.contracts-source-prefix }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Checkout revive-differential-tests
+      if: ${{ inputs.revive-differential-tests-path == '' }}
+      uses: actions/checkout@v6
+      with:
+        repository: paritytech/revive-differential-tests
+        ref: ${{ inputs.revive-differential-tests-ref }}
+        path: revive-differential-tests
+        submodules: recursive
+
+    - name: Resolve the repo path
+      id: repo
+      shell: bash
+      run: echo "path=${{ inputs.revive-differential-tests-path || 'revive-differential-tests' }}" >> "$GITHUB_OUTPUT"
+
+    - name: Resolve the retester cache key
+      id: retester-cache-key
+      shell: bash
+      run: |
+        sha=$(git -C "${{ steps.repo.outputs.path }}" rev-parse HEAD)
+        echo "key=retester-${{ runner.os }}-${sha}" >> "$GITHUB_OUTPUT"
+
+    - name: Cache retester
+      id: retester-cache
+      uses: actions/cache@v5
+      with:
+        path: ~/.cargo/bin/retester${{ runner.os == 'Windows' && '.exe' || '' }}
+        key: ${{ steps.retester-cache-key.outputs.key }}
+
+    - name: Set up Rust toolchain
+      if: ${{ steps.retester-cache.outputs.cache-hit != 'true' }}
+      uses: actions-rust-lang/setup-rust-toolchain@v1
+      with:
+        target: wasm32-unknown-unknown
+        components: rust-src
+        rustflags: ""
+
+    - name: Install dependencies
+      if: ${{ steps.retester-cache.outputs.cache-hit != 'true' }}
+      shell: bash
+      run: |
+        if [[ "$RUNNER_OS" == "Linux" ]]; then
+          sudo apt-get update && sudo apt-get install -y build-essential pkg-config libssl-dev protobuf-compiler clang libclang-dev
+        elif [[ "$RUNNER_OS" == "macOS" ]]; then
+          brew install protobuf
+        elif [[ "$RUNNER_OS" == "Windows" ]]; then
+          choco install -y protoc llvm
+        fi
+
+    - name: Install retester
+      if: ${{ steps.retester-cache.outputs.cache-hit != 'true' }}
+      shell: bash
+      run: cargo install --locked --path "${{ steps.repo.outputs.path }}/crates/core"
+
+    - name: Create working directory for retester
+      shell: bash
+      run: mkdir -p ./workdir
+
+    - name: Compile contracts
+      id: compile
+      shell: bash
+      run: |
+        REPORT_FILE_NAME="compilation-report.json"
+        SOLC_VERSION="${{ inputs.solc-version }}"
+
+        MODE_ARGS=()
+        if [[ -n "${{ inputs.modes }}" ]]; then
+          # Strip spaces around commas.
+          CLEANED_MODES=$(echo "${{ inputs.modes }}" | sed 's/ *, */,/g')
+          IFS=',' read -ra MODES <<< "$CLEANED_MODES"
+          for mode in "${MODES[@]}"; do
+            MODE_ARGS+=(--mode "$mode")
+          done
+        fi
+
+        retester compile \
+          --compile "${{ steps.repo.outputs.path }}/resolc-compiler-tests/fixtures/solidity" \
+          "${MODE_ARGS[@]}" \
+          --resolc.path "${{ inputs.resolc-path }}" \
+          --resolc.heap-size 500000 \
+          ${SOLC_VERSION:+--solc.version "$SOLC_VERSION"} \
+          --report.file-name "$REPORT_FILE_NAME" \
+          --report.include-compiler-output \
+          --report.include-compiler-input \
+          --working-directory ./workdir \
+          --concurrency.number-of-threads 10 \
+          --concurrency.number-of-concurrent-tasks 100 \
+          || true
+
+        REPORT_PATH="./workdir/$REPORT_FILE_NAME"
+        if [[ ! -f "$REPORT_PATH" ]]; then
+          echo "::error::Compilation report was not generated at $REPORT_PATH"
+          exit 1
+        fi
+
+        echo "report-path=$REPORT_PATH" >> "$GITHUB_OUTPUT"
+        echo "contracts-source-prefix=${{ steps.repo.outputs.path }}/resolc-compiler-tests" >> "$GITHUB_OUTPUT"
+
+    - name: Upload the compilation report
+      uses: actions/upload-artifact@v6
+      with:
+        name: ${{ inputs.upload-artifact-name }}
+        path: ${{ steps.compile.outputs.report-path }}
+        retention-days: 3
+        if-no-files-found: error
