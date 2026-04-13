@@ -511,6 +511,13 @@ jobs:
       - name: Checkout This Repository
         uses: actions/checkout@v4
 
+      - name: Checkout resolc-compiler-tests
+        uses: actions/checkout@v4
+        with:
+          repository: paritytech/resolc-compiler-tests
+          ref: feature/ethereum-workloads
+          path: compiler-tests
+
       - name: Restore retester cache
         uses: actions/cache/restore@v4
         with:
