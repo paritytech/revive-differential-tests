@@ -916,59 +916,51 @@ where
             && self.platform_information.platform.allow_caching_gas_limit()
         {
             let read_guard = self.gas_limits.read().await;
-            if let Some(gas_estimate) = read_guard.get(step_path) {
-                // Cache hit: use cached value (receipt-based after the first iteration).
-                // This takes priority over `gas_overrides` so that subsequent iterations
-                // benefit from the accurate `receipt.gas_used` value plus a 20% buffer.
-                // Overrides still act as a fallback for the first iteration where the
-                // cache is empty.
-                info!(
-                    estimated_gas = gas_estimate,
-                    step_path = %step_path,
-                    "Obtained gas estimate from cache"
-                );
-                transaction.set_gas_limit(gas_estimate * 120 / 100);
-            } else if transaction.gas.is_none() {
-                // Cache miss and no `gas_overrides`: fall back to `eth_estimateGas`.
-                // The receipt-update below will replace this estimate with the actual
-                // `gas_used` for subsequent iterations.
-                drop(read_guard);
-                let mut write_guard = self.gas_limits.write().await;
-                let gas_limit = match write_guard.get(step_path) {
-                    Some(gas_estimate) => {
-                        warn!("False positive in gas estimation cache");
-                        *gas_estimate
-                    }
-                    None => {
-                        let gas_estimate = timeout(Duration::from_secs(5 * 60), async {
-                            let mut interval = interval(Duration::from_millis(200));
-                            loop {
-                                interval.tick().await;
-                                match provider.estimate_gas(transaction.clone()).await {
-                                    Ok(gas_estimate) => break gas_estimate,
-                                    Err(err) => {
-                                        warn!(?err, "Failed to get the gas estimate, retrying");
-                                        continue;
+            let gas_limit = match read_guard.get(step_path) {
+                Some(gas_estimate) => {
+                    info!(
+                        estimated_gas = gas_estimate,
+                        step_path = %step_path,
+                        "Obtained gas estimate from cache"
+                    );
+                    *gas_estimate
+                }
+                None => {
+                    drop(read_guard);
+                    let mut write_guard = self.gas_limits.write().await;
+                    match write_guard.get(step_path) {
+                        Some(gas_estimate) => {
+                            warn!("False positive in gas estimation cache");
+                            *gas_estimate
+                        }
+                        None => {
+                            let gas_estimate = timeout(Duration::from_secs(5 * 60), async {
+                                let mut interval = interval(Duration::from_millis(200));
+                                loop {
+                                    interval.tick().await;
+                                    match provider.estimate_gas(transaction.clone()).await {
+                                        Ok(gas_estimate) => break gas_estimate,
+                                        Err(err) => {
+                                            warn!(?err, "Failed to get the gas estimate, retrying");
+                                            continue;
+                                        }
                                     }
                                 }
-                            }
-                        })
-                        .await
-                        .context("Failed to get the gas estimate")?;
-                        write_guard.insert(step_path.clone(), gas_estimate);
-                        info!(
-                            estimated_gas = gas_estimate,
-                            step_path = %step_path,
-                            "Initialized gas estimate into cache"
-                        );
-                        gas_estimate
+                            })
+                            .await
+                            .context("Failed to get the gas estimate")?;
+                            write_guard.insert(step_path.clone(), gas_estimate);
+                            info!(
+                                estimated_gas = gas_estimate,
+                                step_path = %step_path,
+                                "Initialized gas estimate into cache"
+                            );
+                            gas_estimate
+                        }
                     }
-                };
-                transaction.set_gas_limit(gas_limit * 120 / 100);
-            }
-            // else: cache miss and `transaction.gas` is set via `gas_overrides` — leave
-            // it as-is for the first submission; the receipt-update below will populate
-            // the cache with the actual `gas_used` so subsequent iterations use it.
+                }
+            };
+            transaction.set_gas_limit(gas_limit * 120 / 100);
         }
 
         let transaction_hash = self
@@ -994,42 +986,12 @@ where
 
         Ok((
             transaction_hash,
-            {
-                // Capture state needed to update the gas cache once the receipt arrives.
-                // We use the receipt's actual `gas_used` as the authoritative cache value
-                // (replacing the initial `eth_estimateGas` result), because the estimate can
-                // be significantly off (e.g., +42% on revm XEN, -58% on polkavm simple ops)
-                // while the actual gas_used is deterministic across iterations (<0.1% variance).
-                let gas_limits = self.gas_limits.clone();
-                let step_path_for_cache = step_path.cloned();
-                async move {
-                    let res = pending_transaction_builder
-                        .with_timeout(Some(receipt_wait_duration))
-                        .with_required_confirmations(2)
-                        .get_receipt()
-                        .await
-                        .context("Failed to get the receipt of the transaction");
-                    if let Ok(ref receipt) = res {
-                        info!(transaction_hash = %receipt.transaction_hash, "Obtained receipt");
-                        if receipt.status()
-                            && let Some(step_path) = step_path_for_cache
-                        {
-                            let gas_used = receipt.gas_used as u64;
-                            let mut write_guard = gas_limits.write().await;
-                            let prev = write_guard.insert(step_path.clone(), gas_used);
-                            if prev != Some(gas_used) {
-                                info!(
-                                    gas_used,
-                                    previous = ?prev,
-                                    step_path = %step_path,
-                                    "Updated gas cache from receipt"
-                                );
-                            }
-                        }
-                    }
-                    res
-                }
-            },
+            pending_transaction_builder
+                .with_timeout(Some(receipt_wait_duration))
+                .with_required_confirmations(2)
+                .get_receipt()
+                .inspect_ok(|receipt| info!(transaction_hash = %receipt.transaction_hash, "Obtained receipt"))
+                .map(|res| res.context("Failed to get the receipt of the transaction")),
             self.inclusion_watcher.await_transaction(transaction_hash),
         ))
     }
