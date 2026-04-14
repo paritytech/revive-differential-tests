@@ -92,7 +92,7 @@ revive-solc-json-interface = { version = "0.5.0" }
 revive-common = { version = "0.3.0" }
 revive-differential = { version = "0.3.0" }
 
-zombienet-sdk = { version = "0.4.10" }
+zombienet-sdk = { version = "0.4.11" }
 pallet-revive-eth-rpc = { version = "0.13.0" }
 
 [profile.bench]
