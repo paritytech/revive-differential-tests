@@ -397,7 +397,10 @@ impl Watcher {
                 && !failing_receipts.is_empty()
             {
                 let watched_hashes: std::collections::HashSet<_> =
-                    transaction_registration_information.keys().copied().collect();
+                    transaction_registration_information
+                        .keys()
+                        .copied()
+                        .collect();
                 let (watched_failures, unwatched_failures): (Vec<_>, Vec<_>) = failing_receipts
                     .iter()
                     .partition(|r| watched_hashes.contains(&r.transaction_hash));
