@@ -470,12 +470,19 @@ where
                     .map(|receipt| receipt.transaction_hash)
             }
             Method::Fallback | Method::FunctionName(_) => {
-                let tx = step
+                let mut tx = step
                     .as_transaction(
                         self.platform_information.node,
                         self.default_resolution_context(),
                     )
                     .await?;
+
+                let gas_overrides = step
+                    .gas_overrides
+                    .get(&self.platform_information.platform.platform_identifier())
+                    .copied()
+                    .unwrap_or_default();
+                gas_overrides.apply_to::<Ethereum>(&mut tx);
 
                 let (tx_hash, receipt_future, inclusion_future) = self
                     .execute_transaction(tx.clone(), Some(step_path), Duration::from_secs(30 * 60))
