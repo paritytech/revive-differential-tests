@@ -55,7 +55,7 @@ runs:
       shell: bash
       run: |
         sha=$(git -C "${{ steps.repo.outputs.path }}" rev-parse HEAD)
-        echo "key=retester-${{ runner.os }}-${sha}" >> "$GITHUB_OUTPUT"
+        echo "key=retester-${{ runner.os }}-${{ runner.arch }}-${sha}" >> "$GITHUB_OUTPUT"
 
     - name: Cache retester
       id: retester-cache
