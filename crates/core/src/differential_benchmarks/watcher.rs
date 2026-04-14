@@ -396,8 +396,35 @@ impl Watcher {
                 .collect::<Vec<_>>()
                 && !failing_receipts.is_empty()
             {
+                let watched_hashes: std::collections::HashSet<_> =
+                    transaction_registration_information.keys().copied().collect();
+                let (watched_failures, unwatched_failures): (Vec<_>, Vec<_>) = failing_receipts
+                    .iter()
+                    .partition(|r| watched_hashes.contains(&r.transaction_hash));
+                error!(
+                    total_failing = failing_receipts.len(),
+                    watched_failing = watched_failures.len(),
+                    unwatched_failing = unwatched_failures.len(),
+                    "Encountered failing receipts"
+                );
+                for r in &failing_receipts {
+                    let is_watched = watched_hashes.contains(&r.transaction_hash);
+                    let step_path = transaction_registration_information
+                        .get(&r.transaction_hash)
+                        .map(|(sp, _)| sp.to_string());
+                    error!(
+                        tx_hash = %r.transaction_hash,
+                        block_number = ?r.block_number,
+                        from = %r.from,
+                        to = ?r.to,
+                        gas_used = %r.gas_used,
+                        step_path = ?step_path,
+                        is_watched,
+                        "Failing receipt"
+                    );
+                }
                 bail!(
-                    "Encountered failing receipts {failing_receipts:?}, len: {}",
+                    "Encountered failing receipts, len: {}",
                     failing_receipts.len()
                 );
             }
