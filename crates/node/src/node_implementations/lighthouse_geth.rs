@@ -46,7 +46,7 @@ pub struct LighthouseGethNode {
 
     /* Provider Related Fields */
     wallet: Arc<EthereumWallet>,
-    nonce_manager: CachedNonceManager,
+    nonce_manager: ZeroedCachedNonceManager,
 
     persistent_ws_provider: Arc<OnceCell<ConcreteProvider<Ethereum, Arc<EthereumWallet>>>>,
     persistent_ws_subscriptions_provider:

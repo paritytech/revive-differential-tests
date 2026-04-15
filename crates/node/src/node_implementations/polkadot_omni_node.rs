@@ -40,7 +40,7 @@ pub struct PolkadotOmnichainNode {
     /// The wallet object that's used to sign any transaction submitted through this node.
     wallet: Arc<EthereumWallet>,
     /// The nonce manager used to populate nonces for all transactions submitted through this node.
-    nonce_manager: CachedNonceManager,
+    nonce_manager: ZeroedCachedNonceManager,
     /// The provider used for all RPC interactions with the RPC of this node.
     provider: Arc<OnceCell<ConcreteProvider<Ethereum, Arc<EthereumWallet>>>>,
     /// The provider used for the substrate rpc.

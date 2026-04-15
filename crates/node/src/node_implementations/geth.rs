@@ -23,7 +23,7 @@ pub struct GethNode {
     handle: Option<Process>,
     start_timeout: Duration,
     wallet: Arc<EthereumWallet>,
-    nonce_manager: CachedNonceManager,
+    nonce_manager: ZeroedCachedNonceManager,
     provider: Arc<OnceCell<ConcreteProvider<Ethereum, Arc<EthereumWallet>>>>,
     use_fallback_gas_filler: bool,
     node_logging_level: String,

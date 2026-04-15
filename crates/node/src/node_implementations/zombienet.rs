@@ -60,7 +60,7 @@ pub struct ZombienetNode {
 
     /* Provider Related Fields */
     wallet: Arc<EthereumWallet>,
-    nonce_manager: CachedNonceManager,
+    nonce_manager: ZeroedCachedNonceManager,
 
     provider: Arc<OnceCell<ConcreteProvider<Ethereum, Arc<EthereumWallet>>>>,
     substrate_provider: Arc<OnceCell<OnlineClient<PolkadotConfig>>>,
@@ -116,7 +116,7 @@ impl ZombienetNode {
             wallet,
             polkadot_parachain_path,
             eth_proxy_binary,
-            nonce_manager: CachedNonceManager::default(),
+            nonce_manager: ZeroedCachedNonceManager::default(),
             config_path: zombienet_configuration.config_path.clone(),
             network_config: None,
             network: None,
