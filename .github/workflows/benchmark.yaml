@@ -31,8 +31,8 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
-  POLKADOT_VERSION: ${{ inputs.polkadot_version || 'polkadot-stable2512-2' }}
-  RUNTIMES_VERSION: ${{ inputs.runtimes_version || '220928aa6e87b11cf2b40a6ad893bdbd6efd87d6' }}
+  POLKADOT_VERSION: ${{ inputs.polkadot_version || '3768df0fc7a42419e1774bda79031cceec130020' }}
+  RUNTIMES_VERSION: ${{ inputs.runtimes_version || '5748785eab326244cb131c95262a8cf9ac26f559' }}
   ADDITIONAL_KEYS: ${{ inputs.additional_keys || '200010' }}
   RESOLC_VERSION: ${{ inputs.resolc_version || 'v0.6.0' }}
   SOLC_VERSION: ${{ inputs.solc_version || 'v0.8.30' }}
