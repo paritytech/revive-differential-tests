@@ -944,7 +944,10 @@ where
         // Setting the gas price to u128::MAX ensures the base fee cannot exceed it for any
         // practical benchmark duration (~580 blocks / ~116 minutes of sustained full blocks). The
         // accounts are funded with U256::MAX so balance is not a concern.
-        if step_path.is_some() {
+        if step_path.is_some()
+            && self.platform_information.platform.node_identifier()
+                == NodeIdentifier::LighthouseGeth
+        {
             transaction.set_gas_price(u128::MAX);
         }
 
