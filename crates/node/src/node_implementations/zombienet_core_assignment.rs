@@ -27,7 +27,7 @@
 //! during genesis build.
 
 use anyhow::Context as _;
-use sp_core::hashing::{twox_128, twox_64};
+use sp_core::hashing::{twox_64, twox_128};
 use std::fmt::Write;
 use std::path::Path;
 use std::process::Command;
@@ -100,10 +100,7 @@ fn encode_core_descriptor() -> Vec<u8> {
 /// Layout: `Twox128("ParaScheduler")
 ///       ++ Twox128("CoreSchedules")
 ///       ++ Twox64Concat(encode((block_number, core_index)))`
-fn core_schedule_storage_key(
-    block_number: u32,
-    core_index: u32,
-) -> String {
+fn core_schedule_storage_key(block_number: u32, core_index: u32) -> String {
     let pallet_hash = twox_128(b"ParaScheduler");
     let storage_hash = twox_128(b"CoreSchedules");
 
@@ -114,8 +111,7 @@ fn core_schedule_storage_key(
     // Twox64Concat: 8-byte hash ++ raw key
     let key_hash = twox_64(&map_key);
 
-    let mut full_key =
-        Vec::with_capacity(16 + 16 + 8 + map_key.len());
+    let mut full_key = Vec::with_capacity(16 + 16 + 8 + map_key.len());
     full_key.extend_from_slice(&pallet_hash);
     full_key.extend_from_slice(&storage_hash);
     full_key.extend_from_slice(&key_hash);
@@ -150,9 +146,7 @@ fn scale_compact_u32(value: u32) -> Vec<u8> {
         let v = (value << 2) | 2;
         v.to_le_bytes().to_vec()
     } else {
-        panic!(
-            "Compact encoding of values >= 2^30 not supported"
-        );
+        panic!("Compact encoding of values >= 2^30 not supported");
     }
 }
 
@@ -162,17 +156,12 @@ fn scale_compact_u32(value: u32) -> Vec<u8> {
 /// The map is encoded as a SCALE compact length prefix followed by
 /// sorted `(CoreIndex, CoreDescriptor)` entries.
 #[cfg(test)]
-fn encode_core_descriptors_btree_map(
-    core_indices: &[u32],
-) -> Vec<u8> {
+fn encode_core_descriptors_btree_map(core_indices: &[u32]) -> Vec<u8> {
     let descriptor = encode_core_descriptor();
     let len = core_indices.len() as u32;
     let len_bytes = scale_compact_u32(len);
 
-    let mut buf = Vec::with_capacity(
-        len_bytes.len()
-            + core_indices.len() * (4 + descriptor.len()),
-    );
+    let mut buf = Vec::with_capacity(len_bytes.len() + core_indices.len() * (4 + descriptor.len()));
     buf.extend_from_slice(&len_bytes);
     for &core_idx in core_indices {
         buf.extend_from_slice(&core_idx.to_le_bytes());
@@ -198,15 +187,10 @@ fn encode_core_descriptors_btree_map(
 /// The caller must read the existing value, decode the `BTreeMap`,
 /// insert the new entries, re-encode, and write it back. This is
 /// handled by the wrapper's Python script.
-pub fn generate_core_assignment_entries(
-    num_cores: u32,
-    para_id: u32,
-) -> CoreAssignmentEntries {
-    let schedule_value =
-        to_hex_string(&encode_core_schedule(para_id));
+pub fn generate_core_assignment_entries(num_cores: u32, para_id: u32) -> CoreAssignmentEntries {
+    let schedule_value = to_hex_string(&encode_core_schedule(para_id));
 
-    let mut schedule_entries =
-        serde_json::Map::with_capacity(num_cores as usize);
+    let mut schedule_entries = serde_json::Map::with_capacity(num_cores as usize);
     let mut core_indices = Vec::with_capacity(num_cores as usize);
 
     for core_idx in 0..num_cores {
@@ -228,8 +212,7 @@ pub fn generate_core_assignment_entries(
 /// Data needed to inject core assignments into a raw chain spec.
 pub struct CoreAssignmentEntries {
     /// `CoreSchedules` entries keyed by their full storage key.
-    pub schedule_entries:
-        serde_json::Map<String, serde_json::Value>,
+    pub schedule_entries: serde_json::Map<String, serde_json::Value>,
     /// The storage key for the `CoreDescriptors` `StorageValue`.
     pub descriptors_key: String,
     /// Core indices to inject into the `CoreDescriptors` BTreeMap.
@@ -445,8 +428,7 @@ pub fn inject_core_assignments(
         .and_then(|a| a.first())
         .and_then(|p| p.get("id"))
         .and_then(|id| id.as_integer())
-        .context("No parachain id found in zombienet config")?
-        as u32;
+        .context("No parachain id found in zombienet config")? as u32;
 
     // Extract the chain_spec_command template and find the binary
     // name. Template format: "chain-spec-generator {{chainName}}"
@@ -475,13 +457,10 @@ pub fn inject_core_assignments(
     let which_output = Command::new("which")
         .arg(spec_binary)
         .output()
-        .context(
-            "Failed to locate chain spec generator binary",
-        )?;
-    let real_binary_path =
-        String::from_utf8_lossy(&which_output.stdout)
-            .trim()
-            .to_string();
+        .context("Failed to locate chain spec generator binary")?;
+    let real_binary_path = String::from_utf8_lossy(&which_output.stdout)
+        .trim()
+        .to_string();
     if real_binary_path.is_empty() {
         anyhow::bail!(
             "Chain spec generator binary \
@@ -489,22 +468,18 @@ pub fn inject_core_assignments(
         );
     }
 
-    let entries =
-        generate_core_assignment_entries(num_cores, para_id);
+    let entries = generate_core_assignment_entries(num_cores, para_id);
 
     // 1. Write the CoreSchedules entries as a JSON file.
-    let schedules_path =
-        output_directory.join("core_assignment_entries.json");
+    let schedules_path = output_directory.join("core_assignment_entries.json");
     std::fs::write(
         &schedules_path,
-        serde_json::to_string(&entries.schedule_entries)
-            .context("Failed to serialize entries")?,
+        serde_json::to_string(&entries.schedule_entries).context("Failed to serialize entries")?,
     )
     .context("Failed to write entries file")?;
 
     // 2. Generate the wrapper script.
-    let wrapper_path = output_directory
-        .join("chain-spec-generator-wrapper.sh");
+    let wrapper_path = output_directory.join("chain-spec-generator-wrapper.sh");
     let script = generate_wrapper_script(
         &real_binary_path,
         &schedules_path.to_string_lossy(),
@@ -513,26 +488,18 @@ pub fn inject_core_assignments(
         &entries.descriptor_bytes,
     );
 
-    std::fs::write(&wrapper_path, script)
-        .context("Failed to write wrapper script")?;
+    std::fs::write(&wrapper_path, script).context("Failed to write wrapper script")?;
 
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(
-            &wrapper_path,
-            std::fs::Permissions::from_mode(0o755),
-        )
-        .context("Failed to make wrapper script executable")?;
+        std::fs::set_permissions(&wrapper_path, std::fs::Permissions::from_mode(0o755))
+            .context("Failed to make wrapper script executable")?;
     }
 
     // 3. Replace chain_spec_command with the wrapper, preserving
     //    the template arguments (e.g. "{{chainName}}").
-    let wrapper_cmd = chain_spec_cmd.replacen(
-        spec_binary,
-        &wrapper_path.to_string_lossy(),
-        1,
-    );
+    let wrapper_cmd = chain_spec_cmd.replacen(spec_binary, &wrapper_path.to_string_lossy(), 1);
     let relay_table = toml_value
         .get_mut("relaychain")
         .and_then(|v| v.as_table_mut())
@@ -570,10 +537,7 @@ mod tests {
         // Assert
         assert_eq!(
             encoded,
-            vec![
-                0x04, 0x02, 0xe8, 0x03, 0x00, 0x00, 0x00, 0xe1,
-                0x00, 0x00
-            ]
+            vec![0x04, 0x02, 0xe8, 0x03, 0x00, 0x00, 0x00, 0xe1, 0x00, 0x00]
         );
     }
 
@@ -588,10 +552,7 @@ mod tests {
         // Assert
         assert_eq!(
             encoded,
-            vec![
-                0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-                0x00, 0x00
-            ]
+            vec![0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
         );
     }
 
@@ -602,9 +563,7 @@ mod tests {
         let para_id = 1000;
 
         // Act
-        let entries = generate_core_assignment_entries(
-            num_cores, para_id,
-        );
+        let entries = generate_core_assignment_entries(num_cores, para_id);
 
         // Assert
         assert_eq!(entries.schedule_entries.len(), 3);
@@ -618,8 +577,7 @@ mod tests {
     #[test]
     fn storage_keys_use_para_scheduler_prefix() {
         // Arrange
-        let pallet_prefix =
-            to_hex_string(&twox_128(b"ParaScheduler"));
+        let pallet_prefix = to_hex_string(&twox_128(b"ParaScheduler"));
 
         // Act
         let schedule_key = core_schedule_storage_key(0, 0);
@@ -676,10 +634,7 @@ mod tests {
     fn decode_hex(hex: &str) -> Vec<u8> {
         (0..hex.len())
             .step_by(2)
-            .map(|i| {
-                u8::from_str_radix(&hex[i..i + 2], 16)
-                    .expect("valid hex")
-            })
+            .map(|i| u8::from_str_radix(&hex[i..i + 2], 16).expect("valid hex"))
             .collect()
     }
 
@@ -709,9 +664,7 @@ mod tests {
         let desc_hex = "0x1234";
 
         // Act
-        let script = generate_wrapper_script(
-            binary, entries, desc_key, cores, desc_hex,
-        );
+        let script = generate_wrapper_script(binary, entries, desc_key, cores, desc_hex);
 
         // Assert
         assert!(script.contains(binary));
@@ -728,8 +681,7 @@ mod tests {
         let descriptor = encode_core_descriptor();
 
         // Act
-        let encoded =
-            encode_core_descriptors_btree_map(&cores);
+        let encoded = encode_core_descriptors_btree_map(&cores);
 
         // Assert
         // compact(2) = 0x08
@@ -737,16 +689,10 @@ mod tests {
         // CoreIndex(0) = [0,0,0,0]
         assert_eq!(&encoded[1..5], &0u32.to_le_bytes());
         // descriptor for core 0
-        assert_eq!(
-            &encoded[5..5 + descriptor.len()],
-            &descriptor
-        );
+        assert_eq!(&encoded[5..5 + descriptor.len()], &descriptor);
         // CoreIndex(1) = [1,0,0,0]
         let offset = 5 + descriptor.len();
-        assert_eq!(
-            &encoded[offset..offset + 4],
-            &1u32.to_le_bytes()
-        );
+        assert_eq!(&encoded[offset..offset + 4], &1u32.to_le_bytes());
         // descriptor for core 1
         assert_eq!(
             &encoded[offset + 4..offset + 4 + descriptor.len()],
