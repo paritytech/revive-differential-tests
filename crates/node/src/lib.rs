@@ -55,12 +55,9 @@ pub(crate) mod internal_prelude {
         rpc::{
             client::ClientBuilder,
             json_rpc::{Id, RequestPacket, Response, ResponsePacket, SerializedRequest},
-            types::{
-                TransactionRequest,
-                trace::geth::{
-                    GethDebugBuiltInTracerType, GethDebugTracerType, GethDebugTracingCallOptions,
-                    GethDebugTracingOptions,
-                },
+            types::trace::geth::{
+                GethDebugBuiltInTracerType, GethDebugTracerType, GethDebugTracingCallOptions,
+                GethDebugTracingOptions,
             },
         },
         transports::{
