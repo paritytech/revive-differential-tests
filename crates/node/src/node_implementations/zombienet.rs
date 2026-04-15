@@ -20,7 +20,7 @@
 //! 3. **polkadot** (for the relay chain):
 //!    ```bash
 //!    # In polkadot-sdk directory
-//!    cargo build --locked --profile testnet --features fast-runtime --bin polkadot --bin polkadot-prepare-worker --bin polkadot-execute-worker
+//!    cargo build --locked --profile testnet --bin polkadot --bin polkadot-prepare-worker --bin polkadot-execute-worker
 //!    ```
 //!
 //! Make sure to add the build output directories to your PATH or provide

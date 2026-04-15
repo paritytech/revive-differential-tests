@@ -16,10 +16,6 @@ override_session_0 = true
 # See: https://docs.polkadot.com/develop/parachains/maintenance/configure-asynchronous-backing/
 
 [relaychain.genesis.runtimeGenesis.patch.configuration.config.scheduler_params]
-# Mainnet uses 3 cores for Asset Hub elastic scaling (BLOCK_PROCESSING_VELOCITY=3).
-# Requires num_validators > num_cores (4 validators for 3 cores).
-# Source: polkadot-fellows/runtimes system-parachains/constants/src/polkadot.rs
-num_cores = 3
 # Must be 5 for async backing; lower values degrade parachain block times.
 lookahead = 5
 

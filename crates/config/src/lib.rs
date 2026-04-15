@@ -16,7 +16,7 @@ use std::{
 use alloy::{
     genesis::Genesis,
     network::EthereumWallet,
-    primitives::{B256, FixedBytes, U256},
+    primitives::{FixedBytes, B256, U256},
     signers::local::PrivateKeySigner,
 };
 use anyhow::Context as _;
@@ -318,9 +318,8 @@ mod context {
         ///
         /// After zombienet spawns, the parachain needs to be onboarded through the relay chain
         /// which takes several epochs. This timeout controls how long we poll for the first
-        /// block before giving up. With `fast-runtime` enabled, 300 seconds is typically
-        /// sufficient. Without it, the onboarding process takes significantly longer and a
-        /// timeout of several hours may be needed.
+        /// block before giving up. Depending on the network configuration, onboarding can take
+        /// several hours.
         #[clap(default_value = "300000", value_parser = parse_duration)]
         pub block_production_timeout_ms: Duration,
     }
