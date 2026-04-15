@@ -1,4 +1,65 @@
 use crate::internal_prelude::*;
+use alloy::{eips::eip2718::Encodable2718, providers::Provider};
+use pallet_revive::{
+    EthTransactError, Weight,
+    codec::{Decode, Encode},
+};
+use subxt::utils::H256 as SubxtH256;
+
+const ETH_PRE_DISPATCH_WEIGHT_RUNTIME_API: &str = "ReviveApi_eth_pre_dispatch_weight";
+
+async fn eth_pre_dispatch_weight(
+    substrate_provider: &OnlineClient<PolkadotConfig>,
+    block_hash: SubxtH256,
+    signed_payload: Vec<u8>,
+) -> Result<Weight> {
+    let encoded_args = signed_payload.encode();
+
+    let result_bytes = retry_with_exponential_backoff(10, Duration::from_secs(1), || async {
+        match substrate_provider
+            .runtime_api()
+            .at(block_hash)
+            .call_raw(
+                ETH_PRE_DISPATCH_WEIGHT_RUNTIME_API,
+                Some(encoded_args.as_slice()),
+            )
+            .await
+        {
+            Ok(result) => ControlFlow::Break(result),
+            Err(err) => {
+                warn!(
+                    ?block_hash,
+                    ?err,
+                    "Failed to call eth_pre_dispatch_weight runtime API, retrying"
+                );
+                ControlFlow::Continue(anyhow::anyhow!("{err:?}"))
+            }
+        }
+    })
+    .await
+    .with_context(|| {
+        format!(
+            "Failed to call {ETH_PRE_DISPATCH_WEIGHT_RUNTIME_API} at block {block_hash:?} \
+             after retries"
+        )
+    })?;
+
+    let mut result_bytes = result_bytes.as_slice();
+    let result =
+        Result::<Weight, EthTransactError>::decode(&mut result_bytes).with_context(|| {
+            format!(
+                "Failed to decode {ETH_PRE_DISPATCH_WEIGHT_RUNTIME_API} result at block \
+                 {block_hash:?}"
+            )
+        })?;
+
+    result.map_err(|err| {
+        anyhow::anyhow!(
+            "{ETH_PRE_DISPATCH_WEIGHT_RUNTIME_API} returned an error at block {block_hash:?}: \
+             {err:?}"
+        )
+    })
+}
 
 /// This struct defines the watcher used in the benchmarks. A watcher is only valid for 1 workload
 /// and MUST NOT be re-used between workloads since it holds important internal state for a given
@@ -269,7 +330,7 @@ impl Watcher {
             // rpc depending on the platform. The range of receipts we get is the ones for all of
             // the blocks which we've observed.
             let observed_receipts: Vec<TransactionReceipt> = match self.substrate_provider {
-                Some(substrate_provider) => {
+                Some(ref substrate_provider) => {
                     let receipt_extractor = ReceiptExtractor::new(substrate_provider.clone(), None)
                         .await
                         .context("Failed to create the receipt extractor")
@@ -402,6 +463,57 @@ impl Watcher {
                 );
             }
 
+            // Getting the pre-dispatch weights for each one of the transaction steps that we have.
+            // Then, injecting this data into the block by estimating what the block's pre-dispatch
+            // weights would've been.
+            let mut pre_dispatch_weight_of_step = HashMap::new();
+            if let Some(substrate_provider) = &self.substrate_provider {
+                let block_hash = substrate_provider
+                    .blocks()
+                    .at_latest()
+                    .await
+                    .context("Failed to fetch latest substrate block for pre-dispatch weight")?
+                    .hash();
+
+                for (tx_hash, (path, _)) in transaction_registration_information.iter() {
+                    if pre_dispatch_weight_of_step.contains_key(path) {
+                        continue;
+                    }
+
+                    let signed_payload = self
+                        .provider
+                        .get_transaction_by_hash(*tx_hash)
+                        .await
+                        .with_context(|| {
+                            format!("Failed to fetch the signed transaction for step {path}")
+                        })?
+                        .with_context(|| {
+                            format!(
+                                "Transaction {tx_hash} for step {path} was not found by \
+                                 eth_getTransactionByHash"
+                            )
+                        })?
+                        .into_inner()
+                        .encoded_2718();
+                    let pre_dispatch_weight =
+                        eth_pre_dispatch_weight(substrate_provider, block_hash, signed_payload)
+                            .await
+                            .with_context(|| {
+                                format!("Failed to compute pre-dispatch weight for step {path}")
+                            })?;
+
+                    info!(
+                        step_path = %path,
+                        %tx_hash,
+                        ref_time = pre_dispatch_weight.ref_time(),
+                        proof_size = pre_dispatch_weight.proof_size(),
+                        "Collected pre-dispatch weight for step"
+                    );
+
+                    pre_dispatch_weight_of_step.insert(path.clone(), pre_dispatch_weight);
+                }
+            }
+
             // Reporting all of the information to the reporter about all of the observed blocks, the tx
             // counts, the transaction information, and everything else.
             for mut block in observed_blocks.into_iter() {
@@ -412,6 +524,30 @@ impl Watcher {
                         continue;
                     };
                     *block.tx_counts.entry(step_path.clone()).or_default() += 1;
+                }
+
+                if let Some(substrate_info) = &mut block.substrate_block_information {
+                    let mut pre_dispatch_ref_time = 0u128;
+                    let mut pre_dispatch_proof_size = 0u128;
+
+                    for (step_path, tx_count) in block.tx_counts.iter() {
+                        let weight =
+                            pre_dispatch_weight_of_step
+                                .get(step_path)
+                                .with_context(|| {
+                                    format!("Missing pre-dispatch weight for step {step_path}")
+                                })?;
+                        let tx_count = *tx_count as u128;
+
+                        pre_dispatch_ref_time = pre_dispatch_ref_time
+                            .saturating_add(u128::from(weight.ref_time()).saturating_mul(tx_count));
+                        pre_dispatch_proof_size = pre_dispatch_proof_size.saturating_add(
+                            u128::from(weight.proof_size()).saturating_mul(tx_count),
+                        );
+                    }
+
+                    substrate_info.pre_dispatch_ref_time = pre_dispatch_ref_time;
+                    substrate_info.pre_dispatch_proof_size = pre_dispatch_proof_size;
                 }
 
                 // Report information about the transactions within a block.

@@ -72,6 +72,16 @@ pub struct SubstrateMinedBlockInformation {
 
     /// The block hash of the substrate block.
     pub block_hash: [u8; 32],
+
+    /// The total pre-dispatch ref time weight of all transactions in the block, obtained from the
+    /// execution tracer's `baseCallWeight` field. Defaults to zero when the tracer is unavailable.
+    #[serde(default)]
+    pub pre_dispatch_ref_time: u128,
+
+    /// The total pre-dispatch proof size weight of all transactions in the block, obtained from the
+    /// execution tracer's `baseCallWeight` field. Defaults to zero when the tracer is unavailable.
+    #[serde(default)]
+    pub pre_dispatch_proof_size: u128,
 }
 
 impl SubstrateMinedBlockInformation {
