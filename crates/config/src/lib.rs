@@ -16,7 +16,7 @@ use std::{
 use alloy::{
     genesis::Genesis,
     network::EthereumWallet,
-    primitives::{FixedBytes, B256, U256},
+    primitives::{B256, FixedBytes, U256},
     signers::local::PrivateKeySigner,
 };
 use anyhow::Context as _;
