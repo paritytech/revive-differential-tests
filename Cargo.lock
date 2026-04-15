@@ -13334,6 +13334,8 @@ version = "0.1.0"
 dependencies = [
  "alloy",
  "anyhow",
+ "async-trait",
+ "dashmap 6.1.0",
  "futures",
  "revive-common",
  "revive-dt-common",

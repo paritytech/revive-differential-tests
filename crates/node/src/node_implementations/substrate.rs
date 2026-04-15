@@ -20,7 +20,7 @@ pub struct SubstrateNode {
     substrate_process: Option<Process>,
     eth_proxy_process: Option<Process>,
     wallet: Arc<EthereumWallet>,
-    nonce_manager: CachedNonceManager,
+    nonce_manager: ZeroedCachedNonceManager,
     provider: Arc<OnceCell<ConcreteProvider<Ethereum, Arc<EthereumWallet>>>>,
     substrate_provider: Arc<OnceCell<OnlineClient<PolkadotConfig>>>,
     consensus: Option<String>,
