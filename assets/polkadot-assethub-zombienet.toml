@@ -57,7 +57,7 @@ num_cores = 3
 name = "asset-hub-collator-1"
 command = "polkadot-parachain"
 args = [
-  "-lerror,evm=debug,sc_rpc_server=info,runtime::revive=debug",
+  "-lerror,evm=debug,sc_rpc_server=info,runtime::revive=debug,sc_basic_authorship=info,txpool=info",
   "--authoring=slot-based",
   "--rpc-methods=unsafe",
   "--rpc-cors=all",
