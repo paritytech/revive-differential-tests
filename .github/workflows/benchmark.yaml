@@ -45,12 +45,12 @@ jobs:
 
   build-retester:
     name: Build retester
-    runs-on: parity-large
+    runs-on: parity-benchmark
     steps:
       - name: Setup Rust toolchain
         uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
-          target: wasm32-unknown-unknown
+          target: wasm32-unknown-unknown,wasm32v1-none
           components: rust-src
 
       - name: Install system packages
@@ -89,12 +89,12 @@ jobs:
 
   build-chainspec-generator:
     name: Build chainspec-generator
-    runs-on: parity-large
+    runs-on: parity-benchmark
     steps:
       - name: Setup Rust toolchain
         uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
-          target: wasm32-unknown-unknown
+          target: wasm32-unknown-unknown,wasm32v1-none
           components: rust-src
 
       - name: Install system packages
@@ -134,7 +134,7 @@ jobs:
 
   build-polkadot-sdk:
     name: Build polkadot-sdk
-    runs-on: parity-large
+    runs-on: parity-benchmark
     steps:
       - name: Setup Rust toolchain
         uses: actions-rust-lang/setup-rust-toolchain@v1
@@ -199,7 +199,7 @@ jobs:
   build-resolc:
     name: Build resolc from source
     if: ${{ inputs.resolc_ref != '' }}
-    runs-on: parity-large
+    runs-on: parity-benchmark
     outputs:
       resolc_commit: ${{ steps.resolve-ref.outputs.commit }}
     steps:
@@ -249,7 +249,7 @@ jobs:
   generate-matrix:
     name: Generate test matrix
     needs: build-retester
-    runs-on: parity-large
+    runs-on: parity-benchmark
     outputs:
       tests: ${{ steps.matrix.outputs.tests }}
     steps:
@@ -299,7 +299,7 @@ jobs:
       needs.build-chainspec-generator.result == 'success' &&
       needs.build-polkadot-sdk.result == 'success' &&
       contains(fromJSON('["success", "skipped"]'), needs.build-resolc.result)
-    runs-on: parity-large
+    runs-on: parity-benchmark
     strategy:
       fail-fast: false
       matrix:
@@ -452,7 +452,7 @@ jobs:
     name: Publish Report
     if: always()
     needs: benchmark
-    runs-on: parity-large
+    runs-on: parity-benchmark
     permissions:
       contents: write
     steps:
