@@ -372,7 +372,7 @@ type Expectations<'a> = BTreeMap<TestSpecifier<'a>, Status>;
 #[derive(Clone, Debug, Parser)]
 #[command(name = "retester", term_width = 100)]
 pub enum Cli {
-    /// Generates an expectation file out of a given report.
+    /// Generates an expectation file (containing expected test execution statuses) out of a given report.
     GenerateExpectationsFile {
         /// The path of the report's JSON file to generate the expectation's file for.
         #[clap(long = "report-path")]

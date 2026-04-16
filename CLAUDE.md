@@ -8,46 +8,11 @@ Revive Differential Tests is a differential testing framework for Ethereum-compa
 
 The test corpus lives in a separate repository: [resolc-compiler-tests](https://github.com/paritytech/resolc-compiler-tests) and is included as a git submodule.
 
-## Build and Test Commands
+## CLI Usage
 
-```bash
-# Build release binary
-cargo build --release
+Run `retester --help` and `report-processor --help` for up-to-date CLI usage information.
 
-# Install retester and report-processor binaries
-cargo install --path crates/core
-cargo install --path crates/report-processor
-
-# Run unit tests
-cargo make test
-
-# Linting and formatting
-cargo make fmt-check      # Check formatting
-cargo make clippy         # Run clippy with --deny warnings
-cargo make machete        # Check for unused dependencies
-```
-
-## Running Differential Tests
-
-### Full Test Suite (PolkaVM with Resolc)
-
-This is how the polkadot-sdk CI runs tests:
-
-```bash
-retester test \
-    --test ./resolc-compiler-tests/fixtures/solidity/simple \
-    --test ./resolc-compiler-tests/fixtures/solidity/complex \
-    --test ./resolc-compiler-tests/fixtures/solidity/translated_semantic_tests \
-    -p revive-dev-node-polkavm-resolc \
-    --report.file-name report.json \
-    --concurrency.number-of-nodes 10 \
-    --concurrency.number-of-threads 10 \
-    --concurrency.number-of-concurrent-tasks 100 \
-    --working-directory ./workdir \
-    --revive-dev-node.consensus manual-seal-200 \
-    --resolc.heap-size 528000 \
-    --resolc.stack-size 128000
-```
+## Troubleshooting
 
 ### Important Resolc Parameters
 
@@ -57,172 +22,7 @@ retester test \
 | `--resolc.stack-size` | 131072 | Contract stack size in bytes. |
 | `--resolc.path` | (from PATH) | Path to resolc binary. |
 
-**Critical:** These are **compile-time** settings embedded in the PVM bytecode. Changing them requires clearing the compilation cache (see Troubleshooting).
-
-### Test Specifiers
-
-```bash
-# Run all tests in a directory
--t ./resolc-compiler-tests/fixtures/solidity/simple
-
-# Run specific test file
--t path/to/test.sol
-
-# Run specific case within a metadata file (case_idx is 0-indexed)
--t path/to/metadata.json::0
-
-# Run specific case with specific mode
--t path/to/metadata.json::0::Y\ M0
-```
-
-### Report Processing
-
-```bash
-# Generate expectations file from test report
-report-processor generate-expectations-file \
-    --report-path ./workdir/report.json \
-    --output-path expectations.json \
-    --remove-prefix ./resolc-compiler-tests \
-    --include-status failed
-```
-
-### Supported Platforms
-
-| Platform CLI Name | Description |
-|-------------------|-------------|
-| `geth-evm-solc` | Go-Ethereum reference EVM + Solc |
-| `lighthouse-geth-evm-solc` | Geth with Lighthouse consensus + Solc |
-| `revive-dev-node-polkavm-resolc` | Substrate PolkaVM + Resolc |
-| `revive-dev-node-revm-solc` | Substrate REVM + Solc |
-| `zombienet-polkavm-resolc` | Zombienet Substrate + Resolc |
-| `zombienet-revm-solc` | Zombienet REVM + Solc |
-| `polkadot-omni-node-polkavm-resolc` | Polkadot Omni Node + Resolc |
-| `polkadot-omni-node-revm-solc` | Polkadot Omni Node + Solc |
-
-## Running Compilations and Comparing Bytecode Hashes
-
-You can compile contracts using different resolc builds (e.g. for Linux, macOS, and Windows) without executing differential tests. The compilation modes to compile each contract with (e.g. `Y M3 S+`) are passed via `--mode` arguments.
-
-The bytecode hashes generated are included in the compilation report and can be exported and then compared in order to verify that the bytecode produced by each build is identical for the specified mode.
-
-### Compiling Contracts
-
-How to compile (for each platform/build):
-
-```bash
-retester compile \
-    --compile ./resolc-compiler-tests/fixtures/solidity/simple \
-    --compile ./resolc-compiler-tests/fixtures/solidity/complex \
-    --compile ./resolc-compiler-tests/fixtures/solidity/translated_semantic_tests \
-    --mode "Y M0 S+" \
-    --mode "Y M3 S+" \
-    --mode "Y Mz S+" \
-    --resolc.path /path/to/resolc \
-    --resolc.heap-size 500000 \
-    --solc.version "0.8.33" \
-    --report.file-name report-compile.json \
-    --report.include-compiler-input \
-    --report.include-compiler-output \
-    --working-directory ./workdir \
-    --concurrency.number-of-threads 10 \
-    --concurrency.number-of-concurrent-tasks 100 \
-    > logs-compile.log \
-    2> output-compile.log
-```
-
-### Exporting Bytecode Hashes
-
-How to export bytecode hashes (for each platform/build):
-
-```bash
-report-processor export-hashes \
-    --report-path ./workdir/report-compile.json \
-    --output-path ./exported-hashes/hashes-macos.json \
-    --remove-prefix ./resolc-compiler-tests \
-    --platform-label macos
-```
-
-### Comparing Bytecode Hashes
-
-How to compare bytecode hashes:
-
-```bash
-report-processor compare-hashes \
-    --hash-path ./exported-hashes/hashes-macos.json \
-    --hash-path ./exported-hashes/hashes-linux.json \
-    --hash-path ./exported-hashes/hashes-windows.json \
-    --mode "Y M0 S+" \
-    --mode "Y M3 S+" \
-    --mode "Y Mz S+" \
-    --output-path ./hash-comparison.json
-```
-
-## Architecture
-
-The project is a Rust workspace (edition 2024, MSRV 1.87.0) with crates in `/crates/`:
-
-- **core** (`retester` binary) - Main test runner and orchestrator
-- **config** - CLI argument parsing via Clap; defines `Context` enum (Test, Benchmark, ExportJsonSchema, ExportGenesis)
-- **format** - Declarative test definition format based on MatterLabs; includes `gas_overrides` support for platform-specific gas limits
-- **common** - Shared types including `PlatformIdentifier`, `ParsedTestSpecifier`, `Mode`, `ParsedMode`
-- **compiler** - Compilation abstraction for Solc and Resolc compilers
-  - `revive_resolc.rs`: Uses `SolcStandardJsonInputSettingsSelection::new_required_for_tests()` to request `evm.bytecode` output (required for resolc 0.6.0+)
-- **node** - Platform/node implementations in `src/node_implementations/`
-- **node-interaction** - Transaction submission, gas estimation via alloy, receipt waiting
-  - `fallback_gas_filler.rs`: Handles gas estimation for reverting transactions using debug traces
-- **report** - Test result aggregation and reporting (JSON format)
-- **report-processor** - Secondary binary for post-execution report analysis
-- **solc-binaries** - Solc compiler binary caching and downloads
-
-## Test Format
-
-Tests use the MatterLabs format with metadata either as JSON files or inline Solidity comments:
-
-```
-Corpus (directory)
-└── Metadata (JSON file or Solidity with inline comments)
-    └── Case (individual test)
-        ├── targets (optional): filter to specific platforms
-        ├── modes (optional): restrict to specific compiler modes (e.g., ["E-"] for EVM assembly only)
-        ├── gas_overrides (optional): platform-specific hardcoded gas limits
-        └── Steps
-            ├── Transaction steps with assertions
-            └── State assertions (balances, storage)
-```
-
-### Gas Overrides
-
-For tests that fail gas estimation (e.g., due to `consume_all_gas` behavior in resolc), use `gas_overrides`:
-
-```json
-{
-  "method": "test",
-  "calldata": ["0x100000000"],
-  "gas_overrides": {
-    "revive-dev-node-polkavm-resolc": {
-      "gas_limit": 10000000
-    }
-  }
-}
-```
-
-## External Dependencies
-
-**Always required:**
-- Solc (Solidity compiler) - auto-downloaded
-
-**Platform-specific:**
-| Platform | Required Tools |
-|----------|----------------|
-| `geth-evm-solc` | Geth |
-| `lighthouse-geth-evm-solc` | Geth, Kurtosis, Docker |
-| `revive-dev-node-*` | revive-dev-node, eth-rpc |
-| `zombienet-*` | Zombienet SDK binaries |
-| `polkadot-omni-node-*` | polkadot-omni-node, eth-rpc |
-
-**For PolkaVM platforms:** Resolc compiler
-
-## Troubleshooting
+**Critical:** These are **compile-time** settings embedded in the PVM bytecode. Changing them requires clearing the compilation cache (see [Clearing the Compilation Cache](#clearing-the-compilation-cache)).
 
 ### Clearing the Compilation Cache
 
@@ -243,9 +43,3 @@ rm -rf ./workdir
 4. **Tests failing after changing resolc parameters** - Clear the compilation cache (`rm -rf ./workdir`) to force recompilation.
 
 5. **Gas estimation failures for reverting transactions** - The test may need `gas_overrides` in the test metadata to specify a hardcoded gas limit.
-
-## Updating the Test Submodule
-
-```bash
-git submodule update --init --remote resolc-compiler-tests
-```

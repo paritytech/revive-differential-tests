@@ -6,10 +6,16 @@
   </p>
 </div>
 
-This project compiles and executes declarative smart-contract tests against multiple platforms, then compares behavior (status, return data, events, and state diffs). Today it supports:
+This project compiles and executes declarative smart-contract tests against multiple platforms, then compares behavior (status, return data, events, and state diffs). Today it supports platforms such as:
 
 - Geth (EVM reference implementation)
 - Revive Dev Node (Substrate-based PolkaVM + `eth-rpc` proxy)
+
+To list all supported platforms, run:
+
+```bash
+retester test --help
+```
 
 Use it to:
 
@@ -32,7 +38,18 @@ All of the steps contained within each test case are either:
 
 All of the transactions submitted by the this tool to the test nodes follow a similar logic to what wallets do. We first use alloy to estimate the transaction fees, then we attach that to the transaction and submit it to the node and then await the transaction receipt.
 
-This repository contains none of the tests and only contains the testing framework or the test runner. The tests can be found in the [`resolc-compiler-tests`](https://github.com/paritytech/resolc-compiler-tests) repository which is a clone of [MatterLab's test suite](https://github.com/matter-labs/era-compiler-tests) with some modifications and adjustments made to suit our use case.
+## Test Fixtures and Cases
+
+This repository contains none of the tests and only contains the testing framework or the test runner.
+
+> [!NOTE]  
+> The tests can be found in the [`resolc-compiler-tests`](https://github.com/paritytech/resolc-compiler-tests) repository which is a clone of [MatterLab's test suite](https://github.com/matter-labs/era-compiler-tests) with some modifications and adjustments made to suit our use case.
+
+To update the test submodule, run:
+
+```bash
+git submodule update --init --remote resolc-compiler-tests
+```
 
 ## Requirements
 
@@ -47,12 +64,22 @@ This section describes the required dependencies that this framework requires to
 
 All of the above need to be installed and available in the path in order for the tool to work.
 
+## Build Commands
+
+```bash
+# Build release binary
+cargo build --release
+
+# Install retester and report-processor binaries
+cargo install --locked --path crates/core
+cargo install --locked --path crates/report-processor
+```
+
+See [Makefile.toml](./Makefile.toml) for available `cargo make` commands for testing, linting, etc.
+
 ## Running Differential Tests
 
 This tool is being updated quite frequently. Therefore, it's recommended that you don't install the tool and then run it, but rather that you run it from the root of the directory using `cargo run --release --bin retester`. The help command of the tool gives you all of the information you need to know about each of the options and flags that the tool offers.
-
-> [!NOTE]  
-> Note that the tests can be found in the [`resolc-compiler-tests`](https://github.com/paritytech/resolc-compiler-tests) repository.
 
 The simplest command to run this tool is the following:
 

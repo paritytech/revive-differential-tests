@@ -223,7 +223,7 @@ mod context {
         ///   specifier with the exception that in this case the mode is specified and will be used
         ///   in the test.
         #[serde_as(as = "Vec<serde_with::DisplayFromStr>")]
-        #[arg(short = 't', long = "test", required = true)]
+        #[arg(short = 't', long = "test", required = true, verbatim_doc_comment)]
         pub test_specifiers: Vec<ParsedTestSpecifier>,
     }
 
