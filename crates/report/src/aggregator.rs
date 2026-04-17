@@ -964,11 +964,9 @@ pub fn compute_metrics_information(blocks: &[MinedBlockInformation]) -> Vec<Metr
             (None, None, None, None)
         };
 
-        let gas_fullness = if eth.block_gas_limit > 0 {
-            (eth.mined_gas * 100 / eth.block_gas_limit) as u64
-        } else {
-            0
-        };
+        let gas_fullness = (eth.mined_gas * 100)
+            .checked_div(eth.block_gas_limit)
+            .unwrap_or(0) as u64;
 
         let (ref_time, ref_time_limit, ref_time_fullness) =
             if let Some(s) = &block.substrate_block_information {
