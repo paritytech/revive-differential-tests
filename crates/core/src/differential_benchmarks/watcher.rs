@@ -405,7 +405,7 @@ impl Watcher {
                             }
                         })
                         .buffer_unordered(1000)
-                        .flat_map(|receipts| stream::iter(receipts.into_iter()))
+                        .flat_map(|receipts| stream::iter(receipts))
                         .collect::<Vec<_>>()
                         .await
                 }
@@ -445,7 +445,7 @@ impl Watcher {
                             }
                         })
                         .buffer_unordered(100)
-                        .flat_map(|receipts| stream::iter(receipts.into_iter()))
+                        .flat_map(|receipts| stream::iter(receipts))
                         .collect::<Vec<_>>()
                         .await
                 }
