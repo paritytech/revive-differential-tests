@@ -329,10 +329,7 @@ impl FromStr for ContractPathAndIdent {
         let mut splitted_string = s.split(":").peekable();
         let mut path = None::<String>;
         let mut identifier = None::<String>;
-        loop {
-            let Some(next_item) = splitted_string.next() else {
-                break;
-            };
+        while let Some(next_item) = splitted_string.next() {
             if splitted_string.peek().is_some() {
                 match path {
                     Some(ref mut path) => {
