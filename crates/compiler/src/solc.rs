@@ -216,10 +216,12 @@ impl SolidityCompiler for Solc {
                 .spawn()
                 .with_context(|| format!("Failed to spawn solc at {}", path.display()))?;
 
-            let stdin = child.stdin.as_mut().expect("should be piped");
             let serialized_input = serde_json::to_vec(&input)
                 .context("Failed to serialize Standard JSON input for solc")?;
-            stdin
+            child
+                .stdin
+                .as_mut()
+                .expect("should be piped")
                 .write_all(&serialized_input)
                 .await
                 .context("Failed to write Standard JSON to solc stdin")?;
@@ -251,7 +253,7 @@ impl SolidityCompiler for Solc {
             // Detecting if the compiler output contained errors and reporting them through logs and
             // errors instead of returning the compiler output that might contain errors.
             for error in parsed.errors.iter() {
-                if error.severity == Severity::Error {
+                if error.is_error() {
                     tracing::error!(?error, ?input, "Encountered an error in the compilation");
                     anyhow::bail!("Encountered an error in the compilation: {error}")
                 }

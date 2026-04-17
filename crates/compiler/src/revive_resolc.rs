@@ -213,41 +213,33 @@ impl SolidityCompiler for Resolc {
                 display(serde_json::to_string(&std_input_json).unwrap()),
             );
 
-            let path = &this.0.resolc_path;
-            let mut command = AsyncCommand::new(path);
+            let mut command = this.0.kind.command(
+                &this.0.resolc_path,
+                this.0.solc.path(),
+                base_path.as_deref(),
+                &allow_paths,
+            );
             command
                 .stdin(Stdio::piped())
                 .stdout(Stdio::piped())
-                .stderr(Stdio::piped())
-                .arg("--solc")
-                .arg(this.0.solc.path())
-                .arg("--standard-json");
-
-            if let Some(ref base_path) = base_path {
-                command.arg("--base-path").arg(base_path);
-            }
-            if !allow_paths.is_empty() {
-                command.arg("--allow-paths").arg(
-                    allow_paths
-                        .iter()
-                        .map(|path| path.display().to_string())
-                        .collect::<Vec<_>>()
-                        .join(","),
-                );
-            }
-            let mut child = command
-                .spawn()
-                .with_context(|| format!("Failed to spawn resolc at {}", path.display()))?;
-
-            let stdin_pipe = child.stdin.as_mut().expect("stdin must be piped");
+                .stderr(Stdio::piped());
+            let mut child = command.spawn().with_context(|| {
+                format!(
+                    "Failed to spawn resolc ({:?}) at {}",
+                    this.0.kind,
+                    this.0.resolc_path.display()
+                )
+            })?;
             let serialized_input = serde_json::to_vec(&std_input_json)
                 .context("Failed to serialize Standard JSON input for resolc")?;
-
-            stdin_pipe
+            child
+                .stdin
+                .as_mut()
+                .expect("stdin must be piped")
                 .write_all(&serialized_input)
                 .await
                 .context("Failed to write Standard JSON to resolc stdin")?;
-
+            drop(child.stdin.take());
             let output = child
                 .wait_with_output()
                 .await
@@ -289,7 +281,7 @@ impl SolidityCompiler for Resolc {
             // Detecting if the compiler output contained errors and reporting them through logs and
             // errors instead of returning the compiler output that might contain errors.
             for error in parsed.errors.iter() {
-                if error.severity == "error" {
+                if error.is_error() {
                     tracing::error!(
                         ?error,
                         ?input,
@@ -376,6 +368,44 @@ impl SolidityCompiler for Resolc {
 }
 
 impl ResolcKind {
+    /// Constructs the `Command` for invoking resolc.
+    fn command(
+        &self,
+        resolc_path: &Path,
+        solc_path: &Path,
+        base_path: Option<&Path>,
+        allow_paths: &[PathBuf],
+    ) -> AsyncCommand {
+        match self {
+            Self::Native => {
+                let mut command = AsyncCommand::new(resolc_path);
+                command.arg("--solc").arg(solc_path).arg("--standard-json");
+
+                if let Some(base_path) = base_path {
+                    command.arg("--base-path").arg(base_path);
+                }
+                if !allow_paths.is_empty() {
+                    command.arg("--allow-paths").arg(
+                        allow_paths
+                            .iter()
+                            .map(|path| path.display().to_string())
+                            .collect::<Vec<_>>()
+                            .join(","),
+                    );
+                }
+                command
+            }
+            Self::Wasm => {
+                let mut command = AsyncCommand::new("node");
+                command
+                    .arg(run_resolc_wasm_wrapper_path())
+                    .arg(resolc_path)
+                    .arg(solc_path);
+                command
+            }
+        }
+    }
+
     /// Infers the resolc kind from the provided `path`. Vanilla JavaScript
     /// extensions are interpreted as using the Emscripten Wasm build, while
     /// anything else is interpreted as a native binary.
@@ -385,6 +415,11 @@ impl ResolcKind {
             _ => ResolcKind::Native,
         }
     }
+}
+
+/// TODO
+fn run_resolc_wasm_wrapper_path() -> &'static Path {
+    todo!()
 }
 
 #[cfg(test)]
