@@ -417,9 +417,21 @@ impl ResolcKind {
     }
 }
 
-/// TODO
+/// The embedded Node.js wrapper script used to run resolc Wasm builds.
+const RUN_RESOLC_WASM_WRAPPER: &str = include_str!("../../../scripts/run-resolc-wasm.cjs");
+
+/// Extracts the embedded wrapper script to a process-scoped temp file on
+/// first use. Subsequent calls within the same process return the same path.
 fn run_resolc_wasm_wrapper_path() -> &'static Path {
-    todo!()
+    static PATH: LazyLock<PathBuf> = LazyLock::new(|| {
+        let path = std::env::temp_dir().join(format!("{}.run-resolc-wasm.cjs", std::process::id()));
+        std::fs::write(&path, RUN_RESOLC_WASM_WRAPPER).unwrap_or_else(|e| {
+            panic!("Failed to write wrapper script to {}: {e}", path.display())
+        });
+        path
+    });
+
+    PATH.as_path()
 }
 
 #[cfg(test)]
