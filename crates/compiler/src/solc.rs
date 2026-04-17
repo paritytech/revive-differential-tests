@@ -8,22 +8,34 @@ pub struct Solc(Arc<SolcInner>);
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 struct SolcInner {
-    /// The path of the solidity compiler executable that this object uses.
+    /// The solc compiler kind.
+    kind: SolcKind,
+    /// The path of the solc compiler that this object uses.
     solc_path: PathBuf,
-    /// The version of the solidity compiler executable that this object uses.
+    /// The version of the solc compiler that this object uses.
     solc_version: Version,
+}
+
+/// The kind of solc compiler used.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum SolcKind {
+    /// A native executable binary.
+    Native,
+    /// A JavaScript and Wasm module.
+    Wasm,
 }
 
 impl Solc {
     pub fn new(
         context: impl HasSolcConfiguration + HasWorkingDirectoryConfiguration + Send + 'static,
         version: impl Into<Option<VersionOrRequirement>> + Send + 'static,
+        kind: SolcKind,
     ) -> FrameworkFuture<Result<Self>> {
         Box::pin(async move {
             // This is a cache for the compiler objects so that whenever the same compiler version is
             // requested the same object is returned. We do this as we do not want to keep cloning the
             // compiler around.
-            static COMPILERS_CACHE: LazyLock<DashMap<(PathBuf, Version), Solc>> =
+            static COMPILERS_CACHE: LazyLock<DashMap<SolcInner, Solc>> =
                 LazyLock::new(Default::default);
 
             let working_directory_configuration = context.as_working_directory_configuration();
@@ -39,23 +51,26 @@ impl Solc {
             let (version, path) = download_solc(
                 working_directory_configuration.working_directory.as_path(),
                 version,
-                false,
+                matches!(kind, SolcKind::Wasm),
             )
             .await
             .context("Failed to download/get path to solc binary")?;
 
+            let inner = SolcInner {
+                kind,
+                solc_path: path,
+                solc_version: version,
+            };
             Ok(COMPILERS_CACHE
-                .entry((path.clone(), version.clone()))
+                .entry(inner.clone())
                 .or_insert_with(|| {
                     info!(
-                        solc_path = %path.display(),
-                        solc_version = %version,
+                        solc_kind = ?inner.kind,
+                        solc_path = %inner.solc_path.display(),
+                        solc_version = %inner.solc_version,
                         "Created a new solc compiler object"
                     );
-                    Self(Arc::new(SolcInner {
-                        solc_path: path,
-                        solc_version: version,
-                    }))
+                    Self(Arc::new(inner))
                 })
                 .clone())
         })
@@ -93,6 +108,15 @@ impl SolidityCompiler for Solc {
     ) -> FrameworkFuture<Result<CompilerOutput>> {
         let this = self.clone();
         Box::pin(async move {
+            if matches!(this.0.kind, SolcKind::Wasm) {
+                anyhow::bail!(
+                    "Unsupported compilation: \
+                     Compilation using solc's Wasm download target is currently \
+                     only supported when used via resolc. Direct compilation via \
+                     this method is not supported at this time."
+                );
+            }
+
             // Be careful to entirely omit the viaIR field if the compiler does not support it,
             // as it will error if you provide fields it does not know about. Because
             // `supports_mode` is called prior to instantiating a compiler, we should never
@@ -276,6 +300,10 @@ impl SolidityCompiler for Solc {
 }
 
 impl Solc {
+    pub fn kind(&self) -> SolcKind {
+        self.0.kind
+    }
+
     fn compiler_supports_yul(&self) -> bool {
         const SOLC_VERSION_SUPPORTING_VIA_YUL_IR: Version = Version::new(0, 8, 13);
         SolidityCompiler::version(self) >= &SOLC_VERSION_SUPPORTING_VIA_YUL_IR

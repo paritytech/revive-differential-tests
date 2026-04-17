@@ -9,14 +9,34 @@ pub struct Resolc(Arc<ResolcInner>);
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 struct ResolcInner {
+    /// The resolc compiler kind.
+    kind: ResolcKind,
     /// The internal solc compiler that the resolc compiler uses as a compiler frontend.
     solc: Solc,
-    /// Path to the `resolc` executable
+    /// Path to the resolc compiler.
     resolc_path: PathBuf,
     /// The PVM heap size in bytes.
     pvm_heap_size: u32,
     /// The PVM stack size in bytes.
     pvm_stack_size: u32,
+}
+
+/// The kind of resolc compiler used.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum ResolcKind {
+    /// A native executable binary.
+    Native,
+    /// A JavaScript and Wasm module.
+    Wasm,
+}
+
+impl From<ResolcKind> for SolcKind {
+    fn from(kind: ResolcKind) -> Self {
+        match kind {
+            ResolcKind::Native => SolcKind::Native,
+            ResolcKind::Wasm => SolcKind::Wasm,
+        }
+    }
 }
 
 impl Resolc {
@@ -29,10 +49,8 @@ impl Resolc {
         version: impl Into<Option<VersionOrRequirement>> + Send + 'static,
     ) -> FrameworkFuture<Result<Self>> {
         Box::pin(async move {
-            /// This is a cache of all of the resolc compiler objects. Since we do not currently support
-            /// multiple resolc compiler versions, so our cache is just keyed by the solc compiler and
-            /// its version to the resolc compiler.
-            static COMPILERS_CACHE: LazyLock<DashMap<Solc, Resolc>> =
+            /// This is a cache of all of the resolc compiler objects.
+            static COMPILERS_CACHE: LazyLock<DashMap<ResolcInner, Resolc>> =
                 LazyLock::new(Default::default);
 
             let resolc_configuration = context.as_resolc_configuration();
@@ -43,21 +61,21 @@ impl Resolc {
             let pvm_stack_size = resolc_configuration
                 .stack_size
                 .unwrap_or(PolkaVMDefaultStackMemorySize);
-
-            let solc = Solc::new(context, version)
+            let kind = ResolcKind::from_path(&resolc_path);
+            let solc = Solc::new(context, version, kind.into())
                 .await
                 .context("Failed to create the solc compiler frontend for resolc")?;
 
+            let inner = ResolcInner {
+                kind,
+                solc,
+                resolc_path,
+                pvm_heap_size,
+                pvm_stack_size,
+            };
             Ok(COMPILERS_CACHE
-                .entry(solc.clone())
-                .or_insert_with(|| {
-                    Self(Arc::new(ResolcInner {
-                        solc,
-                        resolc_path,
-                        pvm_heap_size,
-                        pvm_stack_size,
-                    }))
-                })
+                .entry(inner.clone())
+                .or_insert_with(|| Self(Arc::new(inner)))
                 .clone())
         })
     }
@@ -70,6 +88,10 @@ impl Resolc {
             )),
             false,
         )
+    }
+
+    pub fn kind(&self) -> ResolcKind {
+        self.0.kind
     }
 
     /// Injects resolc-specific settings that are marked `skip_serializing`
@@ -104,7 +126,9 @@ impl SolidityCompiler for Resolc {
         level = "error",
         skip_all,
         fields(
+            resolc_kind = ?this.kind(),
             resolc_version = %this.version(),
+            solc_kind = ?this.0.solc.kind(),
             solc_version = %this.0.solc.version(),
             json_in = tracing::field::Empty
         ),
@@ -348,6 +372,18 @@ impl SolidityCompiler for Resolc {
     fn supports_mode(&self, mode: &Mode) -> bool {
         mode.pipeline == ModePipeline::ViaYulIR
             && SolidityCompiler::supports_mode(&self.0.solc, mode)
+    }
+}
+
+impl ResolcKind {
+    /// Infers the resolc kind from the provided `path`. Vanilla JavaScript
+    /// extensions are interpreted as using the Emscripten Wasm build, while
+    /// anything else is interpreted as a native binary.
+    fn from_path(path: &Path) -> Self {
+        match path.extension().and_then(|ext| ext.to_str()) {
+            Some("js" | "cjs" | "mjs") => ResolcKind::Wasm,
+            _ => ResolcKind::Native,
+        }
     }
 }
 

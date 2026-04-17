@@ -4,7 +4,9 @@ use std::path::PathBuf;
 use alloy::primitives::Address;
 use revive_dt_common::types::VersionOrRequirement;
 use revive_dt_compiler::{
-    Compiler, ModeOptimizerLevel, ModeOptimizerSetting, revive_resolc::Resolc, solc::Solc,
+    Compiler, ModeOptimizerLevel, ModeOptimizerSetting,
+    revive_resolc::Resolc,
+    solc::{Solc, SolcKind},
 };
 use revive_dt_config::Test;
 use semver::Version;
@@ -18,6 +20,7 @@ async fn contracts_can_be_compiled_with_solc() {
         // would delete the temporary directory before the compiled binary is used.
         args.clone(),
         VersionOrRequirement::Version(Version::new(0, 8, 30)),
+        SolcKind::Native,
     )
     .await
     .unwrap();
