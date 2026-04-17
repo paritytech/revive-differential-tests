@@ -289,7 +289,7 @@ mod context {
         /// If this is not specified, then the tool assumes that it should use the resolc binary
         /// that's provided in the user's $PATH.
         ///
-        /// Paths with Vanilla JavaScript extensions (`.js`, `.cjs`, `.mjs`) are
+        /// A path with a Vanilla JavaScript extension (`.js`, `.cjs`, `.mjs`) is
         /// treated as using a Wasm build. Any other path is treated as a native
         /// resolc binary. If using Wasm, Node.js must be in `$PATH`.
         #[clap(default_value = "resolc")]
