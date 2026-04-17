@@ -20,7 +20,7 @@
 //! 3. **polkadot** (for the relay chain):
 //!    ```bash
 //!    # In polkadot-sdk directory
-//!    cargo build --locked --profile testnet --features fast-runtime --bin polkadot --bin polkadot-prepare-worker --bin polkadot-execute-worker
+//!    cargo build --locked --profile testnet --bin polkadot --bin polkadot-prepare-worker --bin polkadot-execute-worker
 //!    ```
 //!
 //! Make sure to add the build output directories to your PATH or provide
@@ -60,7 +60,7 @@ pub struct ZombienetNode {
 
     /* Provider Related Fields */
     wallet: Arc<EthereumWallet>,
-    nonce_manager: CachedNonceManager,
+    nonce_manager: ZeroedCachedNonceManager,
 
     provider: Arc<OnceCell<ConcreteProvider<Ethereum, Arc<EthereumWallet>>>>,
     substrate_provider: Arc<OnceCell<OnlineClient<PolkadotConfig>>>,
@@ -116,7 +116,7 @@ impl ZombienetNode {
             wallet,
             polkadot_parachain_path,
             eth_proxy_binary,
-            nonce_manager: CachedNonceManager::default(),
+            nonce_manager: ZeroedCachedNonceManager::default(),
             config_path: zombienet_configuration.config_path.clone(),
             network_config: None,
             network: None,
@@ -150,10 +150,6 @@ impl ZombienetNode {
         let mut toml_value: toml::Value =
             toml::from_str(&toml_content).context("Failed to parse zombienet TOML")?;
 
-        super::zombienet_core_assignment::inject_core_assignments(
-            &mut toml_value,
-            &self.base_directory,
-        )?;
         self.inject_prefunded_chainspec(&mut toml_value)?;
         self.make_node_names_unique(&mut toml_value);
 

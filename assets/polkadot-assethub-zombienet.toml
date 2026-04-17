@@ -7,6 +7,8 @@ default_command = "polkadot"
 default_args = ["-linfo", "--no-mdns"]
 chain = "polkadot-local"
 chain_spec_command = "chain-spec-generator {{chainName}}"
+# Override RC spec raw to allow paras to produce blocks
+override_session_0 = true
 
 # Scheduler and async backing params are patched to match Polkadot mainnet.
 # Confirmed via RPC calls to https://rpc.polkadot.io
@@ -14,10 +16,6 @@ chain_spec_command = "chain-spec-generator {{chainName}}"
 # See: https://docs.polkadot.com/develop/parachains/maintenance/configure-asynchronous-backing/
 
 [relaychain.genesis.runtimeGenesis.patch.configuration.config.scheduler_params]
-# Mainnet uses 3 cores for Asset Hub elastic scaling (BLOCK_PROCESSING_VELOCITY=3).
-# Requires num_validators > num_cores (4 validators for 3 cores).
-# Source: polkadot-fellows/runtimes system-parachains/constants/src/polkadot.rs
-num_cores = 3
 # Must be 5 for async backing; lower values degrade parachain block times.
 lookahead = 5
 
@@ -52,12 +50,14 @@ id = 1000
 chain = "asset-hub-polkadot-local"
 chain_spec_command = "chain-spec-generator {{chainName}}"
 cumulus_based = true
+# Assign 3 cores at genesis (RC)
+num_cores = 3
 
 [[parachains.collators]]
 name = "asset-hub-collator-1"
 command = "polkadot-parachain"
 args = [
-  "-lerror,evm=debug,sc_rpc_server=info,runtime::revive=debug",
+  "-lerror,evm=debug,sc_rpc_server=info,runtime::revive=debug,sc_basic_authorship=info,txpool=info",
   "--authoring=slot-based",
   "--rpc-methods=unsafe",
   "--rpc-cors=all",

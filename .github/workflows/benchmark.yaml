@@ -6,6 +6,9 @@ on:
       polkadot_version:
         description: "Polkadot SDK version tag (e.g. polkadot-stable2512-2)"
         required: false
+      runtimes_repo:
+        description: "Runtimes repository (owner/name, e.g. paritytech/polkadot-runtimes-lite)"
+        required: false
       runtimes_version:
         description: "Runtimes commit hash"
         required: false
@@ -21,10 +24,6 @@ on:
       resolc_ref:
         description: "Resolc git ref (commit/branch/tag) to build from source instead of using a release binary"
         required: false
-      disable_fast_runtime:
-        description: "Disable the fast-runtime feature (requires rebuilding polkadot-sdk and chainspec-generator binaries)"
-        type: boolean
-        default: false
       benchmark_env:
         description: "Comma-separated environment variables for benchmark jobs (e.g. RUST_LOG=debug,MY_VAR=value)"
         required: false
@@ -35,12 +34,12 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
-  POLKADOT_VERSION: ${{ inputs.polkadot_version || '1d3f49812ad18fe2a8ede14dc48e0b5d9ae6b956' }}
-  RUNTIMES_VERSION: ${{ inputs.runtimes_version || '6d2ef7ad8b72ed0ccbbcd5492ccd5fb1d844d2a5' }}
+  POLKADOT_VERSION: ${{ inputs.polkadot_version || '3768df0fc7a42419e1774bda79031cceec130020' }}
+  RUNTIMES_REPO: ${{ inputs.runtimes_repo || 'paritytech/polkadot-runtimes-lite' }}
+  RUNTIMES_VERSION: ${{ inputs.runtimes_version || '5748785eab326244cb131c95262a8cf9ac26f559' }}
   ADDITIONAL_KEYS: ${{ inputs.additional_keys || '200010' }}
   RESOLC_VERSION: ${{ inputs.resolc_version || 'v0.6.0' }}
   SOLC_VERSION: ${{ inputs.solc_version || 'v0.8.30' }}
-  FAST_RUNTIME: ${{ inputs.disable_fast_runtime != true }}
 
 permissions:
   contents: write
@@ -50,12 +49,12 @@ jobs:
 
   build-retester:
     name: Build retester
-    runs-on: parity-large
+    runs-on: parity-benchmark
     steps:
       - name: Setup Rust toolchain
         uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
-          target: wasm32-unknown-unknown
+          target: wasm32-unknown-unknown,wasm32v1-none
           components: rust-src
 
       - name: Install system packages
@@ -94,12 +93,12 @@ jobs:
 
   build-chainspec-generator:
     name: Build chainspec-generator
-    runs-on: parity-large
+    runs-on: parity-benchmark
     steps:
       - name: Setup Rust toolchain
         uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
-          target: wasm32-unknown-unknown
+          target: wasm32-unknown-unknown,wasm32v1-none
           components: rust-src
 
       - name: Install system packages
@@ -110,24 +109,15 @@ jobs:
       - name: Checkout runtimes
         uses: actions/checkout@v4
         with:
-          repository: paritytech/polkadot-runtimes-lite
+          repository: ${{ env.RUNTIMES_REPO }}
           ref: ${{ env.RUNTIMES_VERSION }}
-
-      - name: Resolve chainspec-generator features
-        id: chainspec-features
-        run: |
-          if [ "${{ env.FAST_RUNTIME }}" = "true" ]; then
-            echo "features=polkadot,asset-hub-polkadot,fast-runtime" >> "$GITHUB_OUTPUT"
-          else
-            echo "features=polkadot,asset-hub-polkadot" >> "$GITHUB_OUTPUT"
-          fi
 
       - name: Restore chainspec-generator cache
         id: cache
         uses: actions/cache/restore@v4
         with:
           path: ~/.cargo/bin/chain-spec-generator
-          key: chainspec-generator-${{ env.RUNTIMES_VERSION }}-fast-runtime-${{ env.FAST_RUNTIME }}
+          key: chainspec-generator-${{ env.RUNTIMES_REPO }}-${{ env.RUNTIMES_VERSION }}
 
       - name: Build chainspec-generator
         if: steps.cache.outputs.cache-hit != 'true'
@@ -137,7 +127,7 @@ jobs:
           cargo build --locked --profile production \
             --manifest-path chain-spec-generator/Cargo.toml \
             --no-default-features \
-            --features ${{ steps.chainspec-features.outputs.features }}
+            --features polkadot,asset-hub-polkadot
           cp -t ~/.cargo/bin \
             target/production/chain-spec-generator
 
@@ -146,16 +136,16 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: ~/.cargo/bin/chain-spec-generator
-          key: chainspec-generator-${{ env.RUNTIMES_VERSION }}-fast-runtime-${{ env.FAST_RUNTIME }}
+          key: chainspec-generator-${{ env.RUNTIMES_REPO }}-${{ env.RUNTIMES_VERSION }}
 
   build-polkadot-sdk:
     name: Build polkadot-sdk
-    runs-on: parity-large
+    runs-on: parity-benchmark
     steps:
       - name: Setup Rust toolchain
         uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
-          target: wasm32-unknown-unknown
+          target: wasm32-unknown-unknown,wasm32v1-none
           components: rust-src
 
       - name: Install system packages
@@ -169,15 +159,6 @@ jobs:
           repository: paritytech/polkadot-sdk
           ref: ${{ env.POLKADOT_VERSION }}
 
-      - name: Resolve polkadot-sdk features
-        id: polkadot-features
-        run: |
-          if [ "${{ env.FAST_RUNTIME }}" = "true" ]; then
-            echo "features=--features polkadot/fast-runtime" >> "$GITHUB_OUTPUT"
-          else
-            echo "features=" >> "$GITHUB_OUTPUT"
-          fi
-
       - name: Restore polkadot-sdk cache
         id: cache
         uses: actions/cache/restore@v4
@@ -188,7 +169,7 @@ jobs:
             ~/.cargo/bin/polkadot-execute-worker
             ~/.cargo/bin/polkadot-parachain
             ~/.cargo/bin/eth-rpc
-          key: polkadot-sdk-${{ env.POLKADOT_VERSION }}-fast-runtime-${{ env.FAST_RUNTIME }}
+          key: polkadot-sdk-${{ env.POLKADOT_VERSION }}
 
       - name: Build polkadot-sdk binaries
         if: steps.cache.outputs.cache-hit != 'true'
@@ -197,7 +178,6 @@ jobs:
         run: |
           cargo build --locked --profile production \
             -p polkadot -p polkadot-parachain-bin -p pallet-revive-eth-rpc \
-            ${{ steps.polkadot-features.outputs.features }} \
             --bin polkadot \
             --bin polkadot-prepare-worker \
             --bin polkadot-execute-worker \
@@ -220,12 +200,12 @@ jobs:
             ~/.cargo/bin/polkadot-execute-worker
             ~/.cargo/bin/polkadot-parachain
             ~/.cargo/bin/eth-rpc
-          key: polkadot-sdk-${{ env.POLKADOT_VERSION }}-fast-runtime-${{ env.FAST_RUNTIME }}
+          key: polkadot-sdk-${{ env.POLKADOT_VERSION }}
 
   build-resolc:
     name: Build resolc from source
     if: ${{ inputs.resolc_ref != '' }}
-    runs-on: parity-large
+    runs-on: parity-benchmark
     outputs:
       resolc_commit: ${{ steps.resolve-ref.outputs.commit }}
     steps:
@@ -275,7 +255,7 @@ jobs:
   generate-matrix:
     name: Generate test matrix
     needs: build-retester
-    runs-on: parity-large
+    runs-on: parity-benchmark
     outputs:
       tests: ${{ steps.matrix.outputs.tests }}
     steps:
@@ -325,7 +305,7 @@ jobs:
       needs.build-chainspec-generator.result == 'success' &&
       needs.build-polkadot-sdk.result == 'success' &&
       contains(fromJSON('["success", "skipped"]'), needs.build-resolc.result)
-    runs-on: parity-large
+    runs-on: parity-benchmark
     strategy:
       fail-fast: false
       matrix:
@@ -378,7 +358,7 @@ jobs:
 
       - name: Install Kurtosis
         run: |
-          echo "deb [trusted=yes] https://apt.fury.io/kurtosis-tech/ /" | sudo tee /etc/apt/sources.list.d/kurtosis.list
+          echo "deb [trusted=yes] https://sdk.kurtosis.com/kurtosis-cli-release-artifacts/ /" | sudo tee /etc/apt/sources.list.d/kurtosis.list
           sudo apt-get update
           sudo apt-get install -y kurtosis-cli
           kurtosis engine start
@@ -430,7 +410,7 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: ~/.cargo/bin/chain-spec-generator
-          key: chainspec-generator-${{ env.RUNTIMES_VERSION }}-fast-runtime-${{ env.FAST_RUNTIME }}
+          key: chainspec-generator-${{ env.RUNTIMES_REPO }}-${{ env.RUNTIMES_VERSION }}
 
       - name: Restore polkadot-sdk cache
         uses: actions/cache/restore@v4
@@ -441,18 +421,9 @@ jobs:
             ~/.cargo/bin/polkadot-execute-worker
             ~/.cargo/bin/polkadot-parachain
             ~/.cargo/bin/eth-rpc
-          key: polkadot-sdk-${{ env.POLKADOT_VERSION }}-fast-runtime-${{ env.FAST_RUNTIME }}
+          key: polkadot-sdk-${{ env.POLKADOT_VERSION }}
 
       # ── Run benchmarks ───────────────────────────────────────────────────
-
-      - name: Resolve zombienet block production timeout
-        id: zombienet-timeout
-        run: |
-          if [ "${{ env.FAST_RUNTIME }}" = "true" ]; then
-            echo "timeout_ms=300000" >> "$GITHUB_OUTPUT"
-          else
-            echo "timeout_ms=28800000" >> "$GITHUB_OUTPUT"
-          fi
 
       - name: Create working directory
         run: mkdir -p ./workdir
@@ -470,7 +441,7 @@ jobs:
             --concurrency.number-of-threads 12 \
             --concurrency.number-of-concurrent-tasks 1000 \
             --zombienet.config-path ./assets/polkadot-assethub-zombienet.toml \
-            --zombienet.block-production-timeout-ms ${{ steps.zombienet-timeout.outputs.timeout_ms }} \
+            --zombienet.block-production-timeout-ms 28800000 \
             --wallet.additional-keys ${{ env.ADDITIONAL_KEYS }} \
             --report.file-name report.json \
             > ./workdir/retester.log 2>&1
@@ -487,7 +458,7 @@ jobs:
     name: Publish Report
     if: always()
     needs: benchmark
-    runs-on: parity-large
+    runs-on: parity-benchmark
     permissions:
       contents: write
     steps:
@@ -495,11 +466,6 @@ jobs:
         run: |
           mkdir -p "$HOME/.cargo/bin"
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
-
-      - name: Install git-lfs
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y git-lfs
 
       - name: Checkout This Repository
         uses: actions/checkout@v4

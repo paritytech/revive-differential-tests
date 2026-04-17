@@ -48,19 +48,16 @@ pub(crate) mod internal_prelude {
             DynProvider, Identity, Provider, ProviderBuilder, RootProvider, SendableTx,
             ext::DebugApi,
             fillers::{
-                CachedNonceManager, ChainIdFiller, FillProvider, GasFillable, GasFiller, JoinFill,
-                NonceFiller, TxFiller, WalletFiller,
+                ChainIdFiller, FillProvider, GasFillable, GasFiller, JoinFill, NonceFiller,
+                TxFiller, WalletFiller,
             },
         },
         rpc::{
             client::ClientBuilder,
             json_rpc::{Id, RequestPacket, Response, ResponsePacket, SerializedRequest},
-            types::{
-                TransactionRequest,
-                trace::geth::{
-                    GethDebugBuiltInTracerType, GethDebugTracerType, GethDebugTracingCallOptions,
-                    GethDebugTracingOptions,
-                },
+            types::trace::geth::{
+                GethDebugBuiltInTracerType, GethDebugTracerType, GethDebugTracingCallOptions,
+                GethDebugTracingOptions,
             },
         },
         transports::{
