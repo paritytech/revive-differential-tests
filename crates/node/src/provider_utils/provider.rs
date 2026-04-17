@@ -2,7 +2,10 @@ use crate::internal_prelude::*;
 
 pub type ConcreteProvider<N, W> = FillProvider<
     JoinFill<
-        JoinFill<JoinFill<JoinFill<Identity, FallbackGasFiller>, ChainIdFiller>, NonceFiller>,
+        JoinFill<
+            JoinFill<JoinFill<Identity, FallbackGasFiller>, ChainIdFiller>,
+            NonceFiller<ZeroedCachedNonceManager>,
+        >,
         WalletFiller<W>,
     >,
     RootProvider<N>,
@@ -13,7 +16,7 @@ pub async fn construct_concurrency_limited_provider<N, W>(
     rpc_url: &str,
     fallback_gas_filler: FallbackGasFiller,
     chain_id_filler: ChainIdFiller,
-    nonce_filler: NonceFiller,
+    nonce_filler: NonceFiller<ZeroedCachedNonceManager>,
     wallet: W,
 ) -> Result<ConcreteProvider<N, W>>
 where
@@ -22,7 +25,7 @@ where
     Identity: TxFiller<N>,
     FallbackGasFiller: TxFiller<N>,
     ChainIdFiller: TxFiller<N>,
-    NonceFiller: TxFiller<N>,
+    NonceFiller<ZeroedCachedNonceManager>: TxFiller<N>,
     WalletFiller<W>: TxFiller<N>,
 {
     // This is a global limit on the RPC concurrency that applies to all of the providers created
