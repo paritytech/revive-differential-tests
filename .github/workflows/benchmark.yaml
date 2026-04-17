@@ -35,8 +35,8 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
-  POLKADOT_VERSION: ${{ inputs.polkadot_version || 'polkadot-stable2512-2' }}
-  RUNTIMES_VERSION: ${{ inputs.runtimes_version || '220928aa6e87b11cf2b40a6ad893bdbd6efd87d6' }}
+  POLKADOT_VERSION: ${{ inputs.polkadot_version || '1d3f49812ad18fe2a8ede14dc48e0b5d9ae6b956' }}
+  RUNTIMES_VERSION: ${{ inputs.runtimes_version || '6d2ef7ad8b72ed0ccbbcd5492ccd5fb1d844d2a5' }}
   ADDITIONAL_KEYS: ${{ inputs.additional_keys || '200010' }}
   RESOLC_VERSION: ${{ inputs.resolc_version || 'v0.6.0' }}
   SOLC_VERSION: ${{ inputs.solc_version || 'v0.8.30' }}
@@ -110,7 +110,7 @@ jobs:
       - name: Checkout runtimes
         uses: actions/checkout@v4
         with:
-          repository: polkadot-fellows/runtimes
+          repository: paritytech/polkadot-runtimes-lite
           ref: ${{ env.RUNTIMES_VERSION }}
 
       - name: Resolve chainspec-generator features
@@ -131,6 +131,8 @@ jobs:
 
       - name: Build chainspec-generator
         if: steps.cache.outputs.cache-hit != 'true'
+        env:
+          RUSTFLAGS: "-Awarnings"
         run: |
           cargo build --locked --profile production \
             --manifest-path chain-spec-generator/Cargo.toml \
