@@ -4,10 +4,19 @@ use std::path::PathBuf;
 use alloy::primitives::Address;
 use revive_dt_common::types::VersionOrRequirement;
 use revive_dt_compiler::{
-    Compiler, ModeOptimizerLevel, ModeOptimizerSetting, revive_resolc::Resolc, solc::Solc,
+    Compiler, ModeOptimizerLevel, ModeOptimizerSetting,
+    revive_resolc::{Resolc, ResolcKind},
+    solc::{Solc, SolcKind},
 };
-use revive_dt_config::Test;
+use revive_dt_config::{
+    Compile, HasResolcConfiguration, HasSolcConfiguration, HasWorkingDirectoryConfiguration, Test,
+};
 use semver::Version;
+
+/// The environment variable to set to enable the resolc Wasm tests
+/// at runtime. The set value should be the path to resolc JavaScript
+/// file colocated with the Wasm module.
+const RESOLC_JS_PATH_ENV_NAME: &str = "RETESTER_RESOLC_JS_PATH";
 
 #[tokio::test]
 async fn contracts_can_be_compiled_with_solc() {
@@ -21,6 +30,8 @@ async fn contracts_can_be_compiled_with_solc() {
     )
     .await
     .unwrap();
+
+    assert_eq!(solc.kind(), SolcKind::Native);
 
     // Act
     let output = Compiler::new()
@@ -55,18 +66,25 @@ async fn contracts_can_be_compiled_with_solc() {
     assert!(callable_file_contracts.contains_key("Callable"));
 }
 
-#[tokio::test]
-async fn contracts_can_be_compiled_with_resolc() {
-    // Arrange
-    let args = Test::default();
+async fn assert_contracts_can_be_compiled_with_resolc(
+    context: impl HasSolcConfiguration
+    + HasResolcConfiguration
+    + HasWorkingDirectoryConfiguration
+    + Clone
+    + Send
+    + 'static,
+    expected_kind: ResolcKind,
+) {
     let resolc = Resolc::new(
-        // Clone args because this function takes ownership and drops it, which
+        // Clone context because this function takes ownership and drops it, which
         // would delete the temporary directory before the compiled binary is used.
-        args.clone(),
-        VersionOrRequirement::Version(Version::new(0, 8, 30)),
+        context.clone(),
+        VersionOrRequirement::Version(Version::new(0, 8, 34)),
     )
     .await
     .unwrap();
+
+    assert_eq!(resolc.kind(), expected_kind);
 
     // Act
     let output = Compiler::new()
@@ -101,14 +119,41 @@ async fn contracts_can_be_compiled_with_resolc() {
     assert!(callable_file_contracts.contains_key("Callable"));
 }
 
+#[tokio::test]
+async fn contracts_can_be_compiled_with_resolc_native() {
+    let context = Test::default();
+    assert_contracts_can_be_compiled_with_resolc(context, ResolcKind::Native).await;
+}
+
+#[tokio::test]
+async fn contracts_can_be_compiled_with_resolc_wasm() {
+    // Skips conditionally at runtime to allow local development without
+    // requiring to download the resolc Wasm builds. CI will instead
+    // always set the approriate env to always run this test.
+    let resolc_js_path = match std::env::var(RESOLC_JS_PATH_ENV_NAME) {
+        Ok(path) => path,
+        Err(_) => {
+            eprintln!(
+                "Skipping resolc Wasm test: Set environment variable `{}` to enable this test.",
+                RESOLC_JS_PATH_ENV_NAME
+            );
+            return;
+        }
+    };
+
+    let mut context = Compile::default();
+    context.resolc.path = PathBuf::from(&resolc_js_path);
+    assert_contracts_can_be_compiled_with_resolc(context, ResolcKind::Wasm).await;
+}
+
 /// Asserts that bytecode differs across optimization modes in order to verify
 /// that the optimization settings are honored when instantiating the compiler.
 #[tokio::test]
 async fn bytecode_differs_across_optimization_modes() {
-    let args = Test::default();
+    let context = Test::default();
     let resolc = Resolc::new(
-        args.clone(),
-        VersionOrRequirement::Version(Version::new(0, 8, 30)),
+        context.clone(),
+        VersionOrRequirement::Version(Version::new(0, 8, 34)),
     )
     .await
     .unwrap();
@@ -152,10 +197,10 @@ async fn bytecode_differs_across_optimization_modes() {
 /// different absolute paths produces identical bytecode.
 #[tokio::test]
 async fn bytecode_is_source_path_independent_when_calling_external_library() {
-    let args = Test::default();
+    let context = Test::default();
     let resolc = Resolc::new(
-        args.clone(),
-        VersionOrRequirement::Version(Version::new(0, 8, 30)),
+        context.clone(),
+        VersionOrRequirement::Version(Version::new(0, 8, 34)),
     )
     .await
     .unwrap();
