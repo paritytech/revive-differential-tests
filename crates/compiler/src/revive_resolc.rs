@@ -118,7 +118,7 @@ impl SolidityCompiler for Resolc {
         ),
         err(Debug)
     )]
-    fn build(
+    fn compile(
         &self,
         CompilerInput {
             pipeline,
