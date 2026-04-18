@@ -4,16 +4,40 @@ use std::path::PathBuf;
 use alloy::primitives::Address;
 use revive_dt_common::types::VersionOrRequirement;
 use revive_dt_compiler::{
-    Compiler, ModeOptimizerLevel, ModeOptimizerSetting, revive_resolc::Resolc, solc::Solc,
+    Compiler, ModeOptimizerLevel, ModeOptimizerSetting,
+    revive_resolc::{Resolc, ResolcKind},
+    solc::{Solc, SolcKind},
 };
-use revive_dt_config::Test;
+use revive_dt_config::{
+    Compile, HasResolcConfiguration, HasSolcConfiguration, HasWorkingDirectoryConfiguration, Test,
+};
 use semver::Version;
+
+/// The environment variable to set to run the resolc Wasm tests.
+/// The set value should be the absolute path to the resolc
+/// JavaScript file co-located with the Wasm module.
+const RESOLC_JS_PATH_ENV_NAME: &str = "RETESTER_RESOLC_JS_PATH";
+
+/// Gets the resolc JavaScript file path from an environment variable.
+/// Panics if the environment variable is not set.
+fn get_resolc_js_path() -> PathBuf {
+    let path = std::env::var(RESOLC_JS_PATH_ENV_NAME).unwrap_or_else(|_| {
+        panic!(
+            "To run resolc Wasm tests, the environment variable `{RESOLC_JS_PATH_ENV_NAME}` \
+            must be set to the absolute path of the resolc JavaScript file (with the resolc \
+            Wasm module co-located). Download the artifacts from https://github.com/paritytech/revive/releases. \
+            To skip the test locally, run the tests with `-- --skip <name of test>`."
+        )
+    });
+
+    PathBuf::from(path)
+}
 
 #[tokio::test]
 async fn contracts_can_be_compiled_with_solc() {
     // Arrange
     let args = Test::default();
-    let solc = Solc::new(
+    let solc = Solc::new_native(
         // Clone args because this function takes ownership and drops it, which
         // would delete the temporary directory before the compiled binary is used.
         args.clone(),
@@ -21,6 +45,8 @@ async fn contracts_can_be_compiled_with_solc() {
     )
     .await
     .unwrap();
+
+    assert_eq!(solc.kind(), SolcKind::Native);
 
     // Act
     let output = Compiler::new()
@@ -55,18 +81,25 @@ async fn contracts_can_be_compiled_with_solc() {
     assert!(callable_file_contracts.contains_key("Callable"));
 }
 
-#[tokio::test]
-async fn contracts_can_be_compiled_with_resolc() {
-    // Arrange
-    let args = Test::default();
+async fn assert_contracts_can_be_compiled_with_resolc(
+    context: impl HasSolcConfiguration
+    + HasResolcConfiguration
+    + HasWorkingDirectoryConfiguration
+    + Clone
+    + Send
+    + 'static,
+    expected_kind: ResolcKind,
+) {
     let resolc = Resolc::new(
-        // Clone args because this function takes ownership and drops it, which
+        // Clone context because this function takes ownership and drops it, which
         // would delete the temporary directory before the compiled binary is used.
-        args.clone(),
+        context.clone(),
         VersionOrRequirement::Version(Version::new(0, 8, 30)),
     )
     .await
     .unwrap();
+
+    assert_eq!(resolc.kind(), expected_kind);
 
     // Act
     let output = Compiler::new()
@@ -101,13 +134,25 @@ async fn contracts_can_be_compiled_with_resolc() {
     assert!(callable_file_contracts.contains_key("Callable"));
 }
 
+#[tokio::test]
+async fn contracts_can_be_compiled_with_resolc_native() {
+    assert_contracts_can_be_compiled_with_resolc(Test::default(), ResolcKind::Native).await;
+}
+
+#[tokio::test]
+async fn contracts_can_be_compiled_with_resolc_wasm() {
+    let mut context = Compile::default();
+    context.resolc.path = get_resolc_js_path();
+    assert_contracts_can_be_compiled_with_resolc(context, ResolcKind::Wasm).await;
+}
+
 /// Asserts that bytecode differs across optimization modes in order to verify
 /// that the optimization settings are honored when instantiating the compiler.
 #[tokio::test]
 async fn bytecode_differs_across_optimization_modes() {
-    let args = Test::default();
+    let context = Test::default();
     let resolc = Resolc::new(
-        args.clone(),
+        context.clone(),
         VersionOrRequirement::Version(Version::new(0, 8, 30)),
     )
     .await
@@ -152,9 +197,9 @@ async fn bytecode_differs_across_optimization_modes() {
 /// different absolute paths produces identical bytecode.
 #[tokio::test]
 async fn bytecode_is_source_path_independent_when_calling_external_library() {
-    let args = Test::default();
+    let context = Test::default();
     let resolc = Resolc::new(
-        args.clone(),
+        context.clone(),
         VersionOrRequirement::Version(Version::new(0, 8, 30)),
     )
     .await
