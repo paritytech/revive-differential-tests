@@ -13,10 +13,25 @@ use revive_dt_config::{
 };
 use semver::Version;
 
-/// The environment variable to set to enable the resolc Wasm tests
-/// at runtime. The set value should be the path to resolc JavaScript
-/// file colocated with the Wasm module.
+/// The environment variable to set to run the resolc Wasm tests.
+/// The set value should be the absolute path to the resolc
+/// JavaScript file co-located with the Wasm module.
 const RESOLC_JS_PATH_ENV_NAME: &str = "RETESTER_RESOLC_JS_PATH";
+
+/// Gets the resolc JavaScript file path from an environment variable.
+/// Panics if the environment variable is not set.
+fn get_resolc_js_path() -> PathBuf {
+    let path = std::env::var(RESOLC_JS_PATH_ENV_NAME).unwrap_or_else(|_| {
+        panic!(
+            "To run resolc Wasm tests, the environment variable `{RESOLC_JS_PATH_ENV_NAME}` \
+            must be set to the absolute path of the resolc JavaScript file (with the resolc \
+            Wasm module co-located). Download the artifacts from https://github.com/paritytech/revive/releases. \
+            To skip the test locally, run the tests with `-- --skip <name of test>`."
+        )
+    });
+
+    PathBuf::from(path)
+}
 
 #[tokio::test]
 async fn contracts_can_be_compiled_with_solc() {
@@ -121,28 +136,13 @@ async fn assert_contracts_can_be_compiled_with_resolc(
 
 #[tokio::test]
 async fn contracts_can_be_compiled_with_resolc_native() {
-    let context = Test::default();
-    assert_contracts_can_be_compiled_with_resolc(context, ResolcKind::Native).await;
+    assert_contracts_can_be_compiled_with_resolc(Test::default(), ResolcKind::Native).await;
 }
 
 #[tokio::test]
 async fn contracts_can_be_compiled_with_resolc_wasm() {
-    // Skips conditionally at runtime to allow local development without
-    // requiring to download the resolc Wasm builds. CI will instead
-    // always set the approriate env to always run this test.
-    let resolc_js_path = match std::env::var(RESOLC_JS_PATH_ENV_NAME) {
-        Ok(path) => path,
-        Err(_) => {
-            eprintln!(
-                "Skipping resolc Wasm test: Set environment variable `{}` to enable this test.",
-                RESOLC_JS_PATH_ENV_NAME
-            );
-            return;
-        }
-    };
-
     let mut context = Compile::default();
-    context.resolc.path = PathBuf::from(&resolc_js_path);
+    context.resolc.path = get_resolc_js_path();
     assert_contracts_can_be_compiled_with_resolc(context, ResolcKind::Wasm).await;
 }
 
