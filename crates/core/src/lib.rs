@@ -421,7 +421,7 @@ fn new_solc_compiler(
     version: Option<VersionOrRequirement>,
 ) -> FrameworkFuture<Result<Box<dyn SolidityCompiler + Send + Sync>>> {
     Box::pin(async move {
-        let compiler = Solc::new(context, version, SolcKind::Native).await;
+        let compiler = Solc::new_native(context, version).await;
         compiler.map(|compiler| Box::new(compiler) as _)
     })
 }

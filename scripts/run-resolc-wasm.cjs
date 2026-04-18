@@ -107,7 +107,7 @@ function loadModules(resolcPath, soljsonPath) {
  * @param {() => ResolcWasm} createResolc - The resolc Wasm compiler factory.
  * @param {unknown} soljson - The loaded solc Emscripten module.
  * @param {string} input - The standard JSON input.
- * @returns {string} - The standard JSON output.
+ * @returns {string} The standard JSON output.
  */
 function compile(createResolc, soljson, input) {
     const compiler = createResolc();

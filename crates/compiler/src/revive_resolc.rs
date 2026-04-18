@@ -26,17 +26,8 @@ struct ResolcInner {
 pub enum ResolcKind {
     /// A native executable binary.
     Native,
-    /// A JavaScript and Wasm module.
+    /// A Node.js and Wasm module.
     Wasm,
-}
-
-impl From<ResolcKind> for SolcKind {
-    fn from(kind: ResolcKind) -> Self {
-        match kind {
-            ResolcKind::Native => SolcKind::Native,
-            ResolcKind::Wasm => SolcKind::Wasm,
-        }
-    }
 }
 
 impl Resolc {
@@ -62,9 +53,12 @@ impl Resolc {
                 .stack_size
                 .unwrap_or(PolkaVMDefaultStackMemorySize);
             let kind = ResolcKind::from_path(&resolc_path);
-            let solc = Solc::new(context, version, kind.into())
-                .await
-                .context("Failed to create the solc compiler frontend for resolc")?;
+            let solc = match kind {
+                ResolcKind::Native => Solc::new_native(context, version),
+                ResolcKind::Wasm => Solc::new_wasm(context, version),
+            }
+            .await
+            .context("Failed to create the solc compiler frontend for resolc")?;
 
             let inner = ResolcInner {
                 kind,

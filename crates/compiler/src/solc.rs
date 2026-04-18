@@ -21,12 +21,12 @@ struct SolcInner {
 pub enum SolcKind {
     /// A native executable binary.
     Native,
-    /// A JavaScript and Wasm module.
+    /// A Node.js and Wasm module.
     Wasm,
 }
 
 impl Solc {
-    pub fn new(
+    fn new(
         context: impl HasSolcConfiguration + HasWorkingDirectoryConfiguration + Send + 'static,
         version: impl Into<Option<VersionOrRequirement>> + Send + 'static,
         kind: SolcKind,
@@ -74,6 +74,20 @@ impl Solc {
                 })
                 .clone())
         })
+    }
+
+    pub fn new_native(
+        context: impl HasSolcConfiguration + HasWorkingDirectoryConfiguration + Send + 'static,
+        version: impl Into<Option<VersionOrRequirement>> + Send + 'static,
+    ) -> FrameworkFuture<Result<Self>> {
+        Self::new(context, version, SolcKind::Native)
+    }
+
+    pub fn new_wasm(
+        context: impl HasSolcConfiguration + HasWorkingDirectoryConfiguration + Send + 'static,
+        version: impl Into<Option<VersionOrRequirement>> + Send + 'static,
+    ) -> FrameworkFuture<Result<Self>> {
+        Self::new(context, version, SolcKind::Wasm)
     }
 }
 
@@ -244,7 +258,7 @@ impl SolidityCompiler for Solc {
             let parsed = serde_json::from_slice::<SolcOutput>(&output.stdout)
                 .map_err(|e| {
                     anyhow::anyhow!(
-                        "failed to parse resolc JSON output: {e}\nstdout: {}",
+                        "failed to parse solc JSON output: {e}\nstdout: {}",
                         String::from_utf8_lossy(&output.stdout)
                     )
                 })
