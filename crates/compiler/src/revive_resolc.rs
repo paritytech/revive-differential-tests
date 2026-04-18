@@ -229,7 +229,6 @@ impl SolidityCompiler for Resolc {
                 .write_all(&serialized_input)
                 .await
                 .context("Failed to write Standard JSON to resolc stdin")?;
-            drop(child.stdin.take());
             let output = child
                 .wait_with_output()
                 .await
@@ -377,7 +376,7 @@ impl ResolcKind {
             Self::Wasm => {
                 let mut command = AsyncCommand::new("node");
                 command
-                    .arg(run_resolc_wasm_wrapper_path())
+                    .arg(get_run_resolc_wasm_wrapper_path())
                     .arg(resolc_path)
                     .arg(solc_path);
                 command
@@ -401,7 +400,7 @@ const RUN_RESOLC_WASM_WRAPPER: &str = include_str!("../../../scripts/run-resolc-
 
 /// Extracts the embedded wrapper script to a process-scoped temp file on
 /// first use. Subsequent calls within the same process return the same path.
-fn run_resolc_wasm_wrapper_path() -> &'static Path {
+fn get_run_resolc_wasm_wrapper_path() -> &'static Path {
     static PATH: LazyLock<PathBuf> = LazyLock::new(|| {
         let path = std::env::temp_dir().join(format!("{}.run-resolc-wasm.cjs", std::process::id()));
         std::fs::write(&path, RUN_RESOLC_WASM_WRAPPER).unwrap_or_else(|e| {

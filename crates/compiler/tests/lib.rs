@@ -94,7 +94,7 @@ async fn assert_contracts_can_be_compiled_with_resolc(
         // Clone context because this function takes ownership and drops it, which
         // would delete the temporary directory before the compiled binary is used.
         context.clone(),
-        VersionOrRequirement::Version(Version::new(0, 8, 34)),
+        VersionOrRequirement::Version(Version::new(0, 8, 30)),
     )
     .await
     .unwrap();
@@ -153,7 +153,7 @@ async fn bytecode_differs_across_optimization_modes() {
     let context = Test::default();
     let resolc = Resolc::new(
         context.clone(),
-        VersionOrRequirement::Version(Version::new(0, 8, 34)),
+        VersionOrRequirement::Version(Version::new(0, 8, 30)),
     )
     .await
     .unwrap();
@@ -200,7 +200,7 @@ async fn bytecode_is_source_path_independent_when_calling_external_library() {
     let context = Test::default();
     let resolc = Resolc::new(
         context.clone(),
-        VersionOrRequirement::Version(Version::new(0, 8, 34)),
+        VersionOrRequirement::Version(Version::new(0, 8, 30)),
     )
     .await
     .unwrap();
