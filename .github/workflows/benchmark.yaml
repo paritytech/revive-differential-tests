@@ -121,6 +121,8 @@ jobs:
 
       - name: Build chainspec-generator
         if: steps.cache.outputs.cache-hit != 'true'
+        env:
+          RUSTFLAGS: "-Awarnings"
         run: |
           cargo build --locked --profile production \
             --manifest-path chain-spec-generator/Cargo.toml \
