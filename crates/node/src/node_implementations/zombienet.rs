@@ -150,10 +150,6 @@ impl ZombienetNode {
         let mut toml_value: toml::Value =
             toml::from_str(&toml_content).context("Failed to parse zombienet TOML")?;
 
-        super::zombienet_core_assignment::inject_core_assignments(
-            &mut toml_value,
-            &self.base_directory,
-        )?;
         self.inject_prefunded_chainspec(&mut toml_value)?;
         self.make_node_names_unique(&mut toml_value);
 

@@ -7,6 +7,8 @@ default_command = "polkadot"
 default_args = ["-linfo", "--no-mdns"]
 chain = "polkadot-local"
 chain_spec_command = "chain-spec-generator {{chainName}}"
+# Override RC spec raw to allow paras to produce blocks
+override_session_0 = true
 
 # Scheduler and async backing params are patched to match Polkadot mainnet.
 # Confirmed via RPC calls to https://rpc.polkadot.io
@@ -52,6 +54,8 @@ id = 1000
 chain = "asset-hub-polkadot-local"
 chain_spec_command = "chain-spec-generator {{chainName}}"
 cumulus_based = true
+# Assign 3 cores at genesis (RC)
+num_cores = 3
 
 [[parachains.collators]]
 name = "asset-hub-collator-1"
