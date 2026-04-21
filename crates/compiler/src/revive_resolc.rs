@@ -376,7 +376,7 @@ impl ResolcKind {
             Self::Wasm => {
                 let mut command = AsyncCommand::new("node");
                 command
-                    .arg(get_run_resolc_wasm_wrapper_path())
+                    .arg(get_resolc_wasm_wrapper_path())
                     .arg(resolc_path)
                     .arg(solc_path);
                 command
@@ -395,12 +395,11 @@ impl ResolcKind {
     }
 }
 
-/// The embedded Node.js wrapper script used to run resolc Wasm builds.
-const RUN_RESOLC_WASM_WRAPPER: &str = include_str!("../../../scripts/run-resolc-wasm.cjs");
-
 /// Extracts the embedded wrapper script to a process-scoped temp file on
 /// first use. Subsequent calls within the same process return the same path.
-fn get_run_resolc_wasm_wrapper_path() -> &'static Path {
+fn get_resolc_wasm_wrapper_path() -> &'static Path {
+    // The embedded Node.js wrapper script used to run resolc Wasm builds.
+    const RUN_RESOLC_WASM_WRAPPER: &str = include_str!("../../../scripts/run-resolc-wasm.cjs");
     static PATH: LazyLock<PathBuf> = LazyLock::new(|| {
         let path = std::env::temp_dir().join(format!("{}.run-resolc-wasm.cjs", std::process::id()));
         std::fs::write(&path, RUN_RESOLC_WASM_WRAPPER).unwrap_or_else(|e| {
