@@ -442,7 +442,7 @@ jobs:
             --zombienet.block-production-timeout-ms 28800000 \
             --wallet.additional-keys ${{ env.ADDITIONAL_KEYS }} \
             --report.file-name report.json \
-            > ./workdir/retester.log 2>&1
+            2>&1 | tee "./workdir/retester.log"
 
       - name: Upload workdir
         if: always()
