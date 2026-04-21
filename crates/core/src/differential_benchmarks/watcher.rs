@@ -500,7 +500,8 @@ impl Watcher {
                             .await
                             .with_context(|| {
                                 format!("Failed to compute pre-dispatch weight for step {path}")
-                            })?;
+                            })
+                            .unwrap_or_default();
 
                     info!(
                         step_path = %path,
