@@ -14,14 +14,15 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const process = require("node:process");
+const util = require("node:util");
 
-const USAGE = "Usage: node run-resolc-wasm.cjs path/to/resolc/js/file path/to/solc/js/file < input.json"
+const USAGE = "Usage: node run-resolc-wasm.cjs --resolc <path> --solc <path> < input.json";
 
 /**
  * The resolc Wasm compiler.
  *
  * @typedef {Object} ResolcWasm
- * @property {unknown} soljson - The loaded solc Emscripten module.
+ * @property {unknown} soljson - The loaded soljson Emscripten module.
  * @property {(data: string) => void} writeToStdin - Writes data to stdin.
  * @property {(args: string[]) => number} callMain - Invokes the compiler and returns the exit code.
  * @property {() => string} readFromStdout - Reads the stdout content.
@@ -38,74 +39,82 @@ class ValidationError extends Error {
      */
     constructor(message, { showUsage } = { showUsage: false }) {
         message += showUsage ? `\n\n${USAGE}` : "";
-        super(`Error: ${message}`);
+        super(message);
         this.name = "ValidationError";
     }
 }
 
 /**
+ * The parsed CLI arguments.
+ *
+ * @typedef {Object} ParsedArguments
+ * @property {string} resolcPath - Resolved path to the resolc Node.js module.
+ * @property {string} soljsonPath - Resolved path to the soljson Node.js module.
+ */
+
+/**
  * Parses, resolves, and validates the command-line arguments.
  *
- * @returns {{ resolcPath: string, soljsonPath: string }} The parsed arguments.
+ * @returns {ParsedArguments} The parsed arguments.
  * @throws {ValidationError} If any argument is invalid.
  */
 function parseArguments() {
-    const args = process.argv.slice(2);
-    if (args.length !== 2) {
-        throw new ValidationError(`Received an invalid number of arguments, got ${args.length}`, { showUsage: true });
-    }
+    try {
+        const { resolc, solc } = util.parseArgs({
+            options: {
+                resolc: { type: "string" },
+                solc: { type: "string" },
+            },
+            strict: true,
+        }).values;
 
-    const [resolcPathRaw, soljsonPathRaw] = args;
-    if (!resolcPathRaw || !soljsonPathRaw) {
-        throw new ValidationError("Paths to the resolc and solc Node.js modules cannot be empty", { showUsage: true });
-    }
+        if (!resolc || !solc) {
+            throw new Error("Missing required argument");
+        }
 
-    const resolcPath = path.resolve(resolcPathRaw);
-    if (!fs.existsSync(resolcPath)) {
-        throw new ValidationError(`resolc not found: ${resolcPath}`);
-    }
+        const resolcPath = path.resolve(resolc);
+        if (!fs.existsSync(resolcPath)) {
+            throw new Error(`resolc not found: ${resolcPath}`);
+        }
+        const soljsonPath = path.resolve(solc);
+        if (!fs.existsSync(soljsonPath)) {
+            throw new Error(`solc not found: ${soljsonPath}`);
+        }
 
-    const soljsonPath = path.resolve(soljsonPathRaw);
-    if (!fs.existsSync(soljsonPath)) {
-        throw new ValidationError(`solc not found: ${soljsonPath}`);
+        return { resolcPath, soljsonPath };
+    } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        throw new ValidationError(message, { showUsage: true });
     }
-
-    return { resolcPath, soljsonPath };
 }
 
 /**
  * Loads the Node.js modules from the provided paths.
  *
  * @param {string} resolcPath - The path to the resolc Node.js module.
- * @param {string} soljsonPath - The path to the solc Node.js module.
- * @returns {{ createResolc: () => ResolcWasm, soljson: unknown }} A resolc Wasm compiler factory and the loaded solc module.
+ * @param {string} soljsonPath - The path to the soljson Node.js module.
+ * @returns {{ createResolc: () => ResolcWasm, soljson: unknown }} A resolc Wasm compiler factory and the loaded soljson module.
  * @throws {ValidationError} If the modules are invalid.
  */
 function loadModules(resolcPath, soljsonPath) {
-    /** @type {() => ResolcWasm} */
-    let createResolc;
-    /** @type {unknown} */
-    let soljson;
-
     try {
-        createResolc = require(resolcPath);
-        soljson = require(soljsonPath);
+        const createResolc = require(resolcPath);
+        const soljson = require(soljsonPath);
+        if (typeof createResolc !== "function") {
+            throw new Error(`The resolc module '${resolcPath}' did not export a function`);
+        }
+        return { createResolc, soljson };
     } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         throw new ValidationError(`Failed to load module: ${message}`);
     }
-    if (typeof createResolc !== "function") {
-        throw new ValidationError(`The resolc module '${resolcPath}' did not export a function`);
-    }
-
-    return { createResolc, soljson };
 }
 
 /**
  * Compiles the source files in the standard JSON input via resolc Wasm.
  *
  * @param {() => ResolcWasm} createResolc - The resolc Wasm compiler factory.
- * @param {unknown} soljson - The loaded solc Emscripten module.
+ * @param {unknown} soljson - The loaded soljson Emscripten module.
  * @param {string} input - The standard JSON input.
  * @returns {string} The standard JSON output.
  */
@@ -138,6 +147,6 @@ try {
     main();
 } catch (error) {
     // Include the full stack trace for unexpected (non-ValidationError) exceptions.
-    console.error(error instanceof ValidationError ? error.message : error);
+    console.error(error instanceof ValidationError ? String(error) : error);
     process.exit(1);
 }

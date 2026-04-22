@@ -377,7 +377,9 @@ impl ResolcKind {
                 let mut command = AsyncCommand::new("node");
                 command
                     .arg(get_resolc_wasm_wrapper_path())
+                    .arg("--resolc")
                     .arg(resolc_path)
+                    .arg("--solc")
                     .arg(solc_path);
                 command
             }
