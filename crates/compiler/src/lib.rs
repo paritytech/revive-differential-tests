@@ -77,7 +77,7 @@ pub trait SolidityCompiler {
     fn path(&self) -> &Path;
 
     /// The low-level compiler interface.
-    fn compile(&self, input: CompilerInput) -> FrameworkFuture<Result<CompilerOutput>>;
+    fn build(&self, input: CompilerInput) -> FrameworkFuture<Result<CompilerOutput>>;
 
     /// Does the compiler support the provided mode and version settings.
     fn supports_mode(&self, mode: &Mode) -> bool;
@@ -190,7 +190,7 @@ impl Compiler {
     }
 
     pub async fn try_build(self, compiler: &dyn SolidityCompiler) -> Result<CompilerOutput> {
-        compiler.compile(self.input).await
+        compiler.build(self.input).await
     }
 
     pub fn input(&self) -> &CompilerInput {

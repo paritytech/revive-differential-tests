@@ -107,7 +107,7 @@ impl SolidityCompiler for Solc {
         fields(json_in = tracing::field::Empty),
         err(Debug)
     )]
-    fn compile(
+    fn build(
         &self,
         CompilerInput {
             pipeline,
