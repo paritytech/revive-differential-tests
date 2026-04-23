@@ -9,14 +9,25 @@ pub struct Resolc(Arc<ResolcInner>);
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 struct ResolcInner {
+    /// The runtime target.
+    runtime_target: ResolcRuntimeTarget,
     /// The internal solc compiler that the resolc compiler uses as a compiler frontend.
     solc: Solc,
-    /// Path to the `resolc` executable
+    /// Path to the resolc compiler.
     resolc_path: PathBuf,
     /// The PVM heap size in bytes.
     pvm_heap_size: u32,
     /// The PVM stack size in bytes.
     pvm_stack_size: u32,
+}
+
+/// The runtime used for the resolc build.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum ResolcRuntimeTarget {
+    /// A native runtime.
+    Native,
+    /// A Wasm runtime (Node.js/V8).
+    Wasm,
 }
 
 impl Resolc {
@@ -29,10 +40,8 @@ impl Resolc {
         version: impl Into<Option<VersionOrRequirement>> + Send + 'static,
     ) -> FrameworkFuture<Result<Self>> {
         Box::pin(async move {
-            /// This is a cache of all of the resolc compiler objects. Since we do not currently support
-            /// multiple resolc compiler versions, so our cache is just keyed by the solc compiler and
-            /// its version to the resolc compiler.
-            static COMPILERS_CACHE: LazyLock<DashMap<Solc, Resolc>> =
+            /// This is a cache of all of the resolc compiler objects.
+            static COMPILERS_CACHE: LazyLock<DashMap<ResolcInner, Resolc>> =
                 LazyLock::new(Default::default);
 
             let resolc_configuration = context.as_resolc_configuration();
@@ -43,33 +52,30 @@ impl Resolc {
             let pvm_stack_size = resolc_configuration
                 .stack_size
                 .unwrap_or(PolkaVMDefaultStackMemorySize);
+            let runtime_target = ResolcRuntimeTarget::from_path(&resolc_path);
+            let solc = match runtime_target {
+                ResolcRuntimeTarget::Native => Solc::new_native(context, version),
+                ResolcRuntimeTarget::Wasm => Solc::new_wasm(context, version),
+            }
+            .await
+            .context("Failed to create the solc compiler frontend for resolc")?;
 
-            let solc = Solc::new(context, version)
-                .await
-                .context("Failed to create the solc compiler frontend for resolc")?;
-
+            let inner = ResolcInner {
+                runtime_target,
+                solc,
+                resolc_path,
+                pvm_heap_size,
+                pvm_stack_size,
+            };
             Ok(COMPILERS_CACHE
-                .entry(solc.clone())
-                .or_insert_with(|| {
-                    Self(Arc::new(ResolcInner {
-                        solc,
-                        resolc_path,
-                        pvm_heap_size,
-                        pvm_stack_size,
-                    }))
-                })
+                .entry(inner.clone())
+                .or_insert_with(|| Self(Arc::new(inner)))
                 .clone())
         })
     }
 
-    fn polkavm_settings(&self) -> SolcStandardJsonInputSettingsPolkaVM {
-        SolcStandardJsonInputSettingsPolkaVM::new(
-            Some(SolcStandardJsonInputSettingsPolkaVMMemory::new(
-                Some(self.0.pvm_heap_size),
-                Some(self.0.pvm_stack_size),
-            )),
-            false,
-        )
+    pub fn runtime_target(&self) -> ResolcRuntimeTarget {
+        self.0.runtime_target
     }
 
     /// Injects resolc-specific settings that are marked `skip_serializing`
@@ -92,7 +98,7 @@ impl SolidityCompiler for Resolc {
     fn version(&self) -> &Version {
         // We currently return the solc compiler version since we do not support multiple resolc
         // compiler versions.
-        SolidityCompiler::version(&self.0.solc)
+        self.0.solc.version()
     }
 
     fn path(&self) -> &std::path::Path {
@@ -104,7 +110,9 @@ impl SolidityCompiler for Resolc {
         level = "error",
         skip_all,
         fields(
+            resolc_runtime_target = ?this.runtime_target(),
             resolc_version = %this.version(),
+            solc_runtime_target = ?this.0.solc.runtime_target(),
             solc_version = %this.0.solc.version(),
             json_in = tracing::field::Empty
         ),
@@ -134,7 +142,13 @@ impl SolidityCompiler for Resolc {
             }
 
             let optimize_setting = optimization.unwrap_or_default();
-
+            let polkavm = SolcStandardJsonInputSettingsPolkaVM::new(
+                Some(SolcStandardJsonInputSettingsPolkaVMMemory::new(
+                    Some(this.0.pvm_heap_size),
+                    Some(this.0.pvm_stack_size),
+                )),
+                false,
+            );
             let input = SolcStandardJsonInput {
                 language: SolcStandardJsonInputLanguage::Solidity,
                 sources: sources
@@ -176,7 +190,7 @@ impl SolidityCompiler for Resolc {
                         // to be the determining factor for the default values of solc's optimizer details.
                         SolcOptimizerDetails::default(),
                     ),
-                    polkavm: this.polkavm_settings(),
+                    polkavm,
                     metadata: SolcStandardJsonInputSettingsMetadata::default(),
                     detect_missing_libraries: false,
                 },
@@ -189,52 +203,41 @@ impl SolidityCompiler for Resolc {
                 display(serde_json::to_string(&std_input_json).unwrap()),
             );
 
-            let path = &this.0.resolc_path;
-            let mut command = AsyncCommand::new(path);
+            let mut command = this.0.runtime_target.command(
+                &this.0.resolc_path,
+                this.0.solc.path(),
+                base_path.as_deref(),
+                &allow_paths,
+            );
             command
                 .stdin(Stdio::piped())
                 .stdout(Stdio::piped())
-                .stderr(Stdio::piped())
-                .arg("--solc")
-                .arg(this.0.solc.path())
-                .arg("--standard-json");
-
-            if let Some(ref base_path) = base_path {
-                command.arg("--base-path").arg(base_path);
-            }
-            if !allow_paths.is_empty() {
-                command.arg("--allow-paths").arg(
-                    allow_paths
-                        .iter()
-                        .map(|path| path.display().to_string())
-                        .collect::<Vec<_>>()
-                        .join(","),
-                );
-            }
-            let mut child = command
-                .spawn()
-                .with_context(|| format!("Failed to spawn resolc at {}", path.display()))?;
-
-            let stdin_pipe = child.stdin.as_mut().expect("stdin must be piped");
+                .stderr(Stdio::piped());
+            let mut child = command.spawn().with_context(|| {
+                format!(
+                    "Failed to spawn resolc ({:?}) at {}",
+                    this.0.runtime_target,
+                    this.0.resolc_path.display()
+                )
+            })?;
             let serialized_input = serde_json::to_vec(&std_input_json)
                 .context("Failed to serialize Standard JSON input for resolc")?;
-
-            stdin_pipe
+            child
+                .stdin
+                .as_mut()
+                .expect("stdin must be piped")
                 .write_all(&serialized_input)
                 .await
                 .context("Failed to write Standard JSON to resolc stdin")?;
-
             let output = child
                 .wait_with_output()
                 .await
                 .context("Failed while waiting for resolc process to finish")?;
-            let stdout = output.stdout;
-            let stderr = output.stderr;
 
             if !output.status.success() {
                 let json_in = serde_json::to_string_pretty(&input)
                     .context("Failed to pretty-print Standard JSON input for logging")?;
-                let message = String::from_utf8_lossy(&stderr);
+                let message = String::from_utf8_lossy(&output.stderr);
                 tracing::error!(
                     status = %output.status,
                     message = %message,
@@ -245,13 +248,13 @@ impl SolidityCompiler for Resolc {
             }
 
             let parsed: SolcStandardJsonOutput = {
-                let mut deserializer = serde_json::Deserializer::from_slice(&stdout);
+                let mut deserializer = serde_json::Deserializer::from_slice(&output.stdout);
                 deserializer.disable_recursion_limit();
                 serde::de::Deserialize::deserialize(&mut deserializer)
                     .map_err(|e| {
                         anyhow::anyhow!(
                             "failed to parse resolc JSON output: {e}\nstderr: {}",
-                            String::from_utf8_lossy(&stderr)
+                            String::from_utf8_lossy(&output.stderr)
                         )
                     })
                     .context("Failed to parse resolc standard JSON output")?
@@ -265,7 +268,7 @@ impl SolidityCompiler for Resolc {
             // Detecting if the compiler output contained errors and reporting them through logs and
             // errors instead of returning the compiler output that might contain errors.
             for error in parsed.errors.iter() {
-                if error.severity == "error" {
+                if error.is_error() {
                     tracing::error!(
                         ?error,
                         ?input,
@@ -307,20 +310,12 @@ impl SolidityCompiler for Resolc {
                             serde_json::Value::String(solc_metadata_str) => {
                                 solc_metadata_str.as_str()
                             }
-                            serde_json::Value::Object(metadata_object) => {
-                                let solc_metadata_value = metadata_object
-                                    .get("solc_metadata")
-                                    .context("Contract doesn't have a 'solc_metadata' field")?;
-                                solc_metadata_value
-                                    .as_str()
-                                    .context("The 'solc_metadata' field is not a string")?
-                            }
-                            serde_json::Value::Null
-                            | serde_json::Value::Bool(_)
-                            | serde_json::Value::Number(_)
-                            | serde_json::Value::Array(_) => {
-                                anyhow::bail!("Unsupported type of metadata {metadata:?}")
-                            }
+                            serde_json::Value::Object(metadata_object) => metadata_object
+                                .get("solc_metadata")
+                                .context("Contract doesn't have a 'solc_metadata' field")?
+                                .as_str()
+                                .context("The 'solc_metadata' field is not a string")?,
+                            _ => anyhow::bail!("Unsupported type of metadata {metadata:?}"),
                         };
                         let solc_metadata = serde_json::from_str::<serde_json::Value>(
                             solc_metadata_str,
@@ -328,10 +323,9 @@ impl SolidityCompiler for Resolc {
                         .context(
                             "Failed to deserialize the solc_metadata as a serde_json generic value",
                         )?;
-                        let output_value = solc_metadata
+                        let abi_value = solc_metadata
                             .get("output")
-                            .context("solc_metadata doesn't have an output field")?;
-                        let abi_value = output_value
+                            .context("solc_metadata doesn't have an output field")?
                             .get("abi")
                             .context("solc_metadata output doesn't contain an abi field")?;
                         serde_json::from_value::<JsonAbi>(abi_value.clone())
@@ -349,6 +343,74 @@ impl SolidityCompiler for Resolc {
         mode.pipeline == ModePipeline::ViaYulIR
             && SolidityCompiler::supports_mode(&self.0.solc, mode)
     }
+}
+
+impl ResolcRuntimeTarget {
+    /// Constructs the `Command` for invoking resolc.
+    fn command(
+        &self,
+        resolc_path: &Path,
+        solc_path: &Path,
+        base_path: Option<&Path>,
+        allow_paths: &[PathBuf],
+    ) -> AsyncCommand {
+        match self {
+            Self::Native => {
+                let mut command = AsyncCommand::new(resolc_path);
+                command.arg("--solc").arg(solc_path).arg("--standard-json");
+
+                if let Some(base_path) = base_path {
+                    command.arg("--base-path").arg(base_path);
+                }
+                if !allow_paths.is_empty() {
+                    command.arg("--allow-paths").arg(
+                        allow_paths
+                            .iter()
+                            .map(|path| path.display().to_string())
+                            .collect::<Vec<_>>()
+                            .join(","),
+                    );
+                }
+                command
+            }
+            Self::Wasm => {
+                let mut command = AsyncCommand::new("node");
+                command
+                    .arg(get_resolc_wasm_wrapper_path())
+                    .arg("--resolc")
+                    .arg(resolc_path)
+                    .arg("--solc")
+                    .arg(solc_path);
+                command
+            }
+        }
+    }
+
+    /// Infers the runtime target from the provided `path`. Vanilla JavaScript
+    /// extensions are interpreted as using the Emscripten Wasm build, targeting
+    /// a Wasm runtime, while anything else is interpreted as a native runtime target.
+    fn from_path(path: &Path) -> Self {
+        match path.extension().and_then(|ext| ext.to_str()) {
+            Some("js" | "cjs" | "mjs") => ResolcRuntimeTarget::Wasm,
+            _ => ResolcRuntimeTarget::Native,
+        }
+    }
+}
+
+/// Extracts the embedded wrapper script to a process-scoped temp file on
+/// first use. Subsequent calls within the same process return the same path.
+fn get_resolc_wasm_wrapper_path() -> &'static Path {
+    // The embedded Node.js wrapper script used to run resolc Wasm builds.
+    const RUN_RESOLC_WASM_WRAPPER: &str = include_str!("../../../scripts/run-resolc-wasm.cjs");
+    static PATH: LazyLock<PathBuf> = LazyLock::new(|| {
+        let path = std::env::temp_dir().join(format!("{}.run-resolc-wasm.cjs", std::process::id()));
+        std::fs::write(&path, RUN_RESOLC_WASM_WRAPPER).unwrap_or_else(|e| {
+            panic!("Failed to write wrapper script to {}: {e}", path.display())
+        });
+        path
+    });
+
+    PATH.as_path()
 }
 
 #[cfg(test)]

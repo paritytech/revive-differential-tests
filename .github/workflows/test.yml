@@ -16,6 +16,7 @@ concurrency:
 env:
   CARGO_TERM_COLOR: always
   POLKADOT_VERSION: polkadot-stable2506-2
+  RESOLC_VERSION: v1.1.0
 
 jobs:
   machete:
@@ -123,21 +124,12 @@ jobs:
           fi
           wget -qO- "$URL" | sudo tar xz -C /usr/local/bin --strip-components=1
           geth --version
-
-          curl -sL https://github.com/paritytech/revive/releases/download/v1.0.0/resolc-x86_64-unknown-linux-musl -o resolc
-          chmod +x resolc
-          sudo mv resolc /usr/local/bin
       - name: Install Geth on macOS
         if: matrix.os == 'macos-14'
         run: |
           brew tap ethereum/ethereum
           brew install ethereum protobuf
-
           brew install solidity
-
-          curl -sL https://github.com/paritytech/revive/releases/download/v1.0.0/resolc-universal-apple-darwin -o resolc
-          chmod +x resolc
-          sudo mv resolc /usr/local/bin
       - name: Install Kurtosis on macOS
         if: matrix.os == 'macos-14'
         run: brew install kurtosis-tech/tap/kurtosis-cli
@@ -147,7 +139,26 @@ jobs:
           echo "deb [trusted=yes] https://apt.fury.io/kurtosis-tech/ /" | sudo tee /etc/apt/sources.list.d/kurtosis.list
           sudo apt update
           sudo apt install kurtosis-cli
+      - name: Download resolc on Ubuntu
+        if: matrix.os == 'ubuntu-24.04'
+        run: |
+          curl -sL "https://github.com/paritytech/revive/releases/download/${{ env.RESOLC_VERSION }}/resolc-x86_64-unknown-linux-musl" -o resolc
+          chmod +x resolc
+          sudo mv resolc /usr/local/bin
+      - name: Download resolc on macOS
+        if: matrix.os == 'macos-14'
+        run: |
+          curl -sL "https://github.com/paritytech/revive/releases/download/${{ env.RESOLC_VERSION }}/resolc-universal-apple-darwin" -o resolc
+          chmod +x resolc
+          sudo mv resolc /usr/local/bin
+      - name: Download resolc Wasm
+        run: |
+          mkdir -p resolc-wasm
+          curl -sL "https://github.com/paritytech/revive/releases/download/${{ env.RESOLC_VERSION }}/resolc.js" -o resolc-wasm/resolc.js
+          curl -sL "https://github.com/paritytech/revive/releases/download/${{ env.RESOLC_VERSION }}/resolc.wasm" -o resolc-wasm/resolc.wasm
       - name: Run Tests
+        env:
+          RETESTER_RESOLC_JS_PATH: ${{ github.workspace }}/resolc-wasm/resolc.js
         run: cargo make test
   cache-polkadot:
     name: Build and Cache Polkadot Binaries on ${{ matrix.os }}

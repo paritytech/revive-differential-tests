@@ -8,22 +8,34 @@ pub struct Solc(Arc<SolcInner>);
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 struct SolcInner {
-    /// The path of the solidity compiler executable that this object uses.
+    /// The runtime target.
+    runtime_target: SolcRuntimeTarget,
+    /// The path of the solc compiler that this object uses.
     solc_path: PathBuf,
-    /// The version of the solidity compiler executable that this object uses.
+    /// The version of the solc compiler that this object uses.
     solc_version: Version,
 }
 
+/// The runtime used for the solc build.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum SolcRuntimeTarget {
+    /// A native runtime.
+    Native,
+    /// A Wasm runtime (Node.js/V8).
+    Wasm,
+}
+
 impl Solc {
-    pub fn new(
+    fn new(
         context: impl HasSolcConfiguration + HasWorkingDirectoryConfiguration + Send + 'static,
         version: impl Into<Option<VersionOrRequirement>> + Send + 'static,
+        runtime_target: SolcRuntimeTarget,
     ) -> FrameworkFuture<Result<Self>> {
         Box::pin(async move {
             // This is a cache for the compiler objects so that whenever the same compiler version is
             // requested the same object is returned. We do this as we do not want to keep cloning the
             // compiler around.
-            static COMPILERS_CACHE: LazyLock<DashMap<(PathBuf, Version), Solc>> =
+            static COMPILERS_CACHE: LazyLock<DashMap<SolcInner, Solc>> =
                 LazyLock::new(Default::default);
 
             let working_directory_configuration = context.as_working_directory_configuration();
@@ -39,26 +51,43 @@ impl Solc {
             let (version, path) = download_solc(
                 working_directory_configuration.working_directory.as_path(),
                 version,
-                false,
+                matches!(runtime_target, SolcRuntimeTarget::Wasm),
             )
             .await
             .context("Failed to download/get path to solc binary")?;
 
+            let inner = SolcInner {
+                runtime_target,
+                solc_path: path,
+                solc_version: version,
+            };
             Ok(COMPILERS_CACHE
-                .entry((path.clone(), version.clone()))
+                .entry(inner.clone())
                 .or_insert_with(|| {
                     info!(
-                        solc_path = %path.display(),
-                        solc_version = %version,
+                        solc_runtime_target = ?inner.runtime_target,
+                        solc_path = %inner.solc_path.display(),
+                        solc_version = %inner.solc_version,
                         "Created a new solc compiler object"
                     );
-                    Self(Arc::new(SolcInner {
-                        solc_path: path,
-                        solc_version: version,
-                    }))
+                    Self(Arc::new(inner))
                 })
                 .clone())
         })
+    }
+
+    pub fn new_native(
+        context: impl HasSolcConfiguration + HasWorkingDirectoryConfiguration + Send + 'static,
+        version: impl Into<Option<VersionOrRequirement>> + Send + 'static,
+    ) -> FrameworkFuture<Result<Self>> {
+        Self::new(context, version, SolcRuntimeTarget::Native)
+    }
+
+    pub fn new_wasm(
+        context: impl HasSolcConfiguration + HasWorkingDirectoryConfiguration + Send + 'static,
+        version: impl Into<Option<VersionOrRequirement>> + Send + 'static,
+    ) -> FrameworkFuture<Result<Self>> {
+        Self::new(context, version, SolcRuntimeTarget::Wasm)
     }
 }
 
@@ -93,6 +122,15 @@ impl SolidityCompiler for Solc {
     ) -> FrameworkFuture<Result<CompilerOutput>> {
         let this = self.clone();
         Box::pin(async move {
+            if matches!(this.0.runtime_target, SolcRuntimeTarget::Wasm) {
+                anyhow::bail!(
+                    "Unsupported compilation: \
+                     Compilation using solc's Wasm download target is currently \
+                     only supported when used via resolc. Direct compilation via \
+                     this method is not supported at this time."
+                );
+            }
+
             // Be careful to entirely omit the viaIR field if the compiler does not support it,
             // as it will error if you provide fields it does not know about. Because
             // `supports_mode` is called prior to instantiating a compiler, we should never
@@ -192,10 +230,12 @@ impl SolidityCompiler for Solc {
                 .spawn()
                 .with_context(|| format!("Failed to spawn solc at {}", path.display()))?;
 
-            let stdin = child.stdin.as_mut().expect("should be piped");
             let serialized_input = serde_json::to_vec(&input)
                 .context("Failed to serialize Standard JSON input for solc")?;
-            stdin
+            child
+                .stdin
+                .as_mut()
+                .expect("should be piped")
                 .write_all(&serialized_input)
                 .await
                 .context("Failed to write Standard JSON to solc stdin")?;
@@ -218,7 +258,7 @@ impl SolidityCompiler for Solc {
             let parsed = serde_json::from_slice::<SolcOutput>(&output.stdout)
                 .map_err(|e| {
                     anyhow::anyhow!(
-                        "failed to parse resolc JSON output: {e}\nstdout: {}",
+                        "failed to parse solc JSON output: {e}\nstdout: {}",
                         String::from_utf8_lossy(&output.stdout)
                     )
                 })
@@ -227,7 +267,7 @@ impl SolidityCompiler for Solc {
             // Detecting if the compiler output contained errors and reporting them through logs and
             // errors instead of returning the compiler output that might contain errors.
             for error in parsed.errors.iter() {
-                if error.severity == Severity::Error {
+                if error.is_error() {
                     tracing::error!(?error, ?input, "Encountered an error in the compilation");
                     anyhow::bail!("Encountered an error in the compilation: {error}")
                 }
@@ -276,6 +316,10 @@ impl SolidityCompiler for Solc {
 }
 
 impl Solc {
+    pub fn runtime_target(&self) -> SolcRuntimeTarget {
+        self.0.runtime_target
+    }
+
     fn compiler_supports_yul(&self) -> bool {
         const SOLC_VERSION_SUPPORTING_VIA_YUL_IR: Version = Version::new(0, 8, 13);
         SolidityCompiler::version(self) >= &SOLC_VERSION_SUPPORTING_VIA_YUL_IR

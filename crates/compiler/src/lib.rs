@@ -11,8 +11,8 @@ pub use revive_dt_common::types::{
 };
 
 pub mod prelude {
-    pub use crate::revive_resolc::Resolc;
-    pub use crate::solc::Solc;
+    pub use crate::revive_resolc::{Resolc, ResolcRuntimeTarget};
+    pub use crate::solc::{Solc, SolcRuntimeTarget};
     pub use crate::{Compiler, CompilerInput, CompilerOutput, RevertString, SolidityCompiler};
     pub use crate::{Mode, ModeOptimizerSetting, ModePipeline};
 }
@@ -40,7 +40,7 @@ pub(crate) mod internal_prelude {
         solc::CompilerOutput as SolcOutput,
         solc::{
             BytecodeObject, DebuggingSettings, Libraries, Optimizer, RevertStrings, Settings,
-            Severity, SolcInput, SolcLanguage, Source, Sources,
+            SolcInput, SolcLanguage, Source, Sources,
         },
     };
     pub use revive_solc_json_interface::{
@@ -65,7 +65,6 @@ pub(crate) mod internal_prelude {
     pub use revive_dt_solc_binaries::download_solc;
 }
 
-pub mod revive_js;
 pub mod revive_resolc;
 pub mod solc;
 
