@@ -8,20 +8,20 @@ pub struct Solc(Arc<SolcInner>);
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 struct SolcInner {
-    /// The solc compiler kind.
-    kind: SolcKind,
+    /// The runtime target.
+    runtime_target: SolcRuntimeTarget,
     /// The path of the solc compiler that this object uses.
     solc_path: PathBuf,
     /// The version of the solc compiler that this object uses.
     solc_version: Version,
 }
 
-/// The kind of solc compiler used.
+/// The runtime used for the solc build.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum SolcKind {
-    /// A native executable binary.
+pub enum SolcRuntimeTarget {
+    /// A native runtime.
     Native,
-    /// A Node.js and Wasm module.
+    /// A Wasm runtime (Node.js/V8).
     Wasm,
 }
 
@@ -29,7 +29,7 @@ impl Solc {
     fn new(
         context: impl HasSolcConfiguration + HasWorkingDirectoryConfiguration + Send + 'static,
         version: impl Into<Option<VersionOrRequirement>> + Send + 'static,
-        kind: SolcKind,
+        runtime_target: SolcRuntimeTarget,
     ) -> FrameworkFuture<Result<Self>> {
         Box::pin(async move {
             // This is a cache for the compiler objects so that whenever the same compiler version is
@@ -51,13 +51,13 @@ impl Solc {
             let (version, path) = download_solc(
                 working_directory_configuration.working_directory.as_path(),
                 version,
-                matches!(kind, SolcKind::Wasm),
+                matches!(runtime_target, SolcRuntimeTarget::Wasm),
             )
             .await
             .context("Failed to download/get path to solc binary")?;
 
             let inner = SolcInner {
-                kind,
+                runtime_target,
                 solc_path: path,
                 solc_version: version,
             };
@@ -65,7 +65,7 @@ impl Solc {
                 .entry(inner.clone())
                 .or_insert_with(|| {
                     info!(
-                        solc_kind = ?inner.kind,
+                        solc_runtime_target = ?inner.runtime_target,
                         solc_path = %inner.solc_path.display(),
                         solc_version = %inner.solc_version,
                         "Created a new solc compiler object"
@@ -80,14 +80,14 @@ impl Solc {
         context: impl HasSolcConfiguration + HasWorkingDirectoryConfiguration + Send + 'static,
         version: impl Into<Option<VersionOrRequirement>> + Send + 'static,
     ) -> FrameworkFuture<Result<Self>> {
-        Self::new(context, version, SolcKind::Native)
+        Self::new(context, version, SolcRuntimeTarget::Native)
     }
 
     pub fn new_wasm(
         context: impl HasSolcConfiguration + HasWorkingDirectoryConfiguration + Send + 'static,
         version: impl Into<Option<VersionOrRequirement>> + Send + 'static,
     ) -> FrameworkFuture<Result<Self>> {
-        Self::new(context, version, SolcKind::Wasm)
+        Self::new(context, version, SolcRuntimeTarget::Wasm)
     }
 }
 
@@ -122,7 +122,7 @@ impl SolidityCompiler for Solc {
     ) -> FrameworkFuture<Result<CompilerOutput>> {
         let this = self.clone();
         Box::pin(async move {
-            if matches!(this.0.kind, SolcKind::Wasm) {
+            if matches!(this.0.runtime_target, SolcRuntimeTarget::Wasm) {
                 anyhow::bail!(
                     "Unsupported compilation: \
                      Compilation using solc's Wasm download target is currently \
@@ -316,8 +316,8 @@ impl SolidityCompiler for Solc {
 }
 
 impl Solc {
-    pub fn kind(&self) -> SolcKind {
-        self.0.kind
+    pub fn runtime_target(&self) -> SolcRuntimeTarget {
+        self.0.runtime_target
     }
 
     fn compiler_supports_yul(&self) -> bool {

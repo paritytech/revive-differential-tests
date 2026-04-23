@@ -11,8 +11,8 @@ pub use revive_dt_common::types::{
 };
 
 pub mod prelude {
-    pub use crate::revive_resolc::{Resolc, ResolcKind};
-    pub use crate::solc::{Solc, SolcKind};
+    pub use crate::revive_resolc::{Resolc, ResolcRuntimeTarget};
+    pub use crate::solc::{Solc, SolcRuntimeTarget};
     pub use crate::{Compiler, CompilerInput, CompilerOutput, RevertString, SolidityCompiler};
     pub use crate::{Mode, ModeOptimizerSetting, ModePipeline};
 }

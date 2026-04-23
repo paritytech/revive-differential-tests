@@ -5,8 +5,8 @@ use alloy::primitives::Address;
 use revive_dt_common::types::VersionOrRequirement;
 use revive_dt_compiler::{
     Compiler, ModeOptimizerLevel, ModeOptimizerSetting,
-    revive_resolc::{Resolc, ResolcKind},
-    solc::{Solc, SolcKind},
+    revive_resolc::{Resolc, ResolcRuntimeTarget},
+    solc::{Solc, SolcRuntimeTarget},
 };
 use revive_dt_config::{
     Compile, HasResolcConfiguration, HasSolcConfiguration, HasWorkingDirectoryConfiguration, Test,
@@ -46,7 +46,7 @@ async fn contracts_can_be_compiled_with_solc() {
     .await
     .unwrap();
 
-    assert_eq!(solc.kind(), SolcKind::Native);
+    assert_eq!(solc.runtime_target(), SolcRuntimeTarget::Native);
 
     // Act
     let output = Compiler::new()
@@ -88,7 +88,7 @@ async fn assert_contracts_can_be_compiled_with_resolc(
     + Clone
     + Send
     + 'static,
-    expected_kind: ResolcKind,
+    expected_runtime_target: ResolcRuntimeTarget,
 ) {
     let resolc = Resolc::new(
         // Clone context because this function takes ownership and drops it, which
@@ -99,7 +99,7 @@ async fn assert_contracts_can_be_compiled_with_resolc(
     .await
     .unwrap();
 
-    assert_eq!(resolc.kind(), expected_kind);
+    assert_eq!(resolc.runtime_target(), expected_runtime_target);
 
     // Act
     let output = Compiler::new()
@@ -136,14 +136,15 @@ async fn assert_contracts_can_be_compiled_with_resolc(
 
 #[tokio::test]
 async fn contracts_can_be_compiled_with_resolc_native() {
-    assert_contracts_can_be_compiled_with_resolc(Test::default(), ResolcKind::Native).await;
+    assert_contracts_can_be_compiled_with_resolc(Test::default(), ResolcRuntimeTarget::Native)
+        .await;
 }
 
 #[tokio::test]
 async fn contracts_can_be_compiled_with_resolc_wasm() {
     let mut context = Compile::default();
     context.resolc.path = get_resolc_js_path();
-    assert_contracts_can_be_compiled_with_resolc(context, ResolcKind::Wasm).await;
+    assert_contracts_can_be_compiled_with_resolc(context, ResolcRuntimeTarget::Wasm).await;
 }
 
 /// Asserts that bytecode differs across optimization modes in order to verify

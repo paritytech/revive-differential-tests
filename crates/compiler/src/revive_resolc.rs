@@ -9,8 +9,8 @@ pub struct Resolc(Arc<ResolcInner>);
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 struct ResolcInner {
-    /// The resolc compiler kind.
-    kind: ResolcKind,
+    /// The runtime target.
+    runtime_target: ResolcRuntimeTarget,
     /// The internal solc compiler that the resolc compiler uses as a compiler frontend.
     solc: Solc,
     /// Path to the resolc compiler.
@@ -21,12 +21,12 @@ struct ResolcInner {
     pvm_stack_size: u32,
 }
 
-/// The kind of resolc compiler used.
+/// The runtime used for the resolc build.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum ResolcKind {
-    /// A native executable binary.
+pub enum ResolcRuntimeTarget {
+    /// A native runtime.
     Native,
-    /// A Node.js and Wasm module.
+    /// A Wasm runtime (Node.js/V8).
     Wasm,
 }
 
@@ -52,16 +52,16 @@ impl Resolc {
             let pvm_stack_size = resolc_configuration
                 .stack_size
                 .unwrap_or(PolkaVMDefaultStackMemorySize);
-            let kind = ResolcKind::from_path(&resolc_path);
-            let solc = match kind {
-                ResolcKind::Native => Solc::new_native(context, version),
-                ResolcKind::Wasm => Solc::new_wasm(context, version),
+            let runtime_target = ResolcRuntimeTarget::from_path(&resolc_path);
+            let solc = match runtime_target {
+                ResolcRuntimeTarget::Native => Solc::new_native(context, version),
+                ResolcRuntimeTarget::Wasm => Solc::new_wasm(context, version),
             }
             .await
             .context("Failed to create the solc compiler frontend for resolc")?;
 
             let inner = ResolcInner {
-                kind,
+                runtime_target,
                 solc,
                 resolc_path,
                 pvm_heap_size,
@@ -74,8 +74,8 @@ impl Resolc {
         })
     }
 
-    pub fn kind(&self) -> ResolcKind {
-        self.0.kind
+    pub fn runtime_target(&self) -> ResolcRuntimeTarget {
+        self.0.runtime_target
     }
 
     /// Injects resolc-specific settings that are marked `skip_serializing`
@@ -110,9 +110,9 @@ impl SolidityCompiler for Resolc {
         level = "error",
         skip_all,
         fields(
-            resolc_kind = ?this.kind(),
+            resolc_runtime_target = ?this.runtime_target(),
             resolc_version = %this.version(),
-            solc_kind = ?this.0.solc.kind(),
+            solc_runtime_target = ?this.0.solc.runtime_target(),
             solc_version = %this.0.solc.version(),
             json_in = tracing::field::Empty
         ),
@@ -203,7 +203,7 @@ impl SolidityCompiler for Resolc {
                 display(serde_json::to_string(&std_input_json).unwrap()),
             );
 
-            let mut command = this.0.kind.command(
+            let mut command = this.0.runtime_target.command(
                 &this.0.resolc_path,
                 this.0.solc.path(),
                 base_path.as_deref(),
@@ -216,7 +216,7 @@ impl SolidityCompiler for Resolc {
             let mut child = command.spawn().with_context(|| {
                 format!(
                     "Failed to spawn resolc ({:?}) at {}",
-                    this.0.kind,
+                    this.0.runtime_target,
                     this.0.resolc_path.display()
                 )
             })?;
@@ -345,7 +345,7 @@ impl SolidityCompiler for Resolc {
     }
 }
 
-impl ResolcKind {
+impl ResolcRuntimeTarget {
     /// Constructs the `Command` for invoking resolc.
     fn command(
         &self,
@@ -386,13 +386,13 @@ impl ResolcKind {
         }
     }
 
-    /// Infers the resolc kind from the provided `path`. Vanilla JavaScript
-    /// extensions are interpreted as using the Emscripten Wasm build, while
-    /// anything else is interpreted as a native binary.
+    /// Infers the runtime target from the provided `path`. Vanilla JavaScript
+    /// extensions are interpreted as using the Emscripten Wasm build, targeting
+    /// a Wasm runtime, while anything else is interpreted as a native runtime target.
     fn from_path(path: &Path) -> Self {
         match path.extension().and_then(|ext| ext.to_str()) {
-            Some("js" | "cjs" | "mjs") => ResolcKind::Wasm,
-            _ => ResolcKind::Native,
+            Some("js" | "cjs" | "mjs") => ResolcRuntimeTarget::Wasm,
+            _ => ResolcRuntimeTarget::Native,
         }
     }
 }
