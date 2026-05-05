@@ -42,7 +42,7 @@ impl HashData {
     }
 }
 
-/// Extracts all bytecode hashes from pre-link compilations from a [`Report`].
+/// Extracts all bytecode hashes from post-link compilations from a [`Report`].
 pub fn extract_hashes(
     report: &Report,
     contracts_base_dir: &Path,

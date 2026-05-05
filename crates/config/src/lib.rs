@@ -111,7 +111,7 @@ mod context {
         pub corpus: CorpusExecutionConfiguration,
     }
 
-    /// Compiles contracts for pre-link compilations only without executing any tests.
+    /// Compiles contracts without executing any tests.
     #[subcommand]
     pub struct Compile {
         pub log: LogConfiguration,
@@ -223,15 +223,15 @@ mod context {
         ///   specifier with the exception that in this case the mode is specified and will be used
         ///   in the test.
         #[serde_as(as = "Vec<serde_with::DisplayFromStr>")]
-        #[arg(short = 't', long = "test", required = true)]
+        #[arg(short = 't', long = "test", required = true, verbatim_doc_comment)]
         pub test_specifiers: Vec<ParsedTestSpecifier>,
     }
 
-    /// A set of configuration parameters for the corpus files to use for the pre-link-only compilation.
+    /// A set of configuration parameters for the corpus files to use for the post-link-only compilation.
     #[serde_with::serde_as]
     #[configuration(key = "corpus")]
     pub struct CorpusCompilationConfiguration {
-        /// A list of compilation specifiers for the pre-link-only compilations that the tool should run.
+        /// A list of compilation specifiers for the post-link-only compilations that the tool should run.
         ///
         /// Compile specifiers follow the following format:
         ///

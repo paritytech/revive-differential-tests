@@ -1,4 +1,4 @@
-//! The main entry point into compiling in pre-link-only mode without any test execution.
+//! The main entry point into compiling in post-link-only mode without any test execution.
 
 use crate::internal_prelude::*;
 
