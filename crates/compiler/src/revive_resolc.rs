@@ -78,6 +78,16 @@ impl Resolc {
         self.0.runtime_target
     }
 
+    fn polkavm_settings(&self) -> SolcStandardJsonInputSettingsPolkaVM {
+        SolcStandardJsonInputSettingsPolkaVM::new(
+            Some(SolcStandardJsonInputSettingsPolkaVMMemory::new(
+                Some(self.0.pvm_heap_size),
+                Some(self.0.pvm_stack_size),
+            )),
+            false,
+        )
+    }
+
     /// Injects resolc-specific settings that are marked `skip_serializing`
     /// in the upstream `revive-solc-json-interface` crate.
     fn inject_resolc_specific_settings(input: &SolcStandardJsonInput) -> Result<serde_json::Value> {
@@ -98,7 +108,7 @@ impl SolidityCompiler for Resolc {
     fn version(&self) -> &Version {
         // We currently return the solc compiler version since we do not support multiple resolc
         // compiler versions.
-        self.0.solc.version()
+        SolidityCompiler::version(&self.0.solc)
     }
 
     fn path(&self) -> &std::path::Path {
@@ -142,13 +152,7 @@ impl SolidityCompiler for Resolc {
             }
 
             let optimize_setting = optimization.unwrap_or_default();
-            let polkavm = SolcStandardJsonInputSettingsPolkaVM::new(
-                Some(SolcStandardJsonInputSettingsPolkaVMMemory::new(
-                    Some(this.0.pvm_heap_size),
-                    Some(this.0.pvm_stack_size),
-                )),
-                false,
-            );
+
             let input = SolcStandardJsonInput {
                 language: SolcStandardJsonInputLanguage::Solidity,
                 sources: sources
@@ -190,7 +194,7 @@ impl SolidityCompiler for Resolc {
                         // to be the determining factor for the default values of solc's optimizer details.
                         SolcOptimizerDetails::default(),
                     ),
-                    polkavm,
+                    polkavm: this.polkavm_settings(),
                     metadata: SolcStandardJsonInputSettingsMetadata::default(),
                     detect_missing_libraries: false,
                 },
@@ -229,15 +233,18 @@ impl SolidityCompiler for Resolc {
                 .write_all(&serialized_input)
                 .await
                 .context("Failed to write Standard JSON to resolc stdin")?;
+
             let output = child
                 .wait_with_output()
                 .await
                 .context("Failed while waiting for resolc process to finish")?;
+            let stdout = output.stdout;
+            let stderr = output.stderr;
 
             if !output.status.success() {
                 let json_in = serde_json::to_string_pretty(&input)
                     .context("Failed to pretty-print Standard JSON input for logging")?;
-                let message = String::from_utf8_lossy(&output.stderr);
+                let message = String::from_utf8_lossy(&stderr);
                 tracing::error!(
                     status = %output.status,
                     message = %message,
@@ -248,13 +255,13 @@ impl SolidityCompiler for Resolc {
             }
 
             let parsed: SolcStandardJsonOutput = {
-                let mut deserializer = serde_json::Deserializer::from_slice(&output.stdout);
+                let mut deserializer = serde_json::Deserializer::from_slice(&stdout);
                 deserializer.disable_recursion_limit();
                 serde::de::Deserialize::deserialize(&mut deserializer)
                     .map_err(|e| {
                         anyhow::anyhow!(
                             "failed to parse resolc JSON output: {e}\nstderr: {}",
-                            String::from_utf8_lossy(&output.stderr)
+                            String::from_utf8_lossy(&stderr)
                         )
                     })
                     .context("Failed to parse resolc standard JSON output")?
@@ -310,12 +317,20 @@ impl SolidityCompiler for Resolc {
                             serde_json::Value::String(solc_metadata_str) => {
                                 solc_metadata_str.as_str()
                             }
-                            serde_json::Value::Object(metadata_object) => metadata_object
-                                .get("solc_metadata")
-                                .context("Contract doesn't have a 'solc_metadata' field")?
-                                .as_str()
-                                .context("The 'solc_metadata' field is not a string")?,
-                            _ => anyhow::bail!("Unsupported type of metadata {metadata:?}"),
+                            serde_json::Value::Object(metadata_object) => {
+                                let solc_metadata_value = metadata_object
+                                    .get("solc_metadata")
+                                    .context("Contract doesn't have a 'solc_metadata' field")?;
+                                solc_metadata_value
+                                    .as_str()
+                                    .context("The 'solc_metadata' field is not a string")?
+                            }
+                            serde_json::Value::Null
+                            | serde_json::Value::Bool(_)
+                            | serde_json::Value::Number(_)
+                            | serde_json::Value::Array(_) => {
+                                anyhow::bail!("Unsupported type of metadata {metadata:?}")
+                            }
                         };
                         let solc_metadata = serde_json::from_str::<serde_json::Value>(
                             solc_metadata_str,
@@ -323,9 +338,10 @@ impl SolidityCompiler for Resolc {
                         .context(
                             "Failed to deserialize the solc_metadata as a serde_json generic value",
                         )?;
-                        let abi_value = solc_metadata
+                        let output_value = solc_metadata
                             .get("output")
-                            .context("solc_metadata doesn't have an output field")?
+                            .context("solc_metadata doesn't have an output field")?;
+                        let abi_value = output_value
                             .get("abi")
                             .context("solc_metadata output doesn't contain an abi field")?;
                         serde_json::from_value::<JsonAbi>(abi_value.clone())

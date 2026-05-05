@@ -230,12 +230,10 @@ impl SolidityCompiler for Solc {
                 .spawn()
                 .with_context(|| format!("Failed to spawn solc at {}", path.display()))?;
 
+            let stdin = child.stdin.as_mut().expect("should be piped");
             let serialized_input = serde_json::to_vec(&input)
                 .context("Failed to serialize Standard JSON input for solc")?;
-            child
-                .stdin
-                .as_mut()
-                .expect("should be piped")
+            stdin
                 .write_all(&serialized_input)
                 .await
                 .context("Failed to write Standard JSON to solc stdin")?;
