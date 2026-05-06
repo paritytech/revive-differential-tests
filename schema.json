@@ -59,7 +59,7 @@
       }
     },
     "modes": {
-      "description": "This represents a mode that has been parsed from test metadata.\n\nMode strings can take the following form (in pseudo-regex):\n\n```text\n[YEILV][+-]? (M[0123sz])? <semver>?\n```",
+      "description": "This represents a mode that has been parsed from test metadata.\n\nMode strings can take the following form (in pseudo-regex):\n\n```text\n[YEILV][+-]? (M[0123sz])? (S[+-])? <semver>?\n```",
       "type": [
         "array",
         "null"
@@ -133,7 +133,7 @@
           ]
         },
         "modes": {
-          "description": "This represents a mode that has been parsed from test metadata.\n\nMode strings can take the following form (in pseudo-regex):\n\n```text\n[YEILV][+-]? (M[0123sz])? <semver>?\n```\n\nIf this is provided then it takes higher priority than the modes specified in the metadata\nfile.",
+          "description": "This represents a mode that has been parsed from test metadata.\n\nMode strings can take the following form (in pseudo-regex):\n\n```text\n[YEILV][+-]? (M[0123sz])? (S[+-])? <semver>?\n```\n\nIf this is provided then it takes higher priority than the modes specified in the metadata\nfile.",
           "type": [
             "array",
             "null"

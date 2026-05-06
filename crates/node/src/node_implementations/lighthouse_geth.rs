@@ -396,20 +396,17 @@ impl NodeApi for LighthouseGethNode {
         &self,
         mut transaction: TransactionRequest,
     ) -> FrameworkFuture<Result<alloy::primitives::TxHash>> {
-        // EIP-1559 adjusts the base fee per block based on how full the previous
-        // block was relative to the target (50% of the gas limit). During
-        // benchmarks, blocks are consistently ~99% full, which causes the base
-        // fee to grow exponentially at ~12.4% per block. With a moderate gas
-        // price (e.g. 20,000 gwei), the base fee exceeds it after roughly 90
-        // blocks, making transactions un-includable. This produces an alternating
-        // pattern of one full block followed by one empty block: the empty block
-        // lowers the base fee just enough for the next block to be full, which
-        // raises it again, and so on — halving effective TPS.
+        // EIP-1559 adjusts the base fee per block based on how full the previous block was relative
+        // to the target (50% of the gas limit). During benchmarks, blocks are consistently ~99%
+        // full, which causes the base fee to grow exponentially at ~12.4% per block. With a
+        // moderate gas price (e.g. 20,000 gwei), the base fee exceeds it after roughly 90 blocks,
+        // making transactions un-includable. This produces an alternating pattern of one full block
+        // followed by one empty block: the empty block lowers the base fee just enough for the next
+        // block to be full, which raises it again, and so on — halving effective TPS.
         //
-        // Setting the gas price to u128::MAX ensures the base fee cannot exceed
-        // it for any practical benchmark duration (~580 blocks / ~116 minutes of
-        // sustained full blocks). The accounts are funded with U256::MAX so
-        // balance is not a concern.
+        // Setting the gas price to u128::MAX ensures the base fee cannot exceed it for any
+        // practical benchmark duration (~580 blocks / ~116 minutes of sustained full blocks). The
+        // accounts are funded with U256::MAX so balance is not a concern.
         transaction.set_gas_price(u128::MAX);
         let provider = self.provider();
         Box::pin(async move {

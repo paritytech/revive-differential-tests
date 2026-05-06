@@ -86,7 +86,7 @@ pub struct Metadata {
     /// Mode strings can take the following form (in pseudo-regex):
     ///
     /// ```text
-    /// [YEILV][+-]? (M[0123sz])? <semver>?
+    /// [YEILV][+-]? (M[0123sz])? (S[+-])? <semver>?
     /// ```
     #[serde(skip_serializing_if = "Option::is_none")]
     pub modes: Option<Vec<ParsedMode>>,
@@ -329,10 +329,7 @@ impl FromStr for ContractPathAndIdent {
         let mut splitted_string = s.split(":").peekable();
         let mut path = None::<String>;
         let mut identifier = None::<String>;
-        loop {
-            let Some(next_item) = splitted_string.next() else {
-                break;
-            };
+        while let Some(next_item) = splitted_string.next() {
             if splitted_string.peek().is_some() {
                 match path {
                     Some(ref mut path) => {

@@ -1256,6 +1256,16 @@
             <div class="chart-echart" id="addlCapProofSizeChart" role="img" aria-labelledby="addlCapProofSizeChartTitle"></div>
           </div>
         </div>
+        <div class="chart-row">
+          <div class="chart-card">
+            <div class="chart-card-title" id="addlCapPreDispatchRefTimeChartTitle">Additional Tx Capacity (Pre-dispatch Ref Time)</div>
+            <div class="chart-echart" id="addlCapPreDispatchRefTimeChart" role="img" aria-labelledby="addlCapPreDispatchRefTimeChartTitle"></div>
+          </div>
+          <div class="chart-card">
+            <div class="chart-card-title" id="addlCapPreDispatchProofSizeChartTitle">Additional Tx Capacity (Pre-dispatch Proof Size)</div>
+            <div class="chart-echart" id="addlCapPreDispatchProofSizeChart" role="img" aria-labelledby="addlCapPreDispatchProofSizeChartTitle"></div>
+          </div>
+        </div>
       </div>
     </div>
     <div class="chart-group">
@@ -1890,6 +1900,8 @@ function renderCharts() {
   renderAdditionalTxCapacityChart(modeData, enabledPlatforms, 'addlCapGasChart', 'additional_tx_capacity_gas', 'No gas data');
   renderAdditionalTxCapacityChart(modeData, enabledPlatforms, 'addlCapRefTimeChart', 'additional_tx_capacity_ref_time', 'No substrate data');
   renderAdditionalTxCapacityChart(modeData, enabledPlatforms, 'addlCapProofSizeChart', 'additional_tx_capacity_proof_size', 'No substrate data');
+  renderAdditionalTxCapacityChart(modeData, enabledPlatforms, 'addlCapPreDispatchRefTimeChart', 'additional_tx_capacity_pre_dispatch_ref_time', 'No substrate data');
+  renderAdditionalTxCapacityChart(modeData, enabledPlatforms, 'addlCapPreDispatchProofSizeChart', 'additional_tx_capacity_pre_dispatch_proof_size', 'No substrate data');
 
   // Block transaction charts
   renderCumulativeTxChart(modeData, enabledPlatforms);

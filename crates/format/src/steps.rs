@@ -541,7 +541,7 @@ impl FunctionCallStep {
         self.calldata
             .find_all_contract_instances_or_references(&mut vec);
 
-        stream::iter(vec.into_iter())
+        stream::iter(vec)
             .then(|instance_or_reference| context.contract_instance(instance_or_reference))
             .filter_map(futures::future::ready)
             .collect::<Vec<_>>()

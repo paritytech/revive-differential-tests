@@ -1,0 +1,61 @@
+name: "Export Bytecode Hashes"
+description: "Extracts bytecode hashes from a retester report using report-processor, and uploads the hash file."
+
+inputs:
+  revive-differential-tests-path:
+    description: "The path to an existing checkout of revive-differential-tests. If empty, revive-differential-tests-ref is checked out."
+    required: false
+    default: ""
+  revive-differential-tests-ref:
+    description: "The branch, tag, or SHA to checkout if revive-differential-tests-path is not provided."
+    required: false
+    default: "main"
+  report-path:
+    description: "The path to the retester report JSON file."
+    required: true
+  remove-prefix:
+    description: "The relative or absolute path prefix to strip from source paths in the report for cross-platform normalization. Must point to a directory on the runner that produced the report."
+    required: true
+  platform-label:
+    description: "The platform label indicating which platform the hashes were generated on (e.g. 'linux', 'macos'). This is included in the exported file."
+    required: true
+  upload-artifact-name:
+    description: "The name for the uploaded hash file artifact."
+    required: true
+
+runs:
+  using: "composite"
+  steps:
+    - name: Checkout revive-differential-tests
+      if: ${{ inputs.revive-differential-tests-path == '' }}
+      uses: actions/checkout@v6
+      with:
+        repository: paritytech/revive-differential-tests
+        ref: ${{ inputs.revive-differential-tests-ref }}
+        path: revive-differential-tests
+
+    - name: Resolve the repo path
+      id: repo
+      shell: bash
+      run: echo "path=${{ inputs.revive-differential-tests-path || 'revive-differential-tests' }}" >> "$GITHUB_OUTPUT"
+
+    - name: Install report-processor
+      shell: bash
+      run: cargo install --locked --path "${{ steps.repo.outputs.path }}/crates/report-processor"
+
+    - name: Export hashes
+      shell: bash
+      run: |
+        report-processor export-hashes \
+          --report-path "${{ inputs.report-path }}" \
+          --output-path "./hashes.json" \
+          --remove-prefix "${{ inputs.remove-prefix }}" \
+          --platform-label "${{ inputs.platform-label }}"
+
+    - name: Upload hashes
+      uses: actions/upload-artifact@v6
+      with:
+        name: ${{ inputs.upload-artifact-name }}
+        path: ./hashes.json
+        retention-days: 3
+        if-no-files-found: error

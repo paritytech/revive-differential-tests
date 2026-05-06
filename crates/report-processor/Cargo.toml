@@ -15,6 +15,7 @@ path = "src/main.rs"
 [dependencies]
 revive-dt-report = { workspace = true }
 revive-dt-common = { workspace = true }
+revive-dt-config = { workspace = true }
 
 anyhow = { workspace = true }
 base64 = { workspace = true }

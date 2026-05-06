@@ -455,6 +455,8 @@ fn subscribe_to_full_blocks_information_substrate(
                             proof_size: block_proof_size,
                             max_proof_size,
                             block_hash: substrate_block.hash().0,
+                            pre_dispatch_ref_time: 0,
+                            pre_dispatch_proof_size: 0,
                         }),
                         tx_counts: Default::default(),
                         observation_time,

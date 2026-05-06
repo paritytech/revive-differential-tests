@@ -111,7 +111,7 @@ mod context {
         pub corpus: CorpusExecutionConfiguration,
     }
 
-    /// Compiles contracts for pre-link compilations only without executing any tests.
+    /// Compiles contracts without executing any tests.
     #[subcommand]
     pub struct Compile {
         pub log: LogConfiguration,
@@ -199,7 +199,7 @@ mod context {
     /// Configuration for fail-fast behavior.
     #[configuration]
     pub struct FailFastConfiguration {
-        /// Abort test execution after the first failure. Remaining tests are marked as ignored in
+        /// Abort executing the tasks after the first failure. Remaining tasks are marked as ignored in
         /// the report.
         #[arg(long = "fail-fast")]
         pub fail_fast: bool,
@@ -223,15 +223,15 @@ mod context {
         ///   specifier with the exception that in this case the mode is specified and will be used
         ///   in the test.
         #[serde_as(as = "Vec<serde_with::DisplayFromStr>")]
-        #[arg(short = 't', long = "test", required = true)]
+        #[arg(short = 't', long = "test", required = true, verbatim_doc_comment)]
         pub test_specifiers: Vec<ParsedTestSpecifier>,
     }
 
-    /// A set of configuration parameters for the corpus files to use for the pre-link-only compilation.
+    /// A set of configuration parameters for the corpus files to use for the post-link-only compilation.
     #[serde_with::serde_as]
     #[configuration(key = "corpus")]
     pub struct CorpusCompilationConfiguration {
-        /// A list of compilation specifiers for the pre-link-only compilations that the tool should run.
+        /// A list of compilation specifiers for the post-link-only compilations that the tool should run.
         ///
         /// Compile specifiers follow the following format:
         ///
@@ -248,8 +248,8 @@ mod context {
         ///
         /// - `Y`: Pipeline (via Yul IR)
         /// - `[+-]`: Optimization shorthand
-        ///           - `+` (optimized:   M3, solc optimizer enabled)
-        ///           - `-` (unoptimized: M0, solc optimizer disabled)
+        ///           - `+` (`M0`..`M3`, `Ms`, `Mz`, and solc optimizer enabled)
+        ///           - `-` (`M0`..`M3`, `Ms`, `Mz`, and solc optimizer disabled)
         /// - `M[0123sz]`: Resolc/LLVM optimization level
         /// - `S[+-]`: Solc optimizer
         ///           - `S+` (enabled)
@@ -259,8 +259,9 @@ mod context {
         /// Priority:
         /// - Explicit `M`/`S` settings override the `+`/`-` shorthand.
         /// - If omitted, expands to all combinations we'd like to test. E.g.:
+        ///   - `Y M3 S+` → `Y M3 S+`
         ///   - `Y M3` → `Y M3 S+` and `Y M3 S-`
-        ///   - `Y S+` → `Y M0 S+`, `Y M3 S+`, and `Y Mz S+`
+        ///   - `Y S+` → `Y M0 S+`, `Y M1 S+`, `Y M2 S+`, `Y M3 S+`, `Y Ms S+`, and `Y Mz S+`
         #[serde_as(as = "Vec<serde_with::DisplayFromStr>")]
         #[arg(
             short = 'm',
