@@ -9,14 +9,25 @@ pub struct Resolc(Arc<ResolcInner>);
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 struct ResolcInner {
+    /// The runtime target.
+    runtime_target: ResolcRuntimeTarget,
     /// The internal solc compiler that the resolc compiler uses as a compiler frontend.
     solc: Solc,
-    /// Path to the `resolc` executable
+    /// Path to the resolc compiler.
     resolc_path: PathBuf,
     /// The PVM heap size in bytes.
     pvm_heap_size: u32,
     /// The PVM stack size in bytes.
     pvm_stack_size: u32,
+}
+
+/// The runtime used for the resolc build.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum ResolcRuntimeTarget {
+    /// A native runtime.
+    Native,
+    /// A Wasm runtime (Node.js/V8).
+    Wasm,
 }
 
 impl Resolc {
@@ -29,10 +40,8 @@ impl Resolc {
         version: impl Into<Option<VersionOrRequirement>> + Send + 'static,
     ) -> FrameworkFuture<Result<Self>> {
         Box::pin(async move {
-            /// This is a cache of all of the resolc compiler objects. Since we do not currently support
-            /// multiple resolc compiler versions, so our cache is just keyed by the solc compiler and
-            /// its version to the resolc compiler.
-            static COMPILERS_CACHE: LazyLock<DashMap<Solc, Resolc>> =
+            /// This is a cache of all of the resolc compiler objects.
+            static COMPILERS_CACHE: LazyLock<DashMap<ResolcInner, Resolc>> =
                 LazyLock::new(Default::default);
 
             let resolc_configuration = context.as_resolc_configuration();
@@ -43,23 +52,30 @@ impl Resolc {
             let pvm_stack_size = resolc_configuration
                 .stack_size
                 .unwrap_or(PolkaVMDefaultStackMemorySize);
+            let runtime_target = ResolcRuntimeTarget::from_path(&resolc_path);
+            let solc = match runtime_target {
+                ResolcRuntimeTarget::Native => Solc::new_native(context, version),
+                ResolcRuntimeTarget::Wasm => Solc::new_wasm(context, version),
+            }
+            .await
+            .context("Failed to create the solc compiler frontend for resolc")?;
 
-            let solc = Solc::new(context, version)
-                .await
-                .context("Failed to create the solc compiler frontend for resolc")?;
-
+            let inner = ResolcInner {
+                runtime_target,
+                solc,
+                resolc_path,
+                pvm_heap_size,
+                pvm_stack_size,
+            };
             Ok(COMPILERS_CACHE
-                .entry(solc.clone())
-                .or_insert_with(|| {
-                    Self(Arc::new(ResolcInner {
-                        solc,
-                        resolc_path,
-                        pvm_heap_size,
-                        pvm_stack_size,
-                    }))
-                })
+                .entry(inner.clone())
+                .or_insert_with(|| Self(Arc::new(inner)))
                 .clone())
         })
+    }
+
+    pub fn runtime_target(&self) -> ResolcRuntimeTarget {
+        self.0.runtime_target
     }
 
     fn polkavm_settings(&self) -> SolcStandardJsonInputSettingsPolkaVM {
@@ -104,7 +120,9 @@ impl SolidityCompiler for Resolc {
         level = "error",
         skip_all,
         fields(
+            resolc_runtime_target = ?this.runtime_target(),
             resolc_version = %this.version(),
+            solc_runtime_target = ?this.0.solc.runtime_target(),
             solc_version = %this.0.solc.version(),
             json_in = tracing::field::Empty
         ),
@@ -189,37 +207,29 @@ impl SolidityCompiler for Resolc {
                 display(serde_json::to_string(&std_input_json).unwrap()),
             );
 
-            let path = &this.0.resolc_path;
-            let mut command = AsyncCommand::new(path);
+            let mut command = this.0.runtime_target.command(
+                &this.0.resolc_path,
+                this.0.solc.path(),
+                base_path.as_deref(),
+                &allow_paths,
+            );
             command
                 .stdin(Stdio::piped())
                 .stdout(Stdio::piped())
-                .stderr(Stdio::piped())
-                .arg("--solc")
-                .arg(this.0.solc.path())
-                .arg("--standard-json");
-
-            if let Some(ref base_path) = base_path {
-                command.arg("--base-path").arg(base_path);
-            }
-            if !allow_paths.is_empty() {
-                command.arg("--allow-paths").arg(
-                    allow_paths
-                        .iter()
-                        .map(|path| path.display().to_string())
-                        .collect::<Vec<_>>()
-                        .join(","),
-                );
-            }
-            let mut child = command
-                .spawn()
-                .with_context(|| format!("Failed to spawn resolc at {}", path.display()))?;
-
-            let stdin_pipe = child.stdin.as_mut().expect("stdin must be piped");
+                .stderr(Stdio::piped());
+            let mut child = command.spawn().with_context(|| {
+                format!(
+                    "Failed to spawn resolc ({:?}) at {}",
+                    this.0.runtime_target,
+                    this.0.resolc_path.display()
+                )
+            })?;
             let serialized_input = serde_json::to_vec(&std_input_json)
                 .context("Failed to serialize Standard JSON input for resolc")?;
-
-            stdin_pipe
+            child
+                .stdin
+                .as_mut()
+                .expect("stdin must be piped")
                 .write_all(&serialized_input)
                 .await
                 .context("Failed to write Standard JSON to resolc stdin")?;
@@ -265,7 +275,7 @@ impl SolidityCompiler for Resolc {
             // Detecting if the compiler output contained errors and reporting them through logs and
             // errors instead of returning the compiler output that might contain errors.
             for error in parsed.errors.iter() {
-                if error.severity == "error" {
+                if error.is_error() {
                     tracing::error!(
                         ?error,
                         ?input,
@@ -349,6 +359,74 @@ impl SolidityCompiler for Resolc {
         mode.pipeline == ModePipeline::ViaYulIR
             && SolidityCompiler::supports_mode(&self.0.solc, mode)
     }
+}
+
+impl ResolcRuntimeTarget {
+    /// Constructs the `Command` for invoking resolc.
+    fn command(
+        &self,
+        resolc_path: &Path,
+        solc_path: &Path,
+        base_path: Option<&Path>,
+        allow_paths: &[PathBuf],
+    ) -> AsyncCommand {
+        match self {
+            Self::Native => {
+                let mut command = AsyncCommand::new(resolc_path);
+                command.arg("--solc").arg(solc_path).arg("--standard-json");
+
+                if let Some(base_path) = base_path {
+                    command.arg("--base-path").arg(base_path);
+                }
+                if !allow_paths.is_empty() {
+                    command.arg("--allow-paths").arg(
+                        allow_paths
+                            .iter()
+                            .map(|path| path.display().to_string())
+                            .collect::<Vec<_>>()
+                            .join(","),
+                    );
+                }
+                command
+            }
+            Self::Wasm => {
+                let mut command = AsyncCommand::new("node");
+                command
+                    .arg(get_resolc_wasm_wrapper_path())
+                    .arg("--resolc")
+                    .arg(resolc_path)
+                    .arg("--solc")
+                    .arg(solc_path);
+                command
+            }
+        }
+    }
+
+    /// Infers the runtime target from the provided `path`. Vanilla JavaScript
+    /// extensions are interpreted as using the Emscripten Wasm build, targeting
+    /// a Wasm runtime, while anything else is interpreted as a native runtime target.
+    fn from_path(path: &Path) -> Self {
+        match path.extension().and_then(|ext| ext.to_str()) {
+            Some("js" | "cjs" | "mjs") => ResolcRuntimeTarget::Wasm,
+            _ => ResolcRuntimeTarget::Native,
+        }
+    }
+}
+
+/// Extracts the embedded wrapper script to a process-scoped temp file on
+/// first use. Subsequent calls within the same process return the same path.
+fn get_resolc_wasm_wrapper_path() -> &'static Path {
+    // The embedded Node.js wrapper script used to run resolc Wasm builds.
+    const RUN_RESOLC_WASM_WRAPPER: &str = include_str!("../../../scripts/run-resolc-wasm.cjs");
+    static PATH: LazyLock<PathBuf> = LazyLock::new(|| {
+        let path = std::env::temp_dir().join(format!("{}.run-resolc-wasm.cjs", std::process::id()));
+        std::fs::write(&path, RUN_RESOLC_WASM_WRAPPER).unwrap_or_else(|e| {
+            panic!("Failed to write wrapper script to {}: {e}", path.display())
+        });
+        path
+    });
+
+    PATH.as_path()
 }
 
 #[cfg(test)]

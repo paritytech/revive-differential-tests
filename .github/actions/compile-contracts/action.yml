@@ -11,7 +11,7 @@ inputs:
     required: false
     default: "main"
   resolc-path:
-    description: "The path to the resolc binary."
+    description: "The path to the resolc compiler to use. A path with a Vanilla JavaScript extension is treated as using a Wasm build, while any other path is treated as a native binary."
     required: true
   solc-version:
     description: "The solc version to use. If empty, retester's default is used."
