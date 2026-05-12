@@ -1,0 +1,535 @@
+name: Benchmarks (polkadot-sdk)
+
+# Runs the differential benchmark workloads against an arbitrary polkadot-sdk
+# branch/commit. Uses asset-hub-westend-local (built into polkadot-parachain)
+# instead of the fellows asset-hub-polkadot-local runtime, so pallet-revive
+# changes on the polkadot-sdk branch flow end-to-end without needing to patch
+# polkadot-runtimes-lite.
+#
+# Trade-off: westend's fee schedule, token, and weight constants differ from
+# asset-hub-polkadot mainnet, so absolute numbers shift versus benchmark.yaml.
+# Only deltas between two runs of this workflow are directly comparable.
+
+on:
+  workflow_dispatch:
+    inputs:
+      polkadot_sdk_repo:
+        description: "Polkadot SDK repo (e.g. paritytech/polkadot-sdk or my-user/polkadot-sdk)"
+        required: false
+      polkadot_version:
+        description: "Polkadot SDK git ref (branch, tag, or commit SHA)"
+        required: false
+      additional_keys:
+        description: "Number of additional wallet keys to generate"
+        required: false
+      resolc_version:
+        description: "Resolc compiler version tag (e.g. v1.0.0)"
+        required: false
+      solc_version:
+        description: "Solc compiler version (e.g. v0.8.28)"
+        required: false
+      resolc_ref:
+        description: "Resolc git ref (commit/branch/tag) to build from source instead of using a release binary"
+        required: false
+      disable_fast_runtime:
+        description: "Disable the fast-runtime feature (requires rebuilding polkadot-sdk binaries)"
+        type: boolean
+        default: false
+      benchmark_env:
+        description: "Comma-separated environment variables for benchmark jobs (e.g. RUST_LOG=debug,MY_VAR=value)"
+        required: false
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  POLKADOT_SDK_REPO: ${{ inputs.polkadot_sdk_repo || 'paritytech/polkadot-sdk' }}
+  POLKADOT_VERSION: ${{ inputs.polkadot_version || 'master' }}
+  ADDITIONAL_KEYS: ${{ inputs.additional_keys || '200010' }}
+  RESOLC_VERSION: ${{ inputs.resolc_version || 'v1.0.0' }}
+  SOLC_VERSION: ${{ inputs.solc_version || 'v0.8.30' }}
+  FAST_RUNTIME: ${{ inputs.disable_fast_runtime != true }}
+
+permissions:
+  contents: read
+
+jobs:
+  # ── Build jobs (run in parallel) ─────────────────────────────────────
+
+  build-retester:
+    name: Build retester
+    runs-on: parity-large
+    steps:
+      - name: Setup Rust toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          target: wasm32-unknown-unknown
+          components: rust-src
+
+      - name: Install system packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential pkg-config libssl-dev protobuf-compiler llvm clang libclang-dev
+
+      - name: Checkout This Repository
+        uses: actions/checkout@v4
+
+      - name: Restore retester cache
+        id: cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/.cargo/bin/retester
+            ~/.cargo/bin/report-processor
+          key: retester-${{ hashFiles('crates/**', 'assets/**') }}
+
+      - name: Build retester and report-processor
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          cargo build --profile production -p revive-dt-core -p revive-dt-report-processor
+          cp -t ~/.cargo/bin \
+            target/production/retester \
+            target/production/report-processor
+
+      - name: Save retester cache
+        if: always() && steps.cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/.cargo/bin/retester
+            ~/.cargo/bin/report-processor
+          key: retester-${{ hashFiles('crates/**', 'assets/**') }}
+
+  build-polkadot-sdk:
+    name: Build polkadot-sdk
+    runs-on: parity-large
+    steps:
+      - name: Setup Rust toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          target: wasm32-unknown-unknown
+          components: rust-src
+
+      - name: Install system packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential pkg-config libssl-dev protobuf-compiler llvm clang libclang-dev
+
+      - name: Checkout polkadot-sdk
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.POLKADOT_SDK_REPO }}
+          ref: ${{ env.POLKADOT_VERSION }}
+
+      - name: Resolve polkadot-sdk features
+        id: polkadot-features
+        run: |
+          if [ "${{ env.FAST_RUNTIME }}" = "true" ]; then
+            echo "features=--features polkadot/fast-runtime" >> "$GITHUB_OUTPUT"
+          else
+            echo "features=" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Cache key incorporates the repo slug so forks don't collide with
+      # paritytech/polkadot-sdk on shared ref names like "master".
+      # The "revive-debug" suffix reflects the --cfg revive_debug RUSTFLAG
+      # used below; bump if the build flags change.
+      - name: Resolve cache key suffix
+        id: cache-key
+        run: |
+          REPO_SLUG="${{ env.POLKADOT_SDK_REPO }}"
+          REPO_SLUG="${REPO_SLUG//\//-}"
+          echo "suffix=${REPO_SLUG}-${{ env.POLKADOT_VERSION }}-fast-runtime-${{ env.FAST_RUNTIME }}-revive-debug" >> "$GITHUB_OUTPUT"
+
+      - name: Restore polkadot-sdk cache
+        id: cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/.cargo/bin/polkadot
+            ~/.cargo/bin/polkadot-prepare-worker
+            ~/.cargo/bin/polkadot-execute-worker
+            ~/.cargo/bin/polkadot-parachain
+            ~/.cargo/bin/eth-rpc
+          key: polkadot-sdk-${{ steps.cache-key.outputs.suffix }}
+
+      - name: Build polkadot-sdk binaries
+        if: steps.cache.outputs.cache-hit != 'true'
+        env:
+          # --cfg revive_debug sets pallet-revive's DebugEnabled = true in the
+          # asset-hub-westend runtime, which lifts the contract size limit so
+          # large workload contracts (e.g. TetherToken / USDC FiatTokenV2_2)
+          # can be deployed. Required for the ethereum workload.
+          RUSTFLAGS: "-Awarnings --cfg revive_debug"
+        run: |
+          cargo build --locked --profile production \
+            -p polkadot -p polkadot-parachain-bin -p pallet-revive-eth-rpc \
+            ${{ steps.polkadot-features.outputs.features }} \
+            --bin polkadot \
+            --bin polkadot-prepare-worker \
+            --bin polkadot-execute-worker \
+            --bin polkadot-parachain \
+            --bin eth-rpc
+          cp -t ~/.cargo/bin \
+            target/production/polkadot \
+            target/production/polkadot-prepare-worker \
+            target/production/polkadot-execute-worker \
+            target/production/polkadot-parachain \
+            target/production/eth-rpc
+
+      - name: Save polkadot-sdk cache
+        if: always() && steps.cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/.cargo/bin/polkadot
+            ~/.cargo/bin/polkadot-prepare-worker
+            ~/.cargo/bin/polkadot-execute-worker
+            ~/.cargo/bin/polkadot-parachain
+            ~/.cargo/bin/eth-rpc
+          key: polkadot-sdk-${{ steps.cache-key.outputs.suffix }}
+
+  build-resolc:
+    name: Build resolc from source
+    if: ${{ inputs.resolc_ref != '' }}
+    runs-on: parity-large
+    outputs:
+      resolc_commit: ${{ steps.resolve-ref.outputs.commit }}
+    steps:
+      - name: Checkout revive
+        uses: actions/checkout@v4
+        with:
+          repository: paritytech/revive
+          ref: ${{ inputs.resolc_ref }}
+
+      - name: Setup Rust toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+
+      - name: Install system packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential pkg-config libssl-dev llvm clang libclang-dev cmake ninja-build lld
+
+      - name: Resolve commit hash
+        id: resolve-ref
+        run: echo "commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Restore resolc cache
+        id: cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.cargo/bin/resolc
+          key: resolc-source-${{ steps.resolve-ref.outputs.commit || needs.build-resolc.outputs.resolc_commit }}
+
+      - name: Build LLVM
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: make install-llvm
+
+      - name: Build resolc
+        if: steps.cache.outputs.cache-hit != 'true'
+        env:
+          LLVM_SYS_211_PREFIX: ${{ github.workspace }}/target-llvm/gnu/target-final
+        run: make install-bin
+
+      - name: Save resolc cache
+        if: always() && steps.cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.cargo/bin/resolc
+          key: resolc-source-${{ steps.resolve-ref.outputs.commit || needs.build-resolc.outputs.resolc_commit }}
+
+  # ── Generate test matrix dynamically ─────────────────────────────────
+  generate-matrix:
+    name: Generate test matrix
+    needs: build-retester
+    runs-on: parity-large
+    outputs:
+      tests: ${{ steps.matrix.outputs.tests }}
+    steps:
+      - name: Add cargo bin to PATH
+        run: |
+          mkdir -p "$HOME/.cargo/bin"
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+
+      - name: Checkout This Repository
+        uses: actions/checkout@v4
+
+      - name: Checkout resolc-compiler-tests
+        uses: actions/checkout@v4
+        with:
+          repository: paritytech/resolc-compiler-tests
+          ref: feature/ethereum-workloads
+          path: compiler-tests
+
+      - name: Restore retester cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/.cargo/bin/retester
+            ~/.cargo/bin/report-processor
+          key: retester-${{ hashFiles('crates/**', 'assets/**') }}
+
+      - name: Export test specifiers
+        id: matrix
+        run: |
+          TESTS=$(retester export-test-specifiers \
+            --test ./compiler-tests/fixtures/solidity/workloads/ethereum \
+            | jq -R . | jq -sc .)
+          echo "tests=${TESTS}" >> "$GITHUB_OUTPUT"
+
+  # ── Run benchmarks (one job per test x platform) ─────────────────────
+  benchmark:
+    name: "${{ matrix.platform }} / ${{ matrix.test }}"
+    needs:
+      [
+        generate-matrix,
+        build-polkadot-sdk,
+        build-resolc,
+      ]
+    if: >-
+      !cancelled() &&
+      needs.generate-matrix.result == 'success' &&
+      needs.build-polkadot-sdk.result == 'success' &&
+      contains(fromJSON('["success", "skipped"]'), needs.build-resolc.result)
+    runs-on: parity-large
+    strategy:
+      fail-fast: false
+      matrix:
+        test: ${{ fromJSON(needs.generate-matrix.outputs.tests) }}
+        platform:
+          - lighthouse-geth-evm-solc
+          - zombienet-revm-solc
+          - zombienet-polkavm-resolc
+    steps:
+      - name: Set custom environment variables
+        if: ${{ inputs.benchmark_env != '' }}
+        run: |
+          IFS=',' read -ra VARS <<< "${{ inputs.benchmark_env }}"
+          for var in "${VARS[@]}"; do
+            echo "$var" >> "$GITHUB_ENV"
+          done
+
+      - name: Set artifact name
+        id: names
+        run: |
+          NAME="${{ matrix.platform }}--${{ matrix.test }}"
+          NAME="${NAME//\//-}"
+          NAME="${NAME// /-}"
+          NAME="${NAME//+/plus}"
+          NAME="${NAME//::/--}"
+          NAME="${NAME//./-}"
+          [[ "$NAME" == *- ]] && NAME="${NAME%-}minus"
+          echo "artifact=$NAME" >> "$GITHUB_OUTPUT"
+
+      # ── PATH setup (no Rust toolchain on benchmark runners) ──────────
+
+      - name: Add cargo bin to PATH
+        run: |
+          mkdir -p "$HOME/.cargo/bin"
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+
+      # ── External dependencies ─────────────────────────────────────────
+
+      - name: Install system packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential pkg-config libssl-dev protobuf-compiler llvm clang libclang-dev docker.io
+          sudo dockerd &
+          for i in $(seq 1 15); do
+            docker info > /dev/null 2>&1 && break
+            sleep 1
+          done
+          docker info
+          sudo chmod 666 /var/run/docker.sock
+
+      - name: Install Kurtosis
+        run: |
+          echo "deb [trusted=yes] https://apt.fury.io/kurtosis-tech/ /" | sudo tee /etc/apt/sources.list.d/kurtosis.list
+          sudo apt-get update
+          sudo apt-get install -y kurtosis-cli
+          kurtosis engine start
+
+      # ── Checkout repositories ──────────────────────────────────────────
+
+      - name: Checkout This Repository
+        uses: actions/checkout@v4
+
+      - name: Checkout resolc-compiler-tests
+        uses: actions/checkout@v4
+        with:
+          repository: paritytech/resolc-compiler-tests
+          ref: feature/ethereum-workloads
+          path: compiler-tests
+
+      # ── Install compilers ───────────────────────────────────────────────
+
+      - name: Install solc
+        run: |
+          curl -sSLo ~/.cargo/bin/solc \
+            "https://github.com/ethereum/solidity/releases/download/${{ env.SOLC_VERSION }}/solc-static-linux"
+          chmod +x ~/.cargo/bin/solc
+
+      - name: Install resolc (release binary)
+        if: ${{ inputs.resolc_ref == '' }}
+        run: |
+          curl -sSLo ~/.cargo/bin/resolc \
+            "https://github.com/paritytech/revive/releases/download/${{ env.RESOLC_VERSION }}/resolc-x86_64-unknown-linux-musl"
+          chmod +x ~/.cargo/bin/resolc
+
+      - name: Restore resolc cache (from source build)
+        if: ${{ inputs.resolc_ref != '' }}
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.cargo/bin/resolc
+          key: resolc-source-${{ steps.resolve-ref.outputs.commit || needs.build-resolc.outputs.resolc_commit }}
+
+      # ── Restore cached binaries ─────────────────────────────────────────
+
+      - name: Restore retester cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/.cargo/bin/retester
+            ~/.cargo/bin/report-processor
+          key: retester-${{ hashFiles('crates/**', 'assets/**') }}
+
+      - name: Resolve cache key suffix
+        id: cache-key
+        run: |
+          REPO_SLUG="${{ env.POLKADOT_SDK_REPO }}"
+          REPO_SLUG="${REPO_SLUG//\//-}"
+          echo "suffix=${REPO_SLUG}-${{ env.POLKADOT_VERSION }}-fast-runtime-${{ env.FAST_RUNTIME }}-revive-debug" >> "$GITHUB_OUTPUT"
+
+      - name: Restore polkadot-sdk cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/.cargo/bin/polkadot
+            ~/.cargo/bin/polkadot-prepare-worker
+            ~/.cargo/bin/polkadot-execute-worker
+            ~/.cargo/bin/polkadot-parachain
+            ~/.cargo/bin/eth-rpc
+          key: polkadot-sdk-${{ steps.cache-key.outputs.suffix }}
+
+      # ── Run benchmarks ───────────────────────────────────────────────────
+
+      - name: Resolve zombienet block production timeout
+        id: zombienet-timeout
+        run: |
+          if [ "${{ env.FAST_RUNTIME }}" = "true" ]; then
+            echo "timeout_ms=300000" >> "$GITHUB_OUTPUT"
+          else
+            echo "timeout_ms=28800000" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create working directory
+        run: mkdir -p ./workdir
+
+      - name: Run benchmarks
+        env:
+          RUST_LOG: info,retester::differential_benchmarks::watcher=debug,revive_dt_node::provider_utils::batching_layer=debug,revive_dt_node::provider_utils::receipt_retry_layer=debug,revive_dt_core::differential_benchmarks::driver=debug,alloy=off
+        run: |
+          retester benchmark \
+            --log-format json \
+            --test "${{ matrix.test }}" \
+            --platform ${{ matrix.platform }} \
+            --working-directory ./workdir \
+            --concurrency.number-of-nodes 1 \
+            --concurrency.number-of-threads 12 \
+            --concurrency.number-of-concurrent-tasks 1000 \
+            --zombienet.config-path ./assets/westend-assethub-zombienet.toml \
+            --zombienet.block-production-timeout-ms ${{ steps.zombienet-timeout.outputs.timeout_ms }} \
+            --wallet.additional-keys ${{ env.ADDITIONAL_KEYS }} \
+            --report.file-name report.json \
+            > ./workdir/retester.log 2>&1
+
+      - name: Capture collator and relay chain logs from zombienet
+        if: always()
+        run: |
+          mkdir -p ./workdir/collator-logs
+          for zombie_dir in /tmp/zombie-*/; do
+            if [ -d "$zombie_dir" ]; then
+              # Copy everything we can find - logs, stderr, stdout from all nodes
+              find "$zombie_dir" -name "*.log" -exec cp {} ./workdir/collator-logs/ \; 2>/dev/null || true
+              find "$zombie_dir" -name "stderr" -exec sh -c 'cp "$1" ./workdir/collator-logs/$(echo "$1" | sed "s|/tmp/zombie-[^/]*/||;s|/|-|g")' _ {} \; 2>/dev/null || true
+              find "$zombie_dir" -name "stdout" -exec sh -c 'cp "$1" ./workdir/collator-logs/$(echo "$1" | sed "s|/tmp/zombie-[^/]*/||;s|/|-|g")' _ {} \; 2>/dev/null || true
+            fi
+          done
+          ls -la ./workdir/collator-logs/ 2>/dev/null || echo "No logs found"
+
+      - name: Upload workdir
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: workdir-${{ steps.names.outputs.artifact }}
+          path: ./workdir
+
+  # ── Merge reports and generate HTML ──────────────────────────────────
+  report:
+    name: Generate Report
+    if: always()
+    needs: benchmark
+    runs-on: parity-large
+    steps:
+      - name: Add cargo bin to PATH
+        run: |
+          mkdir -p "$HOME/.cargo/bin"
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+
+      - name: Checkout This Repository
+        uses: actions/checkout@v4
+
+      - name: Checkout resolc-compiler-tests
+        uses: actions/checkout@v4
+        with:
+          repository: paritytech/resolc-compiler-tests
+          ref: feature/ethereum-workloads
+          path: compiler-tests
+
+      - name: Restore retester cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/.cargo/bin/retester
+            ~/.cargo/bin/report-processor
+          key: retester-${{ hashFiles('crates/**', 'assets/**') }}
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: workdir-*
+          path: ./results
+
+      - name: Merge reports
+        run: |
+          REPORT_ARGS=""
+          for dir in ./results/workdir-*/; do
+            if [ -f "$dir/report.json" ]; then
+              REPORT_ARGS="$REPORT_ARGS --report-path $dir/report.json"
+            fi
+          done
+
+          if [ -z "$REPORT_ARGS" ]; then
+            echo "No reports found to merge"
+            exit 1
+          fi
+
+          report-processor merge-reports \
+            $REPORT_ARGS \
+            --output-path ./merged-report.json
+
+      - name: Generate HTML report
+        run: |
+          report-processor generate-benchmarks-html-report \
+            --report-path ./merged-report.json \
+            --output-path ./benchmark-report.html
+
+      - name: Upload merged report
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-report
+          path: |
+            ./merged-report.json
+            ./benchmark-report.html
