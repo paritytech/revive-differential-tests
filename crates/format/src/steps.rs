@@ -970,10 +970,23 @@ impl<T: AsRef<str>> CalldataToken<T> {
                 } else if item == Self::RANDOM_ADDRESS_VARIABLE {
                     Ok(U256::from_be_slice(Address::random().as_ref()))
                 } else if let Some(variable_name) = item.strip_prefix(Self::VARIABLE_PREFIX) {
-                    context
-                        .variable(variable_name)
-                        .context("Variable lookup failed")
-                        .copied()
+                    // Composition: an inner `$VARIABLE:X` is expanded to X's
+                    // decimal value before the outer lookup. Inner names are
+                    // ASCII-alphanumeric; the first other char ends them.
+                    // E.g. `$VARIABLE:CREATOR_$VARIABLE:I` with I=3 → look
+                    // up `CREATOR_3`.
+                    let resolved = if variable_name.contains(Self::VARIABLE_PREFIX) {
+                        Self::resolve_variable_name_template(variable_name, context)
+                            .map(std::borrow::Cow::Owned)
+                    } else {
+                        Ok(std::borrow::Cow::Borrowed(variable_name))
+                    };
+                    resolved.and_then(|name| {
+                        context
+                            .variable(name.as_ref())
+                            .with_context(|| format!("Variable `{name}` not found"))
+                            .copied()
+                    })
                 } else {
                     U256::from_str_radix(item, 10)
                         .map_err(|error| anyhow::anyhow!("Invalid decimal literal: {}", error))
@@ -982,6 +995,46 @@ impl<T: AsRef<str>> CalldataToken<T> {
             }
             Self::Operation(operation) => Ok(CalldataToken::Operation(operation)),
         }
+    }
+
+    /// Expand each embedded `$VARIABLE:X` in `template` into the decimal value
+    /// of variable `X`. Inner names are ASCII-alphanumeric — the first
+    /// non-alphanumeric character (or end of string) ends an inner name.
+    /// E.g. `CREATOR_$VARIABLE:I` with I=3 → `CREATOR_3`.
+    ///
+    /// `pub` so the driver can reuse it for `allocate_account` and
+    /// `variable_assignments.return_data` target names.
+    pub fn resolve_variable_name_template(
+        template: &str,
+        context: ResolutionContext<'_>,
+    ) -> anyhow::Result<String> {
+        let mut result = String::with_capacity(template.len());
+        let mut remaining = template;
+        while let Some(idx) = remaining.find(Self::VARIABLE_PREFIX) {
+            result.push_str(&remaining[..idx]);
+            let after_prefix = &remaining[idx + Self::VARIABLE_PREFIX.len()..];
+            let name_end = after_prefix
+                .char_indices()
+                .find(|(_, c)| !c.is_ascii_alphanumeric())
+                .map(|(i, _)| i)
+                .unwrap_or(after_prefix.len());
+            if name_end == 0 {
+                anyhow::bail!(
+                    "Empty inner variable name in template `{template}`: `$VARIABLE:` must \
+                     be followed by an ASCII alphanumeric identifier"
+                );
+            }
+            let inner_name = &after_prefix[..name_end];
+            let inner_value = context.variable(inner_name).with_context(|| {
+                format!(
+                    "Inner variable `{inner_name}` referenced in template `{template}` not found"
+                )
+            })?;
+            result.push_str(&inner_value.to_string());
+            remaining = &after_prefix[name_end..];
+        }
+        result.push_str(remaining);
+        Ok(result)
     }
 }
 
@@ -1316,6 +1369,15 @@ mod tests {
         CalldataItem::new(input).resolve(resolver, context).await
     }
 
+    async fn resolve_calldata_item_with_variables(
+        input: &str,
+        variables: &HashMap<String, U256>,
+        resolver: &(impl NodeApi + ?Sized),
+    ) -> anyhow::Result<U256> {
+        let context = ResolutionContext::default().with_variables(variables);
+        CalldataItem::new(input).resolve(resolver, context).await
+    }
+
     #[tokio::test]
     async fn resolver_can_resolve_chain_id_variable() {
         // Arrange
@@ -1559,6 +1621,125 @@ mod tests {
 
         // Assert
         expected.expect("Failed to deserialize");
+    }
+
+    #[tokio::test]
+    async fn plain_variable_reference_resolves_directly() {
+        // Arrange — plain $VARIABLE:NAME with no embedded template.
+        let mut vars = HashMap::new();
+        vars.insert("CREATOR_3".to_string(), U256::from(42));
+
+        // Act
+        let resolved = resolve_calldata_item_with_variables(
+            "$VARIABLE:CREATOR_3",
+            &vars,
+            &MockResolver::new(),
+        )
+        .await;
+
+        // Assert
+        assert_eq!(resolved.expect("resolve failed"), U256::from(42));
+    }
+
+    #[tokio::test]
+    async fn variable_name_template_composes_inner_reference() {
+        // Arrange — $VARIABLE:CREATOR_$VARIABLE:I with I=3 must resolve to
+        // a lookup of variable `CREATOR_3`.
+        let mut vars = HashMap::new();
+        vars.insert("I".to_string(), U256::from(3));
+        vars.insert("CREATOR_3".to_string(), U256::from(999));
+
+        // Act
+        let resolved = resolve_calldata_item_with_variables(
+            "$VARIABLE:CREATOR_$VARIABLE:I",
+            &vars,
+            &MockResolver::new(),
+        )
+        .await;
+
+        // Assert
+        assert_eq!(resolved.expect("resolve failed"), U256::from(999));
+    }
+
+    #[tokio::test]
+    async fn variable_name_template_supports_multiple_inner_references() {
+        // Arrange — A_$VARIABLE:I_B_$VARIABLE:J_C with I=2, J=5 resolves
+        // to variable `A_2_B_5_C`.
+        let mut vars = HashMap::new();
+        vars.insert("I".to_string(), U256::from(2));
+        vars.insert("J".to_string(), U256::from(5));
+        vars.insert("A_2_B_5_C".to_string(), U256::from(0xC0DE));
+
+        // Act
+        let resolved = resolve_calldata_item_with_variables(
+            "$VARIABLE:A_$VARIABLE:I_B_$VARIABLE:J_C",
+            &vars,
+            &MockResolver::new(),
+        )
+        .await;
+
+        // Assert
+        assert_eq!(resolved.expect("resolve failed"), U256::from(0xC0DE));
+    }
+
+    #[tokio::test]
+    async fn variable_name_template_errors_when_inner_missing() {
+        // Arrange — inner variable I not in scope.
+        let vars = HashMap::new();
+
+        // Act
+        let resolved = resolve_calldata_item_with_variables(
+            "$VARIABLE:CREATOR_$VARIABLE:I",
+            &vars,
+            &MockResolver::new(),
+        )
+        .await;
+
+        // Assert — must surface a clear error mentioning the inner name.
+        let err = resolved.expect_err("should fail when inner var missing");
+        let msg = format!("{err:#}");
+        assert!(msg.contains("`I`"), "error should mention inner name: {msg}");
+    }
+
+    #[tokio::test]
+    async fn variable_name_template_errors_when_resolved_outer_missing() {
+        // Arrange — inner resolves OK, but composed outer name is unknown.
+        let mut vars = HashMap::new();
+        vars.insert("I".to_string(), U256::from(7));
+        // No CREATOR_7 defined.
+
+        // Act
+        let resolved = resolve_calldata_item_with_variables(
+            "$VARIABLE:CREATOR_$VARIABLE:I",
+            &vars,
+            &MockResolver::new(),
+        )
+        .await;
+
+        // Assert — error should mention the composed name.
+        let err = resolved.expect_err("should fail when outer composed name missing");
+        let msg = format!("{err:#}");
+        assert!(msg.contains("CREATOR_7"), "error should include composed name: {msg}");
+    }
+
+    #[tokio::test]
+    async fn variable_name_template_errors_on_empty_inner_name() {
+        // Arrange — `$VARIABLE:CREATOR_$VARIABLE:` has an empty inner name.
+        let mut vars = HashMap::new();
+        vars.insert("CREATOR_".to_string(), U256::from(1));
+
+        // Act
+        let resolved = resolve_calldata_item_with_variables(
+            "$VARIABLE:CREATOR_$VARIABLE:",
+            &vars,
+            &MockResolver::new(),
+        )
+        .await;
+
+        // Assert
+        let err = resolved.expect_err("should fail on empty inner name");
+        let msg = format!("{err:#}");
+        assert!(msg.contains("Empty inner variable name"), "{msg}");
     }
 
     #[test]
