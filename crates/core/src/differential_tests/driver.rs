@@ -566,9 +566,6 @@ where
             return Ok(());
         };
 
-        // Handling the return data variable assignments. Target names may
-        // be templated (e.g. `ATTENDEE_$VARIABLE:I_POAP` inside a `repeat`
-        // with `capture_index: $VARIABLE:I`); plain names skip expansion.
         for (raw_name, output_word) in assignments.return_data.iter().zip(
             tracing_result
                 .output
@@ -937,9 +934,6 @@ where
             bail!("Account allocation must start with $VARIABLE:");
         };
 
-        // Templated target name (e.g. `ATTENDEE_$VARIABLE:I` inside a
-        // `repeat` with `capture_index: $VARIABLE:I`) is expanded against
-        // the current scope before allocation; plain names skip expansion.
         let variable_name: String = if raw_name.contains("$VARIABLE:") {
             let context = self.default_resolution_context();
             revive_dt_format::steps::CalldataToken::<&str>::resolve_variable_name_template(
