@@ -567,9 +567,8 @@ where
             return Ok(());
         };
 
-        // Handling the return data variable assignments.
         let callframe = OnceCell::new();
-        for (variable_name, output_word) in assignments.return_data.iter().zip(
+        for (raw_name, output_word) in assignments.return_data.iter().zip(
             callframe
                 .get_or_try_init(|| self.handle_function_call_call_frame_tracing(tx_hash))
                 .await
@@ -580,6 +579,15 @@ where
                 .to_vec()
                 .chunks(32),
         ) {
+            let variable_name: String = if raw_name.contains("$VARIABLE:") {
+                let context = self.default_resolution_context();
+                revive_dt_format::steps::CalldataToken::<&str>::resolve_variable_name_template(
+                    raw_name, context,
+                )
+                .context("Failed to resolve return_data templated variable name")?
+            } else {
+                raw_name.clone()
+            };
             let value = U256::from_be_slice(output_word);
             self.execution_state
                 .variables
@@ -701,8 +709,18 @@ where
         _: &StepPath,
         step: &AllocateAccountStep,
     ) -> Result<usize> {
-        let Some(variable_name) = step.variable_name.strip_prefix("$VARIABLE:") else {
+        let Some(raw_name) = step.variable_name.strip_prefix("$VARIABLE:") else {
             bail!("Account allocation must start with $VARIABLE:");
+        };
+
+        let variable_name: String = if raw_name.contains("$VARIABLE:") {
+            let context = self.default_resolution_context();
+            revive_dt_format::steps::CalldataToken::<&str>::resolve_variable_name_template(
+                raw_name, context,
+            )
+            .context("Failed to resolve allocate_account templated name")?
+        } else {
+            raw_name.to_owned()
         };
 
         let private_key = self
@@ -716,7 +734,7 @@ where
 
         self.execution_state
             .variables
-            .insert(variable_name.to_string(), variable);
+            .insert(variable_name, variable);
 
         Ok(1)
     }
