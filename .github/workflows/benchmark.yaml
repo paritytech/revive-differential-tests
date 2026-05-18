@@ -67,16 +67,6 @@ jobs:
           packages: |
             revive-dt-core
             revive-dt-report-processor
-      - name: Build Report Processor
-        uses: ./.github/actions/require-binary
-        with:
-          binary-name: report-processor
-          repository: paritytech/revive-differential-tests
-          ref: main
-          profile: production
-          packages: |
-            revive-dt-core
-            revive-dt-report-processor
 
   build-chainspec-generator:
     name: Build and Cache Runtime's Chainspec Generator
