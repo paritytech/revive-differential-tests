@@ -10,7 +10,7 @@ on:
       polkadot-sdk-ref:
         description: The branch, tag, or commit hash to use for the polkadot-sdk repository.
         required: true
-        default: polkadot-stable2512-2
+        default: 22e63b740b6943b4e39a3c6b779ca9e5408ca00c
       runtimes-repository:
         description: The repository containing the runtimes and their spec generator
         required: true
