@@ -153,6 +153,8 @@ jobs:
           path: compiler-tests
       - name: Export test specifiers
         id: matrix
+        env:
+          RUST_LOG: "off"
         run: |
           TESTS=$(retester export-test-specifiers \
             --test ./compiler-tests/fixtures/solidity/workloads \
