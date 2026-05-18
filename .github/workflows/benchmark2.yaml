@@ -1,0 +1,272 @@
+name: Run Benchmarks
+
+on:
+  workflow_dispatch:
+    inputs:
+      polkadot-sdk-repository:
+        description: The repository containing the polkadot-sdk
+        required: true
+        default: paritytech/polkadot-sdk
+      polkadot-sdk-ref:
+        description: The branch, tag, or commit hash to use for the polkadot-sdk repository.
+        required: true
+        default: polkadot-stable2512-2
+      runtimes-repository:
+        description: The repository containing the runtimes and their spec generator
+        required: true
+        default: polkadot-fellows/runtimes
+      runtimes-ref:
+        description: The branch, tag, or commit hash to use for the runtimes repository.
+        required: true
+        default: 80e121412d9787a56c7f63cfdc65fb2c54989dbc
+      solc-version:
+        description: Solc compiler version (e.g. v0.8.28)
+        required: true
+        default: v0.8.28
+      resolc-version:
+        description: Resolc compiler version (e.g. v0.6.0)
+        required: true
+        default: v0.6.0
+      additional-keys:
+        description: Number of additional wallet keys to pre-seed at genesis
+        required: true
+        default: '200010'
+      rust-log:
+        description: The value to set to the `RUST_LOG` environment variable when the benchmarks run
+        required: true
+        default: info,retester::differential_benchmarks::watcher=debug,revive_dt_node::provider_utils::batching_layer=debug,revive_dt_node::provider_utils::receipt_retry_layer=debug,revive_dt_core::differential_benchmarks::driver=debug,alloy=off
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_LOG: ${{ inputs.rust-log }}
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  # ============================================================================================
+  # Build Jobs: Building the binaries we need and making sure that they're cached and available
+  # ============================================================================================
+
+  build-retester:
+    name: Build and Cache Retester Binaries
+    runs-on: parity-large
+    steps:
+      - name: Checkout This Repository
+        uses: actions/checkout@v4
+      - name: Setup the Machine
+        uses: ./.github/actions/setup-benchmark-machine
+      - name: Build Retester
+        uses: ./.github/actions/require-binary
+        with:
+          binary-name: retester
+          repository: paritytech/revive-differential-tests
+          ref: main
+          profile: production
+          packages: |
+            revive-dt-core
+            revive-dt-report-processor
+      - name: Build Report Processor
+        uses: ./.github/actions/require-binary
+        with:
+          binary-name: report-processor
+          repository: paritytech/revive-differential-tests
+          ref: main
+          profile: production
+          packages: |
+            revive-dt-core
+            revive-dt-report-processor
+
+  build-chainspec-generator:
+    name: Build and Cache Runtime's Chainspec Generator
+    runs-on: parity-large
+    steps:
+      - name: Checkout This Repository
+        uses: actions/checkout@v4
+      - name: Setup the Machine
+        uses: ./.github/actions/setup-benchmark-machine
+      - name: Build chain-spec-generator
+        uses: ./.github/actions/require-binary
+        with:
+          binary-name: chain-spec-generator
+          repository: ${{ inputs.runtimes-repository }}
+          ref: ${{ inputs.runtimes-ref }}
+          profile: production
+          packages: chain-spec-generator
+          features: |
+            polkadot
+            asset-hub-polkadot
+          no-default-features: true
+          env: RUSTFLAGS=-Awarnings
+
+  build-polkadot-sdk:
+    name: Build and Cache the Polkadot SDK Dependencies
+    runs-on: parity-large
+    steps:
+      - name: Checkout This Repository
+        uses: actions/checkout@v4
+      - name: Setup the Machine
+        uses: ./.github/actions/setup-benchmark-machine
+      - name: Build polkadot
+        uses: ./.github/actions/require-binary
+        with:
+          binary-name: polkadot
+          repository: ${{ inputs.polkadot-sdk-repository }}
+          ref: ${{ inputs.polkadot-sdk-ref }}
+          profile: production
+          packages: |
+            polkadot
+            polkadot-parachain-bin
+            pallet-revive-eth-rpc
+          env: RUSTFLAGS=-Awarnings
+
+  # ====================================================================
+  # Matrix Generation Job: Builds a Matrix of all the workloads we have
+  # ====================================================================
+
+  generate-matrix:
+    name: Generate Benchmark Matrix
+    needs: build-retester
+    runs-on: parity-large
+    outputs:
+      tests: ${{ steps.matrix.outputs.tests }}
+    steps:
+      - name: Checkout This Repository
+        uses: actions/checkout@v4
+      - name: Setup the Machine
+        uses: ./.github/actions/setup-benchmark-machine
+      - name: Build Retester
+        uses: ./.github/actions/require-binary
+        with:
+          binary-name: retester
+          repository: paritytech/revive-differential-tests
+          ref: main
+          profile: production
+          packages: |
+            revive-dt-core
+            revive-dt-report-processor
+      - name: Checkout resolc-compiler-tests
+        uses: actions/checkout@v4
+        with:
+          repository: paritytech/resolc-compiler-tests
+          path: compiler-tests
+      - name: Export test specifiers
+        id: matrix
+        run: |
+          TESTS=$(retester export-test-specifiers \
+            --test ./compiler-tests/fixtures/solidity/workloads \
+            | jq -R . | jq -sc .)
+          echo "tests=${TESTS}" >> "$GITHUB_OUTPUT"
+
+  # ============================================
+  # Benchmark Job: Runs the Requested Benchmark
+  # ============================================
+
+  benchmark:
+    name: "${{ matrix.platform }} / ${{ matrix.test-specifier }}"
+    runs-on: parity-large
+    needs:
+      [
+        generate-matrix,
+        build-chainspec-generator,
+        build-polkadot-sdk,
+      ]
+    if: >-
+      !cancelled() &&
+      needs.generate-matrix.result == 'success' &&
+      needs.build-chainspec-generator.result == 'success' &&
+      needs.build-polkadot-sdk.result == 'success'
+    strategy:
+      fail-fast: false
+      matrix:
+        test-specifier: ${{ fromJSON(needs.generate-matrix.outputs.tests) }}
+        platform:
+          - lighthouse-geth-evm-solc
+          - zombienet-revm-solc
+          - zombienet-polkavm-resolc
+    steps:
+      - name: Checkout This Repository
+        uses: actions/checkout@v4
+      - name: Setup the Machine
+        uses: ./.github/actions/setup-benchmark-machine
+        with:
+          solc-version: ${{ inputs.solc-version }}
+          resolc-version: ${{ inputs.resolc-version }}
+      - name: Checkout resolc-compiler-tests
+        uses: actions/checkout@v4
+        with:
+          repository: paritytech/resolc-compiler-tests
+          path: compiler-tests
+      - name: Get Retester Binaries
+        uses: ./.github/actions/require-binary
+        with:
+          get-all-binaries: true
+          binary-name: retester
+          repository: paritytech/revive-differential-tests
+          ref: main
+          profile: production
+          packages: |
+            revive-dt-core
+            revive-dt-report-processor
+      - name: Get Runtimes Binaries
+        uses: ./.github/actions/require-binary
+        with:
+          get-all-binaries: true
+          binary-name: chain-spec-generator
+          repository: ${{ inputs.runtimes-repository }}
+          ref: ${{ inputs.runtimes-ref }}
+          profile: production
+          packages: chain-spec-generator
+          features: |
+            polkadot
+            asset-hub-polkadot
+          no-default-features: true
+          env: RUSTFLAGS=-Awarnings
+      - name: Get Polkadot Binaries
+        uses: ./.github/actions/require-binary
+        with:
+          get-all-binaries: true
+          binary-name: polkadot
+          repository: ${{ inputs.polkadot-sdk-repository }}
+          ref: ${{ inputs.polkadot-sdk-ref }}
+          profile: production
+          packages: |
+            polkadot
+            polkadot-parachain-bin
+            pallet-revive-eth-rpc
+          env: RUSTFLAGS=-Awarnings
+      - name: Set artifact name
+        id: names
+        run: |
+          NAME="${{ matrix.platform }}--${{ matrix.test-specifier }}"
+          NAME="${NAME//\//-}"
+          NAME="${NAME// /-}"
+          NAME="${NAME//+/plus}"
+          NAME="${NAME//::/--}"
+          NAME="${NAME//./-}"
+          [[ "$NAME" == *- ]] && NAME="${NAME%-}minus"
+          echo "artifact=$NAME" >> "$GITHUB_OUTPUT"
+      - name: Create working directory
+        run: mkdir -p ./workdir
+      - name: Run benchmarks
+        run: |
+          retester benchmark \
+            --log-format json \
+            --test "${{ matrix.test-specifier }}" \
+            --platform ${{ matrix.platform }} \
+            --working-directory ./workdir \
+            --concurrency.number-of-nodes 1 \
+            --concurrency.number-of-threads 12 \
+            --concurrency.number-of-concurrent-tasks 1000 \
+            --zombienet.config-path ./assets/polkadot-assethub-zombienet.toml \
+            --zombienet.block-production-timeout-ms 300000 \
+            --wallet.additional-keys ${{ inputs.additional-keys }} \
+            --report.file-name report.json \
+            > ./workdir/retester.log 2>&1
+      - name: Upload workdir
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: workdir-${{ steps.names.outputs.artifact }}
+          path: ./workdir

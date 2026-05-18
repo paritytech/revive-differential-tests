@@ -1,0 +1,352 @@
+name: Builds a Binary or Gets it from Cache
+description: This action allows for binaries to either be built or obtained from the cache to be used.
+
+inputs:
+  binary-name:
+    required: true
+    description: The name of the binary.
+  repository:
+    required: true
+    description: The repository which this binary should be built from
+  ref:
+    required: true
+    description: The branch, tag, or commit which this binary should be built from
+  profile:
+    required: false
+    description: "The profile to use when building the binary (e.g., release)"
+    default: production
+  no-default-features:
+    required: false
+    description: Whether to disable default features when building the binary.
+    default: false
+  get-all-binaries:
+    required: false
+    description: Whether to make every binary from the request available in the path.
+    default: false
+  features:
+    required: false
+    description: A newline separated set of features to use when building the package
+  packages:
+    required: false
+    description: A newline separated set of packages to build
+  env:
+    required: false
+    description: A newline separated set of environment variables to use in the build process. (e.g., RUSTFLAGS="-AWarnings")
+
+outputs:
+  request-hash:
+    description: The stable hash of the requested build inputs.
+    value: ${{ steps.request-hash.outputs.hash }}
+
+runs:
+  using: composite
+  steps:
+    - name: Setup Binaries Directory
+      id: binaries-directory
+      shell: bash
+      run: |
+        binaries_dir="$HOME/.require-binary-dir"
+        mkdir -p "$binaries_dir"
+        echo "$binaries_dir" >> "$GITHUB_PATH"
+        echo "path=$binaries_dir" >> "$GITHUB_OUTPUT"
+
+    - name: Setup Repository Path
+      id: repository-path
+      shell: bash
+      run: |
+        RANDOM_ID="$(openssl rand -hex 32)"
+        echo "repository-directory=$RANDOM_ID" >> "$GITHUB_OUTPUT"
+
+    - name: Checkout Repository
+      uses: actions/checkout@v4
+      with:
+        repository: ${{ inputs.repository }}
+        ref: ${{ inputs.ref }}
+        path: ${{ steps.repository-path.outputs.repository-directory }}
+
+    - name: Generate Request Hash
+      id: request-hash
+      shell: bash
+      env:
+        FEATURES: ${{ inputs.features }}
+        NO_DEFAULT_FEATURES: ${{ inputs.no-default-features }}
+        PACKAGES: ${{ inputs.packages }}
+        PROFILE: ${{ inputs.profile }}
+        REF: ${{ inputs.ref }}
+        REQUEST_ENV: ${{ inputs.env }}
+        REPOSITORY: ${{ inputs.repository }}
+        RUNNER_ARCH: ${{ runner.arch }}
+        RUNNER_OS: ${{ runner.os }}
+        SOURCE_HASH: ${{ hashFiles(format('{0}/**/src/**/*.rs', steps.repository-path.outputs.repository-directory), format('{0}/**/*.toml', steps.repository-path.outputs.repository-directory), format('{0}/**/Cargo.lock', steps.repository-path.outputs.repository-directory), format('{0}/**/build.rs', steps.repository-path.outputs.repository-directory), format('{0}/**/rust-toolchain', steps.repository-path.outputs.repository-directory), format('{0}/**/rust-toolchain.toml', steps.repository-path.outputs.repository-directory)) }}
+      run: |
+        request_hash="$(
+          {
+            printf 'repository=%s\n' "$REPOSITORY"
+            printf 'ref=%s\n' "$REF"
+            printf 'profile=%s\n' "$PROFILE"
+            printf 'no_default_features=%s\n' "$NO_DEFAULT_FEATURES"
+            printf 'runner_os=%s\n' "$RUNNER_OS"
+            printf 'runner_arch=%s\n' "$RUNNER_ARCH"
+            printf 'features<<EOF\n%s\nEOF\n' "$FEATURES"
+            printf 'packages<<EOF\n%s\nEOF\n' "$PACKAGES"
+            printf 'env<<EOF\n%s\nEOF\n' "$REQUEST_ENV"
+            printf 'source_hash=%s\n' "$SOURCE_HASH"
+          } | sha256sum | cut -d ' ' -f 1
+        )"
+
+        echo "hash=$request_hash" >> "$GITHUB_OUTPUT"
+
+    - name: Setup Request Cache Directory
+      id: request-cache-directory
+      shell: bash
+      env:
+        REQUEST_HASH: ${{ steps.request-hash.outputs.hash }}
+      run: |
+        cache_dir="$HOME/.require-binary-cache/$REQUEST_HASH"
+        rm -rf "$cache_dir"
+        mkdir -p "$cache_dir"
+        echo "path=$cache_dir" >> "$GITHUB_OUTPUT"
+
+    - name: Attempt to Restore Binaries from Cache
+      id: restore-cache
+      uses: actions/cache/restore@v4
+      with:
+        path: ${{ steps.request-cache-directory.outputs.path }}
+        key: ${{ steps.request-hash.outputs.hash }}
+
+    - name: Restore Binary from Cache
+      if: ${{ steps.restore-cache.outputs.cache-hit == 'true' }}
+      shell: bash
+      env:
+        BINARIES_DIR: ${{ steps.binaries-directory.outputs.path }}
+        BINARY_NAME: ${{ inputs.binary-name }}
+        CACHE_DIR: ${{ steps.request-cache-directory.outputs.path }}
+        GET_ALL_BINARIES: ${{ inputs.get-all-binaries }}
+      run: |
+        if [ ! -f "$CACHE_DIR/$BINARY_NAME" ]; then
+          echo "::error::Cache did not contain the requested binary: $BINARY_NAME"
+          exit 1
+        fi
+
+        if [ "$GET_ALL_BINARIES" = "true" ]; then
+          for binary_path in "$CACHE_DIR"/*; do
+            [ -f "$binary_path" ] || continue
+            binary="$(basename "$binary_path")"
+            cp "$binary_path" "$BINARIES_DIR/$binary"
+            chmod +x "$BINARIES_DIR/$binary"
+            echo "Added binary to path: $binary"
+          done
+        else
+          cp "$CACHE_DIR/$BINARY_NAME" "$BINARIES_DIR/$BINARY_NAME"
+          chmod +x "$BINARIES_DIR/$BINARY_NAME"
+          echo "Added binary to path: $BINARY_NAME"
+        fi
+
+    - name: Attempt to Restore Binary from Workflow Artifacts
+      id: restore-artifacts
+      if: ${{ steps.restore-cache.outputs.cache-hit != 'true' }}
+      uses: actions/download-artifact@v4
+      continue-on-error: true
+      with:
+        name: ${{ steps.request-hash.outputs.hash }}
+        path: ${{ runner.temp }}/require-binary-artifacts/${{ steps.request-hash.outputs.hash }}
+
+    - name: Extract Binary from Workflow Artifacts
+      if: ${{ steps.restore-cache.outputs.cache-hit != 'true' && steps.restore-artifacts.outcome == 'success' }}
+      shell: bash
+      env:
+        ARTIFACT_PATH: ${{ runner.temp }}/require-binary-artifacts/${{ steps.request-hash.outputs.hash }}/${{ steps.request-hash.outputs.hash }}
+        BINARIES_DIR: ${{ steps.binaries-directory.outputs.path }}
+        BINARY_NAME: ${{ inputs.binary-name }}
+        CACHE_DIR: ${{ steps.request-cache-directory.outputs.path }}
+        GET_ALL_BINARIES: ${{ inputs.get-all-binaries }}
+      run: |
+        extracted_binaries_dir="$(mktemp -d "$RUNNER_TEMP/require-binary-extracted.XXXXXX")"
+        tar -xzf "$ARTIFACT_PATH" -C "$extracted_binaries_dir"
+
+        if [ ! -f "$extracted_binaries_dir/$BINARY_NAME" ]; then
+          echo "::error::Artifact did not contain the requested binary: $BINARY_NAME"
+          exit 1
+        fi
+
+        cp -a "$extracted_binaries_dir/." "$CACHE_DIR/"
+
+        if [ "$GET_ALL_BINARIES" = "true" ]; then
+          for binary_path in "$CACHE_DIR"/*; do
+            [ -f "$binary_path" ] || continue
+            binary="$(basename "$binary_path")"
+            cp "$binary_path" "$BINARIES_DIR/$binary"
+            chmod +x "$BINARIES_DIR/$binary"
+            echo "Added binary to path: $binary"
+          done
+        else
+          cp "$CACHE_DIR/$BINARY_NAME" "$BINARIES_DIR/$BINARY_NAME"
+          chmod +x "$BINARIES_DIR/$BINARY_NAME"
+          echo "Added binary to path: $BINARY_NAME"
+        fi
+
+    - name: Save Binaries from Workflow Artifacts to Cache
+      if: ${{ steps.restore-cache.outputs.cache-hit != 'true' && steps.restore-artifacts.outcome == 'success' }}
+      uses: actions/cache/save@v4
+      continue-on-error: true
+      with:
+        path: ${{ steps.request-cache-directory.outputs.path }}
+        key: ${{ steps.request-hash.outputs.hash }}
+
+    - name: Build Binary
+      id: build-binary
+      if: ${{ steps.restore-cache.outputs.cache-hit != 'true' && steps.restore-artifacts.outcome != 'success' }}
+      shell: bash
+      working-directory: ${{ github.workspace }}/${{ steps.repository-path.outputs.repository-directory }}
+      env:
+        BUILD_ENV: ${{ inputs.env }}
+        FEATURES: ${{ inputs.features }}
+        NO_DEFAULT_FEATURES: ${{ inputs.no-default-features }}
+        PACKAGES: ${{ inputs.packages }}
+        PROFILE: ${{ inputs.profile }}
+      run: |
+        cargo_args=(build --locked --profile "$PROFILE")
+
+        if [ "$NO_DEFAULT_FEATURES" = "true" ]; then
+          cargo_args+=(--no-default-features)
+        fi
+
+        while IFS= read -r package; do
+          [ -z "$package" ] && continue
+          cargo_args+=(-p "$package")
+        done <<< "$PACKAGES"
+
+        while IFS= read -r feature; do
+          [ -z "$feature" ] && continue
+          cargo_args+=(--features "$feature")
+        done <<< "$FEATURES"
+
+        while IFS= read -r assignment; do
+          [ -z "$assignment" ] && continue
+
+          name="${assignment%%=*}"
+          value="${assignment#*=}"
+
+          if [ "$name" = "$assignment" ]; then
+            echo "::error::Invalid environment assignment: $assignment"
+            exit 1
+          fi
+
+          if [[ ! "$name" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
+            echo "::error::Invalid environment variable name: $name"
+            exit 1
+          fi
+
+          if [ "${#value}" -ge 2 ]; then
+            first_character="${value:0:1}"
+            last_character="${value: -1}"
+
+            if { [ "$first_character" = '"' ] && [ "$last_character" = '"' ]; } ||
+               { [ "$first_character" = "'" ] && [ "$last_character" = "'" ]; }; then
+              value="${value:1:${#value}-2}"
+            fi
+          fi
+
+          export "$name=$value"
+        done <<< "$BUILD_ENV"
+
+        cargo "${cargo_args[@]}"
+
+    - name: Move Built Binaries to Cache
+      if: ${{ steps.build-binary.outcome == 'success' }}
+      shell: bash
+      working-directory: ${{ github.workspace }}/${{ steps.repository-path.outputs.repository-directory }}
+      env:
+        BINARIES_DIR: ${{ steps.binaries-directory.outputs.path }}
+        BINARY_NAME: ${{ inputs.binary-name }}
+        CACHE_DIR: ${{ steps.request-cache-directory.outputs.path }}
+        GET_ALL_BINARIES: ${{ inputs.get-all-binaries }}
+        PACKAGES: ${{ inputs.packages }}
+        PROFILE: ${{ inputs.profile }}
+      run: |
+        set -o pipefail
+
+        packages_json="$(jq -R -s -c 'split("\n") | map(select(length > 0))' <<< "$PACKAGES")"
+        metadata_path="$(mktemp "$RUNNER_TEMP/require-binary-metadata.XXXXXX")"
+        binaries_path="$(mktemp "$RUNNER_TEMP/require-binary-binaries.XXXXXX")"
+        root_manifest_path="$PWD/Cargo.toml"
+
+        cargo metadata --format-version 1 --no-deps > "$metadata_path"
+
+        jq -r \
+          --arg root_manifest_path "$root_manifest_path" \
+          --argjson packages "$packages_json" '
+              .packages[]
+              | select(
+                  if ($packages | length) == 0 then
+                    .manifest_path == $root_manifest_path
+                  else
+                    .name as $name | $packages | index($name)
+                  end
+                )
+              | .targets[]
+              | select(.kind[] == "bin")
+              | .name
+            ' "$metadata_path" > "$binaries_path"
+
+        if [ ! -s "$binaries_path" ]; then
+          echo "::error::No binary targets were found for the requested packages"
+          exit 1
+        fi
+
+        while IFS= read -r binary; do
+          [ -z "$binary" ] && continue
+
+          binary_path="target/$PROFILE/$binary"
+          if [ ! -f "$binary_path" ]; then
+            echo "::error::Build did not produce binary: $binary"
+            exit 1
+          fi
+
+          cp "$binary_path" "$CACHE_DIR/$binary"
+        done < "$binaries_path"
+
+        if [ ! -f "$CACHE_DIR/$BINARY_NAME" ]; then
+          echo "::error::Build did not produce the requested binary: $BINARY_NAME"
+          exit 1
+        fi
+
+        if [ "$GET_ALL_BINARIES" = "true" ]; then
+          while IFS= read -r binary; do
+            [ -z "$binary" ] && continue
+            cp "$CACHE_DIR/$binary" "$BINARIES_DIR/$binary"
+            chmod +x "$BINARIES_DIR/$binary"
+            echo "Added binary to path: $binary"
+          done < "$binaries_path"
+        else
+          cp "$CACHE_DIR/$BINARY_NAME" "$BINARIES_DIR/$BINARY_NAME"
+          chmod +x "$BINARIES_DIR/$BINARY_NAME"
+          echo "Added binary to path: $BINARY_NAME"
+        fi
+
+    - name: Save Built Binaries to Cache
+      if: ${{ steps.build-binary.outcome == 'success' }}
+      uses: actions/cache/save@v4
+      continue-on-error: true
+      with:
+        path: ${{ steps.request-cache-directory.outputs.path }}
+        key: ${{ steps.request-hash.outputs.hash }}
+
+    - name: Package Binaries Artifact
+      if: ${{ steps.restore-cache.outputs.cache-hit == 'true' || steps.build-binary.outcome == 'success' }}
+      shell: bash
+      env:
+        ARTIFACT_PATH: ${{ runner.temp }}/require-binary-upload-artifacts/${{ steps.request-hash.outputs.hash }}
+        CACHE_DIR: ${{ steps.request-cache-directory.outputs.path }}
+      run: |
+        mkdir -p "$(dirname "$ARTIFACT_PATH")"
+        tar -czf "$ARTIFACT_PATH" -C "$CACHE_DIR" .
+
+    - name: Upload Binaries Artifact
+      if: ${{ steps.restore-cache.outputs.cache-hit == 'true' || steps.build-binary.outcome == 'success' }}
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ steps.request-hash.outputs.hash }}
+        path: ${{ runner.temp }}/require-binary-upload-artifacts/${{ steps.request-hash.outputs.hash }}
+        if-no-files-found: error
+        overwrite: true

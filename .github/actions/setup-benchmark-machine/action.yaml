@@ -1,0 +1,79 @@
+name: Setup Benchmark Machine
+description: Sets up the machine for benchmarks by installing all of the needed dependencies except for the retester and polkadot-sdk binaries
+
+inputs:
+  solc-version:
+    description: The version of solc to install on the machine (e.g. v0.8.28)
+    required: false
+  resolc-version:
+    description: The version of resolc to install on the machine (e.g. v0.6.0)
+    required: false
+
+runs:
+  using: composite
+  steps:
+    - name: Setup the Rust Toolchain
+      uses: actions-rust-lang/setup-rust-toolchain@v1
+      with:
+        cache: false
+        target: wasm32-unknown-unknown,wasm32v1-none
+        components: rust-src
+
+    - name: Setup Binary Directory
+      shell: bash
+      run: |
+        BIN_DIR="$RUNNER_TEMP/benchmark-bin"
+        mkdir -p "$BIN_DIR"
+        echo "BIN_DIR=$BIN_DIR" >> "$GITHUB_ENV"
+        echo "$BIN_DIR" >> "$GITHUB_PATH"
+
+    - name: Install System Packages
+      shell: bash
+      run: |
+        echo "deb [trusted=yes] https://apt.fury.io/kurtosis-tech/ /" | sudo tee /etc/apt/sources.list.d/kurtosis.list
+        sudo apt-get update
+        sudo apt-get install -y \
+          build-essential \
+          pkg-config \
+          libssl-dev \
+          protobuf-compiler \
+          lld \
+          llvm \
+          clang \
+          libclang-dev \
+          cmake \
+          ninja-build \
+          jq \
+          docker.io \
+          kurtosis-cli
+
+    - name: Installing Solc
+      if: ${{ inputs.solc-version != '' }}
+      shell: bash
+      run: |
+        curl -sSLo "$BIN_DIR/solc" \
+          "https://github.com/ethereum/solidity/releases/download/${{ inputs.solc-version }}/solc-static-linux"
+        chmod +x "$BIN_DIR/solc"
+
+    - name: Installing Resolc
+      if: ${{ inputs.resolc-version != '' }}
+      shell: bash
+      run: |
+        curl -sSLo "$BIN_DIR/resolc" \
+          "https://github.com/paritytech/revive/releases/download/${{ inputs.resolc-version }}/resolc-x86_64-unknown-linux-musl"
+        chmod +x "$BIN_DIR/resolc"
+
+    - name: Wait for Docker to start
+      shell: bash
+      run: |
+        sudo dockerd &
+        for i in $(seq 1 15); do
+          docker info > /dev/null 2>&1 && break
+          sleep 1
+        done
+        docker info
+        sudo chmod 666 /var/run/docker.sock
+
+    - name: Start Kurtosis
+      shell: bash
+      run: kurtosis engine start
