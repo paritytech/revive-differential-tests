@@ -27,6 +27,14 @@ on:
         description: Resolc compiler version (e.g. v0.6.0)
         required: true
         default: v0.6.0
+      network:
+        description: The Asset Hub network configuration to benchmark against
+        required: true
+        type: choice
+        default: polkadot
+        options:
+          - polkadot
+          - westend
       additional-keys:
         description: Number of additional wallet keys to pre-seed at genesis
         required: true
@@ -255,7 +263,7 @@ jobs:
             --concurrency.number-of-nodes 1 \
             --concurrency.number-of-threads 12 \
             --concurrency.number-of-concurrent-tasks 1000 \
-            --zombienet.config-path ./assets/polkadot-assethub-zombienet.toml \
+            --zombienet.config-path ./assets/${{ inputs.network }}-assethub-zombienet.toml \
             --zombienet.block-production-timeout-ms 300000 \
             --wallet.additional-keys ${{ inputs.additional-keys }} \
             --report.file-name report.json \
