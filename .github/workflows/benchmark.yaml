@@ -41,8 +41,11 @@ env:
   RUST_LOG: ${{ inputs.rust-log }}
 
 permissions:
-  actions: read
   contents: write
+
+concurrency:
+  group: benchmark-publish
+  cancel-in-progress: false
 
 jobs:
   # ============================================================================================
@@ -52,6 +55,7 @@ jobs:
   build-retester:
     name: Build and Cache Retester Binaries
     runs-on: parity-large
+    timeout-minutes: 360
     steps:
       - name: Checkout This Repository
         uses: actions/checkout@v4
@@ -71,6 +75,7 @@ jobs:
   build-chainspec-generator:
     name: Build and Cache Runtime's Chainspec Generator
     runs-on: parity-large
+    timeout-minutes: 360
     steps:
       - name: Checkout This Repository
         uses: actions/checkout@v4
@@ -93,6 +98,7 @@ jobs:
   build-polkadot-sdk:
     name: Build and Cache the Polkadot SDK Dependencies
     runs-on: parity-large
+    timeout-minutes: 360
     steps:
       - name: Checkout This Repository
         uses: actions/checkout@v4
@@ -119,6 +125,7 @@ jobs:
     name: Generate Benchmark Matrix
     needs: build-retester
     runs-on: parity-large
+    timeout-minutes: 30
     outputs:
       tests: ${{ steps.matrix.outputs.tests }}
     steps:
@@ -158,6 +165,7 @@ jobs:
   benchmark:
     name: "${{ matrix.platform }} / ${{ matrix.test-specifier }}"
     runs-on: parity-large
+    timeout-minutes: 120
     needs:
       [
         generate-matrix,
@@ -266,9 +274,14 @@ jobs:
   publish:
     name: Publish The Report
     runs-on: parity-large
-    needs: benchmark
-    permissions:
-      contents: write
+    timeout-minutes: 60
+    needs:
+      - generate-matrix
+      - benchmark
+    if: >-
+      !cancelled() &&
+      needs.benchmark.result == 'success' &&
+      fromJSON(needs.generate-matrix.outputs.tests) != '[]'
     steps:
       - name: Set Report Name
         run: echo "REPORT_NAME=benchmark-$(date -u +%Y-%m-%d-%H%M%S)" >> "$GITHUB_ENV"
@@ -287,8 +300,6 @@ jobs:
           packages: |
             revive-dt-core
             revive-dt-report-processor
-      - name: Checkout This Repository
-        uses: actions/checkout@v4
       - name: Checkout resolc-compiler-tests
         uses: actions/checkout@v4
         with:
@@ -299,6 +310,43 @@ jobs:
         with:
           pattern: workdir-*
           path: ./results
+      - name: Merge reports
+        run: |
+          REPORT_ARGS=""
+          for dir in ./results/workdir-*/; do
+            if [ -f "$dir/report.json" ]; then
+              REPORT_ARGS="$REPORT_ARGS --report-path $dir/report.json"
+            fi
+          done
+
+          if [ -z "$REPORT_ARGS" ]; then
+            echo "No reports found to merge"
+            exit 1
+          fi
+
+          report-processor merge-reports \
+            $REPORT_ARGS \
+            --output-path ./merged-report.json
+      - name: Strip raw data from report for web publishing
+        run: |
+          jq '
+            .execution_information |= map_values(
+              .case_reports |= map_values(
+                .mode_execution_reports |= map_values(
+                  .mined_block_information = {}
+                  | .steps |= (if . then map_values(.transactions = {}) else . end)
+                )
+              )
+            )
+          ' ./merged-report.json > ./web-report.json
+
+      - name: Generate HTML report
+        run: |
+          REPORT_NAME="benchmark-$(date -u +%Y-%m-%d-%H%M%S)"
+          echo "REPORT_NAME=${REPORT_NAME}" >> "$GITHUB_ENV"
+          report-processor generate-benchmarks-html-report \
+            --report-path ./web-report.json \
+            --output-path ./benchmark-report.html
       - name: Generate HTML report
         run: |
           report-processor generate-benchmarks-html-report \
@@ -315,9 +363,15 @@ jobs:
           cp ./benchmark-report.html "gh-pages-dir/index.html"
           cp ./benchmark-report.html "gh-pages-dir/reports/${REPORT_NAME}.html"
           cp ./web-report.json "gh-pages-dir/raw/${REPORT_NAME}.json"
-      - name: Re-index raw reports
+      - name: Re-index reports
         working-directory: gh-pages-dir
         run: |
+          set -euo pipefail
+
+          html_escape() {
+            python3 -c 'import html, sys; print(html.escape(sys.argv[1]), end="")' "$1"
+          }
+
           {
             echo '<!doctype html>'
             echo '<html lang="en">'
@@ -327,18 +381,24 @@ jobs:
             for report in reports/*.html; do
               [ -f "$report" ] || continue
               report_name="$(basename "$report")"
-              echo "<li><a href=\"../reports/${report_name}\">${report_name}</a></li>"
+              escaped="$(html_escape "$report_name")"
+              echo "<li><a href=\"./${escaped}\">${escaped}</a></li>"
             done
             echo '</ul>'
             echo '</body>'
             echo '</html>'
-          } > raw/index.html
+          } > reports/index.html
       - name: Push to gh-pages
         working-directory: gh-pages-dir
         run: |
+          set -euo pipefail
+
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add .gitattributes
           git add .
+          if git diff --staged --quiet; then
+            echo "No changes to commit; skipping push"
+            exit 0
+          fi
           git commit -m "Update benchmark report"
           git push
