@@ -4,7 +4,7 @@ use pallet_revive::{
     EthTransactError, Weight,
     codec::{Decode, Encode},
 };
-use subxt::{error::MetadataError, utils::H256 as SubxtH256};
+use subxt::utils::H256 as SubxtH256;
 
 const ETH_PRE_DISPATCH_WEIGHT_RUNTIME_API: &str = "ReviveApi_eth_pre_dispatch_weight";
 

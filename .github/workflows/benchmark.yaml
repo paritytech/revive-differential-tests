@@ -65,7 +65,7 @@ jobs:
         with:
           binary-name: retester
           repository: paritytech/revive-differential-tests
-          ref: main
+          ref: ${{ github.ref_name }}
           profile: production
           packages: |
             revive-dt-core
@@ -134,7 +134,7 @@ jobs:
         with:
           binary-name: retester
           repository: paritytech/revive-differential-tests
-          ref: main
+          ref: ${{ github.ref_name }}
           profile: production
           packages: |
             revive-dt-core
@@ -199,7 +199,7 @@ jobs:
           get-all-binaries: true
           binary-name: retester
           repository: paritytech/revive-differential-tests
-          ref: main
+          ref: ${{ github.ref_name }}
           profile: production
           packages: |
             revive-dt-core
@@ -289,7 +289,7 @@ jobs:
           get-all-binaries: true
           binary-name: retester
           repository: paritytech/revive-differential-tests
-          ref: main
+          ref: ${{ github.ref_name }}
           profile: production
           packages: |
             revive-dt-core
