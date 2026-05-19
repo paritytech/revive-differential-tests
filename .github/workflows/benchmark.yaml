@@ -42,7 +42,7 @@ on:
       additional-keys:
         description: Number of additional wallet keys to pre-seed at genesis
         required: true
-        default: '200010'
+        default: "200010"
       rust-log:
         description: The value to set to the `RUST_LOG` environment variable when the benchmarks run
         required: true
@@ -272,6 +272,34 @@ jobs:
           echo "artifact=$NAME" >> "$GITHUB_OUTPUT"
       - name: Create working directory
         run: mkdir -p ./workdir
+      - name: Print benchmark versions
+        env:
+          GITHUB_INPUTS: ${{ toJSON(inputs) }}
+        run: |
+          set -euo pipefail
+
+          print_version() {
+            local binary="$1"
+
+            echo "$binary=$("$binary" --version)"
+          }
+
+          echo "# Workflow inputs:"
+          jq -r 'to_entries[] | "\(.key)=\(.value)"' <<< "$GITHUB_INPUTS"
+
+          echo
+          echo "# Installed binaries:"
+          print_version retester
+          print_version report-processor
+          print_version chain-spec-generator
+          print_version polkadot
+          print_version polkadot-parachain
+          print_version polkadot-prepare-worker
+          print_version polkadot-execute-worker
+          print_version eth-rpc
+          print_version resolc
+          print_version solc
+
       - name: Run benchmarks
         env:
           OVERRIDE_REPETITION_COUNT: ${{ inputs.override-repetition-count }}
