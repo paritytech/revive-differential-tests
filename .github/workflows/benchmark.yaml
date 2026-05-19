@@ -23,8 +23,12 @@ on:
         description: Solc compiler version (e.g. v0.8.28)
         required: true
         default: v0.8.28
-      resolc-version:
-        description: Resolc compiler version (e.g. v0.6.0)
+      resolc-repository:
+        description: The repository containing the resolc compiler
+        required: true
+        default: paritytech/revive
+      resolc-ref:
+        description: The branch, tag, or commit hash to use for the resolc repository.
         required: true
         default: v0.6.0
       network:
@@ -122,6 +126,18 @@ jobs:
             pallet-revive-eth-rpc
           env: RUSTFLAGS=-Awarnings
 
+  build-resolc:
+    name: Build and Cache Resolc Binary
+    runs-on: parity-large
+    steps:
+      - name: Checkout This Repository
+        uses: actions/checkout@v4
+      - name: Setup the Machine
+        uses: ./.github/actions/setup-benchmark-machine
+        with:
+          resolc-repository: ${{ inputs.resolc-repository }}
+          resolc-ref: ${{ inputs.resolc-ref }}
+
   # ====================================================================
   # Matrix Generation Job: Builds a Matrix of all the workloads we have
   # ====================================================================
@@ -175,12 +191,14 @@ jobs:
         generate-matrix,
         build-chainspec-generator,
         build-polkadot-sdk,
+        build-resolc,
       ]
     if: >-
       !cancelled() &&
       needs.generate-matrix.result == 'success' &&
       needs.build-chainspec-generator.result == 'success' &&
-      needs.build-polkadot-sdk.result == 'success'
+      needs.build-polkadot-sdk.result == 'success' &&
+      needs.build-resolc.result == 'success'
     strategy:
       fail-fast: false
       matrix:
@@ -196,7 +214,8 @@ jobs:
         uses: ./.github/actions/setup-benchmark-machine
         with:
           solc-version: ${{ inputs.solc-version }}
-          resolc-version: ${{ inputs.resolc-version }}
+          resolc-repository: ${{ inputs.resolc-repository }}
+          resolc-ref: ${{ inputs.resolc-ref }}
       - name: Checkout resolc-compiler-tests
         uses: actions/checkout@v4
         with:

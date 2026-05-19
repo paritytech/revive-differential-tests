@@ -1,12 +1,15 @@
 name: Setup Benchmark Machine
-description: Sets up the machine for benchmarks by installing all of the needed dependencies except for the retester and polkadot-sdk binaries
+description: Sets up the machine for benchmarks by installing system packages and optional compiler binaries.
 
 inputs:
   solc-version:
     description: The version of solc to install on the machine (e.g. v0.8.28)
     required: false
-  resolc-version:
-    description: The version of resolc to install on the machine (e.g. v0.6.0)
+  resolc-repository:
+    description: The repository containing resolc.
+    required: false
+  resolc-ref:
+    description: The branch, tag, or commit hash to use for the resolc repository.
     required: false
 
 runs:
@@ -55,12 +58,11 @@ runs:
         chmod +x "$BIN_DIR/solc"
 
     - name: Installing Resolc
-      if: ${{ inputs.resolc-version != '' }}
-      shell: bash
-      run: |
-        curl -sSLo "$BIN_DIR/resolc" \
-          "https://github.com/paritytech/revive/releases/download/${{ inputs.resolc-version }}/resolc-x86_64-unknown-linux-musl"
-        chmod +x "$BIN_DIR/resolc"
+      if: ${{ inputs.resolc-repository != '' && inputs.resolc-ref != '' }}
+      uses: ./.github/actions/install-resolc
+      with:
+        repository: ${{ inputs.resolc-repository }}
+        ref: ${{ inputs.resolc-ref }}
 
     - name: Wait for Docker to start
       shell: bash
