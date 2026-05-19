@@ -186,6 +186,18 @@ mod context {
         /// repeat step.
         #[arg(short = 'r', default_value_t = 1000)]
         pub default_repetition_count: usize,
+
+        /// This configuration parameter allows for the repetition count to be overridden by the
+        /// value specified by the user.
+        ///
+        /// This is useful in two main cases:
+        /// 1. When the workload defines a specific repetition count and we wish to have a different
+        ///    count all together for some kind of reason.
+        /// 2. When developing and working on changes in retester and wanting to quickly test the CI
+        ///    without needing to wait for hours and hours for the entire run to finish end to end
+        ///    which is a case where the benchmark isn't what's being done, but the program is being
+        ///    tested in one way or another.
+        pub repetition_count_override: Option<usize>,
     }
 
     /// Configuration for the export-genesis target platform.

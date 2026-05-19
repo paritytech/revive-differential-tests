@@ -47,6 +47,10 @@ on:
         description: The value to set to the `RUST_LOG` environment variable when the benchmarks run
         required: true
         default: info,retester::differential_benchmarks::watcher=debug,revive_dt_node::provider_utils::batching_layer=debug,revive_dt_node::provider_utils::receipt_retry_layer=debug,revive_dt_core::differential_benchmarks::driver=debug,alloy=off
+      override-repetition-count:
+        type: number
+        description: A way for the repetition count to be overridden. This is only used when we want to quickly run the CI to check if it works, please do not use it otherwise
+        required: false
 
 env:
   CARGO_TERM_COLOR: always
@@ -273,7 +277,15 @@ jobs:
       - name: Create working directory
         run: mkdir -p ./workdir
       - name: Run benchmarks
+        env:
+          OVERRIDE_REPETITION_COUNT: ${{ inputs.override-repetition-count }}
         run: |
+          additional_args=()
+
+          if [ -n "$OVERRIDE_REPETITION_COUNT" ]; then
+            additional_args+=(--benchmark.repetition-count-override "$OVERRIDE_REPETITION_COUNT")
+          fi
+
           retester benchmark \
             --log-format json \
             --test "${{ matrix.test-specifier }}" \
@@ -286,6 +298,7 @@ jobs:
             --zombienet.block-production-timeout-ms 300000 \
             --wallet.additional-keys ${{ inputs.additional-keys }} \
             --report.file-name report.json \
+            "${additional_args[@]}" \
             > ./workdir/retester.log 2>&1
       - name: Upload workdir
         if: always()

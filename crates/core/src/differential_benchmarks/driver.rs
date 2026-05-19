@@ -21,6 +21,9 @@ pub struct Driver<'a, I> {
     /// The definition of the test that the driver is instructed to execute.
     test_definition: &'a TestDefinition<'a>,
 
+    /// A value override to apply to the repetition count of this run of the driver.
+    repetition_count_override: Option<usize>,
+
     /// The private key allocator used by this driver and other drivers when account allocations are
     /// needed.
     private_key_allocator: Arc<Mutex<PrivateKeyAllocator>>,
@@ -63,6 +66,7 @@ where
     pub async fn new(
         platform_information: &'a TestPlatformInformation<'a>,
         test_definition: &'a TestDefinition<'a>,
+        repetition_count_override: Option<usize>,
         private_key_allocator: Arc<Mutex<PrivateKeyAllocator>>,
         cached_compiler: &CachedCompiler<'a>,
         watcher_tx: UnboundedSender<WatcherEvent>,
@@ -74,6 +78,7 @@ where
             driver_id: next_driver_id(),
             platform_information,
             test_definition,
+            repetition_count_override,
             private_key_allocator,
             execution_state: ExecutionState::empty(),
             steps_executed: 0,
@@ -569,7 +574,7 @@ where
         let driver_id = self.driver_id;
         Box::pin(
             async move {
-                let mut tasks = (0..step.repeat)
+                let mut tasks = (0..self.repetition_count_override.unwrap_or(step.repeat))
                     .map(|i| {
                         let mut execution_state = self.execution_state.clone();
                         if let Some(ref index_variable) = step
@@ -588,6 +593,7 @@ where
                             driver_id: next_driver_id(),
                             platform_information: self.platform_information,
                             test_definition: self.test_definition,
+                            repetition_count_override: self.repetition_count_override,
                             private_key_allocator: self.private_key_allocator.clone(),
                             execution_state,
                             steps_executed: 0,
