@@ -44,7 +44,6 @@ runs:
           cmake \
           ninja-build \
           jq \
-          docker.io \
           kurtosis-cli
 
     - name: Installing Solc
