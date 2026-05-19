@@ -313,7 +313,7 @@ runs:
         key: ${{ steps.request-hash.outputs.hash }}
 
     - name: Package Binaries Artifact
-      if: ${{ steps.restore-cache.outputs.cache-hit == 'true' || steps.build-binary.outcome == 'success' }}
+      if: ${{ steps.build-binary.outcome == 'success' }}
       shell: bash
       env:
         ARTIFACT_PATH: ${{ runner.temp }}/require-binary-upload-artifacts/${{ steps.request-hash.outputs.hash }}
@@ -325,8 +325,9 @@ runs:
         tar -czf "$ARTIFACT_PATH" -C "$HASH_DIR" .
 
     - name: Upload Binaries Artifact
-      if: ${{ steps.restore-cache.outputs.cache-hit == 'true' || steps.build-binary.outcome == 'success' }}
+      if: ${{ steps.build-binary.outcome == 'success' }}
       uses: actions/upload-artifact@v4
+      continue-on-error: true
       with:
         name: ${{ steps.request-hash.outputs.hash }}
         path: ${{ runner.temp }}/require-binary-upload-artifacts/${{ steps.request-hash.outputs.hash }}

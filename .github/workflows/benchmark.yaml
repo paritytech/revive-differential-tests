@@ -262,3 +262,83 @@ jobs:
         with:
           name: workdir-${{ steps.names.outputs.artifact }}
           path: ./workdir
+
+  publish:
+    name: Publish The Report
+    runs-on: parity-large
+    needs: benchmark
+    permissions:
+      contents: write
+    steps:
+      - name: Set Report Name
+        run: echo "REPORT_NAME=benchmark-$(date -u +%Y-%m-%d-%H%M%S)" >> "$GITHUB_ENV"
+      - name: Checkout This Repository
+        uses: actions/checkout@v4
+      - name: Setup the Machine
+        uses: ./.github/actions/setup-benchmark-machine
+      - name: Restore Retester
+        uses: ./.github/actions/require-binary
+        with:
+          get-all-binaries: true
+          binary-name: retester
+          repository: paritytech/revive-differential-tests
+          ref: main
+          profile: production
+          packages: |
+            revive-dt-core
+            revive-dt-report-processor
+      - name: Checkout This Repository
+        uses: actions/checkout@v4
+      - name: Checkout resolc-compiler-tests
+        uses: actions/checkout@v4
+        with:
+          repository: paritytech/resolc-compiler-tests
+          path: compiler-tests
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: workdir-*
+          path: ./results
+      - name: Generate HTML report
+        run: |
+          report-processor generate-benchmarks-html-report \
+            --report-path ./web-report.json \
+            --output-path ./benchmark-report.html
+      - name: Checkout gh-pages
+        uses: actions/checkout@v4
+        with:
+          ref: gh-pages
+          path: gh-pages-dir
+      - name: Add report
+        run: |
+          mkdir -p gh-pages-dir/reports gh-pages-dir/raw
+          cp ./benchmark-report.html "gh-pages-dir/index.html"
+          cp ./benchmark-report.html "gh-pages-dir/reports/${REPORT_NAME}.html"
+          cp ./web-report.json "gh-pages-dir/raw/${REPORT_NAME}.json"
+      - name: Re-index raw reports
+        working-directory: gh-pages-dir
+        run: |
+          {
+            echo '<!doctype html>'
+            echo '<html lang="en">'
+            echo '<head><meta charset="utf-8"><title>Benchmark Reports</title></head>'
+            echo '<body>'
+            echo '<ul>'
+            for report in reports/*.html; do
+              [ -f "$report" ] || continue
+              report_name="$(basename "$report")"
+              echo "<li><a href=\"../reports/${report_name}\">${report_name}</a></li>"
+            done
+            echo '</ul>'
+            echo '</body>'
+            echo '</html>'
+          } > raw/index.html
+      - name: Push to gh-pages
+        working-directory: gh-pages-dir
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add .gitattributes
+          git add .
+          git commit -m "Update benchmark report"
+          git push
