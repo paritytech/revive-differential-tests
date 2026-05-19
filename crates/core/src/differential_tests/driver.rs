@@ -948,7 +948,9 @@ where
         let account = private_key.address();
         let variable = U256::from_be_slice(account.0.as_slice());
 
-        self.execution_state.variables.insert(variable_name, variable);
+        self.execution_state
+            .variables
+            .insert(variable_name, variable);
 
         Ok(1)
     }

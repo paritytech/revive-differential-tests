@@ -1698,7 +1698,10 @@ mod tests {
         // Assert — must surface a clear error mentioning the inner name.
         let err = resolved.expect_err("should fail when inner var missing");
         let msg = format!("{err:#}");
-        assert!(msg.contains("`I`"), "error should mention inner name: {msg}");
+        assert!(
+            msg.contains("`I`"),
+            "error should mention inner name: {msg}"
+        );
     }
 
     #[tokio::test]
@@ -1719,7 +1722,10 @@ mod tests {
         // Assert — error should mention the composed name.
         let err = resolved.expect_err("should fail when outer composed name missing");
         let msg = format!("{err:#}");
-        assert!(msg.contains("CREATOR_7"), "error should include composed name: {msg}");
+        assert!(
+            msg.contains("CREATOR_7"),
+            "error should include composed name: {msg}"
+        );
     }
 
     #[tokio::test]
