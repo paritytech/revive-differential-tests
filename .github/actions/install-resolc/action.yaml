@@ -1,0 +1,91 @@
+name: Install Resolc
+description: Installs resolc from a release asset or through the shared binary cache.
+
+inputs:
+  repository:
+    required: true
+    description: The repository containing resolc.
+  ref:
+    required: true
+    description: The branch, tag, or commit hash to use for the resolc repository.
+
+runs:
+  using: composite
+  steps:
+    - name: Setup Resolc Binary Directory
+      id: binary-directory
+      shell: bash
+      run: |
+        set -euo pipefail
+
+        bin_dir="${BIN_DIR:-$RUNNER_TEMP/benchmark-bin}"
+        mkdir -p "$bin_dir"
+        echo "$bin_dir" >> "$GITHUB_PATH"
+        echo "path=$bin_dir" >> "$GITHUB_OUTPUT"
+
+    - name: Try Installing Resolc from Release
+      id: install-release
+      shell: bash
+      env:
+        BIN_DIR: ${{ steps.binary-directory.outputs.path }}
+        REF: ${{ inputs.ref }}
+        REPOSITORY: ${{ inputs.repository }}
+      run: |
+        set -euo pipefail
+
+        echo "installed=false" >> "$GITHUB_OUTPUT"
+
+        download_url="https://github.com/$REPOSITORY/releases/download/$REF/resolc-x86_64-unknown-linux-musl"
+        tmp_path="$(mktemp "$RUNNER_TEMP/resolc.XXXXXX")"
+
+        if curl -fsSL --retry 3 --retry-delay 5 -o "$tmp_path" "$download_url"; then
+          install -m 755 "$tmp_path" "$BIN_DIR/resolc"
+          "$BIN_DIR/resolc" --version
+          echo "installed=true" >> "$GITHUB_OUTPUT"
+        else
+          echo "No resolc release asset found at $download_url"
+        fi
+
+        rm -f "$tmp_path"
+
+    - name: Checkout Resolc Repository
+      if: ${{ steps.install-release.outputs.installed != 'true' }}
+      uses: actions/checkout@v4
+      with:
+        repository: ${{ inputs.repository }}
+        ref: ${{ inputs.ref }}
+        path: resolc-source
+
+    - name: Install Resolc LLVM
+      if: ${{ steps.install-release.outputs.installed != 'true' }}
+      shell: bash
+      working-directory: resolc-source
+      run: |
+        set -euo pipefail
+
+        make install-llvm
+
+        llvm_prefix_variable="$(
+          sed -n 's/^pub const REVIVE_LLVM_HOST_PREFIX: &str = "\(.*\)";$/\1/p' \
+            crates/build-utils/src/lib.rs
+        )"
+        if [ -z "$llvm_prefix_variable" ]; then
+          echo "::error::Failed to detect revive LLVM prefix environment variable"
+          exit 1
+        fi
+
+        echo "$llvm_prefix_variable=$PWD/target-llvm/gnu/target-final" >> "$GITHUB_ENV"
+
+    - name: Build or Restore Resolc
+      if: ${{ steps.install-release.outputs.installed != 'true' }}
+      uses: ./.github/actions/require-binary
+      with:
+        binary-name: resolc
+        repository: ${{ inputs.repository }}
+        ref: ${{ inputs.ref }}
+        profile: release
+        packages: resolc
+
+    - name: Check Resolc
+      shell: bash
+      run: resolc --version

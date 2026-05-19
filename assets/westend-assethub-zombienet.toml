@@ -24,7 +24,7 @@ num_cores = 3
 lookahead = 5
 
 [relaychain.genesis.runtimeGenesis.patch.configuration.config.async_backing_params]
-# polkadot-local defaults to max_candidate_depth=2, but mainnet was updated to 3
+# westend-local defaults to max_candidate_depth=2, but mainnet was updated to 3
 # via governance to support elastic scaling.
 # Source: https://github.com/polkadot-fellows/runtimes/pull/1048
 max_candidate_depth = 3
@@ -61,7 +61,7 @@ num_cores = 3
 name = "asset-hub-collator-1"
 command = "polkadot-parachain"
 args = [
-  "-lerror,evm=debug,sc_rpc_server=info,runtime::revive=trace",
+  "-lerror,evm=debug,sc_rpc_server=info,runtime::revive=debug",
   "--authoring=slot-based",
   "--rpc-methods=unsafe",
   "--rpc-cors=all",

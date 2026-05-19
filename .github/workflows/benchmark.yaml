@@ -1,317 +1,191 @@
-name: Benchmarks
+name: Run Benchmarks
 
 on:
   workflow_dispatch:
     inputs:
-      polkadot_version:
-        description: "Polkadot SDK version tag (e.g. polkadot-stable2512-2)"
+      polkadot-sdk-repository:
+        description: The repository containing the polkadot-sdk
+        required: true
+        default: paritytech/polkadot-sdk
+      polkadot-sdk-ref:
+        description: The branch, tag, or commit hash to use for the polkadot-sdk repository.
+        required: true
+        default: 22e63b740b6943b4e39a3c6b779ca9e5408ca00c
+      runtimes-repository:
+        description: The repository containing the runtimes and their spec generator
+        required: true
+        default: polkadot-fellows/runtimes
+      runtimes-ref:
+        description: The branch, tag, or commit hash to use for the runtimes repository.
+        required: true
+        default: 80e121412d9787a56c7f63cfdc65fb2c54989dbc
+      solc-version:
+        description: Solc compiler version (e.g. v0.8.28)
+        required: true
+        default: v0.8.28
+      resolc-repository:
+        description: The repository containing the resolc compiler
+        required: true
+        default: paritytech/revive
+      resolc-ref:
+        description: The branch, tag, or commit hash to use for the resolc repository.
+        required: true
+        default: v0.6.0
+      network:
+        description: The Asset Hub network configuration to benchmark against
+        required: true
+        type: choice
+        default: polkadot
+        options:
+          - polkadot
+          - westend
+      additional-keys:
+        description: Number of additional wallet keys to pre-seed at genesis
+        required: true
+        default: "200010"
+      rust-log:
+        description: The value to set to the `RUST_LOG` environment variable when the benchmarks run
+        required: true
+        default: info,retester::differential_benchmarks::watcher=debug,revive_dt_node::provider_utils::batching_layer=debug,revive_dt_node::provider_utils::receipt_retry_layer=debug,revive_dt_core::differential_benchmarks::driver=debug,alloy=off
+      override-repetition-count:
+        type: number
+        description: A way for the repetition count to be overridden. This is only used when we want to quickly run the CI to check if it works, please do not use it otherwise
         required: false
-      runtimes_version:
-        description: "Runtimes commit hash"
-        required: false
-      additional_keys:
-        description: "Number of additional wallet keys to generate"
-        required: false
-      resolc_version:
-        description: "Resolc compiler version tag (e.g. v0.6.0)"
-        required: false
-      solc_version:
-        description: "Solc compiler version (e.g. v0.8.28)"
-        required: false
-      resolc_ref:
-        description: "Resolc git ref (commit/branch/tag) to build from source instead of using a release binary"
-        required: false
-      disable_fast_runtime:
-        description: "Disable the fast-runtime feature (requires rebuilding polkadot-sdk and chainspec-generator binaries)"
-        type: boolean
-        default: false
-      benchmark_env:
-        description: "Comma-separated environment variables for benchmark jobs (e.g. RUST_LOG=debug,MY_VAR=value)"
-        required: false
-
-concurrency:
-  group: ${{ github.workflow }}
-  cancel-in-progress: true
 
 env:
   CARGO_TERM_COLOR: always
-  POLKADOT_VERSION: ${{ inputs.polkadot_version || '1d3f49812ad18fe2a8ede14dc48e0b5d9ae6b956' }}
-  RUNTIMES_VERSION: ${{ inputs.runtimes_version || '6d2ef7ad8b72ed0ccbbcd5492ccd5fb1d844d2a5' }}
-  ADDITIONAL_KEYS: ${{ inputs.additional_keys || '200010' }}
-  RESOLC_VERSION: ${{ inputs.resolc_version || 'v0.6.0' }}
-  SOLC_VERSION: ${{ inputs.solc_version || 'v0.8.30' }}
-  FAST_RUNTIME: ${{ inputs.disable_fast_runtime != true }}
+  RUST_LOG: ${{ inputs.rust-log }}
 
 permissions:
   contents: write
 
 jobs:
-  # ── Build jobs (run in parallel) ─────────────────────────────────────
+  # ============================================================================================
+  # Build Jobs: Building the binaries we need and making sure that they're cached and available
+  # ============================================================================================
 
   build-retester:
-    name: Build retester
+    name: Build and Cache Retester Binaries
     runs-on: parity-large
     steps:
-      - name: Setup Rust toolchain
-        uses: actions-rust-lang/setup-rust-toolchain@v1
-        with:
-          target: wasm32-unknown-unknown
-          components: rust-src
-
-      - name: Install system packages
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential pkg-config libssl-dev protobuf-compiler llvm clang libclang-dev
-
       - name: Checkout This Repository
         uses: actions/checkout@v4
-
-      - name: Restore retester cache
-        id: cache
-        uses: actions/cache/restore@v4
+      - name: Setup the Machine
+        uses: ./.github/actions/setup-benchmark-machine
+      - name: Build Retester
+        uses: ./.github/actions/require-binary
         with:
-          path: |
-            ~/.cargo/bin/retester
-            ~/.cargo/bin/report-processor
-          key: retester-${{ hashFiles('crates/**', 'assets/**') }}
-
-      - name: Build retester and report-processor
-        if: steps.cache.outputs.cache-hit != 'true'
-        run: |
-          cargo build --profile production -p revive-dt-core -p revive-dt-report-processor
-          cp -t ~/.cargo/bin \
-            target/production/retester \
-            target/production/report-processor
-
-      - name: Save retester cache
-        if: always() && steps.cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
-        with:
-          path: |
-            ~/.cargo/bin/retester
-            ~/.cargo/bin/report-processor
-          key: retester-${{ hashFiles('crates/**', 'assets/**') }}
+          binary-name: retester
+          repository: paritytech/revive-differential-tests
+          ref: ${{ github.ref_name }}
+          profile: production
+          packages: |
+            revive-dt-core
+            revive-dt-report-processor
 
   build-chainspec-generator:
-    name: Build chainspec-generator
+    name: Build and Cache Runtime's Chainspec Generator
     runs-on: parity-large
     steps:
-      - name: Setup Rust toolchain
-        uses: actions-rust-lang/setup-rust-toolchain@v1
-        with:
-          target: wasm32-unknown-unknown
-          components: rust-src
-
-      - name: Install system packages
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential pkg-config libssl-dev protobuf-compiler llvm clang libclang-dev
-
-      - name: Checkout runtimes
+      - name: Checkout This Repository
         uses: actions/checkout@v4
+      - name: Setup the Machine
+        uses: ./.github/actions/setup-benchmark-machine
+      - name: Build chain-spec-generator
+        uses: ./.github/actions/require-binary
         with:
-          repository: paritytech/polkadot-runtimes-lite
-          ref: ${{ env.RUNTIMES_VERSION }}
-
-      - name: Resolve chainspec-generator features
-        id: chainspec-features
-        run: |
-          if [ "${{ env.FAST_RUNTIME }}" = "true" ]; then
-            echo "features=polkadot,asset-hub-polkadot,fast-runtime" >> "$GITHUB_OUTPUT"
-          else
-            echo "features=polkadot,asset-hub-polkadot" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Restore chainspec-generator cache
-        id: cache
-        uses: actions/cache/restore@v4
-        with:
-          path: ~/.cargo/bin/chain-spec-generator
-          key: chainspec-generator-${{ env.RUNTIMES_VERSION }}-fast-runtime-${{ env.FAST_RUNTIME }}
-
-      - name: Build chainspec-generator
-        if: steps.cache.outputs.cache-hit != 'true'
-        env:
-          RUSTFLAGS: "-Awarnings"
-        run: |
-          cargo build --locked --profile production \
-            --manifest-path chain-spec-generator/Cargo.toml \
-            --no-default-features \
-            --features ${{ steps.chainspec-features.outputs.features }}
-          cp -t ~/.cargo/bin \
-            target/production/chain-spec-generator
-
-      - name: Save chainspec-generator cache
-        if: always() && steps.cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
-        with:
-          path: ~/.cargo/bin/chain-spec-generator
-          key: chainspec-generator-${{ env.RUNTIMES_VERSION }}-fast-runtime-${{ env.FAST_RUNTIME }}
+          binary-name: chain-spec-generator
+          repository: ${{ inputs.runtimes-repository }}
+          ref: ${{ inputs.runtimes-ref }}
+          profile: production
+          packages: chain-spec-generator
+          features: |
+            polkadot
+            asset-hub-polkadot
+          no-default-features: true
+          env: RUSTFLAGS=-Awarnings
 
   build-polkadot-sdk:
-    name: Build polkadot-sdk
+    name: Build and Cache the Polkadot SDK Dependencies
     runs-on: parity-large
     steps:
-      - name: Setup Rust toolchain
-        uses: actions-rust-lang/setup-rust-toolchain@v1
-        with:
-          target: wasm32-unknown-unknown
-          components: rust-src
-
-      - name: Install system packages
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential pkg-config libssl-dev protobuf-compiler llvm clang libclang-dev
-
-      - name: Checkout polkadot-sdk
+      - name: Checkout This Repository
         uses: actions/checkout@v4
+      - name: Setup the Machine
+        uses: ./.github/actions/setup-benchmark-machine
+      - name: Build polkadot
+        uses: ./.github/actions/require-binary
         with:
-          repository: paritytech/polkadot-sdk
-          ref: ${{ env.POLKADOT_VERSION }}
-
-      - name: Resolve polkadot-sdk features
-        id: polkadot-features
-        run: |
-          if [ "${{ env.FAST_RUNTIME }}" = "true" ]; then
-            echo "features=--features polkadot/fast-runtime" >> "$GITHUB_OUTPUT"
-          else
-            echo "features=" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Restore polkadot-sdk cache
-        id: cache
-        uses: actions/cache/restore@v4
-        with:
-          path: |
-            ~/.cargo/bin/polkadot
-            ~/.cargo/bin/polkadot-prepare-worker
-            ~/.cargo/bin/polkadot-execute-worker
-            ~/.cargo/bin/polkadot-parachain
-            ~/.cargo/bin/eth-rpc
-          key: polkadot-sdk-${{ env.POLKADOT_VERSION }}-fast-runtime-${{ env.FAST_RUNTIME }}
-
-      - name: Build polkadot-sdk binaries
-        if: steps.cache.outputs.cache-hit != 'true'
-        env:
-          RUSTFLAGS: "-Awarnings"
-        run: |
-          cargo build --locked --profile production \
-            -p polkadot -p polkadot-parachain-bin -p pallet-revive-eth-rpc \
-            ${{ steps.polkadot-features.outputs.features }} \
-            --bin polkadot \
-            --bin polkadot-prepare-worker \
-            --bin polkadot-execute-worker \
-            --bin polkadot-parachain \
-            --bin eth-rpc
-          cp -t ~/.cargo/bin \
-            target/production/polkadot \
-            target/production/polkadot-prepare-worker \
-            target/production/polkadot-execute-worker \
-            target/production/polkadot-parachain \
-            target/production/eth-rpc
-
-      - name: Save polkadot-sdk cache
-        if: always() && steps.cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
-        with:
-          path: |
-            ~/.cargo/bin/polkadot
-            ~/.cargo/bin/polkadot-prepare-worker
-            ~/.cargo/bin/polkadot-execute-worker
-            ~/.cargo/bin/polkadot-parachain
-            ~/.cargo/bin/eth-rpc
-          key: polkadot-sdk-${{ env.POLKADOT_VERSION }}-fast-runtime-${{ env.FAST_RUNTIME }}
+          binary-name: polkadot
+          repository: ${{ inputs.polkadot-sdk-repository }}
+          ref: ${{ inputs.polkadot-sdk-ref }}
+          profile: production
+          packages: |
+            polkadot
+            polkadot-parachain-bin
+            pallet-revive-eth-rpc
+          env: RUSTFLAGS=-Awarnings
 
   build-resolc:
-    name: Build resolc from source
-    if: ${{ inputs.resolc_ref != '' }}
+    name: Build and Cache Resolc Binary
     runs-on: parity-large
-    outputs:
-      resolc_commit: ${{ steps.resolve-ref.outputs.commit }}
     steps:
-      - name: Checkout revive
+      - name: Checkout This Repository
         uses: actions/checkout@v4
+      - name: Setup the Machine
+        uses: ./.github/actions/setup-benchmark-machine
         with:
-          repository: paritytech/revive
-          ref: ${{ inputs.resolc_ref }}
+          resolc-repository: ${{ inputs.resolc-repository }}
+          resolc-ref: ${{ inputs.resolc-ref }}
 
-      - name: Setup Rust toolchain
-        uses: actions-rust-lang/setup-rust-toolchain@v1
+  # ====================================================================
+  # Matrix Generation Job: Builds a Matrix of all the workloads we have
+  # ====================================================================
 
-      - name: Install system packages
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential pkg-config libssl-dev llvm clang libclang-dev cmake ninja-build lld
-
-      - name: Resolve commit hash
-        id: resolve-ref
-        run: echo "commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-
-      - name: Restore resolc cache
-        id: cache
-        uses: actions/cache/restore@v4
-        with:
-          path: ~/.cargo/bin/resolc
-          key: resolc-source-${{ steps.resolve-ref.outputs.commit || needs.build-resolc.outputs.resolc_commit }}
-
-      - name: Build LLVM
-        if: steps.cache.outputs.cache-hit != 'true'
-        run: make install-llvm
-
-      - name: Build resolc
-        if: steps.cache.outputs.cache-hit != 'true'
-        env:
-          LLVM_SYS_211_PREFIX: ${{ github.workspace }}/target-llvm/gnu/target-final
-        run: make install-bin
-
-      - name: Save resolc cache
-        if: always() && steps.cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
-        with:
-          path: ~/.cargo/bin/resolc
-          key: resolc-source-${{ steps.resolve-ref.outputs.commit || needs.build-resolc.outputs.resolc_commit }}
-
-  # ── Generate test matrix dynamically ─────────────────────────────────
   generate-matrix:
-    name: Generate test matrix
+    name: Generate Benchmark Matrix
     needs: build-retester
     runs-on: parity-large
     outputs:
       tests: ${{ steps.matrix.outputs.tests }}
     steps:
-      - name: Add cargo bin to PATH
-        run: |
-          mkdir -p "$HOME/.cargo/bin"
-          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
-
       - name: Checkout This Repository
         uses: actions/checkout@v4
-
+      - name: Setup the Machine
+        uses: ./.github/actions/setup-benchmark-machine
+      - name: Build Retester
+        uses: ./.github/actions/require-binary
+        with:
+          binary-name: retester
+          repository: paritytech/revive-differential-tests
+          ref: ${{ github.ref_name }}
+          profile: production
+          packages: |
+            revive-dt-core
+            revive-dt-report-processor
       - name: Checkout resolc-compiler-tests
         uses: actions/checkout@v4
         with:
           repository: paritytech/resolc-compiler-tests
           path: compiler-tests
-
-      - name: Restore retester cache
-        uses: actions/cache/restore@v4
-        with:
-          path: |
-            ~/.cargo/bin/retester
-            ~/.cargo/bin/report-processor
-          key: retester-${{ hashFiles('crates/**', 'assets/**') }}
-
       - name: Export test specifiers
         id: matrix
+        env:
+          RUST_LOG: "off"
         run: |
           TESTS=$(retester export-test-specifiers \
             --test ./compiler-tests/fixtures/solidity/workloads \
             | jq -R . | jq -sc .)
           echo "tests=${TESTS}" >> "$GITHUB_OUTPUT"
 
-  # ── Run benchmarks (one job per test x platform) ─────────────────────
+  # ============================================
+  # Benchmark Job: Runs the Requested Benchmark
+  # ============================================
+
   benchmark:
-    name: "${{ matrix.platform }} / ${{ matrix.test }}"
+    name: "${{ matrix.platform }} / ${{ matrix.test-specifier }}"
+    runs-on: parity-large
+    timeout-minutes: 90
     needs:
       [
         generate-matrix,
@@ -324,29 +198,71 @@ jobs:
       needs.generate-matrix.result == 'success' &&
       needs.build-chainspec-generator.result == 'success' &&
       needs.build-polkadot-sdk.result == 'success' &&
-      contains(fromJSON('["success", "skipped"]'), needs.build-resolc.result)
-    runs-on: parity-large
+      needs.build-resolc.result == 'success'
     strategy:
       fail-fast: false
       matrix:
-        test: ${{ fromJSON(needs.generate-matrix.outputs.tests) }}
+        test-specifier: ${{ fromJSON(needs.generate-matrix.outputs.tests) }}
         platform:
           - lighthouse-geth-evm-solc
           - zombienet-revm-solc
           - zombienet-polkavm-resolc
     steps:
-      - name: Set custom environment variables
-        if: ${{ inputs.benchmark_env != '' }}
-        run: |
-          IFS=',' read -ra VARS <<< "${{ inputs.benchmark_env }}"
-          for var in "${VARS[@]}"; do
-            echo "$var" >> "$GITHUB_ENV"
-          done
-
+      - name: Checkout This Repository
+        uses: actions/checkout@v4
+      - name: Setup the Machine
+        uses: ./.github/actions/setup-benchmark-machine
+        with:
+          solc-version: ${{ inputs.solc-version }}
+          resolc-repository: ${{ inputs.resolc-repository }}
+          resolc-ref: ${{ inputs.resolc-ref }}
+      - name: Checkout resolc-compiler-tests
+        uses: actions/checkout@v4
+        with:
+          repository: paritytech/resolc-compiler-tests
+          path: compiler-tests
+      - name: Get Retester Binaries
+        uses: ./.github/actions/require-binary
+        with:
+          get-all-binaries: true
+          binary-name: retester
+          repository: paritytech/revive-differential-tests
+          ref: ${{ github.ref_name }}
+          profile: production
+          packages: |
+            revive-dt-core
+            revive-dt-report-processor
+      - name: Get Runtimes Binaries
+        uses: ./.github/actions/require-binary
+        with:
+          get-all-binaries: true
+          binary-name: chain-spec-generator
+          repository: ${{ inputs.runtimes-repository }}
+          ref: ${{ inputs.runtimes-ref }}
+          profile: production
+          packages: chain-spec-generator
+          features: |
+            polkadot
+            asset-hub-polkadot
+          no-default-features: true
+          env: RUSTFLAGS=-Awarnings
+      - name: Get Polkadot Binaries
+        uses: ./.github/actions/require-binary
+        with:
+          get-all-binaries: true
+          binary-name: polkadot
+          repository: ${{ inputs.polkadot-sdk-repository }}
+          ref: ${{ inputs.polkadot-sdk-ref }}
+          profile: production
+          packages: |
+            polkadot
+            polkadot-parachain-bin
+            pallet-revive-eth-rpc
+          env: RUSTFLAGS=-Awarnings
       - name: Set artifact name
         id: names
         run: |
-          NAME="${{ matrix.platform }}--${{ matrix.test }}"
+          NAME="${{ matrix.platform }}--${{ matrix.test-specifier }}"
           NAME="${NAME//\//-}"
           NAME="${NAME// /-}"
           NAME="${NAME//+/plus}"
@@ -354,127 +270,60 @@ jobs:
           NAME="${NAME//./-}"
           [[ "$NAME" == *- ]] && NAME="${NAME%-}minus"
           echo "artifact=$NAME" >> "$GITHUB_OUTPUT"
-
-      # ── PATH setup (no Rust toolchain on benchmark runners) ──────────
-
-      - name: Add cargo bin to PATH
-        run: |
-          mkdir -p "$HOME/.cargo/bin"
-          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
-
-      # ── External dependencies ─────────────────────────────────────────
-
-      - name: Install system packages
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential pkg-config libssl-dev protobuf-compiler llvm clang libclang-dev docker.io
-          sudo dockerd &
-          for i in $(seq 1 15); do
-            docker info > /dev/null 2>&1 && break
-            sleep 1
-          done
-          docker info
-          sudo chmod 666 /var/run/docker.sock
-
-      - name: Install Kurtosis
-        run: |
-          echo "deb [trusted=yes] https://apt.fury.io/kurtosis-tech/ /" | sudo tee /etc/apt/sources.list.d/kurtosis.list
-          sudo apt-get update
-          sudo apt-get install -y kurtosis-cli
-          kurtosis engine start
-
-      # ── Checkout repositories ──────────────────────────────────────────
-
-      - name: Checkout This Repository
-        uses: actions/checkout@v4
-
-      - name: Checkout resolc-compiler-tests
-        uses: actions/checkout@v4
-        with:
-          repository: paritytech/resolc-compiler-tests
-          path: compiler-tests
-
-      # ── Install compilers ───────────────────────────────────────────────
-
-      - name: Install solc
-        run: |
-          curl -sSLo ~/.cargo/bin/solc \
-            "https://github.com/ethereum/solidity/releases/download/${{ env.SOLC_VERSION }}/solc-static-linux"
-          chmod +x ~/.cargo/bin/solc
-
-      - name: Install resolc (release binary)
-        if: ${{ inputs.resolc_ref == '' }}
-        run: |
-          curl -sSLo ~/.cargo/bin/resolc \
-            "https://github.com/paritytech/revive/releases/download/${{ env.RESOLC_VERSION }}/resolc-x86_64-unknown-linux-musl"
-          chmod +x ~/.cargo/bin/resolc
-
-      - name: Restore resolc cache (from source build)
-        if: ${{ inputs.resolc_ref != '' }}
-        uses: actions/cache/restore@v4
-        with:
-          path: ~/.cargo/bin/resolc
-          key: resolc-source-${{ steps.resolve-ref.outputs.commit || needs.build-resolc.outputs.resolc_commit }}
-
-      # ── Restore cached binaries ─────────────────────────────────────────
-
-      - name: Restore retester cache
-        uses: actions/cache/restore@v4
-        with:
-          path: |
-            ~/.cargo/bin/retester
-            ~/.cargo/bin/report-processor
-          key: retester-${{ hashFiles('crates/**', 'assets/**') }}
-
-      - name: Restore chainspec-generator cache
-        uses: actions/cache/restore@v4
-        with:
-          path: ~/.cargo/bin/chain-spec-generator
-          key: chainspec-generator-${{ env.RUNTIMES_VERSION }}-fast-runtime-${{ env.FAST_RUNTIME }}
-
-      - name: Restore polkadot-sdk cache
-        uses: actions/cache/restore@v4
-        with:
-          path: |
-            ~/.cargo/bin/polkadot
-            ~/.cargo/bin/polkadot-prepare-worker
-            ~/.cargo/bin/polkadot-execute-worker
-            ~/.cargo/bin/polkadot-parachain
-            ~/.cargo/bin/eth-rpc
-          key: polkadot-sdk-${{ env.POLKADOT_VERSION }}-fast-runtime-${{ env.FAST_RUNTIME }}
-
-      # ── Run benchmarks ───────────────────────────────────────────────────
-
-      - name: Resolve zombienet block production timeout
-        id: zombienet-timeout
-        run: |
-          if [ "${{ env.FAST_RUNTIME }}" = "true" ]; then
-            echo "timeout_ms=300000" >> "$GITHUB_OUTPUT"
-          else
-            echo "timeout_ms=28800000" >> "$GITHUB_OUTPUT"
-          fi
-
       - name: Create working directory
         run: mkdir -p ./workdir
+      - name: Print benchmark versions
+        env:
+          GITHUB_INPUTS: ${{ toJSON(inputs) }}
+        run: |
+          set -euo pipefail
+
+          print_version() {
+            local binary="$1"
+
+            echo "$binary=$("$binary" --version)"
+          }
+
+          echo "# Workflow inputs:"
+          jq -r 'to_entries[] | "\(.key)=\(.value)"' <<< "$GITHUB_INPUTS"
+
+          echo
+          echo "# Installed binaries:"
+          print_version retester
+          print_version report-processor
+          print_version chain-spec-generator
+          print_version polkadot
+          print_version polkadot-parachain
+          print_version polkadot-prepare-worker
+          print_version polkadot-execute-worker
+          print_version eth-rpc
+          print_version resolc
+          print_version solc
 
       - name: Run benchmarks
         env:
-          RUST_LOG: info,retester::differential_benchmarks::watcher=debug,revive_dt_node::provider_utils::batching_layer=debug,revive_dt_node::provider_utils::receipt_retry_layer=debug,revive_dt_core::differential_benchmarks::driver=debug,alloy=off
+          OVERRIDE_REPETITION_COUNT: ${{ inputs.override-repetition-count }}
         run: |
+          additional_args=()
+
+          if [ -n "$OVERRIDE_REPETITION_COUNT" ]; then
+            additional_args+=(--benchmark.repetition-count-override "$OVERRIDE_REPETITION_COUNT")
+          fi
+
           retester benchmark \
             --log-format json \
-            --test "${{ matrix.test }}" \
+            --test "${{ matrix.test-specifier }}" \
             --platform ${{ matrix.platform }} \
             --working-directory ./workdir \
             --concurrency.number-of-nodes 1 \
             --concurrency.number-of-threads 12 \
             --concurrency.number-of-concurrent-tasks 1000 \
-            --zombienet.config-path ./assets/polkadot-assethub-zombienet.toml \
-            --zombienet.block-production-timeout-ms ${{ steps.zombienet-timeout.outputs.timeout_ms }} \
-            --wallet.additional-keys ${{ env.ADDITIONAL_KEYS }} \
+            --zombienet.config-path ./assets/${{ inputs.network }}-assethub-zombienet.toml \
+            --zombienet.block-production-timeout-ms 300000 \
+            --wallet.additional-keys ${{ inputs.additional-keys }} \
             --report.file-name report.json \
+            "${additional_args[@]}" \
             > ./workdir/retester.log 2>&1
-
       - name: Upload workdir
         if: always()
         uses: actions/upload-artifact@v4
@@ -482,48 +331,41 @@ jobs:
           name: workdir-${{ steps.names.outputs.artifact }}
           path: ./workdir
 
-  # ── Merge reports and publish to GitHub Pages ────────────────────────
   publish:
-    name: Publish Report
-    if: always()
-    needs: benchmark
+    name: Publish The Report
     runs-on: parity-large
-    permissions:
-      contents: write
+    needs:
+      - generate-matrix
+      - benchmark
+    if: always()
     steps:
-      - name: Add cargo bin to PATH
-        run: |
-          mkdir -p "$HOME/.cargo/bin"
-          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
-
-      - name: Install git-lfs
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y git-lfs
-
+      - name: Set Report Name
+        run: echo "REPORT_NAME=benchmark-$(date -u +%Y-%m-%d-%H%M%S)" >> "$GITHUB_ENV"
       - name: Checkout This Repository
         uses: actions/checkout@v4
-
+      - name: Setup the Machine
+        uses: ./.github/actions/setup-benchmark-machine
+      - name: Restore Retester
+        uses: ./.github/actions/require-binary
+        with:
+          get-all-binaries: true
+          binary-name: retester
+          repository: paritytech/revive-differential-tests
+          ref: ${{ github.ref_name }}
+          profile: production
+          packages: |
+            revive-dt-core
+            revive-dt-report-processor
       - name: Checkout resolc-compiler-tests
         uses: actions/checkout@v4
         with:
           repository: paritytech/resolc-compiler-tests
           path: compiler-tests
-
-      - name: Restore retester cache
-        uses: actions/cache/restore@v4
-        with:
-          path: |
-            ~/.cargo/bin/retester
-            ~/.cargo/bin/report-processor
-          key: retester-${{ hashFiles('crates/**', 'assets/**') }}
-
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
           pattern: workdir-*
           path: ./results
-
       - name: Merge reports
         run: |
           REPORT_ARGS=""
@@ -541,7 +383,6 @@ jobs:
           report-processor merge-reports \
             $REPORT_ARGS \
             --output-path ./merged-report.json
-
       - name: Strip raw data from report for web publishing
         run: |
           jq '
@@ -554,37 +395,58 @@ jobs:
               )
             )
           ' ./merged-report.json > ./web-report.json
-
       - name: Generate HTML report
         run: |
-          REPORT_NAME="benchmark-$(date -u +%Y-%m-%d-%H%M%S)"
-          echo "REPORT_NAME=${REPORT_NAME}" >> "$GITHUB_ENV"
           report-processor generate-benchmarks-html-report \
             --report-path ./web-report.json \
             --output-path ./benchmark-report.html
-
       - name: Checkout gh-pages
         uses: actions/checkout@v4
         with:
           ref: gh-pages
           path: gh-pages-dir
-
       - name: Add report
         run: |
-          # Copy the report as the `index.html` file.
+          mkdir -p gh-pages-dir/reports gh-pages-dir/raw
           cp ./benchmark-report.html "gh-pages-dir/index.html"
-          # Copy the report as a file with the dat in order to find it later
-          # on if we need it.
           cp ./benchmark-report.html "gh-pages-dir/reports/${REPORT_NAME}.html"
-          # Move the raw report into a directory for finding later.
           cp ./web-report.json "gh-pages-dir/raw/${REPORT_NAME}.json"
+      - name: Re-index reports
+        working-directory: gh-pages-dir
+        run: |
+          set -euo pipefail
 
+          html_escape() {
+            python3 -c 'import html, sys; print(html.escape(sys.argv[1]), end="")' "$1"
+          }
+
+          {
+            echo '<!doctype html>'
+            echo '<html lang="en">'
+            echo '<head><meta charset="utf-8"><title>Benchmark Reports</title></head>'
+            echo '<body>'
+            echo '<ul>'
+            for report in reports/*.html; do
+              [ -f "$report" ] || continue
+              report_name="$(basename "$report")"
+              escaped="$(html_escape "$report_name")"
+              echo "<li><a href=\"./${escaped}\">${escaped}</a></li>"
+            done
+            echo '</ul>'
+            echo '</body>'
+            echo '</html>'
+          } > reports/index.html
       - name: Push to gh-pages
         working-directory: gh-pages-dir
         run: |
+          set -euo pipefail
+
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add .gitattributes
           git add .
+          if git diff --staged --quiet; then
+            echo "No changes to commit; skipping push"
+            exit 0
+          fi
           git commit -m "Update benchmark report"
           git push

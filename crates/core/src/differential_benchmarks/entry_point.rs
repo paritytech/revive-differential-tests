@@ -160,6 +160,7 @@ pub async fn handle_differential_benchmarks(
             let driver = Driver::new(
                 platform_information,
                 test_definition,
+                context.benchmark_run.repetition_count_override,
                 private_key_allocator,
                 cached_compiler.as_ref(),
                 watcher_tx.clone(),
