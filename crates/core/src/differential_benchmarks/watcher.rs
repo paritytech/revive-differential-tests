@@ -4,7 +4,7 @@ use pallet_revive::{
     EthTransactError, Weight,
     codec::{Decode, Encode},
 };
-use subxt::utils::H256 as SubxtH256;
+use subxt::{error::MetadataError, utils::H256 as SubxtH256};
 
 const ETH_PRE_DISPATCH_WEIGHT_RUNTIME_API: &str = "ReviveApi_eth_pre_dispatch_weight";
 
@@ -15,7 +15,7 @@ async fn eth_pre_dispatch_weight(
 ) -> Result<Weight> {
     let encoded_args = signed_payload.encode();
 
-    let result_bytes = retry_with_exponential_backoff(10, Duration::from_secs(1), || async {
+    let result_bytes = retry_with_exponential_backoff(5, Duration::from_millis(500), || async {
         match substrate_provider
             .runtime_api()
             .at(block_hash)
@@ -498,9 +498,7 @@ impl Watcher {
                     let pre_dispatch_weight =
                         eth_pre_dispatch_weight(substrate_provider, block_hash, signed_payload)
                             .await
-                            .with_context(|| {
-                                format!("Failed to compute pre-dispatch weight for step {path}")
-                            })?;
+                            .unwrap_or(Weight::MAX);
 
                     info!(
                         step_path = %path,
