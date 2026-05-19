@@ -6,7 +6,7 @@ node_spawn_timeout = 240
 default_command = "polkadot"
 default_args = ["-linfo", "--no-mdns"]
 chain = "westend-local"
-chain_spec_command = "polkadot build-spec --chain {{chainName}} --disable-default-bootnode"
+chain_spec_command = "polkadot build-spec --chain {{chainName}}"
 # Override RC spec raw to allow paras to produce blocks
 override_session_0 = true
 
@@ -52,7 +52,7 @@ validator = true
 [[parachains]]
 id = 1000
 chain = "asset-hub-westend-local"
-chain_spec_command = "polkadot-parachain build-spec --chain {{chainName}} --disable-default-bootnode"
+chain_spec_command = "polkadot-parachain build-spec --chain {{chainName}}"
 cumulus_based = true
 # Assign 3 cores at genesis (RC)
 num_cores = 3
@@ -61,16 +61,16 @@ num_cores = 3
 name = "asset-hub-collator-1"
 command = "polkadot-parachain"
 args = [
-    "-lerror,evm=debug,sc_rpc_server=info,runtime::revive=debug",
-    "--authoring=slot-based",
-    "--rpc-methods=unsafe",
-    "--rpc-cors=all",
-    "--rpc-max-connections=4294967295",
-    "--rpc-max-response-size=4294967295",
-    "--pool-limit=4294967295",
-    "--pool-kbytes=4294967295",
-    "--no-hardware-benchmarks",
-    "--no-mdns",
-    "--state-pruning=archive",
-    "--blocks-pruning=archive",
+  "-lerror,evm=debug,sc_rpc_server=info,runtime::revive=debug",
+  "--authoring=slot-based",
+  "--rpc-methods=unsafe",
+  "--rpc-cors=all",
+  "--rpc-max-connections=4294967295",
+  "--rpc-max-response-size=4294967295",
+  "--pool-limit=4294967295",
+  "--pool-kbytes=4294967295",
+  "--no-hardware-benchmarks",
+  "--no-mdns",
+  "--state-pruning=archive",
+  "--blocks-pruning=archive",
 ]
