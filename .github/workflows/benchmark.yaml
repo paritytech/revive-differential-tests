@@ -321,6 +321,7 @@ jobs:
             --zombienet.config-path ./assets/${{ inputs.network }}-assethub-zombienet.toml \
             --zombienet.block-production-timeout-ms 300000 \
             --wallet.additional-keys ${{ inputs.additional-keys }} \
+            --eth-rpc.logging-level info \
             --report.file-name report.json \
             "${additional_args[@]}" \
             > ./workdir/retester.log 2>&1
