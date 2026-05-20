@@ -46,7 +46,7 @@ on:
       rust-log:
         description: The value to set to the `RUST_LOG` environment variable when the benchmarks run
         required: true
-        default: info,retester::differential_benchmarks::watcher=debug,revive_dt_node::provider_utils::batching_layer=debug,revive_dt_node::provider_utils::receipt_retry_layer=debug,revive_dt_core::differential_benchmarks::driver=debug,alloy=off
+        default: info,alloy=off
       override-repetition-count:
         type: number
         description: A way for the repetition count to be overridden. This is only used when we want to quickly run the CI to check if it works, please do not use it otherwise
