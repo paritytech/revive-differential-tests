@@ -15,6 +15,30 @@ inputs:
 runs:
   using: composite
   steps:
+    # Homebrew is not preinstalled on parity-macos runners. The next step
+    # (actions-rust-lang/setup-rust-toolchain@v1) calls `brew install bash`
+    # unconditionally on macOS, so brew must be on PATH before it runs.
+    - name: Bootstrap Homebrew (macOS)
+      if: runner.os == 'macOS'
+      shell: bash
+      env:
+        HOMEBREW_NO_AUTO_UPDATE: "1"
+        HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK: "1"
+      run: |
+        set -euo pipefail
+        if ! command -v brew >/dev/null 2>&1; then
+          NONINTERACTIVE=1 /bin/bash -c \
+            "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+        fi
+        case "$(uname -m)" in
+          arm64)  brew_prefix="/opt/homebrew" ;;
+          x86_64) brew_prefix="/usr/local"    ;;
+          *) echo "::error::Unsupported macOS arch: $(uname -m)"; exit 1 ;;
+        esac
+        echo "$brew_prefix/bin" >> "$GITHUB_PATH"
+        export PATH="$brew_prefix/bin:$PATH"
+        brew --version
+
     - name: Setup the Rust Toolchain
       uses: actions-rust-lang/setup-rust-toolchain@v1
       with:
@@ -30,9 +54,11 @@ runs:
         echo "BIN_DIR=$BIN_DIR" >> "$GITHUB_ENV"
         echo "$BIN_DIR" >> "$GITHUB_PATH"
 
-    - name: Install System Packages
+    - name: Install System Packages (Linux)
+      if: runner.os == 'Linux'
       shell: bash
       run: |
+        set -euo pipefail
         echo "deb [trusted=yes] https://sdk.kurtosis.com/kurtosis-cli-release-artifacts/ /" | sudo tee /etc/apt/sources.list.d/kurtosis.list
         sudo apt-get update
         sudo apt-get install -y \
@@ -49,13 +75,56 @@ runs:
           jq \
           kurtosis-cli
 
-    - name: Installing Solc
-      if: ${{ inputs.solc-version != '' }}
+    # Assumes Xcode Command Line Tools are preinstalled on the runner (clang,
+    # make, git, ld). Brew's `llvm` package bundles lld and libclang, so we
+    # don't install lld separately as on Linux. The LLVM and OpenSSL env vars
+    # exported here are needed by bindgen and openssl-sys to locate Homebrew
+    # installs at build time.
+    - name: Install System Packages (macOS)
+      if: runner.os == 'macOS'
+      shell: bash
+      env:
+        HOMEBREW_NO_AUTO_UPDATE: "1"
+        HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK: "1"
+      run: |
+        set -euo pipefail
+        brew install pkg-config protobuf llvm cmake ninja jq openssl@3 python3
+        brew install kurtosis-tech/tap/kurtosis-cli
+        llvm_prefix="$(brew --prefix llvm)"
+        openssl_prefix="$(brew --prefix openssl@3)"
+        {
+          echo "LDFLAGS=-L${llvm_prefix}/lib"
+          echo "CPPFLAGS=-I${llvm_prefix}/include"
+          echo "CMAKE_PREFIX_PATH=${llvm_prefix}"
+          echo "LIBCLANG_PATH=${llvm_prefix}/lib"
+          echo "DYLD_FALLBACK_LIBRARY_PATH=${llvm_prefix}/lib"
+          echo "OPENSSL_DIR=${openssl_prefix}"
+          echo "OPENSSL_INCLUDE_DIR=${openssl_prefix}/include"
+          echo "OPENSSL_LIB_DIR=${openssl_prefix}/lib"
+        } >> "$GITHUB_ENV"
+        echo "${llvm_prefix}/bin" >> "$GITHUB_PATH"
+
+    - name: Installing Solc (Linux)
+      if: ${{ inputs.solc-version != '' && runner.os == 'Linux' }}
       shell: bash
       run: |
+        set -euo pipefail
         curl -sSLo "$BIN_DIR/solc" \
           "https://github.com/ethereum/solidity/releases/download/${{ inputs.solc-version }}/solc-static-linux"
         chmod +x "$BIN_DIR/solc"
+
+    # The solc-macos asset is a Mach-O universal binary covering x86_64 and
+    # arm64, so the same URL works on any parity-macos host. `xattr -rc`
+    # clears Gatekeeper quarantine attributes attached to fresh downloads.
+    - name: Installing Solc (macOS)
+      if: ${{ inputs.solc-version != '' && runner.os == 'macOS' }}
+      shell: bash
+      run: |
+        set -euo pipefail
+        curl -sSLo "$BIN_DIR/solc" \
+          "https://github.com/ethereum/solidity/releases/download/${{ inputs.solc-version }}/solc-macos"
+        chmod +x "$BIN_DIR/solc"
+        xattr -rc "$BIN_DIR/solc" 2>/dev/null || true
 
     - name: Installing Resolc
       if: ${{ inputs.resolc-repository != '' && inputs.resolc-ref != '' }}
@@ -64,7 +133,12 @@ runs:
         repository: ${{ inputs.resolc-repository }}
         ref: ${{ inputs.resolc-ref }}
 
+    # Docker is preinstalled on the parity-large image but not started; this
+    # step starts the daemon and waits for it. On macOS the runner image is
+    # expected to provide Docker (e.g. Docker Desktop or colima) externally;
+    # we do not install or start a daemon here.
     - name: Wait for Docker to start
+      if: runner.os == 'Linux'
       shell: bash
       run: |
         sudo dockerd &
@@ -75,6 +149,10 @@ runs:
         docker info
         sudo chmod 666 /var/run/docker.sock
 
+    # Kurtosis requires a running Docker daemon. On macOS this is skipped;
+    # benchmark platforms that depend on Kurtosis (lighthouse-geth-evm-solc)
+    # will fail at runtime if Docker is not available on the runner.
     - name: Start Kurtosis
+      if: runner.os == 'Linux'
       shell: bash
       run: kurtosis engine start

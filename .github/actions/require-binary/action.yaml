@@ -85,6 +85,15 @@ runs:
       run: |
         set -euo pipefail
 
+        # sha256sum is GNU coreutils (Linux); BSD-based macOS provides
+        # `shasum -a 256` instead. Both emit `<hex>  -` for stdin so the
+        # downstream `cut -d ' ' -f 1` extracts the hash identically.
+        if command -v sha256sum >/dev/null 2>&1; then
+          hash_cmd=(sha256sum)
+        else
+          hash_cmd=(shasum -a 256)
+        fi
+
         request_hash="$(
           {
             printf 'repository=%s\n' "$REPOSITORY"
@@ -97,7 +106,7 @@ runs:
             printf 'packages<<EOF\n%s\nEOF\n' "$PACKAGES"
             printf 'env<<EOF\n%s\nEOF\n' "$REQUEST_ENV"
             printf 'source_hash=%s\n' "$SOURCE_HASH"
-          } | sha256sum | cut -d ' ' -f 1
+          } | "${hash_cmd[@]}" | cut -d ' ' -f 1
         )"
 
         if [ -z "$request_hash" ]; then
@@ -150,7 +159,10 @@ runs:
       run: |
         set -euo pipefail
 
-        tar -xzf "$ARTIFACT_PATH" -C "$HASH_DIR" --no-same-owner
+        # `--no-same-owner` is a GNU tar extension that BSD tar (macOS
+        # default) rejects. We never run as root in CI so ownership
+        # defaults to the current user on both platforms regardless.
+        tar -xzf "$ARTIFACT_PATH" -C "$HASH_DIR"
 
     - name: Build Binary and Populate Hash Directory
       id: build-binary
