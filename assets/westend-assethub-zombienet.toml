@@ -67,6 +67,7 @@ args = [
   "--rpc-cors=all",
   "--rpc-max-connections=4294967295",
   "--rpc-max-response-size=4294967295",
+  "--rpc-max-subscriptions-per-connection=4294967295",
   "--pool-limit=4294967295",
   "--pool-kbytes=4294967295",
   "--no-hardware-benchmarks",
