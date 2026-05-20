@@ -28,7 +28,7 @@
 
 #![allow(dead_code)]
 
-use alloy::primitives::TxHash;
+use alloy::{eips::Encodable2718, primitives::TxHash};
 
 use crate::internal_prelude::*;
 
@@ -461,6 +461,34 @@ impl ZombienetNode {
             .cloned()
     }
 
+    fn provider_static_lifetime_future(
+        &self,
+    ) -> FrameworkFuture<anyhow::Result<ConcreteProvider<Ethereum, Arc<EthereumWallet>>>> {
+        let provider = self.provider.clone();
+        let connection_string = self.connection_string.clone();
+        let nonce_manager = self.nonce_manager.clone();
+        let wallet = self.wallet.clone();
+        let use_fallback_gas_filler = self.use_fallback_gas_filler;
+
+        Box::pin(async move {
+            provider
+                .get_or_try_init(|| async move {
+                    construct_concurrency_limited_provider(
+                        &connection_string,
+                        FallbackGasFiller::default()
+                            .with_fallback_mechanism(use_fallback_gas_filler),
+                        ChainIdFiller::default(),
+                        NonceFiller::new(nonce_manager),
+                        wallet,
+                    )
+                    .await
+                    .context("Failed to construct the provider")
+                })
+                .await
+                .cloned()
+        })
+    }
+
     pub fn node_genesis(
         node_path: &Path,
         wallet: &EthereumWallet,
@@ -508,7 +536,7 @@ impl NodeApi for ZombienetNode {
         &self,
         transaction: TransactionRequest,
     ) -> FrameworkFuture<Result<TxHash>> {
-        let provider = NodeApi::provider(self);
+        let provider = self.provider_static_lifetime_future();
         let substrate_provider = NodeApi::substrate_provider(self);
 
         Box::pin(async move {
@@ -519,11 +547,13 @@ impl NodeApi for ZombienetNode {
                 .context("Failed to get the provider")?;
 
             let signed_transaction = provider
-                .fill_transaction(transaction)
+                .fill(transaction)
                 .await
-                .context("Failed to fill transaction")?;
-            let tx_hash = signed_transaction.tx.tx_hash();
-            let payload = signed_transaction.raw;
+                .context("Failed to fill transaction")?
+                .try_into_envelope()
+                .context("Failed to construct envelope from filled transaction")?;
+            let tx_hash = signed_transaction.tx_hash();
+            let payload = signed_transaction.encoded_2718();
 
             let call = revive_metadata::tx()
                 .revive()
