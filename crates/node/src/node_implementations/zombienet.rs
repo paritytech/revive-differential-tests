@@ -534,8 +534,10 @@ impl NodeApi for ZombienetNode {
 
     fn submit_transaction(
         &self,
-        transaction: TransactionRequest,
+        mut transaction: TransactionRequest,
     ) -> FrameworkFuture<Result<TxHash>> {
+        transaction.set_gas_price(u128::MAX);
+
         let provider = self.provider_static_lifetime_future();
         let substrate_provider = NodeApi::substrate_provider(self);
 
