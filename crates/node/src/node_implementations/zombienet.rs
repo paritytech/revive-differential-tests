@@ -28,6 +28,8 @@
 
 #![allow(dead_code)]
 
+use alloy::primitives::TxHash;
+
 use crate::internal_prelude::*;
 
 static NODE_COUNT: AtomicU32 = AtomicU32::new(0);
@@ -500,6 +502,42 @@ impl NodeApi for ZombienetNode {
 
     fn evm_version(&self) -> EVMVersion {
         EVMVersion::Cancun
+    }
+
+    fn submit_transaction(
+        &self,
+        transaction: TransactionRequest,
+    ) -> FrameworkFuture<Result<TxHash>> {
+        let provider = NodeApi::provider(self);
+        let substrate_provider = NodeApi::substrate_provider(self);
+
+        Box::pin(async move {
+            let provider = provider.await.context("Failed to get the provider")?;
+            let substrate_provider = substrate_provider
+                .expect("qed; this is a substrate node")
+                .await
+                .context("Failed to get the provider")?;
+
+            let signed_transaction = provider
+                .fill_transaction(transaction)
+                .await
+                .context("Failed to fill transaction")?;
+            let tx_hash = signed_transaction.tx.tx_hash();
+            let payload = signed_transaction.raw;
+
+            let call = revive_metadata::tx()
+                .revive()
+                .eth_transact(payload.to_vec());
+            substrate_provider
+                .tx()
+                .create_unsigned(&call)
+                .context("Failed to create an unsigned transaction")?
+                .submit()
+                .await
+                .context("Failed to submit the transaction through subxt")?;
+
+            Ok(*tx_hash)
+        })
     }
 
     fn provider(&self) -> revive_dt_common::futures::FrameworkFuture<anyhow::Result<DynProvider>> {
