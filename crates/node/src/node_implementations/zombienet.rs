@@ -37,7 +37,7 @@ static NODE_COUNT: AtomicU32 = AtomicU32::new(0);
 /// A Zombienet network where collator is `polkadot-parachain` node with `eth-rpc` [`ZombieNode`]
 /// abstracts away the details of managing the zombienet network and provides an interface to
 /// interact with the parachain's Ethereum RPC.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct ZombienetNode {
     /* Node Identifier */
     id: u32,
@@ -70,6 +70,10 @@ pub struct ZombienetNode {
     use_fallback_gas_filler: bool,
 
     eth_rpc_logging_level: String,
+
+    /// All transaction submissions in zombienet go through subxt rather than alloy so concurrency
+    /// limiting of submissions needs to be part of the node itself.
+    submission_semaphore: Arc<Semaphore>,
 
     /// The maximum duration to wait for the parachain to start producing blocks after the
     /// zombienet network is spawned.
@@ -131,6 +135,7 @@ impl ZombienetNode {
             eth_rpc_logging_level: context.as_eth_rpc_configuration().logging_level.clone(),
             block_production_timeout: zombienet_configuration.block_production_timeout_ms,
             zombienet_runtime: None,
+            submission_semaphore: Arc::new(Semaphore::new(1000)),
         }
     }
 
@@ -540,6 +545,7 @@ impl NodeApi for ZombienetNode {
 
         let provider = self.provider_static_lifetime_future();
         let substrate_provider = NodeApi::substrate_provider(self);
+        let semaphore = self.submission_semaphore.clone();
 
         Box::pin(async move {
             let provider = provider.await.context("Failed to get the provider")?;
@@ -560,6 +566,10 @@ impl NodeApi for ZombienetNode {
             let call = revive_metadata::tx()
                 .revive()
                 .eth_transact(payload.to_vec());
+            let _guard = semaphore
+                .acquire_owned()
+                .await
+                .context("Failed to acquire permit")?;
             substrate_provider
                 .tx()
                 .create_unsigned(&call)
