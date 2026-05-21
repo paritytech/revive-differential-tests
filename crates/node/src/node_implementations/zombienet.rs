@@ -135,7 +135,7 @@ impl ZombienetNode {
             eth_rpc_logging_level: context.as_eth_rpc_configuration().logging_level.clone(),
             block_production_timeout: zombienet_configuration.block_production_timeout_ms,
             zombienet_runtime: None,
-            submission_semaphore: Arc::new(Semaphore::new(1000)),
+            submission_semaphore: Arc::new(Semaphore::new(10)),
         }
     }
 
