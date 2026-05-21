@@ -30,31 +30,16 @@ runs:
         BIN_DIR: ${{ steps.binary-directory.outputs.path }}
         REF: ${{ inputs.ref }}
         REPOSITORY: ${{ inputs.repository }}
-        RUNNER_OS: ${{ runner.os }}
       run: |
         set -euo pipefail
 
         echo "installed=false" >> "$GITHUB_OUTPUT"
 
-        # The macOS asset is a Mach-O universal binary covering x86_64 and
-        # arm64, so a single asset works for any parity-macos host.
-        case "$RUNNER_OS" in
-          Linux) asset="resolc-x86_64-unknown-linux-musl" ;;
-          macOS) asset="resolc-universal-apple-darwin"    ;;
-          *) echo "::error::Unsupported OS for resolc release: $RUNNER_OS"; exit 1 ;;
-        esac
-
-        download_url="https://github.com/$REPOSITORY/releases/download/$REF/$asset"
+        download_url="https://github.com/$REPOSITORY/releases/download/$REF/resolc-x86_64-unknown-linux-musl"
         tmp_path="$(mktemp "$RUNNER_TEMP/resolc.XXXXXX")"
 
         if curl -fsSL --retry 3 --retry-delay 5 -o "$tmp_path" "$download_url"; then
           install -m 755 "$tmp_path" "$BIN_DIR/resolc"
-          # Clear Gatekeeper quarantine attributes on macOS so the fresh
-          # download is executable without a security prompt. Silently
-          # succeed on Linux where `xattr` is absent.
-          if [ "$RUNNER_OS" = "macOS" ]; then
-            xattr -rc "$BIN_DIR/resolc" 2>/dev/null || true
-          fi
           "$BIN_DIR/resolc" --version
           echo "installed=true" >> "$GITHUB_OUTPUT"
         else

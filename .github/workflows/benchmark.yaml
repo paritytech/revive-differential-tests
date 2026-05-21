@@ -204,11 +204,6 @@ jobs:
       matrix:
         test-specifier: ${{ fromJSON(needs.generate-matrix.outputs.tests) }}
         platform:
-          # NOTE: lighthouse-geth-evm-solc requires Kurtosis (which requires Docker).
-          # On macOS runners the Docker daemon is not started by this workflow; the
-          # platform will fail at runtime unless the runner provides Docker Desktop
-          # or colima externally. The zombienet-* platforms use the native provider
-          # and do not require Docker.
           - lighthouse-geth-evm-solc
           - zombienet-revm-solc
           - zombienet-polkavm-resolc
