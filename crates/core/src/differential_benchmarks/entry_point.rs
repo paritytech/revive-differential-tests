@@ -240,6 +240,10 @@ pub async fn handle_differential_benchmarks(
                     std::thread::sleep(Duration::from_secs(3600));
                 }
             }
+
+            let _ = driver_rtn.context("Driver failed")?;
+            watcher_rtn.context("Watcher failed")?;
+            inclusion_rtn.context("Inclusion watcher failed")?;
         }
     }
 
