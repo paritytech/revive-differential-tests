@@ -300,8 +300,7 @@ jobs:
           print_version resolc
           print_version solc
 
-      - name: Set TMPDIR on Linux
-        if: runner.os == 'Linux'
+      - name: Set TMPDIR
         run: |
           sudo mount -t tmpfs -o size=48G,mode=1777,nodev,nosuid tmpfs /tmp
           df -h /tmp
