@@ -51,6 +51,9 @@ on:
         type: number
         description: A way for the repetition count to be overridden. This is only used when we want to quickly run the CI to check if it works, please do not use it otherwise
         required: false
+      exclude-workloads:
+        description: "Comma-separated workload directory names to skip (e.g. 'mixed-workloads2,w3s'). Empty = run all."
+        required: false
 
 env:
   CARGO_TERM_COLOR: always
@@ -172,10 +175,25 @@ jobs:
         id: matrix
         env:
           RUST_LOG: "off"
+          EXCLUDE_WORKLOADS: ${{ inputs.exclude-workloads }}
         run: |
-          TESTS=$(retester export-test-specifiers \
-            --test ./compiler-tests/fixtures/solidity/workloads \
-            | jq -R . | jq -sc .)
+          SPECS=$(retester export-test-specifiers \
+            --test ./compiler-tests/fixtures/solidity/workloads)
+
+          if [ -n "$EXCLUDE_WORKLOADS" ]; then
+            # Build a regex alternation from the comma-separated list, stripping spaces.
+            PATTERN=$(echo "$EXCLUDE_WORKLOADS" | tr ',' '\n' | sed 's/[[:space:]]//g' | grep -v '^$' | paste -sd '|' -)
+            if [ -n "$PATTERN" ]; then
+              SPECS=$(echo "$SPECS" | grep -vE "/workloads/(${PATTERN})/" || true)
+            fi
+          fi
+
+          if [ -z "$SPECS" ]; then
+            echo "::error::No test specifiers left after applying exclude-workloads filter."
+            exit 1
+          fi
+
+          TESTS=$(echo "$SPECS" | jq -R . | jq -sc .)
           echo "tests=${TESTS}" >> "$GITHUB_OUTPUT"
 
   # ============================================
