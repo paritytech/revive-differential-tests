@@ -88,9 +88,27 @@
 
     .header-top {
       display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 24px;
+      flex-wrap: wrap;
+      margin-bottom: 14px;
+    }
+
+    .header-title-group {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 5px;
+      min-width: 0;
+      flex: 1;
+    }
+
+    .header-title-row {
+      display: flex;
       align-items: baseline;
       gap: 12px;
-      margin-bottom: 14px;
+      min-width: 0;
     }
 
     .header-title {
@@ -101,11 +119,87 @@
       letter-spacing: -0.02em;
     }
 
+    .header-title-suffix {
+      font-weight: 500;
+      color: var(--color-text-secondary);
+      letter-spacing: -0.01em;
+    }
+
+    .header-title-suffix:not(:empty)::before {
+      content: ': ';
+      color: var(--color-text);
+      font-weight: 800;
+    }
+
     .header-subtitle {
       font-family: var(--font-mono);
       font-size: 11px;
       color: var(--color-text-muted);
       letter-spacing: 0.02em;
+    }
+
+    .header-description {
+      font-family: var(--font-body);
+      font-size: 12.5px;
+      font-weight: 400;
+      color: var(--color-text-secondary);
+      line-height: 1.45;
+      align-self: stretch;
+    }
+
+    .header-description a {
+      color: var(--color-accent);
+      text-decoration: underline;
+      text-decoration-color: rgba(99,102,241,0.35);
+      text-decoration-thickness: 1px;
+      text-underline-offset: 2px;
+      transition: text-decoration-color 0.15s, color 0.15s;
+    }
+
+    .header-description a:hover {
+      text-decoration-color: var(--color-accent);
+    }
+
+    .report-stamp {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      padding: 7px 13px 7px 11px;
+      background: var(--color-surface-alt);
+      border: 1px solid var(--color-border-light);
+      border-radius: var(--radius);
+      flex-shrink: 0;
+    }
+
+    .report-stamp-icon {
+      color: var(--color-text-muted);
+      flex-shrink: 0;
+    }
+
+    .report-stamp-text {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      line-height: 1.25;
+    }
+
+    .report-stamp-date {
+      font-family: var(--font-mono);
+      font-size: 11.5px;
+      font-weight: 500;
+      color: var(--color-text);
+      letter-spacing: 0.02em;
+      white-space: nowrap;
+    }
+
+    .report-stamp-relative {
+      font-family: var(--font-body);
+      font-size: 10.5px;
+      font-weight: 500;
+      color: var(--color-text-muted);
+      letter-spacing: 0.01em;
+      white-space: nowrap;
+      margin-top: 1px;
     }
 
     /* ── Filters Row ── */
@@ -1145,8 +1239,23 @@
 
 <div class="header">
   <div class="header-top">
-    <h1 class="header-title">Benchmark Report</h1>
-    <span class="header-subtitle" id="reportTimestamp"></span>
+    <div class="header-title-group">
+      <div class="header-title-row">
+        <h1 class="header-title">Benchmark Report<span class="header-title-suffix" id="headerTitleSuffix"></span></h1>
+        <span class="header-subtitle" id="reportTimestamp"></span>
+      </div>
+      <p class="header-description hidden" id="headerDescription"></p>
+    </div>
+    <div class="report-stamp hidden" id="reportStamp">
+      <svg class="report-stamp-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <circle cx="12" cy="12" r="9"/>
+        <polyline points="12 7 12 12 15.5 13.5"/>
+      </svg>
+      <div class="report-stamp-text">
+        <span class="report-stamp-date" id="reportStampDate"></span>
+        <span class="report-stamp-relative" id="reportStampRelative"></span>
+      </div>
+    </div>
   </div>
 
   <div class="filters hidden" id="filtersRow">
@@ -1395,6 +1504,153 @@ const PLATFORM_COLORS = [
   '#e11d48', // rose
   '#65a30d', // lime
 ];
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Report Title & Description
+// ═══════════════════════════════════════════════════════════════════════════
+
+const URL_REGEX = /(?:(?:(?:https?|ftp):)?\/\/)(?:\S+(?::\S*)?@)?(?:(?!(?:10|127)(?:\.\d{1,3}){3})(?!(?:169\.254|192\.168)(?:\.\d{1,3}){2})(?!172\.(?:1[6-9]|2\d|3[0-1])(?:\.\d{1,3}){2})(?:[1-9]\d?|1\d\d|2[01]\d|22[0-3])(?:\.(?:1?\d{1,2}|2[0-4]\d|25[0-5])){2}(?:\.(?:[1-9]\d?|1\d\d|2[0-4]\d|25[0-4]))|(?:(?:[a-z0-9¡-￿][a-z0-9¡-￿_-]{0,62})?[a-z0-9¡-￿]\.)+(?:[a-z¡-￿]{2,}\.?))(?::\d{2,5})?(?:[/?#]\S*)?/giu;
+
+const URL_TRAILING_PUNCTUATION = /[.,;:!?]+$/;
+
+function decodeBase64Utf8(b64) {
+  return new TextDecoder().decode(Uint8Array.from(atob(b64), c => c.charCodeAt(0)));
+}
+
+function readInjectedString(value) {
+  return (typeof value === 'undefined' || value === null) ? null : decodeBase64Utf8(value);
+}
+
+function linkifyInto(target, text) {
+  URL_REGEX.lastIndex = 0;
+  let cursor = 0;
+  let match;
+  while ((match = URL_REGEX.exec(text)) !== null) {
+    let url = match[0];
+    let matchEnd = match.index + url.length;
+
+    const trimmed = url.replace(URL_TRAILING_PUNCTUATION, '');
+    if (trimmed.length !== url.length) {
+      matchEnd -= (url.length - trimmed.length);
+      url = trimmed;
+      URL_REGEX.lastIndex = matchEnd;
+    }
+
+    if (match.index > cursor) {
+      target.appendChild(document.createTextNode(text.slice(cursor, match.index)));
+    }
+
+    const a = document.createElement('a');
+    a.href = url.startsWith('//') ? `https:${url}` : url;
+    a.textContent = url;
+    a.target = '_blank';
+    a.rel = 'noopener noreferrer';
+    target.appendChild(a);
+    cursor = matchEnd;
+  }
+  if (cursor < text.length) {
+    target.appendChild(document.createTextNode(text.slice(cursor)));
+  }
+}
+
+function renderReportMeta() {
+  const name = typeof REPORT_NAME !== 'undefined' ? readInjectedString(REPORT_NAME) : null;
+  if (name !== null) {
+    const suffix = document.getElementById('headerTitleSuffix');
+    if (suffix) suffix.textContent = name;
+  }
+
+  const description = typeof REPORT_DESCRIPTION !== 'undefined'
+    ? readInjectedString(REPORT_DESCRIPTION)
+    : null;
+  if (description !== null) {
+    const desc = document.getElementById('headerDescription');
+    if (desc) {
+      linkifyInto(desc, description);
+      desc.classList.remove('hidden');
+    }
+  }
+}
+
+renderReportMeta();
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Report Generation Timestamp
+// ═══════════════════════════════════════════════════════════════════════════
+
+const MONTH_ABBREVIATIONS = [
+  'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+  'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+];
+
+const RELATIVE_TIME_UNITS = [
+  ['years',   365 * 24 * 60 * 60 * 1000],
+  ['months',   30 * 24 * 60 * 60 * 1000],
+  ['weeks',     7 * 24 * 60 * 60 * 1000],
+  ['days',          24 * 60 * 60 * 1000],
+  ['hours',              60 * 60 * 1000],
+  ['minutes',                 60 * 1000],
+];
+
+function formatLocalDateTime(unixMs) {
+  const d = new Date(unixMs);
+  const day = d.getDate();
+  const month = MONTH_ABBREVIATIONS[d.getMonth()];
+  const year = d.getFullYear();
+  const hours24 = d.getHours();
+  const minutes = d.getMinutes();
+  const period = hours24 >= 12 ? 'PM' : 'AM';
+  const hours12 = (hours24 % 12) || 12;
+  const minutesPadded = String(minutes).padStart(2, '0');
+  return `${day}/${month}/${year} ${hours12}:${minutesPadded} ${period} (${formatTimezone(d)})`;
+}
+
+function formatTimezone(date) {
+  const offsetMin = -date.getTimezoneOffset();
+  const sign = offsetMin >= 0 ? '+' : '-';
+  const absMin = Math.abs(offsetMin);
+  const hours = Math.floor(absMin / 60);
+  const minutes = absMin % 60;
+  if (minutes === 0) return `GMT${sign}${hours}`;
+  return `GMT${sign}${hours}:${String(minutes).padStart(2, '0')}`;
+}
+
+function formatRelativeTime(unixMs, nowMs) {
+  const diffMs = Math.max(0, nowMs - unixMs);
+  if (diffMs < 60 * 1000) return 'Just Now';
+
+  let remaining = diffMs;
+  const parts = [];
+  for (const [name, size] of RELATIVE_TIME_UNITS) {
+    const value = Math.floor(remaining / size);
+    if (value > 0) {
+      parts.push(`${value} ${name}`);
+      remaining -= value * size;
+    }
+  }
+  return `${joinWithAnd(parts)} ago`;
+}
+
+function joinWithAnd(parts) {
+  if (parts.length <= 1) return parts.join('');
+  if (parts.length === 2) return `${parts[0]} and ${parts[1]}`;
+  return `${parts.slice(0, -1).join(', ')}, and ${parts[parts.length - 1]}`;
+}
+
+function renderReportStamp() {
+  if (typeof GENERATED_AT_MS === 'undefined') return;
+  const container = document.getElementById('reportStamp');
+  const dateEl = document.getElementById('reportStampDate');
+  const relativeEl = document.getElementById('reportStampRelative');
+  if (!container || !dateEl || !relativeEl) return;
+
+  dateEl.textContent = formatLocalDateTime(GENERATED_AT_MS);
+  relativeEl.textContent = `Generated ${formatRelativeTime(GENERATED_AT_MS, Date.now())}`;
+  container.title = new Date(GENERATED_AT_MS).toISOString();
+  container.classList.remove('hidden');
+}
+
+renderReportStamp();
 
 // ═══════════════════════════════════════════════════════════════════════════
 // State

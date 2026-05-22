@@ -43,7 +43,6 @@ mod internal_prelude {
     pub use futures::future::{Either, try_join, try_join_all, try_join3};
     pub use futures::{FutureExt, Stream, StreamExt, TryFutureExt, TryStreamExt, stream};
     pub use indexmap::{IndexMap, indexmap};
-    pub use pallet_revive_eth_rpc::ReceiptExtractor;
     pub use regex::Regex;
     pub use schemars::schema_for;
     pub use semver::{Version, VersionReq};
@@ -246,21 +245,69 @@ fn main() -> anyhow::Result<()> {
                 Ok(())
             }),
         Context::ExportTestSpecifiers(context) => {
-            context
+            let corpus = context
                 .corpus
                 .test_specifiers
                 .into_iter()
-                .try_fold(Corpus::new(), Corpus::with_test_specifier)?
+                .try_fold(Corpus::new(), Corpus::with_test_specifier)?;
+            let common_prefix = common_directory_prefix(
+                corpus
+                    .cases_iterator()
+                    .map(|(metadata, _, _, _)| metadata.metadata_file_path.as_path()),
+            );
+            let test_specifiers = corpus
                 .cases_iterator()
-                .for_each(|(metadata, case_idx, _, mode)| {
-                    println!(
+                .map(|(metadata, case_idx, _, mode)| {
+                    let path =
+                        remove_directory_prefix(&metadata.metadata_file_path, &common_prefix);
+                    let name = format!("{} (Case {} - Mode {})", path.display(), case_idx, mode);
+                    let specifier = format!(
                         "{}::{}::{}",
                         metadata.metadata_file_path.display(),
                         case_idx,
                         mode
-                    )
-                });
+                    );
+
+                    json!({
+                        "name": name,
+                        "specifier": specifier,
+                    })
+                })
+                .collect::<Vec<_>>();
+            let test_specifiers_json = serde_json::to_string(&test_specifiers)
+                .context("Failed to serialize the test specifiers to JSON")?;
+
+            println!("{test_specifiers_json}");
             Ok(())
         }
+    }
+}
+
+fn common_directory_prefix<'a>(paths: impl IntoIterator<Item = &'a Path>) -> PathBuf {
+    let mut parents = paths.into_iter().filter_map(|path| path.parent());
+    let Some(first_parent) = parents.next() else {
+        return PathBuf::new();
+    };
+
+    let mut prefix = first_parent.to_path_buf();
+    for parent in parents {
+        while !parent.starts_with(&prefix) {
+            if !prefix.pop() {
+                return PathBuf::new();
+            }
+        }
+    }
+
+    prefix
+}
+
+fn remove_directory_prefix<'a>(path: &'a Path, prefix: &Path) -> Cow<'a, Path> {
+    if prefix.as_os_str().is_empty() {
+        return Cow::Borrowed(path);
+    }
+
+    match path.strip_prefix(prefix) {
+        Ok(path) if !path.as_os_str().is_empty() => Cow::Borrowed(path),
+        Ok(_) | Err(_) => Cow::Borrowed(path),
     }
 }

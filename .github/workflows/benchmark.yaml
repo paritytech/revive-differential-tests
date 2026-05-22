@@ -3,6 +3,14 @@ name: Run Benchmarks
 on:
   workflow_dispatch:
     inputs:
+      report-name:
+        description: Optional display name for the generated HTML report.
+        required: false
+        type: string
+      report-description:
+        description: Optional description for the generated HTML report.
+        required: false
+        type: string
       polkadot-sdk-repository:
         description: The repository containing the polkadot-sdk
         required: true
@@ -42,7 +50,7 @@ on:
       additional-keys:
         description: Number of additional wallet keys to pre-seed at genesis
         required: true
-        default: "200010"
+        default: "201000"
       rust-log:
         description: The value to set to the `RUST_LOG` environment variable when the benchmarks run
         required: true
@@ -66,7 +74,7 @@ jobs:
 
   build-retester:
     name: Build and Cache Retester Binaries
-    runs-on: parity-large
+    runs-on: parity-large-persistent-new
     steps:
       - name: Checkout This Repository
         uses: actions/checkout@v4
@@ -85,7 +93,7 @@ jobs:
 
   build-chainspec-generator:
     name: Build and Cache Runtime's Chainspec Generator
-    runs-on: parity-large
+    runs-on: parity-large-persistent-new
     steps:
       - name: Checkout This Repository
         uses: actions/checkout@v4
@@ -107,7 +115,7 @@ jobs:
 
   build-polkadot-sdk:
     name: Build and Cache the Polkadot SDK Dependencies
-    runs-on: parity-large
+    runs-on: parity-large-persistent-new
     steps:
       - name: Checkout This Repository
         uses: actions/checkout@v4
@@ -128,7 +136,7 @@ jobs:
 
   build-resolc:
     name: Build and Cache Resolc Binary
-    runs-on: parity-large
+    runs-on: parity-large-persistent-new
     steps:
       - name: Checkout This Repository
         uses: actions/checkout@v4
@@ -145,7 +153,7 @@ jobs:
   generate-matrix:
     name: Generate Benchmark Matrix
     needs: build-retester
-    runs-on: parity-large
+    runs-on: parity-large-persistent-new
     outputs:
       tests: ${{ steps.matrix.outputs.tests }}
     steps:
@@ -174,8 +182,7 @@ jobs:
           RUST_LOG: "off"
         run: |
           TESTS=$(retester export-test-specifiers \
-            --test ./compiler-tests/fixtures/solidity/workloads \
-            | jq -R . | jq -sc .)
+            --test ./compiler-tests/fixtures/solidity/workloads)
           echo "tests=${TESTS}" >> "$GITHUB_OUTPUT"
 
   # ============================================
@@ -183,8 +190,8 @@ jobs:
   # ============================================
 
   benchmark:
-    name: "${{ matrix.platform }} / ${{ matrix.test-specifier }}"
-    runs-on: parity-large
+    name: "${{ matrix.platform }} - ${{ matrix.test.name }}"
+    runs-on: parity-large-persistent-new
     timeout-minutes: 90
     needs:
       [
@@ -202,7 +209,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        test-specifier: ${{ fromJSON(needs.generate-matrix.outputs.tests) }}
+        test: ${{ fromJSON(needs.generate-matrix.outputs.tests) }}
         platform:
           - lighthouse-geth-evm-solc
           - zombienet-revm-solc
@@ -261,8 +268,10 @@ jobs:
           env: RUSTFLAGS=-Awarnings
       - name: Set artifact name
         id: names
+        env:
+          TEST_NAME: ${{ matrix.test.name }}
         run: |
-          NAME="${{ matrix.platform }}--${{ matrix.test-specifier }}"
+          NAME="${{ matrix.platform }}--${TEST_NAME}"
           NAME="${NAME//\//-}"
           NAME="${NAME// /-}"
           NAME="${NAME//+/plus}"
@@ -308,6 +317,7 @@ jobs:
       - name: Run benchmarks
         env:
           OVERRIDE_REPETITION_COUNT: ${{ inputs.override-repetition-count }}
+          TEST_SPECIFIER: ${{ matrix.test.specifier }}
         run: |
           additional_args=()
 
@@ -317,7 +327,7 @@ jobs:
 
           retester benchmark \
             --log-format json \
-            --test "${{ matrix.test-specifier }}" \
+            --test "$TEST_SPECIFIER" \
             --platform ${{ matrix.platform }} \
             --working-directory ./workdir \
             --concurrency.number-of-nodes 1 \
@@ -339,11 +349,11 @@ jobs:
 
   publish:
     name: Publish The Report
-    runs-on: parity-large
+    runs-on: parity-large-persistent-new
     needs:
       - generate-matrix
       - benchmark
-    if: always()
+    if: always() && !cancelled()
     steps:
       - name: Set Report Name
         run: echo "REPORT_NAME=benchmark-$(date -u +%Y-%m-%d-%H%M%S)" >> "$GITHUB_ENV"
@@ -402,10 +412,29 @@ jobs:
             )
           ' ./merged-report.json > ./web-report.json
       - name: Generate HTML report
+        env:
+          REPORT_NAME: ${{ inputs.report-name }}
+          REPORT_DESCRIPTION_PREFIX: ${{ inputs.report-description }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
+          set -euo pipefail
+
+          extra_args=()
+          if [ -n "$REPORT_NAME" ]; then
+            extra_args+=(--name "$REPORT_NAME")
+          fi
+
+          if [ -n "$REPORT_DESCRIPTION_PREFIX" ]; then
+            description="$REPORT_DESCRIPTION_PREFIX This report was generated by $RUN_URL"
+          else
+            description="This report was generated by $RUN_URL"
+          fi
+          extra_args+=(--description "$description")
+
           report-processor generate-benchmarks-html-report \
             --report-path ./web-report.json \
-            --output-path ./benchmark-report.html
+            --output-path ./benchmark-report.html \
+            "${extra_args[@]}"
       - name: Checkout gh-pages
         uses: actions/checkout@v4
         with:
