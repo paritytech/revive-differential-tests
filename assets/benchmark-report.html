@@ -429,7 +429,7 @@
     /* ── Summary Cards ── */
     .summary-cards {
       display: grid;
-      grid-template-columns: repeat(3, 1fr);
+      grid-template-columns: repeat(4, 1fr);
       gap: 16px;
       margin-bottom: 40px;
     }
@@ -521,6 +521,29 @@
       color: var(--color-text);
       font-weight: 700;
       font-size: 14px;
+    }
+
+    .weight-per-tx-cell {
+      display: inline-grid;
+      grid-template-columns: auto auto;
+      column-gap: 10px;
+      row-gap: 2px;
+      align-items: baseline;
+      line-height: 1.2;
+    }
+
+    .weight-per-tx-cell .weight-label {
+      font-size: 9.5px;
+      color: var(--color-text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      font-weight: 600;
+      justify-self: start;
+    }
+
+    .weight-per-tx-cell .weight-value-secondary {
+      font-size: 10.5px;
+      color: var(--color-text-muted);
     }
 
     /* ── Charts Area ── */
@@ -1223,6 +1246,10 @@
       .chart-row-3 { grid-template-columns: 1fr 1fr; }
     }
 
+    @media (max-width: 1100px) {
+      .summary-cards { grid-template-columns: repeat(2, 1fr); }
+    }
+
     @media (max-width: 768px) {
       .summary-cards { grid-template-columns: 1fr; }
       .contracts-grid { grid-template-columns: 1fr; }
@@ -1294,6 +1321,7 @@
   </div>
   <div class="summary-cards hidden" id="summaryCards">
     <div class="summary-card" id="summaryTps"></div>
+    <div class="summary-card" id="summaryWeightPerTx"></div>
     <div class="summary-card" id="summaryUtil"></div>
     <div class="summary-card" id="summaryTime"></div>
   </div>
@@ -2854,10 +2882,16 @@ function renderSummaryCards(modeData, enabledPlatforms) {
       });
     });
 
+    const totalRefTime   = blocks.reduce((s, b) => s + (b.block_ref_time   || 0), 0);
+    const totalProofSize = blocks.reduce((s, b) => s + (b.block_proof_size || 0), 0);
+    const hasWeight = blocks.some(b => b.block_ref_time != null || b.block_proof_size != null);
+
     stats[platform] = {
-      effectiveTps: totalTime > 0 ? totalTx / totalTime : null,
+      effectiveTps:   totalTime > 0 ? totalTx / totalTime : null,
       maxUtil,
-      runningTime: totalTime > 0 ? totalTime : null,
+      runningTime:    totalTime > 0 ? totalTime : null,
+      refTimePerTx:   hasWeight && totalTx > 0 ? totalRefTime   / totalTx : null,
+      proofSizePerTx: hasWeight && totalTx > 0 ? totalProofSize / totalTx : null,
     };
   });
 
@@ -2883,31 +2917,62 @@ function renderSummaryCards(modeData, enabledPlatforms) {
     if (v >= 60)   return (v / 60).toFixed(1) + 'm';
     return v.toFixed(1) + 's';
   };
+  // block_ref_time is in picoseconds (substrate weight units).
+  const fmtRefTime = ps => {
+    if (ps >= 1e9) return (ps / 1e9).toFixed(2) + ' ms';
+    if (ps >= 1e6) return (ps / 1e6).toFixed(2) + ' μs';
+    if (ps >= 1e3) return (ps / 1e3).toFixed(2) + ' ns';
+    return ps.toFixed(0) + ' ps';
+  };
+  const fmtProofSize = b => {
+    if (b >= 1024 * 1024) return (b / 1024 / 1024).toFixed(2) + ' MB';
+    if (b >= 1024)        return (b / 1024).toFixed(2) + ' KB';
+    return Math.round(b) + ' B';
+  };
+  const fmtWeight = v => {
+    if (v == null) return '—';
+    const r = v.refTime   != null ? fmtRefTime(v.refTime)     : '—';
+    const p = v.proofSize != null ? fmtProofSize(v.proofSize) : '—';
+    return `<span class="weight-per-tx-cell">
+      <span class="weight-label">ref_time</span><span>${r}</span>
+      <span class="weight-label">proof_size</span><span class="weight-value-secondary">${p}</span>
+    </span>`;
+  };
 
-  function buildCard(id, label, accentColor, getValue, bestPlatform, fmt) {
+  function buildCard(id, label, accentColor, getValue, bestPlatform, fmt, hideNull = false) {
     const el = document.getElementById(id);
     el.style.borderTopColor = accentColor;
-    const rows = enabledPlatforms.map(p => {
-      const v = getValue(p);
-      const isBest = p === bestPlatform && v != null;
-      const color = getColor(modeData.platforms.indexOf(p));
-      return `
-        <div class="summary-platform-row${isBest ? ' is-best' : ''}">
-          <span class="summary-platform-name">
-            <span class="summary-platform-dot" style="background:${color}"></span>
-            <span class="summary-platform-name-text">${escapeHtml(p)}</span>
-          </span>
-          <span class="summary-platform-value">${v != null ? fmt(v) : '\u2014'}</span>
-        </div>`;
-    }).join('');
+    const visible = hideNull
+      ? enabledPlatforms.filter(p => getValue(p) != null)
+      : enabledPlatforms;
+    const rows = visible.length === 0
+      ? '<div class="summary-platform-row"><span class="summary-platform-name"><span class="summary-platform-name-text">No data available</span></span></div>'
+      : visible.map(p => {
+          const v = getValue(p);
+          const isBest = p === bestPlatform && v != null;
+          const color = getColor(modeData.platforms.indexOf(p));
+          return `
+            <div class="summary-platform-row${isBest ? ' is-best' : ''}">
+              <span class="summary-platform-name">
+                <span class="summary-platform-dot" style="background:${color}"></span>
+                <span class="summary-platform-name-text">${escapeHtml(p)}</span>
+              </span>
+              <span class="summary-platform-value">${v != null ? fmt(v) : '\u2014'}</span>
+            </div>`;
+        }).join('');
     el.innerHTML = `
       <div class="summary-card-label" style="color:${accentColor}">${label}</div>
       <div class="summary-platform-list">${rows}</div>`;
   }
 
-  buildCard('summaryTps',  'Effective TPS',    '#6366f1', p => stats[p]?.effectiveTps, bestTps,  fmtTps);
-  buildCard('summaryUtil', 'Peak Utilization', '#10b981', p => stats[p]?.maxUtil,       bestUtil, fmtUtil);
-  buildCard('summaryTime', 'Running Time',     '#f59e0b', p => stats[p]?.runningTime,   bestTime, fmtTime);
+  buildCard('summaryTps',          'Effective TPS',    '#6366f1', p => stats[p]?.effectiveTps, bestTps,  fmtTps);
+  buildCard('summaryWeightPerTx',  'Weight / tx',      '#a855f7', p => {
+    const s = stats[p];
+    if (s == null || (s.refTimePerTx == null && s.proofSizePerTx == null)) return null;
+    return { refTime: s.refTimePerTx, proofSize: s.proofSizePerTx };
+  }, null, fmtWeight, /* hideNull */ true);
+  buildCard('summaryUtil',         'Peak Utilization', '#10b981', p => stats[p]?.maxUtil,       bestUtil, fmtUtil);
+  buildCard('summaryTime',         'Running Time',     '#f59e0b', p => stats[p]?.runningTime,   bestTime, fmtTime);
 
   document.getElementById('summaryCards').classList.remove('hidden');
 }
