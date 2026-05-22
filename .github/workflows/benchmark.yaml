@@ -353,7 +353,7 @@ jobs:
     needs:
       - generate-matrix
       - benchmark
-    if: always()
+    if: always() && !cancelled()
     steps:
       - name: Set Report Name
         run: echo "REPORT_NAME=benchmark-$(date -u +%Y-%m-%d-%H%M%S)" >> "$GITHUB_ENV"
