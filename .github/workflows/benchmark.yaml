@@ -42,7 +42,7 @@ on:
       additional-keys:
         description: Number of additional wallet keys to pre-seed at genesis
         required: true
-        default: "200010"
+        default: "201000"
       rust-log:
         description: The value to set to the `RUST_LOG` environment variable when the benchmarks run
         required: true
