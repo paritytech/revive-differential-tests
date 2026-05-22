@@ -34,8 +34,8 @@ runs:
       shell: bash
       run: |
         echo "deb [trusted=yes] https://sdk.kurtosis.com/kurtosis-cli-release-artifacts/ /" | sudo tee /etc/apt/sources.list.d/kurtosis.list
-        sudo apt-get update
-        sudo apt-get install -y \
+        sudo apt-get -o Acquire::Retries=3 -o DPkg::Lock::Timeout=600 update
+        sudo apt-get -o Acquire::Retries=3 -o DPkg::Lock::Timeout=600 install -y \
           build-essential \
           pkg-config \
           libssl-dev \
