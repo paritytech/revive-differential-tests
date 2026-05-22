@@ -46,7 +46,7 @@ on:
       rust-log:
         description: The value to set to the `RUST_LOG` environment variable when the benchmarks run
         required: true
-        default: info,retester::differential_benchmarks::watcher=debug,revive_dt_node::provider_utils::batching_layer=debug,revive_dt_node::provider_utils::receipt_retry_layer=debug,revive_dt_core::differential_benchmarks::driver=debug,alloy=off
+        default: info,alloy=off
       override-repetition-count:
         type: number
         description: A way for the repetition count to be overridden. This is only used when we want to quickly run the CI to check if it works, please do not use it otherwise
@@ -300,6 +300,11 @@ jobs:
           print_version resolc
           print_version solc
 
+      - name: Set TMPDIR
+        run: |
+          sudo mount -t tmpfs -o size=48G,mode=1777,nodev,nosuid tmpfs /tmp
+          df -h /tmp
+          findmnt /tmp
       - name: Run benchmarks
         env:
           OVERRIDE_REPETITION_COUNT: ${{ inputs.override-repetition-count }}
@@ -321,6 +326,7 @@ jobs:
             --zombienet.config-path ./assets/${{ inputs.network }}-assethub-zombienet.toml \
             --zombienet.block-production-timeout-ms 300000 \
             --wallet.additional-keys ${{ inputs.additional-keys }} \
+            --eth-rpc.logging-level info \
             --report.file-name report.json \
             "${additional_args[@]}" \
             > ./workdir/retester.log 2>&1

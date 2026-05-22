@@ -28,6 +28,9 @@
 
 #![allow(dead_code)]
 
+use alloy::{eips::Encodable2718, primitives::TxHash};
+use futures::FutureExt;
+
 use crate::internal_prelude::*;
 
 static NODE_COUNT: AtomicU32 = AtomicU32::new(0);
@@ -35,7 +38,7 @@ static NODE_COUNT: AtomicU32 = AtomicU32::new(0);
 /// A Zombienet network where collator is `polkadot-parachain` node with `eth-rpc` [`ZombieNode`]
 /// abstracts away the details of managing the zombienet network and provides an interface to
 /// interact with the parachain's Ethereum RPC.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct ZombienetNode {
     /* Node Identifier */
     id: u32,
@@ -68,6 +71,10 @@ pub struct ZombienetNode {
     use_fallback_gas_filler: bool,
 
     eth_rpc_logging_level: String,
+
+    /// All transaction submissions in zombienet go through subxt rather than alloy so concurrency
+    /// limiting of submissions needs to be part of the node itself.
+    submission_semaphore: Arc<Semaphore>,
 
     /// The maximum duration to wait for the parachain to start producing blocks after the
     /// zombienet network is spawned.
@@ -129,6 +136,7 @@ impl ZombienetNode {
             eth_rpc_logging_level: context.as_eth_rpc_configuration().logging_level.clone(),
             block_production_timeout: zombienet_configuration.block_production_timeout_ms,
             zombienet_runtime: None,
+            submission_semaphore: Arc::new(Semaphore::new(1000)),
         }
     }
 
@@ -441,22 +449,32 @@ impl ZombienetNode {
         Ok(String::from_utf8_lossy(&output).trim().to_string())
     }
 
-    async fn provider(&self) -> anyhow::Result<ConcreteProvider<Ethereum, Arc<EthereumWallet>>> {
-        self.provider
-            .get_or_try_init(|| async move {
-                construct_concurrency_limited_provider::<Ethereum, _>(
-                    self.connection_string.as_str(),
-                    FallbackGasFiller::default()
-                        .with_fallback_mechanism(self.use_fallback_gas_filler),
-                    ChainIdFiller::default(), // TODO: use CHAIN_ID constant
-                    NonceFiller::new(self.nonce_manager.clone()),
-                    self.wallet.clone(),
-                )
+    fn provider(
+        &self,
+    ) -> FrameworkFuture<anyhow::Result<ConcreteProvider<Ethereum, Arc<EthereumWallet>>>> {
+        let provider = self.provider.clone();
+        let connection_string = self.connection_string.clone();
+        let nonce_manager = self.nonce_manager.clone();
+        let wallet = self.wallet.clone();
+        let use_fallback_gas_filler = self.use_fallback_gas_filler;
+
+        Box::pin(async move {
+            provider
+                .get_or_try_init(|| async move {
+                    construct_concurrency_limited_provider(
+                        &connection_string,
+                        FallbackGasFiller::default()
+                            .with_fallback_mechanism(use_fallback_gas_filler),
+                        ChainIdFiller::default(),
+                        NonceFiller::new(nonce_manager),
+                        wallet,
+                    )
+                    .await
+                    .context("Failed to construct the provider")
+                })
                 .await
-                .context("Failed to construct the provider")
-            })
-            .await
-            .cloned()
+                .cloned()
+        })
     }
 
     pub fn node_genesis(
@@ -502,30 +520,56 @@ impl NodeApi for ZombienetNode {
         EVMVersion::Cancun
     }
 
-    fn provider(&self) -> revive_dt_common::futures::FrameworkFuture<anyhow::Result<DynProvider>> {
-        let provider = self.provider.clone();
-        let connection_string = self.connection_string.clone();
-        let gas_filler =
-            FallbackGasFiller::default().with_fallback_mechanism(self.use_fallback_gas_filler);
-        let nonce_filler = NonceFiller::new(self.nonce_manager.clone());
-        let wallet = self.wallet.clone();
+    fn submit_transaction(
+        &self,
+        mut transaction: TransactionRequest,
+    ) -> FrameworkFuture<Result<TxHash>> {
+        transaction.set_gas_price(u128::MAX);
+
+        let provider = self.provider();
+        let substrate_provider = NodeApi::substrate_provider(self);
+        let semaphore = self.submission_semaphore.clone();
 
         Box::pin(async move {
-            provider
-                .get_or_try_init(|| async move {
-                    construct_concurrency_limited_provider::<Ethereum, _>(
-                        &connection_string,
-                        gas_filler,
-                        ChainIdFiller::default(),
-                        nonce_filler,
-                        wallet,
-                    )
-                    .await
-                    .context("Failed to construct the provider")
-                })
+            let provider = provider.await.context("Failed to get the provider")?;
+            let substrate_provider = substrate_provider
+                .expect("qed; this is a substrate node")
                 .await
-                .map(|provider| provider.clone().erased())
+                .context("Failed to get the provider")?;
+
+            let signed_transaction = provider
+                .fill(transaction)
+                .await
+                .context("Failed to fill transaction")?
+                .try_into_envelope()
+                .context("Failed to construct envelope from filled transaction")?;
+            let tx_hash = signed_transaction.tx_hash();
+            let payload = signed_transaction.encoded_2718();
+
+            let call = revive_metadata::tx()
+                .revive()
+                .eth_transact(payload.to_vec());
+            let _guard = semaphore
+                .acquire_owned()
+                .await
+                .context("Failed to acquire permit")?;
+            substrate_provider
+                .tx()
+                .create_unsigned(&call)
+                .context("Failed to create an unsigned transaction")?
+                .submit()
+                .await
+                .context("Failed to submit the transaction through subxt")?;
+
+            Ok(*tx_hash)
         })
+    }
+
+    fn provider(&self) -> revive_dt_common::futures::FrameworkFuture<anyhow::Result<DynProvider>> {
+        Box::pin(
+            self.provider()
+                .map(|maybe_provider| maybe_provider.map(|provider| provider.erased())),
+        )
     }
 
     fn substrate_provider(
