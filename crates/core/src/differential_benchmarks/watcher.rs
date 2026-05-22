@@ -325,131 +325,23 @@ impl Watcher {
             let (transaction_registration_information, observed_blocks) =
                 try_join(registration_task, block_subscription_task).await?;
 
-            // The registration and the block observation tasks are done. We can now try to get the
-            // receipts of all of the transactions that were submitted. We will get them through the
-            // rpc depending on the platform. The range of receipts we get is the ones for all of
-            // the blocks which we've observed.
-            let observed_receipts: Vec<TransactionReceipt> = match self.substrate_provider {
-                Some(ref substrate_provider) => {
-                    let receipt_extractor = ReceiptExtractor::new(substrate_provider.clone(), None)
-                        .await
-                        .context("Failed to create the receipt extractor")
-                        .map(Arc::new)?;
-                    let block_data: Vec<_> = observed_blocks
-                        .iter()
-                        .map(|b| {
-                            let block_hash = b
-                                .substrate_block_information
-                                .as_ref()
-                                .expect("Substrate block information must be present")
-                                .block_hash;
-                            (block_hash, b.ethereum_block_information.block_number)
-                        })
-                        .collect();
-                    stream::iter(block_data)
-                        .map(|(block_hash, block_number)| {
-                            let receipt_extractor = receipt_extractor.clone();
-                            let substrate_provider = substrate_provider.clone();
-                            async move {
-                                let block =
-                                    retry_with_exponential_backoff(10, Duration::from_secs(1), || async {
-                                        match substrate_provider.blocks().at(H256(block_hash)).await {
-                                            Ok(block) => ControlFlow::Break(block),
-                                            Err(err) => {
-                                                warn!(
-                                                    block_number,
-                                                    ?err,
-                                                    "Failed to get the block, retrying"
-                                                );
-                                                ControlFlow::Continue(err)
-                                            }
-                                        }
-                                    })
-                                    .await
-                                    .with_context(|| {
-                                        format!("Failed to get block {block_number} after retries")
-                                    })
-                                    .expect("Can't fail");
-                                info!(block.number = block.number(), "Observed a new receipts block");
-
-                                let receipts =
-                                    retry_with_exponential_backoff(10, Duration::from_secs(1), || async {
-                                        match receipt_extractor.extract_from_block(&block).await {
-                                            Ok(receipts) => ControlFlow::Break(receipts),
-                                            Err(err) => {
-                                                warn!(
-                                                    block_number,
-                                                    ?err,
-                                                    "Failed to get the receipts for block, retrying"
-                                                );
-                                                ControlFlow::Continue(err)
-                                            }
-                                        }
-                                    })
-                                    .await
-                                    .with_context(|| {
-                                        format!(
-                                            "Failed to get receipts for block {block_number} after retries"
-                                        )
-                                    })
-                                    .expect("Can't fail");
-
-                                receipts
-                                    .into_iter()
-                                    .map(|(_, receipt)| {
-                                        let serialized = serde_json::to_vec(&receipt).expect("Can't fail");
-                                        serde_json::from_slice::<TransactionReceipt>(&serialized)
-                                            .expect("Can't fail")
-                                    })
-                                    .collect::<Vec<_>>()
-                            }
-                        })
-                        .buffer_unordered(100)
-                        .flat_map(stream::iter)
-                        .collect::<Vec<_>>()
-                        .await
-                }
-                None => {
-                    let block_numbers: Vec<_> = observed_blocks
-                        .iter()
-                        .map(|b| b.ethereum_block_information.block_number)
-                        .collect();
-                    stream::iter(block_numbers)
-                        .map(|block_number| {
-                            let provider = self.provider.clone();
-                            async move {
-                                retry_with_exponential_backoff(10, Duration::from_secs(1), || async {
-                                    match provider
-                                        .get_block_receipts(alloy::eips::BlockId::Number(block_number.into()))
-                                        .await
-                                    {
-                                        Ok(Some(receipts)) => {
-                                            info!(block.number = block_number, "Observed a new receipts block");
-                                            ControlFlow::Break(receipts)
-                                        },
-                                        other => {
-                                            warn!(
-                                                block_number,
-                                                result = ?other,
-                                                "Failed to get the receipts for block, retrying"
-                                            );
-                                            ControlFlow::Continue(anyhow::anyhow!("{other:?}"))
-                                        }
-                                    }
-                                })
+            // The registration and the block observation tasks are done, getting receipts is now
+            // safe. Txs have been mined and should have been on the chain for a while now.
+            let observed_receipts =
+                stream::iter(transaction_registration_information.keys().copied())
+                    .map(|tx_hash| {
+                        let provider = self.provider.clone();
+                        async move {
+                            provider
+                                .get_transaction_receipt(tx_hash)
                                 .await
-                                .with_context(|| {
-                                    format!("Failed to get receipts for block {block_number} after retries")
-                                })
-                                .expect("Can't fail")
-                            }
-                        })
-                        .buffer_unordered(100)
-                        .flat_map(stream::iter)
-                        .collect::<Vec<_>>()
-                        .await
-                }
-            };
+                                .context("Failed to get the transaction receipt")?
+                                .context("Failed to get the transaction receipt")
+                        }
+                    })
+                    .buffer_unordered(100)
+                    .try_collect::<Vec<_>>()
+                    .await?;
 
             if let failing_receipts = observed_receipts
                 .into_iter()

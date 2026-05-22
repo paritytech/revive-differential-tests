@@ -348,7 +348,9 @@ impl ZombienetNode {
                     .arg("--rpc-port")
                     .arg(eth_rpc_port.to_string())
                     .arg("--rpc-max-batch-request-len")
-                    .arg(u32::MAX.to_string());
+                    .arg(u32::MAX.to_string())
+                    .arg("--eth-pruning")
+                    .arg("archive");
                 apply_cache_size_arg(command, eth_proxy_binary);
                 command
                     .env("RUST_LOG", self.eth_rpc_logging_level.as_str())
