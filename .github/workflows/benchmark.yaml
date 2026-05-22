@@ -74,7 +74,7 @@ jobs:
 
   build-retester:
     name: Build and Cache Retester Binaries
-    runs-on: parity-large
+    runs-on: parity-large-persistent-new
     steps:
       - name: Checkout This Repository
         uses: actions/checkout@v4
@@ -93,7 +93,7 @@ jobs:
 
   build-chainspec-generator:
     name: Build and Cache Runtime's Chainspec Generator
-    runs-on: parity-large
+    runs-on: parity-large-persistent-new
     steps:
       - name: Checkout This Repository
         uses: actions/checkout@v4
@@ -115,7 +115,7 @@ jobs:
 
   build-polkadot-sdk:
     name: Build and Cache the Polkadot SDK Dependencies
-    runs-on: parity-large
+    runs-on: parity-large-persistent-new
     steps:
       - name: Checkout This Repository
         uses: actions/checkout@v4
@@ -136,7 +136,7 @@ jobs:
 
   build-resolc:
     name: Build and Cache Resolc Binary
-    runs-on: parity-large
+    runs-on: parity-large-persistent-new
     steps:
       - name: Checkout This Repository
         uses: actions/checkout@v4
@@ -153,7 +153,7 @@ jobs:
   generate-matrix:
     name: Generate Benchmark Matrix
     needs: build-retester
-    runs-on: parity-large
+    runs-on: parity-large-persistent-new
     outputs:
       tests: ${{ steps.matrix.outputs.tests }}
     steps:
@@ -192,7 +192,7 @@ jobs:
 
   benchmark:
     name: "${{ matrix.platform }} / ${{ matrix.test-specifier }}"
-    runs-on: parity-large
+    runs-on: parity-large-persistent-new
     timeout-minutes: 90
     needs:
       [
@@ -347,7 +347,7 @@ jobs:
 
   publish:
     name: Publish The Report
-    runs-on: parity-large
+    runs-on: parity-large-persistent-new
     needs:
       - generate-matrix
       - benchmark
