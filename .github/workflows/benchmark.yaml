@@ -59,6 +59,15 @@ on:
         type: number
         description: A way for the repetition count to be overridden. This is only used when we want to quickly run the CI to check if it works, please do not use it otherwise
         required: false
+      number-of-runs:
+        type: number
+        description: Number of re-runs per (test, platform). Each run is an independent parallel CI job. Use 3-5 for variance characterization.
+        required: true
+        default: 1
+      workload-filter:
+        type: string
+        description: 'Optional comma-separated list of workload directory names to include (matches the top-level folder under workloads/). Empty = run every workload. Examples - "w3s" (just w3s), "w3s,ethereum" (just these two), "create-create2" (just create-create2).'
+        required: false
 
 env:
   CARGO_TERM_COLOR: always
@@ -156,6 +165,7 @@ jobs:
     runs-on: parity-large-persistent-new
     outputs:
       tests: ${{ steps.matrix.outputs.tests }}
+      runs: ${{ steps.runs.outputs.runs }}
     steps:
       - name: Checkout This Repository
         uses: actions/checkout@v4
@@ -180,17 +190,46 @@ jobs:
         id: matrix
         env:
           RUST_LOG: "off"
+          WORKLOAD_FILTER: ${{ inputs.workload-filter }}
         run: |
+          set -euo pipefail
+
           TESTS=$(retester export-test-specifiers \
             --test ./compiler-tests/fixtures/solidity/workloads)
+
+          if [ -n "$WORKLOAD_FILTER" ]; then
+            # Comma-separated list of workload directory names. We match against
+            # the top-level folder of each test (the part before the first '/').
+            ALLOWED=$(echo "$WORKLOAD_FILTER" | jq -Rc 'split(",") | map(gsub("^\\s+|\\s+$"; ""))')
+            BEFORE=$(echo "$TESTS" | jq 'length')
+            TESTS=$(echo "$TESTS" | jq -c --argjson allowed "$ALLOWED" '
+              map(select((.name | split("/")[0]) as $dir | $allowed | index($dir)))
+            ')
+            AFTER=$(echo "$TESTS" | jq 'length')
+            echo "workload-filter '$WORKLOAD_FILTER' kept $AFTER of $BEFORE entries"
+            if [ "$AFTER" -eq 0 ]; then
+              echo "::error::No workloads matched filter '$WORKLOAD_FILTER'"
+              exit 1
+            fi
+          fi
+
           echo "tests=${TESTS}" >> "$GITHUB_OUTPUT"
+      - name: Build runs array
+        id: runs
+        env:
+          N: ${{ inputs.number-of-runs }}
+        run: |
+          # Emits a JSON array [1, 2, ..., N] for the benchmark matrix.
+          # N=1 → [1] (current behaviour), N=5 → [1,2,3,4,5] (parallel re-runs).
+          RUNS=$(seq 1 "$N" | jq -Rsc 'split("\n") | map(select(length > 0)) | map(tonumber)')
+          echo "runs=$RUNS" >> "$GITHUB_OUTPUT"
 
   # ============================================
   # Benchmark Job: Runs the Requested Benchmark
   # ============================================
 
   benchmark:
-    name: "${{ matrix.platform }} - ${{ matrix.test.name }}"
+    name: "${{ matrix.platform }} - ${{ matrix.test.name }} - run ${{ matrix.run }}"
     runs-on: parity-large-persistent-new
     timeout-minutes: 90
     needs:
@@ -211,9 +250,9 @@ jobs:
       matrix:
         test: ${{ fromJSON(needs.generate-matrix.outputs.tests) }}
         platform:
-          - lighthouse-geth-evm-solc
           - zombienet-revm-solc
           - zombienet-polkavm-resolc
+        run: ${{ fromJSON(needs.generate-matrix.outputs.runs) }}
     steps:
       - name: Checkout This Repository
         uses: actions/checkout@v4
@@ -270,8 +309,9 @@ jobs:
         id: names
         env:
           TEST_NAME: ${{ matrix.test.name }}
+          RUN: ${{ matrix.run }}
         run: |
-          NAME="${{ matrix.platform }}--${TEST_NAME}"
+          NAME="${{ matrix.platform }}--${TEST_NAME}--run${RUN}"
           NAME="${NAME//\//-}"
           NAME="${NAME// /-}"
           NAME="${NAME//+/plus}"
@@ -382,6 +422,25 @@ jobs:
         with:
           pattern: workdir-*
           path: ./results
+      - name: Collect per-run reports into single folder
+        run: |
+          set -euo pipefail
+          mkdir -p ./per-run-reports
+          for dir in ./results/workdir-*/; do
+            # workdir name format: workdir-<platform>--<test>--run<N>
+            run_id=$(basename "$dir" | sed 's/^workdir-//')
+            if [ -f "$dir/report.json" ]; then
+              cp "$dir/report.json" "./per-run-reports/${run_id}.json"
+            fi
+          done
+          echo "collected $(ls ./per-run-reports | wc -l) report files"
+      - name: Upload all per-run reports as a single artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: all-reports
+          path: ./per-run-reports
+          if-no-files-found: error
       - name: Merge reports
         run: |
           REPORT_ARGS=""
