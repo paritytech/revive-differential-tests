@@ -192,7 +192,6 @@ jobs:
   benchmark:
     name: "${{ matrix.platform }} - ${{ matrix.test.name }}"
     runs-on: parity-large-persistent-new
-    timeout-minutes: 150
     needs:
       [
         generate-matrix,
