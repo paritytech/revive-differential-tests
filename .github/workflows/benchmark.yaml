@@ -182,8 +182,7 @@ jobs:
           RUST_LOG: "off"
         run: |
           TESTS=$(retester export-test-specifiers \
-            --test ./compiler-tests/fixtures/solidity/workloads \
-            | jq -R . | jq -sc .)
+            --test ./compiler-tests/fixtures/solidity/workloads)
           echo "tests=${TESTS}" >> "$GITHUB_OUTPUT"
 
   # ============================================
@@ -191,7 +190,7 @@ jobs:
   # ============================================
 
   benchmark:
-    name: "${{ matrix.platform }} / ${{ matrix.test-specifier }}"
+    name: "${{ matrix.platform }} - ${{ matrix.test.name }}"
     runs-on: parity-large-persistent-new
     timeout-minutes: 90
     needs:
@@ -210,7 +209,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        test-specifier: ${{ fromJSON(needs.generate-matrix.outputs.tests) }}
+        test: ${{ fromJSON(needs.generate-matrix.outputs.tests) }}
         platform:
           - lighthouse-geth-evm-solc
           - zombienet-revm-solc
@@ -269,8 +268,10 @@ jobs:
           env: RUSTFLAGS=-Awarnings
       - name: Set artifact name
         id: names
+        env:
+          TEST_NAME: ${{ matrix.test.name }}
         run: |
-          NAME="${{ matrix.platform }}--${{ matrix.test-specifier }}"
+          NAME="${{ matrix.platform }}--${TEST_NAME}"
           NAME="${NAME//\//-}"
           NAME="${NAME// /-}"
           NAME="${NAME//+/plus}"
@@ -316,6 +317,7 @@ jobs:
       - name: Run benchmarks
         env:
           OVERRIDE_REPETITION_COUNT: ${{ inputs.override-repetition-count }}
+          TEST_SPECIFIER: ${{ matrix.test.specifier }}
         run: |
           additional_args=()
 
@@ -325,7 +327,7 @@ jobs:
 
           retester benchmark \
             --log-format json \
-            --test "${{ matrix.test-specifier }}" \
+            --test "$TEST_SPECIFIER" \
             --platform ${{ matrix.platform }} \
             --working-directory ./workdir \
             --concurrency.number-of-nodes 1 \
