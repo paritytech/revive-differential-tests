@@ -193,20 +193,7 @@ impl LighthouseGethNode {
                 genesis_gaslimit: 60_000_000,
             },
             wait_for_finalization: false,
-            port_publisher: Some(PortPublisherParameters {
-                execution_layer_port_publisher_parameters: Some(
-                    PortPublisherSingleItemParameters {
-                        enabled: Some(true),
-                        public_port_start: Some(32000 + self.id as u16 * 1000),
-                    },
-                ),
-                consensus_layer_port_publisher_parameters: Some(
-                    PortPublisherSingleItemParameters {
-                        enabled: Some(true),
-                        public_port_start: Some(59010 + self.id as u16 * 50),
-                    },
-                ),
-            }),
+            port_publisher: None,
         };
 
         // Write the kurtosis args config file.
