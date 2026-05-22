@@ -7,6 +7,7 @@ use std::{
     ops::{Deref, DerefMut},
     path::{Path, PathBuf},
     str::FromStr,
+    time::{SystemTime, UNIX_EPOCH},
 };
 
 use base64::Engine as _;
@@ -272,6 +273,12 @@ fn main() -> Result<()> {
             )
             .context("Failed to embed metadata")?;
             injections.push(format!("const EMBEDDED_METADATA=\"{metadata_base64}\";"));
+
+            let generated_at_ms = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .context("System time is before the Unix epoch")?
+                .as_millis();
+            injections.push(format!("const GENERATED_AT_MS={generated_at_ms};"));
 
             let injection = injections.join("");
             let html = TEMPLATE.replacen(
