@@ -278,8 +278,14 @@ jobs:
           NAME="${NAME//./-}"
           [[ "$NAME" == *- ]] && NAME="${NAME%-}minus"
           echo "artifact=$NAME" >> "$GITHUB_OUTPUT"
-      - name: Create working directory
-        run: mkdir -p ./workdir
+      - name: Create tmpfs workdir
+        run: |
+          WORKDIR="$PWD/workdir"
+
+          mkdir -p "$WORKDIR"
+          sudo mount -t tmpfs -o size=48G,mode=1777,nodev,nosuid tmpfs "$WORKDIR"
+          df -h "$WORKDIR"
+          findmnt "$WORKDIR"
       - name: Print benchmark versions
         env:
           GITHUB_INPUTS: ${{ toJSON(inputs) }}
@@ -308,16 +314,13 @@ jobs:
           print_version resolc
           print_version solc
 
-      - name: Set TMPDIR
-        run: |
-          sudo mount -t tmpfs -o size=48G,mode=1777,nodev,nosuid tmpfs /tmp
-          df -h /tmp
-          findmnt /tmp
       - name: Run benchmarks
         env:
           OVERRIDE_REPETITION_COUNT: ${{ inputs.override-repetition-count }}
           TEST_SPECIFIER: ${{ matrix.test.specifier }}
         run: |
+          export TMPDIR="$PWD/workdir"
+
           additional_args=()
 
           if [ -n "$OVERRIDE_REPETITION_COUNT" ]; then
