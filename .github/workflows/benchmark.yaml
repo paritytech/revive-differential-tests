@@ -283,7 +283,7 @@ jobs:
           WORKDIR="$PWD/workdir"
 
           mkdir -p "$WORKDIR"
-          sudo mount -t tmpfs -o size=32G,mode=1777,nodev,nosuid tmpfs "$WORKDIR"
+          sudo mount -t tmpfs -o size=48G,mode=1777,nodev,nosuid tmpfs "$WORKDIR"
           df -h "$WORKDIR"
           findmnt "$WORKDIR"
       - name: Print benchmark versions
@@ -338,7 +338,7 @@ jobs:
             --zombienet.config-path ./assets/${{ inputs.network }}-assethub-zombienet.toml \
             --zombienet.block-production-timeout-ms 300000 \
             --wallet.additional-keys ${{ inputs.additional-keys }} \
-            --eth-rpc.logging-level info \
+            --eth-rpc.logging-level info,eth-rpc::client=debug,eth-rpc::block-sync=debug,eth-rpc::receipt_provider=warn \
             --report.file-name report.json \
             "${additional_args[@]}" \
             > ./workdir/retester.log 2>&1
