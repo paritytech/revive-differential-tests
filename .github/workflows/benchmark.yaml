@@ -283,7 +283,7 @@ jobs:
           WORKDIR="$PWD/workdir"
 
           mkdir -p "$WORKDIR"
-          sudo mount -t tmpfs -o size=48G,mode=1777,nodev,nosuid tmpfs "$WORKDIR"
+          sudo mount -t tmpfs -o size=32G,mode=1777,nodev,nosuid tmpfs "$WORKDIR"
           df -h "$WORKDIR"
           findmnt "$WORKDIR"
       - name: Print benchmark versions
