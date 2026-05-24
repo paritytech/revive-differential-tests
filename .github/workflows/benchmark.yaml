@@ -372,12 +372,19 @@ jobs:
             --report.file-name report.json \
             "${additional_args[@]}" \
             > ./workdir/retester.log 2>&1
-      - name: Upload report.json
+      - name: Stage report with unique filename
+        if: always()
+        run: |
+          mkdir -p ./report-out
+          if [ -f ./workdir/report.json ]; then
+            cp ./workdir/report.json "./report-out/${{ steps.names.outputs.artifact }}.json"
+          fi
+      - name: Upload report
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: report-${{ steps.names.outputs.artifact }}
-          path: ./workdir/report.json
+          path: ./report-out/${{ steps.names.outputs.artifact }}.json
           if-no-files-found: warn
 
   publish:
