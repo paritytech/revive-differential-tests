@@ -19,6 +19,11 @@ on:
         description: The branch, tag, or commit hash to use for the polkadot-sdk repository.
         required: true
         default: 22e63b740b6943b4e39a3c6b779ca9e5408ca00c
+      use-jit:
+        description: Whether to build the polkadot-sdk with JIT enabled (--cfg revive_jit).
+        required: true
+        type: boolean
+        default: false
       runtimes-repository:
         description: The repository containing the runtimes and their spec generator
         required: true
@@ -132,7 +137,7 @@ jobs:
             polkadot
             polkadot-parachain-bin
             pallet-revive-eth-rpc
-          env: RUSTFLAGS=-Awarnings
+          env: ${{ inputs.use-jit && 'RUSTFLAGS=-Awarnings --cfg revive_jit' || 'RUSTFLAGS=-Awarnings' }}
 
   build-resolc:
     name: Build and Cache Resolc Binary
@@ -264,7 +269,7 @@ jobs:
             polkadot
             polkadot-parachain-bin
             pallet-revive-eth-rpc
-          env: RUSTFLAGS=-Awarnings
+          env: ${{ inputs.use-jit && 'RUSTFLAGS=-Awarnings --cfg revive_jit' || 'RUSTFLAGS=-Awarnings' }}
       - name: Set artifact name
         id: names
         env:
