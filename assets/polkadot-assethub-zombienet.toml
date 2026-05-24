@@ -4,7 +4,10 @@ node_spawn_timeout = 240
 
 [relaychain]
 default_command = "polkadot"
-default_args = ["-linfo,babe=debug,grandpa=debug,parachain::candidate-backing=debug,parachain::collator-protocol=debug,parachain::collator-protocol::stats=debug,parachain::parachains-inherent=debug,parachain::provisioner=debug,parachain::prospective-parachains=debug", "--no-mdns"]
+default_args = [
+  "-linfo,babe=debug,grandpa=debug,parachain::candidate-backing=debug,parachain::collator-protocol=debug,parachain::collator-protocol::stats=debug,parachain::parachains-inherent=debug,parachain::provisioner=debug,parachain::prospective-parachains=debug",
+  "--no-mdns",
+]
 chain = "polkadot-local"
 chain_spec_command = "chain-spec-generator {{chainName}}"
 # Override RC spec raw to allow paras to produce blocks
