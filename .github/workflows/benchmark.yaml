@@ -315,6 +315,7 @@ jobs:
           print_version solc
 
       - name: Run benchmarks
+        timeout-minutes: 180
         env:
           OVERRIDE_REPETITION_COUNT: ${{ inputs.override-repetition-count }}
           TEST_SPECIFIER: ${{ matrix.test.specifier }}
@@ -347,7 +348,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: workdir-${{ steps.names.outputs.artifact }}
-          path: ./workdir
+          path: |
+            ./workdir
+            !./workdir/**/db/**
 
   publish:
     name: Publish The Report
