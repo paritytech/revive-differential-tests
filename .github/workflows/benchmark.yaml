@@ -215,8 +215,6 @@ jobs:
       matrix:
         test: ${{ fromJSON(needs.generate-matrix.outputs.tests) }}
         platform:
-          - lighthouse-geth-evm-solc
-          - zombienet-revm-solc
           - zombienet-polkavm-resolc
     steps:
       - name: Checkout This Repository
