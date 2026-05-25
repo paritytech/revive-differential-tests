@@ -197,7 +197,7 @@ jobs:
   benchmark:
     name: "${{ matrix.platform }} - ${{ matrix.test.name }}"
     runs-on: parity-large-persistent-new
-    timeout-minutes: 90
+    timeout-minutes: 120
     needs:
       [
         generate-matrix,
@@ -320,8 +320,9 @@ jobs:
           print_version resolc
           print_version solc
 
+      - name: Allow unprivileged user namespaces
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
       - name: Run benchmarks
-        timeout-minutes: 180
         env:
           OVERRIDE_REPETITION_COUNT: ${{ inputs.override-repetition-count }}
           TEST_SPECIFIER: ${{ matrix.test.specifier }}
