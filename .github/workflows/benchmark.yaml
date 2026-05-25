@@ -262,7 +262,7 @@ jobs:
           binary-name: polkadot
           repository: ${{ inputs.polkadot-sdk-repository }}
           ref: ${{ inputs.polkadot-sdk-ref }}
-          profile: production
+          profile: release
           packages: |
             polkadot
             polkadot-parachain-bin
@@ -317,6 +317,8 @@ jobs:
           print_version resolc
           print_version solc
 
+      - name: Allow unprivileged user namespaces
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
       - name: Run benchmarks
         timeout-minutes: 180
         env:
