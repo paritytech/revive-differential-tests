@@ -212,6 +212,8 @@ runs:
           export "$name=$value"
         done <<< "$BUILD_ENV"
 
+        echo "The rust flags used for the compilation are: '$RUSTFLAGS'"
+
         cargo "${cargo_args[@]}"
 
         packages_json="$(jq -R -s -c 'split("\n") | map(select(length > 0))' <<< "$PACKAGES")"
