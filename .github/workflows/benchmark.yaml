@@ -132,7 +132,7 @@ jobs:
           binary-name: polkadot
           repository: ${{ inputs.polkadot-sdk-repository }}
           ref: ${{ inputs.polkadot-sdk-ref }}
-          profile: production
+          profile: release
           packages: |
             polkadot
             polkadot-parachain-bin
