@@ -67,7 +67,7 @@ num_cores = 3
 name = "asset-hub-collator-1"
 command = "polkadot-parachain"
 args = [
-  "-lerror,sc_rpc_server=info,rpc=debug,txpool=warn,aura::cumulus=debug,cumulus-consensus=debug,consensus::common::parent_search=debug,relay-chain-rpc-client=debug,reconnecting-websocket-client=debug,parachain::collation-generation=debug,parachain::collator-protocol=debug,parachain::collator-protocol::stats=debug",
+  "-lerror,sc_rpc_server=info,rpc=debug,txpool=warn,aura::cumulus=debug,cumulus-consensus=debug,consensus::common::parent_search=debug,relay-chain-rpc-client=debug,reconnecting-websocket-client=debug,parachain::collation-generation=debug,parachain::collator-protocol=debug,parachain::collator-protocol::stats=debug,polkavm=debug",
   "--authoring=slot-based",
   "--rpc-methods=unsafe",
   "--rpc-cors=all",
