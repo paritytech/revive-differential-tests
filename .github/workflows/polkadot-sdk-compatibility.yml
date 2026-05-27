@@ -1,0 +1,96 @@
+# Runs the run-differential-tests action the same way polkadot-sdk does,
+# but against the current working tree and polkadot-sdk's master branch,
+# in order to detect breaking changes before it bumps the commit it pins.
+name: Polkadot SDK Compatibility
+
+on:
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - "**/*.md"
+  pull_request:
+    branches:
+      - main
+    paths-ignore:
+      - "**/*.md"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  resolve-image:
+    runs-on: ubuntu-24.04
+    outputs:
+      image: ${{ steps.image.outputs.image }}
+    steps:
+      - name: Checkout the Polkadot SDK CI Environment
+        uses: actions/checkout@v6
+        with:
+          repository: paritytech/polkadot-sdk
+          ref: master
+          sparse-checkout: .github
+
+      - name: Resolve the Container Image
+        id: image
+        shell: bash
+        run: |
+          set -euo pipefail
+          source .github/env
+          echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
+
+  differential-tests:
+    needs: resolve-image
+    runs-on: parity-large-persistent
+    timeout-minutes: 60
+    container:
+      image: ${{ needs.resolve-image.outputs.image }}
+    strategy:
+      fail-fast: false
+      matrix:
+        platform:
+          - revive-dev-node-revm-solc
+          - revive-dev-node-polkavm-resolc
+    steps:
+      - name: Checkout This Repository
+        uses: actions/checkout@v6
+        with:
+          path: revive-differential-tests
+          submodules: recursive
+
+      - name: Checkout the Polkadot SDK
+        uses: actions/checkout@v6
+        with:
+          repository: paritytech/polkadot-sdk
+          ref: master
+          path: polkadot-sdk
+
+      - name: Configure forklift
+        shell: bash
+        run: |
+          mkdir -p .forklift
+          cp polkadot-sdk/.forklift/config.toml .forklift/config.toml
+
+      - name: Download resolc
+        id: resolc
+        shell: bash
+        run: |
+          set -euo pipefail
+          source polkadot-sdk/.github/env
+          INSTALL_DIR="/usr/local/bin"
+          curl -fsSL --retry 3 -o "$INSTALL_DIR/resolc" "https://github.com/paritytech/revive/releases/download/v${RESOLC_VERSION}/resolc-x86_64-unknown-linux-musl"
+          chmod +x "$INSTALL_DIR/resolc"
+          resolc --version
+          echo "resolc-path=$INSTALL_DIR/resolc" >> "$GITHUB_OUTPUT"
+
+      - name: Run the Differential Tests
+        uses: ./revive-differential-tests/.github/actions/run-differential-tests
+        with:
+          platform: ${{ matrix.platform }}
+          revive-differential-tests-path: revive-differential-tests
+          polkadot-sdk-path: polkadot-sdk
+          cargo-command: forklift cargo
+          resolc-path: ${{ steps.resolc.outputs.resolc-path }}
+          expectations-file-path: polkadot-sdk/.github/assets/${{ matrix.platform }}.json
