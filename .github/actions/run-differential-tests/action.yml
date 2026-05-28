@@ -58,6 +58,21 @@ inputs:
     description: "Path to the expectations file to use to compare against."
     type: string
     required: false
+  concurrency-number-of-nodes:
+    description: "The number of nodes to spawn for each chain."
+    required: false
+    default: "10"
+    type: number
+  concurrency-number-of-threads:
+    description: "The number of worker threads to use."
+    required: false
+    default: "10"
+    type: number
+  concurrency-number-of-concurrent-tasks:
+    description: "The maximum number of concurrent tasks to spawn. A value of 0 means no limit."
+    required: false
+    default: "100"
+    type: number
 
 runs:
   using: "composite"
@@ -98,7 +113,7 @@ runs:
       shell: bash
       run: |
         sha=$(git -C "${{ steps.repo.outputs.path }}" rev-parse HEAD)
-        echo "key=retester-${{ runner.os }}-${{ runner.arch }}-${sha}" >> "$GITHUB_OUTPUT"
+        echo "key=retester-differential-tests-${{ runner.os }}-${{ runner.arch }}-${sha}" >> "$GITHUB_OUTPUT"
 
     - name: Cache retester and report-processor
       id: retester-cache
@@ -144,9 +159,9 @@ runs:
           --test "${{ steps.repo.outputs.path }}/resolc-compiler-tests/fixtures/solidity/translated_semantic_tests" \
           --platform "${{ inputs['platform'] }}" \
           --report.file-name report.json \
-          --concurrency.number-of-nodes 10 \
-          --concurrency.number-of-threads 10 \
-          --concurrency.number-of-concurrent-tasks 100 \
+          --concurrency.number-of-nodes "${{ inputs['concurrency-number-of-nodes'] }}" \
+          --concurrency.number-of-threads "${{ inputs['concurrency-number-of-threads'] }}" \
+          --concurrency.number-of-concurrent-tasks "${{ inputs['concurrency-number-of-concurrent-tasks'] }}" \
           --working-directory ./workdir \
           --revive-dev-node.consensus manual-seal-200 \
           --revive-dev-node.path "${{ inputs['polkadot-sdk-path'] }}/target/release/revive-dev-node" \
