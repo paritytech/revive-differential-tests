@@ -485,7 +485,7 @@ where
                 let (tx_hash, receipt_future, inclusion_future) = self
                     .execute_transaction(tx.clone(), Some(step_path), Duration::from_secs(30 * 60))
                     .await?;
-                if self.await_transaction_receipts {
+                if self.await_transaction_receipts || step.variable_assignments.is_some() {
                     let receipt = receipt_future.await?;
                     if !receipt.status() {
                         bail!("Transaction failed {receipt:?}");
