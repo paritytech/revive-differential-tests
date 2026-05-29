@@ -351,6 +351,166 @@ impl NodeApi for SubstrateNode {
         EVMVersion::Cancun
     }
 
+    /// Submits a transaction and watches for it and if the transaction is dropped from the mempool
+    /// then it resubmits it again. Times out after 5 minutes if the transaction is not finalized in
+    /// that time frame.
+    fn submit_transaction(
+        &self,
+        transaction: TransactionRequest,
+    ) -> FrameworkFuture<Result<alloy::primitives::TxHash>> {
+        let provider = Self::provider(self);
+        let substrate_provider = NodeApi::substrate_provider(self);
+
+        let span = debug_span!(
+            "Revive dev node special transaction submission flow",
+            ethereum_tx_hash = tracing::field::Empty,
+            substrate_tx_hash = tracing::field::Empty,
+        );
+
+        let task = async move {
+            let provider = provider.await.context("Failed to get the provider")?;
+            let substrate_provider = substrate_provider
+                .expect("qed; this is a substrate node")
+                .await
+                .context("Failed to get the provider")?;
+
+            let signed_transaction = provider
+                .fill(transaction)
+                .await
+                .context("Failed to fill transaction")?
+                .try_into_envelope()
+                .context("Failed to construct envelope from filled transaction")?;
+            let ethereum_tx_hash = signed_transaction.tx_hash();
+            let payload = signed_transaction.encoded_2718();
+
+            Span::current().record(
+                "ethereum_tx_hash",
+                tracing::field::display(ethereum_tx_hash),
+            );
+
+            let call = revive_metadata::tx()
+                .revive()
+                .eth_transact(payload.to_vec())
+                .unvalidated();
+            let mut tx_progress = substrate_provider
+                .tx()
+                .create_unsigned(&call)
+                .context("Failed to create an unsigned transaction")?
+                .submit_and_watch()
+                .await
+                .context("Failed to submit the transaction through subxt")?;
+
+            Span::current().record(
+                "substrate_tx_hash",
+                tracing::field::debug(tx_progress.extrinsic_hash()),
+            );
+
+            debug!("Submitted a substrate transaction");
+
+            timeout(Duration::from_mins(5), async move {
+                loop {
+                    match tx_progress.next().await {
+                        Some(progress) => {
+                            let progress =
+                                progress.context("Failed to get the transaction progress update")?;
+
+                            // Logging the progress should be separate since I can't use the debug
+                            // formatting since it's way way way too verbose for anything that is
+                            // sane for logging.
+                            match &progress {
+                                TxStatus::Validated => debug!(
+                                    update = "Validated",
+                                    "Received a transaction progress update"
+                                ),
+                                TxStatus::Broadcasted => {
+                                    debug!(
+                                        update = "Broadcasted",
+                                        "Received a transaction progress update"
+                                    )
+                                },
+                                TxStatus::NoLongerInBestBlock => {
+                                    debug!(
+                                        update = "NoLongerInBestBlock",
+                                        "Received a transaction progress update"
+                                    )
+                                },
+                                TxStatus::InBestBlock(tx_in_block) => {
+                                    debug!(
+                                        update = "InBestBlock",
+                                        block_hash = %tx_in_block.block_hash(),
+                                        "Received a transaction progress update"
+                                    )
+                                },
+                                TxStatus::InFinalizedBlock(tx_in_block) => {
+                                    debug!(
+                                        update = "InFinalizedBlock",
+                                        block_hash = %tx_in_block.block_hash(),
+                                        "Received a transaction progress update"
+                                    )
+                                },
+                                TxStatus::Error { message } => {
+                                    debug!(update = "Error", message, "Received a transaction progress update")
+                                },
+                                TxStatus::Invalid { message } => {
+                                    debug!(update = "Invalid", message, "Received a transaction progress update")
+                                },
+                                TxStatus::Dropped { message } => {
+                                    debug!(update = "Dropped", message, "Received a transaction progress update")
+                                },
+                            }
+
+                            match progress {
+                                TxStatus::InFinalizedBlock(..) => {
+                                    debug!("Transaction has been finalized, stopping watching");
+                                    break Ok(());
+                                }
+                                TxStatus::Invalid { message } => {
+                                    error!(message, "Transaction is invalid!");
+                                    bail!("Encountered an invalid transaction. Message = {message}")
+                                }
+                                TxStatus::Error {  message } | TxStatus::Dropped {  message } => {
+                                    warn!(
+                                        message,
+                                        "Transaction was either dropped or encountered an error - resubmitting"
+                                    );
+                                    tx_progress = substrate_provider
+                                        .tx()
+                                        .create_unsigned(&call)
+                                        .context("Failed to create an unsigned transaction")?
+                                        .submit_and_watch()
+                                        .await
+                                        .context("Failed to resubmit the transaction through subxt")?
+                                },
+                                TxStatus::Validated
+                                | TxStatus::Broadcasted
+                                | TxStatus::NoLongerInBestBlock
+                                | TxStatus::InBestBlock(..) => {}
+                            }
+                        }
+                        None => {
+                            error!(
+                                "Stopped getting transaction progress updates before it was finalized"
+                            );
+                            tx_progress = substrate_provider
+                                .tx()
+                                .create_unsigned(&call)
+                                .context("Failed to create an unsigned transaction")?
+                                .submit_and_watch()
+                                .await
+                                .context("Failed to resubmit the transaction through subxt")?
+                        }
+                    }
+                }
+            })
+            .await
+            .context("Submission failed due to a timeout after watching for 5 minutes")??;
+
+            Ok(*ethereum_tx_hash)
+        }
+        .instrument(span);
+        Box::pin(task)
+    }
+
     fn provider(&self) -> revive_dt_common::futures::FrameworkFuture<anyhow::Result<DynProvider>> {
         Self::provider(self)
             .map(|provider| provider.map(|provider| provider.erased()))
