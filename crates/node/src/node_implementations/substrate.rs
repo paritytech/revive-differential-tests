@@ -275,22 +275,32 @@ impl SubstrateNode {
         Ok(String::from_utf8_lossy(&output).trim().to_string())
     }
 
-    async fn provider(&self) -> anyhow::Result<ConcreteProvider<Ethereum, Arc<EthereumWallet>>> {
-        self.provider
-            .get_or_try_init(|| async move {
-                construct_concurrency_limited_provider::<Ethereum, _>(
-                    self.rpc_url.as_str(),
-                    FallbackGasFiller::default()
-                        .with_fallback_mechanism(self.use_fallback_gas_filler),
-                    ChainIdFiller::default(),
-                    NonceFiller::new(self.nonce_manager.clone()),
-                    self.wallet.clone(),
-                )
+    fn provider(
+        &self,
+    ) -> FrameworkFuture<anyhow::Result<ConcreteProvider<Ethereum, Arc<EthereumWallet>>>> {
+        let provider = self.provider.clone();
+        let connection_string = self.rpc_url.clone();
+        let gas_filler =
+            FallbackGasFiller::default().with_fallback_mechanism(self.use_fallback_gas_filler);
+        let nonce_filler = NonceFiller::new(self.nonce_manager.clone());
+        let wallet = self.wallet.clone();
+
+        Box::pin(async move {
+            provider
+                .get_or_try_init(|| async move {
+                    construct_concurrency_limited_provider::<Ethereum, _>(
+                        &connection_string,
+                        gas_filler,
+                        ChainIdFiller::default(),
+                        nonce_filler,
+                        wallet,
+                    )
+                    .await
+                    .context("Failed to construct the provider")
+                })
                 .await
-                .context("Failed to construct the provider")
-            })
-            .await
-            .cloned()
+                .cloned()
+        })
     }
 
     pub fn node_genesis(
@@ -342,29 +352,9 @@ impl NodeApi for SubstrateNode {
     }
 
     fn provider(&self) -> revive_dt_common::futures::FrameworkFuture<anyhow::Result<DynProvider>> {
-        let provider = self.provider.clone();
-        let connection_string = self.rpc_url.clone();
-        let gas_filler =
-            FallbackGasFiller::default().with_fallback_mechanism(self.use_fallback_gas_filler);
-        let nonce_filler = NonceFiller::new(self.nonce_manager.clone());
-        let wallet = self.wallet.clone();
-
-        Box::pin(async move {
-            provider
-                .get_or_try_init(|| async move {
-                    construct_concurrency_limited_provider::<Ethereum, _>(
-                        &connection_string,
-                        gas_filler,
-                        ChainIdFiller::default(),
-                        nonce_filler,
-                        wallet,
-                    )
-                    .await
-                    .context("Failed to construct the provider")
-                })
-                .await
-                .map(|provider| provider.clone().erased())
-        })
+        Self::provider(self)
+            .map(|provider| provider.map(|provider| provider.erased()))
+            .boxed()
     }
 
     fn substrate_provider(
