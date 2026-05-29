@@ -48,6 +48,10 @@ on:
         description: Number of additional wallet keys to pre-seed at genesis
         required: true
         default: "201000"
+      rust-toolchain:
+        description: Rust toolchain version
+        required: true
+        default: "1.93.0"
       rust-log:
         description: The value to set to the `RUST_LOG` environment variable when the benchmarks run
         required: true
@@ -86,6 +90,8 @@ jobs:
         uses: actions/checkout@v4
       - name: Setup the Machine
         uses: ./.github/actions/setup-benchmark-machine
+        with:
+          rust-toolchain: ${{ inputs.rust-toolchain }}
       - name: Build Retester
         uses: ./.github/actions/require-binary
         with:
@@ -105,6 +111,8 @@ jobs:
         uses: actions/checkout@v4
       - name: Setup the Machine
         uses: ./.github/actions/setup-benchmark-machine
+        with:
+          rust-toolchain: ${{ inputs.rust-toolchain }}
       - name: Build chain-spec-generator
         uses: ./.github/actions/require-binary
         with:
@@ -117,7 +125,9 @@ jobs:
             polkadot
             asset-hub-polkadot
           no-default-features: true
-          env: RUSTFLAGS=-Awarnings
+          env: |
+            RUSTFLAGS=-Awarnings
+            WASM_BUILD_RUSTFLAGS=-Clink-arg=--allow-undefined
 
   build-polkadot-sdk:
     name: Build and Cache the Polkadot SDK Dependencies
@@ -127,6 +137,8 @@ jobs:
         uses: actions/checkout@v4
       - name: Setup the Machine
         uses: ./.github/actions/setup-benchmark-machine
+        with:
+          rust-toolchain: ${{ inputs.rust-toolchain }}
       - name: Build polkadot
         uses: ./.github/actions/require-binary
         with:
@@ -138,7 +150,9 @@ jobs:
             polkadot
             polkadot-parachain-bin
             pallet-revive-eth-rpc
-          env: ${{ inputs.use-jit && 'RUSTFLAGS=-Awarnings --cfg revive_jit' || 'RUSTFLAGS=-Awarnings' }}
+          env: |
+            ${{ inputs.use-jit && 'RUSTFLAGS=-Awarnings --cfg revive_jit' || 'RUSTFLAGS=-Awarnings' }}
+            WASM_BUILD_RUSTFLAGS=-Clink-arg=--allow-undefined
 
   build-resolc:
     name: Build and Cache Resolc Binary
@@ -149,6 +163,7 @@ jobs:
       - name: Setup the Machine
         uses: ./.github/actions/setup-benchmark-machine
         with:
+          rust-toolchain: ${{ inputs.rust-toolchain }}
           resolc-repository: ${{ inputs.resolc-repository }}
           resolc-ref: ${{ inputs.resolc-ref }}
 
@@ -168,6 +183,8 @@ jobs:
         uses: actions/checkout@v4
       - name: Setup the Machine
         uses: ./.github/actions/setup-benchmark-machine
+        with:
+          rust-toolchain: ${{ inputs.rust-toolchain }}
       - name: Build Retester
         uses: ./.github/actions/require-binary
         with:
@@ -256,6 +273,7 @@ jobs:
       - name: Setup the Machine
         uses: ./.github/actions/setup-benchmark-machine
         with:
+          rust-toolchain: ${{ inputs.rust-toolchain }}
           solc-version: ${{ inputs.solc-version }}
           resolc-repository: ${{ inputs.resolc-repository }}
           resolc-ref: ${{ inputs.resolc-ref }}
@@ -288,7 +306,9 @@ jobs:
             polkadot
             asset-hub-polkadot
           no-default-features: true
-          env: RUSTFLAGS=-Awarnings
+          env: |
+            RUSTFLAGS=-Awarnings
+            WASM_BUILD_RUSTFLAGS=-Clink-arg=--allow-undefined
       - name: Get Polkadot Binaries
         uses: ./.github/actions/require-binary
         with:
@@ -301,7 +321,9 @@ jobs:
             polkadot
             polkadot-parachain-bin
             pallet-revive-eth-rpc
-          env: ${{ inputs.use-jit && 'RUSTFLAGS=-Awarnings --cfg revive_jit' || 'RUSTFLAGS=-Awarnings' }}
+          env: |
+            ${{ inputs.use-jit && 'RUSTFLAGS=-Awarnings --cfg revive_jit' || 'RUSTFLAGS=-Awarnings' }}
+            WASM_BUILD_RUSTFLAGS=-Clink-arg=--allow-undefined
       - name: Set artifact name
         id: names
         env:
