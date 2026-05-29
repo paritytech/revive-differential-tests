@@ -407,7 +407,7 @@ impl NodeApi for SubstrateNode {
 
             debug!("Submitted a substrate transaction");
 
-            timeout(Duration::from_mins(5), async move {
+            timeout(Duration::from_secs(5 * 60), async move {
                 loop {
                     match tx_progress.next().await {
                         Some(progress) => {
