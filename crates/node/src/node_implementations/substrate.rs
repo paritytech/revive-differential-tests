@@ -190,6 +190,10 @@ impl SubstrateNode {
                     .arg(u32::MAX.to_string())
                     .arg("--state-pruning")
                     .arg(NUMBER_OF_CACHED_BLOCKS.to_string())
+                    .arg("--pool-type")
+                    .arg("single-state")
+                    .arg("--rpc-max-subscriptions-per-connection")
+                    .arg(u32::MAX.to_string())
                     .env("RUST_LOG", self.node_logging_level.as_str())
                     .stdout(stdout_file)
                     .stderr(stderr_file);
