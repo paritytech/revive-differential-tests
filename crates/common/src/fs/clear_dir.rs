@@ -1,5 +1,7 @@
 use crate::internal_prelude::*;
 
+// TODO(refactor): Remove this after it's no longer being used.
+
 /// This method clears the passed directory of all of the files and directories contained within
 /// without deleting the directory.
 pub fn clear_directory(path: impl AsRef<Path>) -> Result<()> {

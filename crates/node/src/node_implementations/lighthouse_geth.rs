@@ -26,8 +26,6 @@ static NODE_COUNT: AtomicU32 = AtomicU32::new(0);
 pub struct LighthouseGethNode {
     /* Node Identifier */
     id: u32,
-    ws_connection_string: String,
-    http_connection_string: String,
     enclave_name: String,
 
     /* Directory Paths */
@@ -41,7 +39,7 @@ pub struct LighthouseGethNode {
     kurtosis_binary_path: PathBuf,
 
     /* Spawned Processes */
-    process: Option<Process>,
+    process: Option<LighthouseNodeProcess>,
 
     /* Provider Related Fields */
     wallet: Arc<EthereumWallet>,
@@ -81,8 +79,6 @@ impl LighthouseGethNode {
         Self {
             /* Node Identifier */
             id,
-            ws_connection_string: String::default(),
-            http_connection_string: String::default(),
             enclave_name: format!(
                 "enclave-{}-{}",
                 SystemTime::now()
@@ -103,7 +99,7 @@ impl LighthouseGethNode {
             kurtosis_binary_path: kurtosis_configuration.path.clone(),
 
             /* Spawned Processes */
-            process: None,
+            process: Default::default(),
 
             /* Provider Related Fields */
             wallet: wallet.clone(),
@@ -234,84 +230,15 @@ def run(plan, args={}):
     /// Spawn the go-ethereum node child process.
     #[instrument(level = "info", skip_all, fields(lighthouse_node_id = self.id))]
     fn spawn_process(&mut self) -> anyhow::Result<&mut Self> {
-        let process = Process::new(
-            None,
-            self.directories.logs_directory(),
+        self.process = LighthouseNodeProcess::new(
             self.kurtosis_binary_path.as_path(),
-            |command, stdout, stderr| {
-                command
-                    .arg("run")
-                    .arg("--enclave")
-                    .arg(self.enclave_name.as_str())
-                    .arg(self.wrapper_directory.as_path())
-                    .arg("--args-file")
-                    .arg(self.config_file_path.as_path())
-                    .stdout(stdout)
-                    .stderr(stderr);
-            },
-            ProcessReadinessWaitBehavior::TimeBoundedWaitFunction {
-                max_wait_duration: Duration::from_secs(15 * 60),
-                check_function: Box::new(|stdout, stderr| {
-                    for line in [stdout, stderr].iter().flatten() {
-                        if line.to_lowercase().contains("error encountered") {
-                            anyhow::bail!("Encountered an error when starting Kurtosis")
-                        } else if line.contains("RUNNING") {
-                            return Ok(true);
-                        }
-                    }
-                    Ok(false)
-                }),
-            },
+            self.enclave_name.as_str(),
+            self.wrapper_directory.as_path(),
+            self.config_file_path.as_path(),
+            self.directories.logs_directory(),
         )
-        .context("Failed to spawn the kurtosis enclave")
-        .inspect_err(|err| {
-            tracing::error!(?err, "Failed to spawn Kurtosis");
-            self.shutdown().expect("Failed to shutdown kurtosis");
-        })?;
-        self.process = Some(process);
-
-        let child = Command::new(self.kurtosis_binary_path.as_path())
-            .arg("enclave")
-            .arg("inspect")
-            .arg(self.enclave_name.as_str())
-            .stdout(Stdio::piped())
-            .spawn()
-            .context("Failed to spawn the kurtosis enclave inspect process")?;
-
-        let stdout = {
-            let mut stdout = String::default();
-            child
-                .stdout
-                .expect("Should be piped")
-                .read_to_string(&mut stdout)
-                .context("Failed to read stdout of kurtosis inspect to string")?;
-            stdout
-        };
-
-        self.http_connection_string = stdout
-            .split("el-1-geth-lighthouse")
-            .nth(1)
-            .and_then(|str| str.split(" rpc").nth(1))
-            .and_then(|str| str.split("->").nth(1))
-            .and_then(|str| str.split("\n").next())
-            .and_then(|str| str.trim().split(" ").next())
-            .map(|str| format!("http://{}", str.trim()))
-            .context("Failed to find the HTTP connection string of Kurtosis")?;
-        self.ws_connection_string = stdout
-            .split("el-1-geth-lighthouse")
-            .nth(1)
-            .and_then(|str| str.split("ws").nth(1))
-            .and_then(|str| str.split("->").nth(1))
-            .and_then(|str| str.split("\n").next())
-            .and_then(|str| str.trim().split(" ").next())
-            .map(|str| format!("ws://{}", str.trim()))
-            .context("Failed to find the WS connection string of Kurtosis")?;
-
-        info!(
-            http_connection_string = self.http_connection_string,
-            ws_connection_string = self.ws_connection_string,
-            "Discovered the connection strings for the node"
-        );
+        .inspect_err(|err| error!(error = ?err, "Failed to spawn lighthouse"))?
+        .into();
 
         Ok(self)
     }
@@ -319,7 +246,7 @@ def run(plan, args={}):
     #[instrument(
         level = "info",
         skip_all,
-        fields(lighthouse_node_id = self.id, connection_string = self.ws_connection_string),
+        fields(lighthouse_node_id = self.id),
         err(Debug),
     )]
     #[allow(clippy::type_complexity)]
@@ -327,7 +254,7 @@ def run(plan, args={}):
         self.persistent_ws_provider
             .get_or_try_init(|| async move {
                 construct_concurrency_limited_provider::<Ethereum, _>(
-                    self.ws_connection_string.as_str(),
+                    self.process.as_ref().expect("must be initialized").ws_url(),
                     FallbackGasFiller::default()
                         .with_fallback_mechanism(self.use_fallback_gas_filler),
                     ChainIdFiller::new(Some(CHAIN_ID)),
@@ -358,7 +285,7 @@ impl NodeApi for LighthouseGethNode {
     }
 
     fn connection_string(&self) -> &str {
-        &self.ws_connection_string
+        self.process.as_ref().expect("must be initialized").ws_url()
     }
 
     fn evm_version(&self) -> EVMVersion {
@@ -395,7 +322,7 @@ impl NodeApi for LighthouseGethNode {
 
     fn provider(&self) -> FrameworkFuture<anyhow::Result<DynProvider>> {
         let provider = self.persistent_ws_provider.clone();
-        let connection_string = self.ws_connection_string.clone();
+        let connection_string = self.connection_string().to_string();
         let gas_filler =
             FallbackGasFiller::default().with_fallback_mechanism(self.use_fallback_gas_filler);
         let nonce_filler = NonceFiller::new(self.nonce_manager.clone());
@@ -421,7 +348,7 @@ impl NodeApi for LighthouseGethNode {
 
     fn subscriptions_provider(&self) -> FrameworkFuture<anyhow::Result<DynProvider>> {
         let provider = self.persistent_ws_subscriptions_provider.clone();
-        let connection_string = self.ws_connection_string.clone();
+        let connection_string = self.connection_string().to_string();
         let gas_filler =
             FallbackGasFiller::default().with_fallback_mechanism(self.use_fallback_gas_filler);
         let nonce_filler = NonceFiller::new(self.nonce_manager.clone());
@@ -448,82 +375,9 @@ impl NodeApi for LighthouseGethNode {
 
 impl Node for LighthouseGethNode {
     #[instrument(level = "info", skip_all, fields(lighthouse_node_id = self.id))]
-    fn shutdown(&mut self) -> anyhow::Result<()> {
-        let mut child = Command::new(self.kurtosis_binary_path.as_path())
-            .arg("enclave")
-            .arg("rm")
-            .arg("-f")
-            .arg(self.enclave_name.as_str())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .expect("Failed to spawn the enclave kill command");
-
-        if !child
-            .wait()
-            .expect("Failed to wait for the enclave kill command")
-            .success()
-        {
-            let stdout = {
-                let mut stdout = String::default();
-                child
-                    .stdout
-                    .take()
-                    .expect("Should be piped")
-                    .read_to_string(&mut stdout)
-                    .context("Failed to read stdout of kurtosis inspect to string")?;
-                stdout
-            };
-            let stderr = {
-                let mut stderr = String::default();
-                child
-                    .stderr
-                    .take()
-                    .expect("Should be piped")
-                    .read_to_string(&mut stderr)
-                    .context("Failed to read stderr of kurtosis inspect to string")?;
-                stderr
-            };
-
-            panic!(
-                "Failed to shut down the enclave {} - stdout: {stdout}, stderr: {stderr}",
-                self.enclave_name
-            )
-        }
-
-        drop(self.process.take());
-
-        let _ = remove_dir_all(self.wrapper_directory.as_path());
-
-        Ok(())
-    }
-
-    #[instrument(level = "info", skip_all, fields(lighthouse_node_id = self.id))]
     fn spawn(&mut self, genesis: Genesis) -> anyhow::Result<()> {
         self.init(genesis)?.spawn_process()?;
         Ok(())
-    }
-
-    #[instrument(level = "info", skip_all, fields(lighthouse_node_id = self.id))]
-    fn version(&self) -> anyhow::Result<String> {
-        let output = Command::new(&self.kurtosis_binary_path)
-            .arg("version")
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .spawn()
-            .context("Failed to spawn geth --version process")?
-            .wait_with_output()
-            .context("Failed to wait for geth --version output")?
-            .stdout;
-        Ok(String::from_utf8_lossy(&output).into())
-    }
-}
-
-impl Drop for LighthouseGethNode {
-    #[instrument(level = "info", skip_all, fields(lighthouse_node_id = self.id))]
-    fn drop(&mut self) {
-        self.shutdown().expect("Failed to shutdown")
     }
 }
 
@@ -704,22 +558,5 @@ mod tests {
 
         // Assert
         let _ = receipt.expect("Failed to send the transfer transaction");
-    }
-
-    #[test]
-    #[ignore = "Ignored since they take a long time to run"]
-    fn version_works() {
-        // Arrange
-        let (_context, node) = new_node();
-
-        // Act
-        let version = node.version();
-
-        // Assert
-        let version = version.expect("Failed to get the version");
-        assert!(
-            version.starts_with("CLI Version"),
-            "expected version string, got: '{version}'"
-        );
     }
 }

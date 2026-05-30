@@ -5,6 +5,7 @@ use crate::internal_prelude::*;
 pub mod constants;
 pub mod helpers;
 pub mod node_implementations;
+pub mod node_process;
 pub mod provider_utils;
 
 pub mod prelude {
@@ -14,9 +15,10 @@ pub mod prelude {
     pub use crate::node_implementations::geth::GethNode;
     pub use crate::node_implementations::lighthouse_geth::LighthouseGethNode;
     pub use crate::node_implementations::polkadot_omni_node::PolkadotOmnichainNode;
-    pub use crate::node_implementations::substrate::SubstrateNode;
+    pub use crate::node_implementations::revive_dev_node::ReviveDevNode;
     #[cfg(unix)]
     pub use crate::node_implementations::zombienet::ZombienetNode;
+    pub use crate::node_process::*;
     pub use crate::provider_utils::*;
 }
 
@@ -26,9 +28,13 @@ pub(crate) mod internal_prelude {
     pub use revive_dt_config::prelude::*;
     pub use revive_dt_node_interaction::prelude::*;
 
+    pub use std::borrow::Cow;
     pub use std::collections::BTreeMap;
+    pub use std::ffi::{OsStr, OsString};
     pub use std::fs::{File, OpenOptions, create_dir_all, remove_dir_all};
     pub use std::io::{BufRead, BufReader, Read, Write};
+    pub use std::net::TcpListener;
+    pub use std::ops::ControlFlow;
     pub use std::path::{Path, PathBuf};
     pub use std::process::{Child, Command, Stdio};
     pub use std::sync::atomic::{AtomicU32, Ordering};
@@ -77,14 +83,23 @@ pub(crate) mod internal_prelude {
     pub use sp_core::crypto::Ss58Codec;
     pub use sp_runtime::AccountId32;
     pub use subxt::{OnlineClient, PolkadotConfig, tx::TxStatus};
-    pub use tokio::sync::{OnceCell, Semaphore};
-    pub use tokio::task::AbortHandle;
-    pub use tokio::time::{interval, sleep, timeout};
+    pub use tokio::{
+        runtime::Runtime,
+        sync::{OnceCell, Semaphore},
+        task::AbortHandle,
+        time::{interval, sleep, timeout},
+    };
     pub use toml;
     pub use tower::{Layer, Service};
-    pub use tracing::*;
+    #[allow(unused_imports)]
+    pub use tracing::{
+        Instrument, Span, debug, debug_span, error, error_span, info, info_span, instrument, trace,
+        trace_span, warn, warn_span,
+    };
     #[cfg(unix)]
-    pub use zombienet_sdk::{LocalFileSystem, NetworkConfig, NetworkConfigExt};
+    pub use zombienet_sdk::{
+        LocalFileSystem, Network as ZombienetNetwork, NetworkConfig, NetworkConfigExt,
+    };
 
     pub use revive_common::EVMVersion;
 }
@@ -95,12 +110,4 @@ pub trait Node: NodeApi {
     ///
     /// Blocking until it's ready to accept transactions.
     fn spawn(&mut self, genesis: Genesis) -> anyhow::Result<()>;
-
-    /// Prune the node instance and related data.
-    ///
-    /// Blocking until it's completely stopped.
-    fn shutdown(&mut self) -> anyhow::Result<()>;
-
-    /// Returns the node version.
-    fn version(&self) -> anyhow::Result<String>;
 }

@@ -368,7 +368,6 @@ fn new_revive_dev_node(
 
     let revive_dev_node_path = revive_dev_node_configuration.path.clone();
     let revive_dev_node_consensus = revive_dev_node_configuration.consensus.clone();
-    let eth_rpc_connection_strings = revive_dev_node_configuration.existing_rpc_url.clone();
     let node_logging_level = revive_dev_node_configuration.logging_level.clone();
     let eth_rpc_logging_level = eth_rpc_configuration.logging_level.clone();
 
@@ -377,10 +376,8 @@ fn new_revive_dev_node(
         let use_fallback_gas_filler = matches!(context, Context::Test(..));
         let node = ReviveDevNode::new(
             revive_dev_node_path,
-            "build-spec",
             Some(revive_dev_node_consensus),
             context,
-            &eth_rpc_connection_strings,
             use_fallback_gas_filler,
             node_logging_level,
             eth_rpc_logging_level,
@@ -453,8 +450,7 @@ fn export_lighthouse_geth_genesis(context: Context) -> Result<serde_json::Value>
 fn export_revive_dev_node_genesis(context: Context) -> Result<serde_json::Value> {
     let revive_dev_node_path = context.as_revive_dev_node_configuration().path.as_path();
     let wallet = context.as_wallet_configuration().wallet();
-    let export_chainspec_command = "build-spec";
-    ReviveDevNode::node_genesis(revive_dev_node_path, export_chainspec_command, &wallet)
+    ReviveDevNode::node_genesis(revive_dev_node_path, &wallet)
 }
 
 #[cfg(unix)]

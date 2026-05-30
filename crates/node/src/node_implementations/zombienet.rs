@@ -42,23 +42,21 @@ static NODE_COUNT: AtomicU32 = AtomicU32::new(0);
 pub struct ZombienetNode {
     /* Node Identifier */
     id: u32,
-    connection_string: String,
-    collator_ws_uri: Option<String>,
 
     /* Directory Paths */
     directories: NodeDirectories,
 
     /* Binary Paths & Timeouts */
-    eth_proxy_binary: PathBuf,
+    eth_rpc_binary: PathBuf,
     polkadot_parachain_path: PathBuf,
 
     /* Spawned Processes */
-    eth_rpc_process: Option<Process>,
+    eth_rpc_process: Option<EthRpcProcess>,
+    zombienet_process: Option<ZombienetProcess>,
 
     /* Zombienet Network */
     config_path: Option<PathBuf>,
     network_config: Option<zombienet_sdk::NetworkConfig>,
-    network: Option<zombienet_sdk::Network<LocalFileSystem>>,
 
     /* Provider Related Fields */
     wallet: Arc<EthereumWallet>,
@@ -78,23 +76,9 @@ pub struct ZombienetNode {
     /// The maximum duration to wait for the parachain to start producing blocks after the
     /// zombienet network is spawned.
     block_production_timeout: Duration,
-
-    /// The tokio runtime that the zombienet SDK tasks run on. Must be kept alive
-    /// so that the log-reading tasks continue draining the process output pipes.
-    /// Without this, the child processes block on stderr writes when the pipe buffer fills.
-    zombienet_runtime: Option<tokio::runtime::Runtime>,
 }
 
 impl ZombienetNode {
-    const BASE_DIRECTORY: &str = "zombienet";
-    const LOGS_DIRECTORY: &str = "logs";
-
-    const ETH_RPC_BASE_PORT: u16 = 8545;
-
-    const ETH_RPC_READY_MARKER: &str = "Running JSON-RPC server";
-
-    const EXPORT_CHAINSPEC_COMMAND: &str = "build-spec";
-
     pub fn new(
         polkadot_parachain_path: PathBuf,
         context: impl HasWorkingDirectoryConfiguration
@@ -103,7 +87,7 @@ impl ZombienetNode {
         + HasZombienetConfiguration,
         use_fallback_gas_filler: bool,
     ) -> Self {
-        let eth_proxy_binary = context.as_eth_rpc_configuration().path.to_owned();
+        let eth_rpc_binary = context.as_eth_rpc_configuration().path.to_owned();
         let working_directory_path = context.as_working_directory_configuration();
         let zombienet_configuration = context.as_zombienet_configuration();
         let id = NODE_COUNT.fetch_add(1, Ordering::SeqCst);
@@ -120,20 +104,17 @@ impl ZombienetNode {
             directories,
             wallet,
             polkadot_parachain_path,
-            eth_proxy_binary,
+            eth_rpc_binary,
             nonce_manager: CachedNonceManager::default(),
             config_path: zombienet_configuration.config_path.clone(),
-            network_config: None,
-            network: None,
-            eth_rpc_process: None,
-            connection_string: String::new(),
-            collator_ws_uri: None,
+            network_config: Default::default(),
+            eth_rpc_process: Default::default(),
+            zombienet_process: Default::default(),
             provider: Default::default(),
             substrate_provider: Default::default(),
             use_fallback_gas_filler,
             eth_rpc_logging_level: context.as_eth_rpc_configuration().logging_level.clone(),
             block_production_timeout: zombienet_configuration.block_production_timeout_ms,
-            zombienet_runtime: None,
             submission_semaphore: Arc::new(Semaphore::new(1000)),
         }
     }
@@ -240,19 +221,10 @@ impl ZombienetNode {
             .arg("-c")
             .arg(&command)
             .env_remove("RUST_LOG")
-            .output()
+            .run_and_get_output()
             .context("Failed to run chain_spec_command")?;
 
-        if !output.status.success() {
-            anyhow::bail!(
-                "chain_spec_command failed: {}",
-                String::from_utf8_lossy(&output.stderr)
-            );
-        }
-
-        let content = String::from_utf8(output.stdout)
-            .context("Failed to decode chain_spec_command output as UTF-8")?;
-        let mut chainspec = serde_json::from_str::<serde_json::Value>(&content)
+        let mut chainspec = serde_json::from_str::<serde_json::Value>(&output.stdout)
             .context("Failed to parse chainspec JSON")?;
 
         // Append wallet balances to the existing balances array.
@@ -290,162 +262,30 @@ impl ZombienetNode {
             .clone()
             .context("Node not initialized, call init() first")?;
 
-        // TODO: Look into the possibility of removing this in the future, perhaps by reintroducing
-        // the blocking runtime abstraction and making it available to the entire program so that we
-        // don't need to be spawning multiple different runtimes.
-        let rt = tokio::runtime::Runtime::new().unwrap();
-        let network = rt.block_on(async {
-            network_config
-                .spawn_native()
-                .await
-                .map_err(|e| anyhow::anyhow!("Failed to spawn zombienet network: {e:?}"))
-        })?;
+        self.zombienet_process = ZombienetProcess::new(network_config)
+            .inspect_err(|err| error!(error = ?err, "Failed to spawn zombienet"))?
+            .into();
 
-        tracing::debug!("Zombienet network is up");
-
-        let collator = network
-            .parachains()
-            .first()
-            .context("No parachains found in the spawned zombienet network")?
-            .collators()
-            .into_iter()
-            .next()
-            .context("No collators found in the first parachain")?;
-        let collator_ws_uri = collator.ws_uri().to_string();
-        tracing::info!(
-            collator_ws_uri,
-            collator_name = collator.name(),
-            "Using collator"
-        );
-
-        let eth_rpc_port = Self::ETH_RPC_BASE_PORT + self.id as u16;
-        let node_rpc_url = collator_ws_uri.clone();
-
-        let eth_proxy_binary = self.eth_proxy_binary.as_path();
-        let eth_rpc_process = Process::new(
-            "proxy",
+        self.eth_rpc_process = EthRpcProcess::new(
+            self.eth_rpc_binary.as_path(),
             self.directories.logs_directory(),
-            eth_proxy_binary,
-            |command, stdout_file, stderr_file| {
-                command
-                    .arg("--dev")
-                    .arg("--node-rpc-url")
-                    .arg(node_rpc_url)
-                    .arg("--rpc-cors")
-                    .arg("all")
-                    .arg("--rpc-max-connections")
-                    .arg(u32::MAX.to_string())
-                    .arg("--rpc-port")
-                    .arg(eth_rpc_port.to_string())
-                    .arg("--rpc-max-batch-request-len")
-                    .arg(u32::MAX.to_string())
-                    .arg("--eth-pruning")
-                    .arg("archive");
-                apply_cache_size_arg(command, eth_proxy_binary);
-                command
-                    .env("RUST_LOG", self.eth_rpc_logging_level.as_str())
-                    .stdout(stdout_file)
-                    .stderr(stderr_file);
-            },
-            ProcessReadinessWaitBehavior::TimeBoundedWaitFunction {
-                max_wait_duration: Duration::from_secs(30),
-                check_function: Box::new(|_, stderr_line| match stderr_line {
-                    Some(line) => Ok(line.contains(Self::ETH_RPC_READY_MARKER)),
-                    None => Ok(false),
-                }),
-            },
-        );
-
-        match eth_rpc_process {
-            Ok(process) => self.eth_rpc_process = Some(process),
-            Err(err) => {
-                tracing::error!(?err, "Failed to start eth proxy, shutting down gracefully");
-                self.shutdown()
-                    .context("Failed to gracefully shutdown after eth proxy start error")?;
-                return Err(err);
-            }
-        }
-
-        tracing::debug!("eth-rpc is up");
-
-        self.connection_string = format!("http://localhost:{}", eth_rpc_port);
-        self.collator_ws_uri = Some(collator_ws_uri);
-        self.network = Some(network);
-        self.zombienet_runtime = Some(rt);
-
-        // Wait for the parachain to start producing blocks. After zombienet spawns, the parachain
-        // needs to be onboarded through the relay chain which takes several epochs. Without this
-        // wait, transactions submitted immediately would time out.
-        self.wait_for_first_block()?;
+            self.zombienet_process
+                .as_ref()
+                .expect("qed; we initialized it")
+                .url(),
+            self.eth_rpc_logging_level.as_str(),
+        )
+        .inspect_err(|err| error!(error = ?err, "Failed to spawn eth-rpc"))?
+        .into();
 
         Ok(())
-    }
-
-    fn wait_for_first_block(&self) -> anyhow::Result<()> {
-        tracing::info!(
-            timeout_secs = self.block_production_timeout.as_secs(),
-            "Waiting for parachain to produce first block..."
-        );
-
-        let connection_string = self.connection_string.clone();
-        let rt = self
-            .zombienet_runtime
-            .as_ref()
-            .context("Zombienet runtime not available")?;
-        rt.block_on(async {
-            let provider = alloy::providers::ProviderBuilder::new().connect_http(
-                connection_string
-                    .parse()
-                    .context("Invalid connection string")?,
-            );
-
-            let timeout = self.block_production_timeout;
-            let start = std::time::Instant::now();
-            let poll_interval = Duration::from_secs(5);
-
-            loop {
-                if start.elapsed() > timeout {
-                    anyhow::bail!(
-                        "Timed out waiting for parachain to produce blocks after {}s",
-                        timeout.as_secs()
-                    );
-                }
-
-                match provider.get_block_number().await {
-                    Ok(block_number) if block_number > 0 => {
-                        tracing::info!(
-                            block_number,
-                            elapsed_secs = start.elapsed().as_secs(),
-                            "Parachain is producing blocks"
-                        );
-                        return Ok(());
-                    }
-                    _ => {
-                        tokio::time::sleep(poll_interval).await;
-                    }
-                }
-            }
-        })
-    }
-
-    pub fn eth_rpc_version(&self) -> anyhow::Result<String> {
-        let output = Command::new(&self.eth_proxy_binary)
-            .arg("--version")
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .spawn()?
-            .wait_with_output()?
-            .stdout;
-
-        Ok(String::from_utf8_lossy(&output).trim().to_string())
     }
 
     fn provider(
         &self,
     ) -> FrameworkFuture<anyhow::Result<ConcreteProvider<Ethereum, Arc<EthereumWallet>>>> {
         let provider = self.provider.clone();
-        let connection_string = self.connection_string.clone();
+        let connection_string = self.connection_string().to_string();
         let nonce_manager = self.nonce_manager.clone();
         let wallet = self.wallet.clone();
         let use_fallback_gas_filler = self.use_fallback_gas_filler;
@@ -474,23 +314,14 @@ impl ZombienetNode {
         wallet: &EthereumWallet,
     ) -> anyhow::Result<serde_json::Value> {
         let output = Command::new(node_path)
-            .arg(Self::EXPORT_CHAINSPEC_COMMAND)
+            .arg("build-spec")
             .arg("--chain")
             .arg("asset-hub-westend-local")
             .env_remove("RUST_LOG")
-            .output()
+            .run_and_get_output()
             .context("Failed to export the chainspec of the chain")?;
 
-        if !output.status.success() {
-            anyhow::bail!(
-                "substrate-node export-chain-spec failed: {}",
-                String::from_utf8_lossy(&output.stderr)
-            );
-        }
-
-        let content = String::from_utf8(output.stdout)
-            .context("Failed to decode Substrate export-chain-spec output as UTF-8")?;
-        let mut chainspec_json = serde_json::from_str::<serde_json::Value>(&content)
+        let mut chainspec_json = serde_json::from_str::<serde_json::Value>(&output.stdout)
             .context("Failed to parse Substrate chain spec JSON")?;
 
         inject_wallet_balances(&mut chainspec_json, wallet)?;
@@ -505,7 +336,10 @@ impl NodeApi for ZombienetNode {
     }
 
     fn connection_string(&self) -> &str {
-        &self.connection_string
+        self.eth_rpc_process
+            .as_ref()
+            .expect("must be initialized")
+            .url()
     }
 
     fn evm_version(&self) -> EVMVersion {
@@ -570,7 +404,12 @@ impl NodeApi for ZombienetNode {
         revive_dt_common::futures::FrameworkFuture<anyhow::Result<OnlineClient<PolkadotConfig>>>,
     > {
         let provider = self.substrate_provider.clone();
-        let connection_string = self.collator_ws_uri.clone().unwrap_or_default();
+        let connection_string = self
+            .zombienet_process
+            .as_ref()
+            .expect("must be initialized")
+            .url()
+            .to_string();
         Some(Box::pin(async move {
             provider
                 .get_or_try_init(|| async move {
@@ -586,9 +425,14 @@ impl NodeApi for ZombienetNode {
     fn substrate_rpc_client(
         &self,
     ) -> Option<FrameworkFuture<Result<subxt::backend::rpc::RpcClient>>> {
-        let url = self.collator_ws_uri.clone()?;
+        let connection_string = self
+            .zombienet_process
+            .as_ref()
+            .expect("must be initialized")
+            .url()
+            .to_string();
         Some(Box::pin(async move {
-            subxt::backend::rpc::RpcClient::from_insecure_url(url)
+            subxt::backend::rpc::RpcClient::from_insecure_url(connection_string)
                 .await
                 .context("Failed to create the substrate RPC client")
         }))
@@ -596,162 +440,7 @@ impl NodeApi for ZombienetNode {
 }
 
 impl Node for ZombienetNode {
-    fn shutdown(&mut self) -> anyhow::Result<()> {
-        // Kill the eth_rpc process
-        drop(self.eth_rpc_process.take());
-
-        // Destroy the network on a dedicated thread to avoid "Cannot start a runtime from
-        // within a runtime" panics when drop is called from a tokio async context.
-        let _ = self
-            .zombienet_runtime
-            .take()
-            .zip(self.network.take())
-            .map(|(runtime, network)| {
-                let jh = std::thread::spawn(move || {
-                    runtime.block_on(async {
-                        if let Err(e) = network.destroy().await {
-                            tracing::warn!("Failed to destroy zombienet network: {e:?}");
-                        }
-                    })
-                });
-                let _ = jh.join();
-            });
-
-        Ok(())
-    }
-
     fn spawn(&mut self, genesis: Genesis) -> anyhow::Result<()> {
         self.init(genesis)?.spawn_process()
-    }
-
-    fn version(&self) -> anyhow::Result<String> {
-        let output = Command::new(&self.polkadot_parachain_path)
-            .arg("--version")
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .spawn()
-            .context("Failed execute --version")?
-            .wait_with_output()
-            .context("Failed to wait --version")?
-            .stdout;
-        Ok(String::from_utf8_lossy(&output).into())
-    }
-}
-
-impl Drop for ZombienetNode {
-    fn drop(&mut self) {
-        let _ = self.shutdown();
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use alloy::{primitives::U256, rpc::types::TransactionRequest};
-
-    use super::*;
-
-    mod utils {
-        use super::*;
-
-        use std::sync::Arc;
-        use tokio::sync::OnceCell;
-
-        pub fn test_config() -> Test {
-            Test::default()
-        }
-
-        pub async fn new_node() -> (Test, ZombienetNode) {
-            let context = test_config();
-            let parachain_path = context.polkadot_parachain.path.clone();
-            let genesis = context.genesis.genesis().unwrap().clone();
-            let mut node = ZombienetNode::new(parachain_path, context.clone(), true);
-            node.init(genesis).unwrap();
-
-            // Run spawn_process in a blocking thread
-            let node = tokio::task::spawn_blocking(move || {
-                node.spawn_process().unwrap();
-                node
-            })
-            .await
-            .expect("Failed to spawn process");
-
-            (context, node)
-        }
-
-        pub async fn shared_state() -> &'static (Test, Arc<ZombienetNode>) {
-            static NODE: OnceCell<(Test, Arc<ZombienetNode>)> = OnceCell::const_new();
-
-            NODE.get_or_init(|| async {
-                let (context, node) = new_node().await;
-                (context, Arc::new(node))
-            })
-            .await
-        }
-
-        pub async fn shared_node() -> &'static Arc<ZombienetNode> {
-            &shared_state().await.1
-        }
-    }
-    use utils::{new_node, test_config};
-
-    #[tokio::test]
-    #[ignore = "Ignored since CI doesn't have zombienet installed"]
-    async fn test_transfer_transaction_should_return_receipt() {
-        // Arrange
-        let (ctx, node) = new_node().await;
-
-        let provider = node.provider().await.expect("Failed to create provider");
-        let account_address = ctx.wallet.wallet().default_signer().address();
-        let transaction = TransactionRequest::default()
-            .to(account_address)
-            .value(U256::from(100_000_000_000_000u128));
-
-        // Act
-        let mut pending_transaction = provider
-            .send_transaction(transaction)
-            .await
-            .expect("Submission failed");
-        pending_transaction.set_timeout(Some(Duration::from_secs(60)));
-
-        // Assert
-        let _ = pending_transaction
-            .get_receipt()
-            .await
-            .expect("Failed to get the receipt for the transfer");
-    }
-
-    #[test]
-    #[ignore = "Ignored since CI doesn't have zombienet installed"]
-    fn eth_rpc_version_works() {
-        // Arrange
-        let context = test_config();
-        let node = ZombienetNode::new(context.polkadot_parachain.path.clone(), context, true);
-
-        // Act
-        let version = node.eth_rpc_version().unwrap();
-
-        // Assert
-        assert!(
-            version.starts_with("pallet-revive-eth-rpc"),
-            "Expected eth-rpc version string, got: {version}"
-        );
-    }
-
-    #[test]
-    #[ignore = "Ignored since CI doesn't have zombienet installed"]
-    fn version_works() {
-        // Arrange
-        let context = test_config();
-        let node = ZombienetNode::new(context.polkadot_parachain.path.clone(), context, true);
-
-        // Act
-        let version = node.version().unwrap();
-
-        // Assert
-        assert!(
-            version.starts_with("polkadot-parachain"),
-            "Expected Polkadot-parachain version string, got: {version}"
-        );
     }
 }

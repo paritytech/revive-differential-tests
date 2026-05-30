@@ -18,8 +18,7 @@ pub struct GethNode {
     directories: NodeDirectories,
     geth: PathBuf,
     id: u32,
-    handle: Option<Process>,
-    start_timeout: Duration,
+    process: Option<GethProcess>,
     wallet: Arc<EthereumWallet>,
     nonce_manager: CachedNonceManager,
     provider: Arc<OnceCell<ConcreteProvider<Ethereum, Arc<EthereumWallet>>>>,
@@ -28,9 +27,6 @@ pub struct GethNode {
 }
 
 impl GethNode {
-    const READY_MARKER: &str = "IPC endpoint opened";
-    const ERROR_MARKER: &str = "Fatal:";
-
     pub fn new(
         context: impl HasWorkingDirectoryConfiguration
         + HasWalletConfiguration
@@ -61,8 +57,7 @@ impl GethNode {
             directories,
             geth: geth_configuration.path.clone(),
             id,
-            handle: None,
-            start_timeout: geth_configuration.start_timeout_ms,
+            process: Default::default(),
             wallet: wallet.clone(),
             nonce_manager: Default::default(),
             provider: Default::default(),
@@ -71,7 +66,6 @@ impl GethNode {
         }
     }
 
-    /// Create the node directory and call `geth init` to configure the genesis.
     #[instrument(level = "info", skip_all, fields(geth_node_id = self.id))]
     fn init(&mut self, genesis: Genesis) -> anyhow::Result<&mut Self> {
         let genesis = Self::node_genesis(genesis, self.wallet.as_ref());
@@ -81,100 +75,23 @@ impl GethNode {
             &genesis,
         )
         .context("Failed to serialize geth genesis JSON to file")?;
-
-        let mut child = Command::new(&self.geth)
-            .arg("--state.scheme")
-            .arg("hash")
-            .arg("init")
-            .arg("--datadir")
-            .arg(self.directories.data_directory())
-            .arg(genesis_path)
-            .stderr(Stdio::piped())
-            .stdout(Stdio::null())
-            .spawn()
-            .context("Failed to spawn geth --init process")?;
-
-        let mut stderr = String::new();
-        child
-            .stderr
-            .take()
-            .expect("should be piped")
-            .read_to_string(&mut stderr)
-            .context("Failed to read geth --init stderr")?;
-
-        if !child
-            .wait()
-            .context("Failed waiting for geth --init process to finish")?
-            .success()
-        {
-            anyhow::bail!("failed to initialize geth node #{:?}: {stderr}", &self.id);
-        }
-
         Ok(self)
     }
 
-    /// Spawn the go-ethereum node child process.
-    ///
-    /// [Instance::init] must be called prior.
     #[instrument(level = "info", skip_all, fields(geth_node_id = self.id))]
     fn spawn_process(&mut self) -> anyhow::Result<&mut Self> {
-        let process = Process::new(
-            None,
-            self.directories.logs_directory(),
-            self.geth.as_path(),
-            |command, stdout_file, stderr_file| {
-                command
-                    .arg("--dev")
-                    .arg("--datadir")
-                    .arg(self.directories.data_directory())
-                    .arg("--ipcpath")
-                    .arg(&self.connection_string)
-                    .arg("--nodiscover")
-                    .arg("--maxpeers")
-                    .arg("0")
-                    .arg("--txlookuplimit")
-                    .arg("0")
-                    .arg("--cache.blocklogs")
-                    .arg("512")
-                    .arg("--state.scheme")
-                    .arg("hash")
-                    .arg("--syncmode")
-                    .arg("full")
-                    .arg("--gcmode")
-                    .arg("archive")
-                    .arg("--verbosity")
-                    .arg(self.node_logging_level.as_str())
-                    .arg("--rpc.batch-request-limit")
-                    .arg("0")
-                    .stderr(stderr_file)
-                    .stdout(stdout_file);
-            },
-            ProcessReadinessWaitBehavior::TimeBoundedWaitFunction {
-                max_wait_duration: self.start_timeout,
-                check_function: Box::new(|_, stderr_line| match stderr_line {
-                    Some(line) => {
-                        if line.contains(Self::ERROR_MARKER) {
-                            anyhow::bail!("Failed to start geth {line}");
-                        } else if line.contains(Self::READY_MARKER) {
-                            Ok(true)
-                        } else {
-                            Ok(false)
-                        }
-                    }
-                    None => Ok(false),
-                }),
-            },
-        );
+        let genesis_path = self.directories.base_directory().join("genesis.json");
 
-        match process {
-            Ok(process) => self.handle = Some(process),
-            Err(err) => {
-                error!(?err, "Failed to start geth, shutting down gracefully");
-                self.shutdown()
-                    .context("Failed to gracefully shutdown after geth start error")?;
-                return Err(err);
-            }
-        }
+        self.process = GethProcess::new(
+            self.geth.as_path(),
+            genesis_path,
+            self.connection_string.as_str(),
+            self.directories.data_directory(),
+            self.directories.logs_directory(),
+            self.node_logging_level.as_str(),
+        )
+        .inspect_err(|err| error!(error = ?err, "Failed to spawn geth"))?
+        .into();
 
         Ok(self)
     }
@@ -232,37 +149,9 @@ impl NodeApi for GethNode {
 
 impl Node for GethNode {
     #[instrument(level = "info", skip_all, fields(geth_node_id = self.id))]
-    fn shutdown(&mut self) -> anyhow::Result<()> {
-        drop(self.handle.take());
-        Ok(())
-    }
-
-    #[instrument(level = "info", skip_all, fields(geth_node_id = self.id))]
     fn spawn(&mut self, genesis: Genesis) -> anyhow::Result<()> {
         self.init(genesis)?.spawn_process()?;
         Ok(())
-    }
-
-    #[instrument(level = "info", skip_all, fields(geth_node_id = self.id))]
-    fn version(&self) -> anyhow::Result<String> {
-        let output = Command::new(&self.geth)
-            .arg("--version")
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .spawn()
-            .context("Failed to spawn geth --version process")?
-            .wait_with_output()
-            .context("Failed to wait for geth --version output")?
-            .stdout;
-        Ok(String::from_utf8_lossy(&output).into())
-    }
-}
-
-impl Drop for GethNode {
-    #[instrument(level = "info", skip_all, fields(geth_node_id = self.id))]
-    fn drop(&mut self) {
-        self.shutdown().expect("Failed to shutdown")
     }
 }
 
@@ -293,10 +182,6 @@ mod tests {
         &STATE
     }
 
-    fn shared_node() -> &'static GethNode {
-        &shared_state().1
-    }
-
     #[tokio::test]
     async fn node_mines_simple_transfer_transaction_and_returns_receipt() {
         // Arrange
@@ -312,22 +197,5 @@ mod tests {
 
         // Assert
         let _ = receipt.expect("Failed to get the receipt for the transfer");
-    }
-
-    #[test]
-    #[ignore = "Ignored since they take a long time to run"]
-    fn version_works() {
-        // Arrange
-        let node = shared_node();
-
-        // Act
-        let version = node.version();
-
-        // Assert
-        let version = version.expect("Failed to get the version");
-        assert!(
-            version.starts_with("geth version"),
-            "expected version string, got: '{version}'"
-        );
     }
 }

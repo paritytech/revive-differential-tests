@@ -414,6 +414,7 @@ mod context {
         /// If this argument is specified then the framework will not spawn certain nodes itself
         /// but rather it will opt to using the existing node's through their provided connection
         /// strings.
+        // TODO(existing-nodes): Refactor this out since we no longer allow for it.
         pub existing_rpc_url: Vec<String>,
     }
 

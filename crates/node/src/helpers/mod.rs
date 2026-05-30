@@ -1,9 +1,7 @@
 pub mod chainspec;
-mod eth_rpc;
+mod command;
 mod node_directories;
-mod process;
 
 pub use chainspec::*;
-pub use eth_rpc::*;
+pub use command::*;
 pub use node_directories::*;
-pub use process::*;

@@ -12,12 +12,10 @@ static NODE_COUNT: AtomicU32 = AtomicU32::new(0);
 pub struct ReviveDevNode {
     id: u32,
     node_binary: PathBuf,
-    eth_proxy_binary: PathBuf,
-    export_chainspec_command: String,
-    rpc_url: String,
+    eth_rpc_binary: PathBuf,
     directories: NodeDirectories,
-    substrate_process: Option<Process>,
-    eth_proxy_process: Option<Process>,
+    revive_dev_node_process: Option<ReviveDevNodeProcess>,
+    eth_rpc_process: Option<EthRpcProcess>,
     wallet: Arc<EthereumWallet>,
     nonce_manager: CachedNonceManager,
     provider: Arc<OnceCell<ConcreteProvider<Ethereum, Arc<EthereumWallet>>>>,
@@ -29,25 +27,22 @@ pub struct ReviveDevNode {
 }
 
 impl ReviveDevNode {
-    const SUBSTRATE_READY_MARKER: &str = "Running JSON-RPC server";
-    const ETH_PROXY_READY_MARKER: &str = "Running JSON-RPC server";
     const CHAIN_SPEC_JSON_FILE: &str = "template_chainspec.json";
-    const BASE_SUBSTRATE_RPC_PORT: u16 = 9944;
-    const BASE_PROXY_RPC_PORT: u16 = 8545;
 
     /// Returns the WebSocket URL for the substrate RPC endpoint of this node.
     fn substrate_ws_url(&self) -> String {
-        let substrate_rpc_port = Self::BASE_SUBSTRATE_RPC_PORT + self.id as u16;
-        format!("ws://127.0.0.1:{substrate_rpc_port}")
+        self.revive_dev_node_process
+            .as_ref()
+            .expect("must be initialized")
+            .url()
+            .to_string()
     }
 
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         node_path: PathBuf,
-        export_chainspec_command: &str,
         consensus: Option<String>,
         context: impl HasWorkingDirectoryConfiguration + HasEthRpcConfiguration + HasWalletConfiguration,
-        existing_connection_strings: &[String],
         use_fallback_gas_filler: bool,
         node_logging_level: String,
         eth_rpc_logging_level: String,
@@ -63,20 +58,13 @@ impl ReviveDevNode {
         let directories = NodeDirectories::new(working_directory_path, "revive-dev-node", id)
             .expect("TODO(constructors): Remove this when we have failing constructors");
 
-        let rpc_url = existing_connection_strings
-            .get(id as usize)
-            .cloned()
-            .unwrap_or_default();
-
         Self {
             id,
             node_binary: node_path,
-            eth_proxy_binary: eth_rpc_path.to_path_buf(),
-            export_chainspec_command: export_chainspec_command.to_string(),
-            rpc_url,
+            eth_rpc_binary: eth_rpc_path.to_path_buf(),
             directories,
-            substrate_process: None,
-            eth_proxy_process: None,
+            revive_dev_node_process: Default::default(),
+            eth_rpc_process: Default::default(),
             wallet: wallet.clone(),
             nonce_manager: Default::default(),
             provider: Default::default(),
@@ -91,22 +79,14 @@ impl ReviveDevNode {
     fn init(&mut self, _: Genesis) -> anyhow::Result<&mut Self> {
         static CHAINSPEC_MUTEX: StdMutex<Option<Value>> = StdMutex::new(None);
 
-        if !self.rpc_url.is_empty() {
-            return Ok(self);
-        }
-
         trace!("Creating the node genesis");
         let chainspec_json = {
             let mut chainspec_mutex = CHAINSPEC_MUTEX.lock().expect("Poisoned");
             match chainspec_mutex.as_ref() {
                 Some(chainspec_json) => chainspec_json.clone(),
                 None => {
-                    let chainspec_json = Self::node_genesis(
-                        &self.node_binary,
-                        &self.export_chainspec_command,
-                        &self.wallet,
-                    )
-                    .context("Failed to prepare the chainspec command")?;
+                    let chainspec_json = Self::node_genesis(&self.node_binary, &self.wallet)
+                        .context("Failed to prepare the chainspec command")?;
                     *chainspec_mutex = Some(chainspec_json.clone());
                     chainspec_json
                 }
@@ -129,143 +109,39 @@ impl ReviveDevNode {
     }
 
     fn spawn_process(&mut self) -> anyhow::Result<()> {
-        if !self.rpc_url.is_empty() {
-            return Ok(());
-        }
-
-        let substrate_rpc_port = Self::BASE_SUBSTRATE_RPC_PORT + self.id as u16;
-        let proxy_rpc_port = Self::BASE_PROXY_RPC_PORT + self.id as u16;
-
-        let chainspec_path = self
-            .directories
-            .base_directory()
-            .join(Self::CHAIN_SPEC_JSON_FILE);
-
-        self.rpc_url = format!("http://127.0.0.1:{proxy_rpc_port}");
-
-        trace!("Spawning the substrate process");
-        let substrate_process = Process::new(
-            "node",
-            self.directories.logs_directory(),
+        self.revive_dev_node_process = ReviveDevNodeProcess::new(
             self.node_binary.as_path(),
-            |command, stdout_file, stderr_file| {
-                let cmd = command
-                    .arg("--dev")
-                    .arg("--chain")
-                    .arg(chainspec_path)
-                    .arg("--base-path")
-                    .arg(self.directories.data_directory())
-                    .arg("--rpc-port")
-                    .arg(substrate_rpc_port.to_string())
-                    .arg("--name")
-                    .arg(format!("revive-substrate-{}", self.id))
-                    .arg("--force-authoring")
-                    .arg("--rpc-methods")
-                    .arg("Unsafe")
-                    .arg("--rpc-cors")
-                    .arg("all")
-                    .arg("--rpc-max-request-size")
-                    .arg(u32::MAX.to_string())
-                    .arg("--rpc-max-response-size")
-                    .arg(u32::MAX.to_string())
-                    .arg("--rpc-max-connections")
-                    .arg(u32::MAX.to_string())
-                    .arg("--pool-limit")
-                    .arg(u32::MAX.to_string())
-                    .arg("--pool-kbytes")
-                    .arg(u32::MAX.to_string())
-                    .arg("--state-pruning")
-                    .arg(NUMBER_OF_CACHED_BLOCKS.to_string())
-                    .arg("--pool-type")
-                    .arg("single-state")
-                    .arg("--rpc-max-subscriptions-per-connection")
-                    .arg(u32::MAX.to_string())
-                    .env("RUST_LOG", self.node_logging_level.as_str())
-                    .stdout(stdout_file)
-                    .stderr(stderr_file);
-                if let Some(consensus) = self.consensus.as_ref() {
-                    cmd.arg("--consensus").arg(consensus.clone());
-                }
-            },
-            ProcessReadinessWaitBehavior::TimeBoundedWaitFunction {
-                max_wait_duration: Duration::from_secs(90),
-                check_function: Box::new(|_, stderr_line| match stderr_line {
-                    Some(line) => Ok(line.contains(Self::SUBSTRATE_READY_MARKER)),
-                    None => Ok(false),
-                }),
-            },
-        );
-        match substrate_process {
-            Ok(process) => self.substrate_process = Some(process),
-            Err(err) => {
-                tracing::error!(?err, "Failed to start substrate, shutting down gracefully");
-                self.shutdown()
-                    .context("Failed to gracefully shutdown after substrate start error")?;
-                return Err(err);
-            }
-        }
-
-        trace!("Spawning eth-rpc process");
-        let eth_proxy_binary = self.eth_proxy_binary.as_path();
-        let eth_proxy_process = Process::new(
-            "proxy",
+            self.directories
+                .base_directory()
+                .join(Self::CHAIN_SPEC_JSON_FILE),
+            self.consensus.as_deref().unwrap_or("instant-seal"),
+            self.directories.data_directory(),
             self.directories.logs_directory(),
-            eth_proxy_binary,
-            |command, stdout_file, stderr_file| {
-                command
-                    .arg("--dev")
-                    .arg("--rpc-port")
-                    .arg(proxy_rpc_port.to_string())
-                    .arg("--node-rpc-url")
-                    .arg(format!("ws://127.0.0.1:{substrate_rpc_port}"))
-                    .arg("--rpc-max-connections")
-                    .arg(u32::MAX.to_string())
-                    .arg("--rpc-max-batch-request-len")
-                    .arg(u32::MAX.to_string());
-                apply_cache_size_arg(command, eth_proxy_binary);
-                command
-                    .env("RUST_LOG", self.eth_rpc_logging_level.as_str())
-                    .stdout(stdout_file)
-                    .stderr(stderr_file);
-            },
-            ProcessReadinessWaitBehavior::TimeBoundedWaitFunction {
-                max_wait_duration: Duration::from_secs(30),
-                check_function: Box::new(|_, stderr_line| match stderr_line {
-                    Some(line) => Ok(line.contains(Self::ETH_PROXY_READY_MARKER)),
-                    None => Ok(false),
-                }),
-            },
-        );
-        match eth_proxy_process {
-            Ok(process) => self.eth_proxy_process = Some(process),
-            Err(err) => {
-                tracing::error!(?err, "Failed to start eth proxy, shutting down gracefully");
-                self.shutdown()
-                    .context("Failed to gracefully shutdown after eth proxy start error")?;
-                return Err(err);
-            }
-        }
+            self.node_logging_level.as_str(),
+        )
+        .inspect_err(|err| error!(error = ?err, "Failed to spawn revive-dev-node"))?
+        .into();
+
+        self.eth_rpc_process = EthRpcProcess::new(
+            self.eth_rpc_binary.as_path(),
+            self.directories.logs_directory(),
+            self.revive_dev_node_process
+                .as_ref()
+                .expect("qed; we initialized it")
+                .url(),
+            self.eth_rpc_logging_level.as_str(),
+        )
+        .inspect_err(|err| error!(error = ?err, "Failed to spawn eth-rpc"))?
+        .into();
 
         Ok(())
-    }
-
-    pub fn eth_rpc_version(&self) -> anyhow::Result<String> {
-        let output = Command::new(&self.eth_proxy_binary)
-            .arg("--version")
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .spawn()?
-            .wait_with_output()?
-            .stdout;
-        Ok(String::from_utf8_lossy(&output).trim().to_string())
     }
 
     fn provider(
         &self,
     ) -> FrameworkFuture<anyhow::Result<ConcreteProvider<Ethereum, Arc<EthereumWallet>>>> {
         let provider = self.provider.clone();
-        let connection_string = self.rpc_url.clone();
+        let connection_string = self.connection_string().to_string();
         let gas_filler =
             FallbackGasFiller::default().with_fallback_mechanism(self.use_fallback_gas_filler);
         let nonce_filler = NonceFiller::new(self.nonce_manager.clone());
@@ -291,30 +167,18 @@ impl ReviveDevNode {
 
     pub fn node_genesis(
         node_path: &Path,
-        export_chainspec_command: &str,
         wallet: &EthereumWallet,
     ) -> anyhow::Result<serde_json::Value> {
         trace!("Exporting the chainspec");
         let output = Command::new(node_path)
-            .arg(export_chainspec_command)
+            .arg("build-spec")
             .arg("--chain")
             .arg("dev")
             .env_remove("RUST_LOG")
-            .output()
-            .context("Failed to export the chain-spec")?;
+            .run_and_get_output()
+            .context("Failed to build the chainspec")?;
 
-        trace!("Waiting for chainspec export");
-        if !output.status.success() {
-            anyhow::bail!(
-                "substrate-node export-chain-spec failed: {}",
-                String::from_utf8_lossy(&output.stderr)
-            );
-        }
-
-        trace!("Obtained chainspec");
-        let content = String::from_utf8(output.stdout)
-            .context("Failed to decode Substrate export-chain-spec output as UTF-8")?;
-        let mut chainspec_json = serde_json::from_str::<serde_json::Value>(&content)
+        let mut chainspec_json = serde_json::from_str::<serde_json::Value>(&output.stdout)
             .context("Failed to parse Substrate chain spec JSON")?;
 
         trace!("Adding addresses to chainspec");
@@ -330,7 +194,10 @@ impl NodeApi for ReviveDevNode {
     }
 
     fn connection_string(&self) -> &str {
-        &self.rpc_url
+        self.eth_rpc_process
+            .as_ref()
+            .expect("must be initialized")
+            .url()
     }
 
     fn evm_version(&self) -> EVMVersion {
@@ -536,35 +403,8 @@ impl NodeApi for ReviveDevNode {
 }
 
 impl Node for ReviveDevNode {
-    fn shutdown(&mut self) -> anyhow::Result<()> {
-        drop(self.substrate_process.take());
-        drop(self.eth_proxy_process.take());
-
-        Ok(())
-    }
-
     fn spawn(&mut self, genesis: Genesis) -> anyhow::Result<()> {
         self.init(genesis)?.spawn_process()
-    }
-
-    fn version(&self) -> anyhow::Result<String> {
-        let output = Command::new(&self.node_binary)
-            .arg("--version")
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .spawn()
-            .context("Failed to spawn substrate --version")?
-            .wait_with_output()
-            .context("Failed to wait for substrate --version")?
-            .stdout;
-        Ok(String::from_utf8_lossy(&output).into())
-    }
-}
-
-impl Drop for ReviveDevNode {
-    fn drop(&mut self) {
-        self.shutdown().expect("Failed to shutdown")
     }
 }
 
@@ -578,7 +418,6 @@ mod tests {
     use alloy::primitives::U256;
 
     use super::*;
-    use crate::Node;
 
     fn test_config() -> Test {
         Test::default()
@@ -608,10 +447,8 @@ mod tests {
         let genesis = context.genesis.genesis().unwrap().clone();
         let mut node = ReviveDevNode::new(
             revive_dev_node_path,
-            "build-spec",
             None,
             context.clone(),
-            &[],
             true,
             "".to_string(),
             "".to_string(),
@@ -679,10 +516,8 @@ mod tests {
         let revive_dev_node_path = context.revive_dev_node.path.clone();
         let mut dummy_node = ReviveDevNode::new(
             revive_dev_node_path,
-            "build-spec",
             None,
             context,
-            &[],
             true,
             "".to_string(),
             "".to_string(),
@@ -717,32 +552,6 @@ mod tests {
         assert!(
             contents.contains(&second_eth_addr),
             "Chainspec should contain Substrate address for second Ethereum account"
-        );
-    }
-
-    #[test]
-    #[ignore = "Ignored since they take a long time to run"]
-    fn version_works() {
-        let node = shared_node();
-
-        let version = node.version().unwrap();
-
-        assert!(
-            version.starts_with("substrate-node"),
-            "Expected substrate-node version string, got: {version}"
-        );
-    }
-
-    #[test]
-    #[ignore = "Ignored since they take a long time to run"]
-    fn eth_rpc_version_works() {
-        let node = shared_node();
-
-        let version = node.eth_rpc_version().unwrap();
-
-        assert!(
-            version.starts_with("pallet-revive-eth-rpc"),
-            "Expected eth-rpc version string, got: {version}"
         );
     }
 }
