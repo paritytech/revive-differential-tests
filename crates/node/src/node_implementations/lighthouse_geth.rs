@@ -31,8 +31,7 @@ pub struct LighthouseGethNode {
     enclave_name: String,
 
     /* Directory Paths */
-    base_directory: PathBuf,
-    logs_directory: PathBuf,
+    directories: NodeDirectories,
     wrapper_directory: PathBuf,
 
     /* File Paths */
@@ -56,11 +55,6 @@ pub struct LighthouseGethNode {
 }
 
 impl LighthouseGethNode {
-    const BASE_DIRECTORY: &str = "lighthouse";
-    const LOGS_DIRECTORY: &str = "logs";
-
-    const CONFIG_FILE_NAME: &str = "config.yaml";
-
     const VALIDATOR_MNEMONIC: &str = "giant issue aisle success illegal bike spike question tent bar rely arctic volcano long crawl hungry vocal artwork sniff fantasy very lucky have athlete";
 
     pub fn new(
@@ -74,12 +68,13 @@ impl LighthouseGethNode {
         let wallet_configuration = context.as_wallet_configuration();
         let kurtosis_configuration = context.as_kurtosis_configuration();
 
-        let geth_directory = working_directory_configuration
-            .working_directory
-            .as_path()
-            .join(Self::BASE_DIRECTORY);
         let id = NODE_COUNT.fetch_add(1, Ordering::SeqCst);
-        let base_directory = geth_directory.join(id.to_string());
+        let directories = NodeDirectories::new(
+            working_directory_configuration.working_directory.as_path(),
+            "lighthouse",
+            id,
+        )
+        .expect("TODO(constructors): Remove this when we have failing constructors");
 
         let wallet = wallet_configuration.wallet();
 
@@ -98,12 +93,11 @@ impl LighthouseGethNode {
             ),
 
             /* File Paths */
-            config_file_path: base_directory.join(Self::CONFIG_FILE_NAME),
+            config_file_path: directories.base_directory().join("config.yaml"),
 
             /* Directory Paths */
-            logs_directory: base_directory.join(Self::LOGS_DIRECTORY),
-            wrapper_directory: base_directory.join("wrapper"),
-            base_directory,
+            wrapper_directory: directories.base_directory().join("wrapper"),
+            directories,
 
             /* Binary Paths & Timeouts */
             kurtosis_binary_path: kurtosis_configuration.path.clone(),
@@ -132,16 +126,8 @@ impl LighthouseGethNode {
     }
 
     fn init_directories(&self) -> anyhow::Result<()> {
-        let _ = clear_directory(&self.base_directory);
-        let _ = clear_directory(&self.logs_directory);
-
-        create_dir_all(&self.base_directory)
-            .context("Failed to create base directory for geth node")?;
-        create_dir_all(&self.logs_directory)
-            .context("Failed to create logs directory for geth node")?;
         create_dir_all(&self.wrapper_directory)
             .context("Failed to create wrapper directory for geth node")?;
-
         Ok(())
     }
 
@@ -250,7 +236,7 @@ def run(plan, args={}):
     fn spawn_process(&mut self) -> anyhow::Result<&mut Self> {
         let process = Process::new(
             None,
-            self.logs_directory.as_path(),
+            self.directories.logs_directory(),
             self.kurtosis_binary_path.as_path(),
             |command, stdout, stderr| {
                 command

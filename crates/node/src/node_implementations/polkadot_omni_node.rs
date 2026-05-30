@@ -17,10 +17,7 @@ pub struct PolkadotOmnichainNode {
     eth_rpc_binary_path: PathBuf,
     /// The path of the runtime's WASM that this node will be spawned with.
     chain_spec_path: Option<PathBuf>,
-    /// The path of the base directory which contains all of the stored data for this node.
-    base_directory_path: PathBuf,
-    /// The path of the logs directory which contains all of the stored logs.
-    logs_directory_path: PathBuf,
+    directories: NodeDirectories,
 
     /// Defines the amount of time to wait before considering that the node start has timed out.
     node_start_timeout: Duration,
@@ -54,9 +51,6 @@ pub struct PolkadotOmnichainNode {
 }
 
 impl PolkadotOmnichainNode {
-    const BASE_DIRECTORY: &str = "polkadot-omni-node";
-    const LOGS_DIRECTORY: &str = "logs";
-
     const POLKADOT_OMNICHAIN_NODE_READY_MARKER: &str = "Running JSON-RPC server";
     const ETH_RPC_READY_MARKER: &str = "Running JSON-RPC server";
     const CHAIN_SPEC_JSON_FILE: &str = "template_chainspec.json";
@@ -86,10 +80,8 @@ impl PolkadotOmnichainNode {
         let wallet = context.as_wallet_configuration().wallet();
 
         let id = NODE_COUNT.fetch_add(1, Ordering::SeqCst);
-        let base_directory = working_directory_path
-            .join(Self::BASE_DIRECTORY)
-            .join(id.to_string());
-        let logs_directory = base_directory.join(Self::LOGS_DIRECTORY);
+        let directories = NodeDirectories::new(working_directory_path, "polkadot-omni-node", id)
+            .expect("TODO(constructors): Remove this when we have failing constructors");
 
         Self {
             id,
@@ -100,8 +92,7 @@ impl PolkadotOmnichainNode {
             chain_spec_path: polkadot_omnichain_node_configuration
                 .chain_spec_path
                 .clone(),
-            base_directory_path: base_directory,
-            logs_directory_path: logs_directory,
+            directories,
             parachain_id: polkadot_omnichain_node_configuration.parachain_id,
             block_time: polkadot_omnichain_node_configuration.block_time_ms,
             polkadot_omnichain_node_process: Default::default(),
@@ -119,18 +110,10 @@ impl PolkadotOmnichainNode {
     }
 
     fn init(&mut self, _: Genesis) -> anyhow::Result<&mut Self> {
-        trace!("Removing the various directories");
-        let _ = remove_dir_all(self.base_directory_path.as_path());
-        let _ = clear_directory(&self.base_directory_path);
-        let _ = clear_directory(&self.logs_directory_path);
-
-        trace!("Creating the various directories");
-        create_dir_all(&self.base_directory_path)
-            .context("Failed to create base directory for polkadot-omni-node node")?;
-        create_dir_all(&self.logs_directory_path)
-            .context("Failed to create logs directory for polkadot-omni-node node")?;
-
-        let template_chainspec_path = self.base_directory_path.join(Self::CHAIN_SPEC_JSON_FILE);
+        let template_chainspec_path = self
+            .directories
+            .base_directory()
+            .join(Self::CHAIN_SPEC_JSON_FILE);
 
         let chainspec_json = Self::node_genesis(
             &self.wallet,
@@ -164,13 +147,16 @@ impl PolkadotOmnichainNode {
             Self::BASE_POLKADOT_OMNICHAIN_NODE_RPC_PORT + self.id as u16;
         let eth_rpc_port = Self::BASE_ETH_RPC_PORT + self.id as u16;
 
-        let chainspec_path = self.base_directory_path.join(Self::CHAIN_SPEC_JSON_FILE);
+        let chainspec_path = self
+            .directories
+            .base_directory()
+            .join(Self::CHAIN_SPEC_JSON_FILE);
 
         self.rpc_url = format!("http://127.0.0.1:{eth_rpc_port}");
 
         let polkadot_omnichain_node_process = Process::new(
             "node",
-            self.logs_directory_path.as_path(),
+            self.directories.logs_directory(),
             self.polkadot_omnichain_node_binary_path.as_path(),
             |command, stdout_file, stderr_file| {
                 command
@@ -181,7 +167,7 @@ impl PolkadotOmnichainNode {
                     .arg("--rpc-port")
                     .arg(polkadot_omnichain_node_rpc_port.to_string())
                     .arg("--base-path")
-                    .arg(self.base_directory_path.as_path())
+                    .arg(self.directories.data_directory())
                     .arg("--no-prometheus")
                     .arg("--no-hardware-benchmarks")
                     .arg("--authoring")
@@ -232,7 +218,7 @@ impl PolkadotOmnichainNode {
         let eth_rpc_binary_path = self.eth_rpc_binary_path.as_path();
         let eth_rpc_process = Process::new(
             "eth-rpc",
-            self.logs_directory_path.as_path(),
+            self.directories.logs_directory(),
             eth_rpc_binary_path,
             |command, stdout_file, stderr_file| {
                 command
@@ -393,11 +379,6 @@ impl Node for PolkadotOmnichainNode {
     fn shutdown(&mut self) -> anyhow::Result<()> {
         drop(self.polkadot_omnichain_node_process.take());
         drop(self.eth_rpc_process.take());
-
-        // Remove the node's database so that subsequent runs do not run on the same database. We
-        // ignore the error just in case the directory didn't exist in the first place and therefore
-        // there's nothing to be deleted.
-        let _ = remove_dir_all(self.base_directory_path.join("data"));
 
         Ok(())
     }

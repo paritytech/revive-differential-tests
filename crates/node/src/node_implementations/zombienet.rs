@@ -46,8 +46,7 @@ pub struct ZombienetNode {
     collator_ws_uri: Option<String>,
 
     /* Directory Paths */
-    base_directory: PathBuf,
-    logs_directory: PathBuf,
+    directories: NodeDirectories,
 
     /* Binary Paths & Timeouts */
     eth_proxy_binary: PathBuf,
@@ -108,18 +107,17 @@ impl ZombienetNode {
         let working_directory_path = context.as_working_directory_configuration();
         let zombienet_configuration = context.as_zombienet_configuration();
         let id = NODE_COUNT.fetch_add(1, Ordering::SeqCst);
-        let base_directory = working_directory_path
-            .working_directory
-            .join(Self::BASE_DIRECTORY)
-            .join(id.to_string());
-        let base_directory = base_directory.canonicalize().unwrap_or(base_directory);
-        let logs_directory = base_directory.join(Self::LOGS_DIRECTORY);
+        let directories = NodeDirectories::new(
+            working_directory_path.working_directory.as_path(),
+            "zombienet",
+            id,
+        )
+        .expect("TODO(constructors): Remove this when we have failing constructors");
         let wallet = context.as_wallet_configuration().wallet();
 
         Self {
             id,
-            base_directory,
-            logs_directory,
+            directories,
             wallet,
             polkadot_parachain_path,
             eth_proxy_binary,
@@ -141,14 +139,6 @@ impl ZombienetNode {
     }
 
     fn init(&mut self, _: Genesis) -> anyhow::Result<&mut Self> {
-        let _ = clear_directory(&self.base_directory);
-        let _ = clear_directory(&self.logs_directory);
-
-        create_dir_all(&self.base_directory)
-            .context("Failed to create base directory for zombie node")?;
-        create_dir_all(&self.logs_directory)
-            .context("Failed to create logs directory for zombie node")?;
-
         let config_path = self.config_path.as_ref().context(
             "A zombienet config file path is required. Provide one via --zombienet.config-path",
         )?;
@@ -161,7 +151,7 @@ impl ZombienetNode {
         self.inject_prefunded_chainspec(&mut toml_value)?;
         self.make_node_names_unique(&mut toml_value);
 
-        let modified_toml_path = self.base_directory.join("zombienet.toml");
+        let modified_toml_path = self.directories.base_directory().join("zombienet.toml");
         std::fs::write(
             &modified_toml_path,
             toml::to_string(&toml_value).context("Failed to serialize modified TOML")?,
@@ -269,7 +259,7 @@ impl ZombienetNode {
         inject_wallet_balances(&mut chainspec, &self.wallet)?;
 
         // Write the pre-funded chainspec to a file.
-        let chainspec_path = self.base_directory.join("chainspec.json");
+        let chainspec_path = self.directories.base_directory().join("chainspec.json");
         std::fs::write(
             &chainspec_path,
             serde_json::to_string_pretty(&chainspec).context("Failed to serialize chainspec")?,
@@ -334,7 +324,7 @@ impl ZombienetNode {
         let eth_proxy_binary = self.eth_proxy_binary.as_path();
         let eth_rpc_process = Process::new(
             "proxy",
-            self.logs_directory.as_path(),
+            self.directories.logs_directory(),
             eth_proxy_binary,
             |command, stdout_file, stderr_file| {
                 command

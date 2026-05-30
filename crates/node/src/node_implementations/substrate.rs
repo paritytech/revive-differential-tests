@@ -15,8 +15,7 @@ pub struct SubstrateNode {
     eth_proxy_binary: PathBuf,
     export_chainspec_command: String,
     rpc_url: String,
-    base_directory: PathBuf,
-    logs_directory: PathBuf,
+    directories: NodeDirectories,
     substrate_process: Option<Process>,
     eth_proxy_process: Option<Process>,
     wallet: Arc<EthereumWallet>,
@@ -30,10 +29,6 @@ pub struct SubstrateNode {
 }
 
 impl SubstrateNode {
-    const BASE_DIRECTORY: &str = "substrate";
-    const LOGS_DIRECTORY: &str = "logs";
-    const DATA_DIRECTORY: &str = "chains";
-
     const SUBSTRATE_READY_MARKER: &str = "Running JSON-RPC server";
     const ETH_PROXY_READY_MARKER: &str = "Running JSON-RPC server";
     const CHAIN_SPEC_JSON_FILE: &str = "template_chainspec.json";
@@ -66,10 +61,9 @@ impl SubstrateNode {
         let eth_rpc_path = context.as_eth_rpc_configuration().path.as_path();
         let wallet = context.as_wallet_configuration().wallet();
 
-        let substrate_directory = working_directory_path.join(Self::BASE_DIRECTORY);
         let id = NODE_COUNT.fetch_add(1, Ordering::SeqCst);
-        let base_directory = substrate_directory.join(id.to_string());
-        let logs_directory = base_directory.join(Self::LOGS_DIRECTORY);
+        let directories = NodeDirectories::new(working_directory_path, "revive-dev-node", id)
+            .expect("TODO(constructors): Remove this when we have failing constructors");
 
         let rpc_url = existing_connection_strings
             .get(id as usize)
@@ -82,8 +76,7 @@ impl SubstrateNode {
             eth_proxy_binary: eth_rpc_path.to_path_buf(),
             export_chainspec_command: export_chainspec_command.to_string(),
             rpc_url,
-            base_directory,
-            logs_directory,
+            directories,
             substrate_process: None,
             eth_proxy_process: None,
             wallet: wallet.clone(),
@@ -104,19 +97,6 @@ impl SubstrateNode {
             return Ok(self);
         }
 
-        trace!("Removing the various directories");
-        let _ = remove_dir_all(self.base_directory.as_path());
-        let _ = clear_directory(&self.base_directory);
-        let _ = clear_directory(&self.logs_directory);
-
-        trace!("Creating the various directories");
-        create_dir_all(&self.base_directory)
-            .context("Failed to create base directory for substrate node")?;
-        create_dir_all(&self.logs_directory)
-            .context("Failed to create logs directory for substrate node")?;
-
-        let template_chainspec_path = self.base_directory.join(Self::CHAIN_SPEC_JSON_FILE);
-
         trace!("Creating the node genesis");
         let chainspec_json = {
             let mut chainspec_mutex = CHAINSPEC_MUTEX.lock().expect("Poisoned");
@@ -134,6 +114,11 @@ impl SubstrateNode {
                 }
             }
         };
+
+        let template_chainspec_path = self
+            .directories
+            .base_directory()
+            .join(Self::CHAIN_SPEC_JSON_FILE);
 
         trace!("Writing the node genesis");
         serde_json::to_writer_pretty(
@@ -153,14 +138,17 @@ impl SubstrateNode {
         let substrate_rpc_port = Self::BASE_SUBSTRATE_RPC_PORT + self.id as u16;
         let proxy_rpc_port = Self::BASE_PROXY_RPC_PORT + self.id as u16;
 
-        let chainspec_path = self.base_directory.join(Self::CHAIN_SPEC_JSON_FILE);
+        let chainspec_path = self
+            .directories
+            .base_directory()
+            .join(Self::CHAIN_SPEC_JSON_FILE);
 
         self.rpc_url = format!("http://127.0.0.1:{proxy_rpc_port}");
 
         trace!("Spawning the substrate process");
         let substrate_process = Process::new(
             "node",
-            self.logs_directory.as_path(),
+            self.directories.logs_directory(),
             self.node_binary.as_path(),
             |command, stdout_file, stderr_file| {
                 let cmd = command
@@ -168,7 +156,7 @@ impl SubstrateNode {
                     .arg("--chain")
                     .arg(chainspec_path)
                     .arg("--base-path")
-                    .arg(&self.base_directory)
+                    .arg(self.directories.data_directory())
                     .arg("--rpc-port")
                     .arg(substrate_rpc_port.to_string())
                     .arg("--name")
@@ -223,7 +211,7 @@ impl SubstrateNode {
         let eth_proxy_binary = self.eth_proxy_binary.as_path();
         let eth_proxy_process = Process::new(
             "proxy",
-            self.logs_directory.as_path(),
+            self.directories.logs_directory(),
             eth_proxy_binary,
             |command, stdout_file, stderr_file| {
                 command
@@ -554,11 +542,6 @@ impl Node for SubstrateNode {
         drop(self.substrate_process.take());
         drop(self.eth_proxy_process.take());
 
-        // Remove the node's database so that subsequent runs do not run on the same database. We
-        // ignore the error just in case the directory didn't exist in the first place and therefore
-        // there's nothing to be deleted.
-        let _ = remove_dir_all(self.base_directory.join(Self::DATA_DIRECTORY));
-
         Ok(())
     }
 
@@ -714,7 +697,8 @@ mod tests {
 
         // Check that the patched chainspec file was generated
         let final_chainspec_path = dummy_node
-            .base_directory
+            .directories
+            .base_directory()
             .join(SubstrateNode::CHAIN_SPEC_JSON_FILE);
         assert!(final_chainspec_path.exists(), "Chainspec file should exist");
 

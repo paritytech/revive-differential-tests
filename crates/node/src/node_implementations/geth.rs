@@ -15,9 +15,7 @@ static NODE_COUNT: AtomicU32 = AtomicU32::new(0);
 #[allow(clippy::type_complexity)]
 pub struct GethNode {
     connection_string: String,
-    base_directory: PathBuf,
-    data_directory: PathBuf,
-    logs_directory: PathBuf,
+    directories: NodeDirectories,
     geth: PathBuf,
     id: u32,
     handle: Option<Process>,
@@ -30,13 +28,6 @@ pub struct GethNode {
 }
 
 impl GethNode {
-    const BASE_DIRECTORY: &str = "geth";
-    const DATA_DIRECTORY: &str = "data";
-    const LOGS_DIRECTORY: &str = "logs";
-
-    const IPC_FILE: &str = "geth.ipc";
-    const GENESIS_JSON_FILE: &str = "genesis.json";
-
     const READY_MARKER: &str = "IPC endpoint opened";
     const ERROR_MARKER: &str = "Fatal:";
 
@@ -51,20 +42,23 @@ impl GethNode {
         let wallet_configuration = context.as_wallet_configuration();
         let geth_configuration = context.as_geth_configuration();
 
-        let geth_directory = working_directory_configuration
-            .working_directory
-            .as_path()
-            .join(Self::BASE_DIRECTORY);
         let id = NODE_COUNT.fetch_add(1, Ordering::SeqCst);
-        let base_directory = geth_directory.join(id.to_string());
+        let directories = NodeDirectories::new(
+            working_directory_configuration.working_directory.as_path(),
+            "geth",
+            id,
+        )
+        .expect("TODO(constructors): Remove this when we have failing constructors");
 
         let wallet = wallet_configuration.wallet();
 
         Self {
-            connection_string: base_directory.join(Self::IPC_FILE).display().to_string(),
-            data_directory: base_directory.join(Self::DATA_DIRECTORY),
-            logs_directory: base_directory.join(Self::LOGS_DIRECTORY),
-            base_directory,
+            connection_string: directories
+                .base_directory()
+                .join("geth.ipc")
+                .display()
+                .to_string(),
+            directories,
             geth: geth_configuration.path.clone(),
             id,
             handle: None,
@@ -80,16 +74,8 @@ impl GethNode {
     /// Create the node directory and call `geth init` to configure the genesis.
     #[instrument(level = "info", skip_all, fields(geth_node_id = self.id))]
     fn init(&mut self, genesis: Genesis) -> anyhow::Result<&mut Self> {
-        let _ = clear_directory(&self.base_directory);
-        let _ = clear_directory(&self.logs_directory);
-
-        create_dir_all(&self.base_directory)
-            .context("Failed to create base directory for geth node")?;
-        create_dir_all(&self.logs_directory)
-            .context("Failed to create logs directory for geth node")?;
-
         let genesis = Self::node_genesis(genesis, self.wallet.as_ref());
-        let genesis_path = self.base_directory.join(Self::GENESIS_JSON_FILE);
+        let genesis_path = self.directories.base_directory().join("genesis.json");
         serde_json::to_writer(
             File::create(&genesis_path).context("Failed to create geth genesis file")?,
             &genesis,
@@ -101,7 +87,7 @@ impl GethNode {
             .arg("hash")
             .arg("init")
             .arg("--datadir")
-            .arg(&self.data_directory)
+            .arg(self.directories.data_directory())
             .arg(genesis_path)
             .stderr(Stdio::piped())
             .stdout(Stdio::null())
@@ -134,13 +120,13 @@ impl GethNode {
     fn spawn_process(&mut self) -> anyhow::Result<&mut Self> {
         let process = Process::new(
             None,
-            self.logs_directory.as_path(),
+            self.directories.logs_directory(),
             self.geth.as_path(),
             |command, stdout_file, stderr_file| {
                 command
                     .arg("--dev")
                     .arg("--datadir")
-                    .arg(&self.data_directory)
+                    .arg(self.directories.data_directory())
                     .arg("--ipcpath")
                     .arg(&self.connection_string)
                     .arg("--nodiscover")
@@ -248,12 +234,6 @@ impl Node for GethNode {
     #[instrument(level = "info", skip_all, fields(geth_node_id = self.id))]
     fn shutdown(&mut self) -> anyhow::Result<()> {
         drop(self.handle.take());
-
-        // Remove the node's database so that subsequent runs do not run on the same database. We
-        // ignore the error just in case the directory didn't exist in the first place and therefore
-        // there's nothing to be deleted.
-        let _ = remove_dir_all(self.base_directory.join(Self::DATA_DIRECTORY));
-
         Ok(())
     }
 
