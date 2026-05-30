@@ -16,7 +16,8 @@ impl ReviveDevNodeProcess {
         base_directory: impl AsRef<Path>,
         logs_directory: impl AsRef<Path>,
         logging_level: impl AsRef<OsStr>,
-    ) -> anyhow::Result<Self> {
+        start_timeout: Duration,
+    ) -> Result<Self> {
         let node_port =
             AllocatedPort::allocate().context("Failed to allocate port for the revive-dev-node")?;
         let url = format!("ws://127.0.0.1:{node_port}");
@@ -35,12 +36,10 @@ impl ReviveDevNodeProcess {
             .arg("--consensus")
             .arg(consensus)
             .log("revive_dev_node", logs_directory)
-            .wait_for_startup(WaitForStartupSentinel {
-                // TODO(better-config): Turn this into an argument
-                timeout: Duration::from_secs(90),
-                successful_startup_if_encountered: Self::READY_MARKER.into(),
-                failed_startup_if_encountered: None::<Cow<'static, _>>,
-            });
+            .wait_for_startup(WaitForStartupSentinel::new(
+                start_timeout,
+                Self::READY_MARKER,
+            ));
 
         let process = builder
             .build()

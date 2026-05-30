@@ -15,12 +15,13 @@ impl NodeDirectories {
     pub fn new(
         root_directory: impl AsRef<Path>,
         name: impl AsRef<str>,
-        node_id: u32,
-    ) -> anyhow::Result<Self> {
-        let base_directory = root_directory
+        node_id: impl ToString,
+    ) -> Result<Self> {
+        let root_directory = root_directory
             .as_ref()
-            .join(name.as_ref())
-            .join(node_id.to_string());
+            .canonicalize()
+            .context("Failed to canonicalize the root directory")?;
+        let base_directory = root_directory.join(name.as_ref()).join(node_id.to_string());
         let data_directory = base_directory.join("data");
         let logs_directory = base_directory.join("logs");
 

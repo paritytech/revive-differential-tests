@@ -16,7 +16,7 @@ impl NodeProcess {
     }
 
     #[cfg(unix)]
-    fn graceful_shutdown(&self) -> anyhow::Result<()> {
+    fn graceful_shutdown(&self) -> Result<()> {
         let status = Command::new("kill")
             .arg("-TERM")
             .arg(self.child.id().to_string())
@@ -32,7 +32,7 @@ impl NodeProcess {
     }
 
     #[cfg(not(unix))]
-    fn graceful_shutdown(&mut self) -> anyhow::Result<()> {
+    fn graceful_shutdown(&mut self) -> Result<()> {
         self.child.kill().context("Failed to kill the process")
     }
 }
@@ -114,7 +114,7 @@ impl<'a, 'b> NodeProcessBuilder<'a, 'b> {
     pub fn with_common_substrate_node_args(
         self,
         chainspec_path: impl AsRef<Path>,
-        base_directory: impl AsRef<Path>,
+        data_directory: impl AsRef<Path>,
         node_port: AllocatedPort,
         logging_level: impl AsRef<OsStr>,
     ) -> Self {
@@ -134,18 +134,18 @@ impl<'a, 'b> NodeProcessBuilder<'a, 'b> {
         .arg("--rpc-port")
         .arg(node_port.value().to_string())
         .arg("--rpc-methods")
-        .arg("Unsafe")
+        .arg("unsafe")
         .arg("--rpc-cors")
         .arg("all")
         .arg("--no-prometheus")
         .arg("--base-path")
-        .arg(base_directory.as_ref())
+        .arg(data_directory.as_ref())
         .arg("--chain")
         .arg(chainspec_path.as_ref())
         .env("RUST_LOG", logging_level)
     }
 
-    pub fn build(mut self) -> anyhow::Result<NodeProcess> {
+    pub fn build(mut self) -> Result<NodeProcess> {
         let (child, readers) = if let Some((path, name)) = self.output {
             let logs_files = StdoutStdErr::try_from_fn(|postfix| {
                 create_file(path.as_path(), name.as_str(), postfix, true)
@@ -206,13 +206,37 @@ impl<'a, 'b> NodeProcessBuilder<'a, 'b> {
 }
 
 pub struct WaitForStartupSentinel<'a, 'b> {
-    pub timeout: Duration,
-    pub successful_startup_if_encountered: Cow<'a, str>,
-    pub failed_startup_if_encountered: Option<Cow<'b, str>>,
+    timeout: Duration,
+    successful_startup_if_encountered: Cow<'a, str>,
+    failed_startup_if_encountered: Option<Cow<'b, str>>,
+}
+
+impl<'a> WaitForStartupSentinel<'a, 'static> {
+    pub fn new(
+        timeout: Duration,
+        successful_startup_if_encountered: impl Into<Cow<'a, str>>,
+    ) -> Self {
+        Self {
+            timeout,
+            successful_startup_if_encountered: successful_startup_if_encountered.into(),
+            failed_startup_if_encountered: None,
+        }
+    }
 }
 
 impl<'a, 'b> WaitForStartupSentinel<'a, 'b> {
-    pub fn check(&self, line: impl AsRef<str>) -> ControlFlow<anyhow::Result<()>, ()> {
+    pub fn with_failed_startup_if_encountered<'c>(
+        self,
+        failed_startup_if_encountered: impl Into<Cow<'c, str>>,
+    ) -> WaitForStartupSentinel<'a, 'c> {
+        WaitForStartupSentinel {
+            timeout: self.timeout,
+            successful_startup_if_encountered: self.successful_startup_if_encountered,
+            failed_startup_if_encountered: Some(failed_startup_if_encountered.into()),
+        }
+    }
+
+    pub fn check(&self, line: impl AsRef<str>) -> ControlFlow<Result<()>, ()> {
         let line = line.as_ref();
         if line.contains(self.successful_startup_if_encountered.as_ref()) {
             ControlFlow::Break(Ok(()))
@@ -261,7 +285,7 @@ fn create_file(
     name: impl AsRef<str>,
     postfix: impl AsRef<str>,
     is_read_write: bool,
-) -> anyhow::Result<File> {
+) -> Result<File> {
     let file_name = format!("{}_{}.log", name.as_ref(), postfix.as_ref());
     let file_path = path.as_ref().join(file_name);
 

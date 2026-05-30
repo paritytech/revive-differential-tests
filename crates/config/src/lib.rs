@@ -384,6 +384,10 @@ mod context {
         /// that's provided in the user's $PATH.
         #[clap(default_value = "kurtosis")]
         pub path: PathBuf,
+
+        /// The amount of time to wait upon startup before considering that the node timed out.
+        #[clap(default_value = "900000", value_parser = parse_duration)]
+        pub start_timeout_ms: Duration,
     }
 
     /// A set of configuration parameters for the revive dev node.
@@ -468,6 +472,9 @@ mod context {
         pub logging_level: String,
     }
 
+    // TODO(no-genesis-export): We want to remove this type as this abstraction is just wrong.
+    // genesis should be a property of geth and not a property of starting the tool. It's not of
+    // any use to the dev node for example and not even used there in any way.
     /// A set of configuration parameters for the genesis.
     #[derive(Default)]
     #[configuration(key = "genesis")]

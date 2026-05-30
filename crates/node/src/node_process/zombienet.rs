@@ -2,15 +2,15 @@ use crate::internal_prelude::*;
 
 #[derive(Debug)]
 pub struct ZombienetProcess {
-    network: Option<ZombienetNetwork<LocalFileSystem>>,
-    // TODO(async): This is needed for now since we need to keep the runtime which zombienet was
-    // spawned on alive until it's killed but we should remove this once we do the async rework.
-    runtime: Option<Runtime>,
+    running: Option<RunningZombienet>,
     url: String,
 }
 
 impl ZombienetProcess {
-    pub fn new(network_configuration: NetworkConfig) -> anyhow::Result<Self> {
+    pub fn new(
+        network_configuration: NetworkConfig,
+        block_production_timeout: Duration,
+    ) -> Result<Self> {
         let runtime =
             Runtime::new().context("Failed to create the tokio runtime that zombienet runs on")?;
         let network = runtime.block_on(async move {
@@ -31,20 +31,16 @@ impl ZombienetProcess {
             .to_owned();
 
         Self {
-            network: network.into(),
-            runtime: runtime.into(),
+            running: RunningZombienet { network, runtime }.into(),
             url,
         }
-        .wait_for_first_3_blocks()
+        .wait_for_finalized_blocks(block_production_timeout)
     }
 
-    pub fn url(&self) -> &str {
-        &self.url
-    }
-
-    fn wait_for_first_3_blocks(self) -> anyhow::Result<Self> {
-        let task = async {
-            let client = OnlineClient::<PolkadotConfig>::from_url(self.url.as_str())
+    fn wait_for_finalized_blocks(self, block_production_timeout: Duration) -> Result<Self> {
+        let connection_string = self.url.clone();
+        let task = async move {
+            let client = OnlineClient::<PolkadotConfig>::from_url(connection_string.as_str())
                 .await
                 .context("Client creation failed")?;
             let mut block_subscription = client
@@ -58,21 +54,41 @@ impl ZombienetProcess {
                     return Ok(());
                 }
             }
-            bail!("Zombienet subscription closed before we observed the first block")
+            bail!("Zombienet subscription closed before we observed finalized blocks")
         };
-        self.runtime
+        let wait_result = self
+            .running
             .as_ref()
-            .expect("qed; always called when runtime is available")
-            .block_on(task)
+            .context("Zombienet process is not running")?
+            .runtime
+            .block_on(tokio::time::timeout(block_production_timeout, task));
+        wait_result
+            .with_context(|| {
+                format!(
+                    "Timed out waiting {block_production_timeout:?} for zombienet to produce blocks"
+                )
+            })?
             .context("Zombienet startup failed while watching for blocks")?;
 
         Ok(self)
     }
+
+    pub fn url(&self) -> &str {
+        &self.url
+    }
+}
+
+#[derive(Debug)]
+struct RunningZombienet {
+    network: ZombienetNetwork<LocalFileSystem>,
+    // TODO(async): This is needed for now since we need to keep the runtime which zombienet was
+    // spawned on alive until it's killed but we should remove this once we do the async rework.
+    runtime: Runtime,
 }
 
 impl Drop for ZombienetProcess {
     fn drop(&mut self) {
-        let (Some(network), Some(runtime)) = (self.network.take(), self.runtime.take()) else {
+        let Some(RunningZombienet { network, runtime }) = self.running.take() else {
             return;
         };
 

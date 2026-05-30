@@ -1,0 +1,44 @@
+participants:
+- el_type: geth
+  el_extra_params:
+  - --syncmode=full
+  - --nodiscover
+  - --cache=4294967295
+  - --txlookuplimit=0
+  - --gcmode=archive
+  - --state.scheme=path
+  - --txpool.globalslots=500000
+  - --txpool.globalqueue=500000
+  - --txpool.accountslots=32768
+  - --txpool.accountqueue=32768
+  - --http.api=admin,engine,net,eth,web3,debug,txpool
+  - --http.addr=0.0.0.0
+  - --ws
+  - --ws.addr=0.0.0.0
+  - --ws.port=8546
+  - --ws.api=eth,net,web3,txpool,engine
+  - --ws.origins=*
+  - --miner.gaslimit=60000000
+  - --rpc.txfeecap=0
+  - --rpc.batch-request-limit=0
+  cl_type: lighthouse
+  cl_extra_params:
+  - --disable-quic
+network_params:
+  preset: mainnet
+  seconds_per_slot: 12
+  network_id: '420420420'
+  deposit_contract_address: '0x00000000219ab540356cbb839cbe05303d7705fa'
+  altair_fork_epoch: 0
+  bellatrix_fork_epoch: 0
+  capella_fork_epoch: 0
+  deneb_fork_epoch: 0
+  electra_fork_epoch: 0
+  fulu_fork_epoch: 18446744073709551615
+  preregistered_validator_keys_mnemonic: giant issue aisle success illegal bike spike question tent bar rely arctic volcano long crawl hungry vocal artwork sniff fantasy very lucky have athlete
+  num_validator_keys_per_node: 64
+  genesis_delay: 10
+  genesis_gaslimit: 60000000
+  gas_limit: 60000000
+  prefunded_accounts: '{}'
+wait_for_finalization: false

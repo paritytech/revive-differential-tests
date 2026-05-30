@@ -55,6 +55,7 @@ serde_json = { version = "1.0", default-features = false, features = [
     "arbitrary_precision",
     "std",
     "unbounded_depth",
+    "preserve_order",
 ] }
 serde_with = { version = "3.14.0", features = ["hex"] }
 serde_yaml_ng = { version = "0.10.0" }

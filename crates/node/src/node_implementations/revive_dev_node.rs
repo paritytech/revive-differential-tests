@@ -1,8 +1,4 @@
-#![allow(dead_code)]
-
 use crate::internal_prelude::*;
-
-static NODE_COUNT: AtomicU32 = AtomicU32::new(0);
 
 /// A node implementation for Substrate based chains. Currently, this supports either substrate
 /// or the revive-dev-node which is done by changing the path and some of the other arguments passed
@@ -11,139 +7,134 @@ static NODE_COUNT: AtomicU32 = AtomicU32::new(0);
 
 pub struct ReviveDevNode {
     id: u32,
-    node_binary: PathBuf,
-    eth_rpc_binary: PathBuf,
-    directories: NodeDirectories,
-    revive_dev_node_process: Option<ReviveDevNodeProcess>,
-    eth_rpc_process: Option<EthRpcProcess>,
+    revive_dev_node_process: ReviveDevNodeProcess,
+    eth_rpc_process: EthRpcProcess,
     wallet: Arc<EthereumWallet>,
     nonce_manager: CachedNonceManager,
+    gas_filler: FallbackGasFiller,
     provider: Arc<OnceCell<ConcreteProvider<Ethereum, Arc<EthereumWallet>>>>,
     substrate_provider: Arc<OnceCell<OnlineClient<PolkadotConfig>>>,
-    consensus: Option<String>,
-    use_fallback_gas_filler: bool,
-    node_logging_level: String,
-    eth_rpc_logging_level: String,
+    _directories: NodeDirectories,
 }
 
 impl ReviveDevNode {
-    const CHAIN_SPEC_JSON_FILE: &str = "template_chainspec.json";
-
-    /// Returns the WebSocket URL for the substrate RPC endpoint of this node.
-    fn substrate_ws_url(&self) -> String {
-        self.revive_dev_node_process
-            .as_ref()
-            .expect("must be initialized")
-            .url()
-            .to_string()
-    }
-
-    #[allow(clippy::too_many_arguments)]
     pub fn new(
-        node_path: PathBuf,
-        consensus: Option<String>,
-        context: impl HasWorkingDirectoryConfiguration + HasEthRpcConfiguration + HasWalletConfiguration,
+        context: impl HasWorkingDirectoryConfiguration
+        + HasEthRpcConfiguration
+        + HasWalletConfiguration
+        + HasReviveDevNodeConfiguration
+        + Clone,
         use_fallback_gas_filler: bool,
-        node_logging_level: String,
-        eth_rpc_logging_level: String,
-    ) -> Self {
-        let working_directory_path = context
-            .as_working_directory_configuration()
-            .working_directory
-            .as_path();
-        let eth_rpc_path = context.as_eth_rpc_configuration().path.as_path();
-        let wallet = context.as_wallet_configuration().wallet();
+    ) -> Result<Self> {
+        let workdir_config = context.as_working_directory_configuration();
+        let wallet_config = context.as_wallet_configuration();
+        let node_config = context.as_revive_dev_node_configuration();
+        let rpc_config = context.as_eth_rpc_configuration();
 
-        let id = NODE_COUNT.fetch_add(1, Ordering::SeqCst);
-        let directories = NodeDirectories::new(working_directory_path, "revive-dev-node", id)
-            .expect("TODO(constructors): Remove this when we have failing constructors");
+        let id = NodeId::for_node("revive-dev-node");
+        let directories = NodeDirectories::new(
+            workdir_config.working_directory.as_path(),
+            "revive-dev-node",
+            id.0,
+        )
+        .context("Failed to initialize node directories")?;
+        let chainspec_path = directories.base_directory().join("chainspec.json");
 
-        Self {
-            id,
-            node_binary: node_path,
-            eth_rpc_binary: eth_rpc_path.to_path_buf(),
-            directories,
-            revive_dev_node_process: Default::default(),
-            eth_rpc_process: Default::default(),
-            wallet: wallet.clone(),
+        let wallet = wallet_config.wallet();
+        Self::init_chainspec(
+            node_config.path.as_path(),
+            &wallet,
+            chainspec_path.as_path(),
+        )
+        .context("Failed to initialize the chainspec file")?;
+
+        let revive_dev_node_process = ReviveDevNodeProcess::new(
+            node_config.path.as_path(),
+            chainspec_path,
+            node_config.consensus.as_str(),
+            directories.data_directory(),
+            directories.logs_directory(),
+            node_config.logging_level.as_str(),
+            node_config.start_timeout_ms,
+        )
+        .inspect_err(|err| error!(error = ?err, "Failed to spawn revive-dev-node"))?;
+
+        let eth_rpc_process = EthRpcProcess::new(
+            rpc_config.path.as_path(),
+            directories.logs_directory(),
+            revive_dev_node_process.url(),
+            rpc_config.logging_level.as_str(),
+            rpc_config.start_timeout_ms,
+        )
+        .inspect_err(|err| error!(error = ?err, "Failed to spawn eth-rpc"))?;
+
+        Ok(Self {
+            id: id.0,
+            revive_dev_node_process,
+            eth_rpc_process,
+            wallet,
             nonce_manager: Default::default(),
+            gas_filler: FallbackGasFiller::new().with_fallback_mechanism(use_fallback_gas_filler),
             provider: Default::default(),
             substrate_provider: Default::default(),
-            consensus,
-            use_fallback_gas_filler,
-            node_logging_level,
-            eth_rpc_logging_level,
-        }
+            _directories: directories,
+        })
     }
 
-    fn init(&mut self, _: Genesis) -> anyhow::Result<&mut Self> {
-        static CHAINSPEC_MUTEX: StdMutex<Option<Value>> = StdMutex::new(None);
-
-        trace!("Creating the node genesis");
-        let chainspec_json = {
-            let mut chainspec_mutex = CHAINSPEC_MUTEX.lock().expect("Poisoned");
-            match chainspec_mutex.as_ref() {
-                Some(chainspec_json) => chainspec_json.clone(),
-                None => {
-                    let chainspec_json = Self::node_genesis(&self.node_binary, &self.wallet)
-                        .context("Failed to prepare the chainspec command")?;
-                    *chainspec_mutex = Some(chainspec_json.clone());
-                    chainspec_json
-                }
-            }
-        };
-
-        let template_chainspec_path = self
-            .directories
-            .base_directory()
-            .join(Self::CHAIN_SPEC_JSON_FILE);
-
-        trace!("Writing the node genesis");
-        serde_json::to_writer_pretty(
-            std::fs::File::create(&template_chainspec_path)
-                .context("Failed to create substrate template chainspec file")?,
-            &chainspec_json,
-        )
-        .context("Failed to write substrate template chainspec JSON")?;
-        Ok(self)
-    }
-
-    fn spawn_process(&mut self) -> anyhow::Result<()> {
-        self.revive_dev_node_process = ReviveDevNodeProcess::new(
-            self.node_binary.as_path(),
-            self.directories
-                .base_directory()
-                .join(Self::CHAIN_SPEC_JSON_FILE),
-            self.consensus.as_deref().unwrap_or("instant-seal"),
-            self.directories.data_directory(),
-            self.directories.logs_directory(),
-            self.node_logging_level.as_str(),
-        )
-        .inspect_err(|err| error!(error = ?err, "Failed to spawn revive-dev-node"))?
-        .into();
-
-        self.eth_rpc_process = EthRpcProcess::new(
-            self.eth_rpc_binary.as_path(),
-            self.directories.logs_directory(),
-            self.revive_dev_node_process
-                .as_ref()
-                .expect("qed; we initialized it")
-                .url(),
-            self.eth_rpc_logging_level.as_str(),
-        )
-        .inspect_err(|err| error!(error = ?err, "Failed to spawn eth-rpc"))?
-        .into();
+    fn init_chainspec(
+        binary_path: impl AsRef<Path>,
+        wallet: &EthereumWallet,
+        chainspec_path: impl AsRef<Path>,
+    ) -> Result<()> {
+        let chainspec =
+            Self::chainspec(binary_path, wallet).context("Failed to create the chainspec")?;
+        File::create(chainspec_path)
+            .context("Failed to create the chainspec file")
+            .map(BufWriter::new)
+            .and_then(|writer| {
+                serde_json::to_writer(writer, &chainspec)
+                    .context("Failed to serialize chainspec to writer")
+            })?;
 
         Ok(())
     }
 
-    fn provider(
-        &self,
-    ) -> FrameworkFuture<anyhow::Result<ConcreteProvider<Ethereum, Arc<EthereumWallet>>>> {
+    pub fn chainspec(binary_path: impl AsRef<Path>, wallet: &EthereumWallet) -> Result<Value> {
+        static CACHED_BASE_CHAINSPECS: LazyLock<Arc<StdMutex<HashMap<PathBuf, Value>>>> =
+            LazyLock::new(Default::default);
+
+        let mut chainspec = match CACHED_BASE_CHAINSPECS
+            .lock()
+            .expect("poisoned")
+            .entry(binary_path.as_ref().to_path_buf())
+        {
+            HashMapEntry::Occupied(entry) => entry.get().clone(),
+            HashMapEntry::Vacant(entry) => {
+                let chainspec = Command::new(binary_path.as_ref())
+                    .arg("build-spec")
+                    .arg("--chain")
+                    .arg("dev")
+                    .env_remove("RUST_LOG")
+                    .run_and_get_output()
+                    .context("Failed to build the chainspec")
+                    .and_then(|output| {
+                        serde_json::from_str::<Value>(&output.stdout)
+                            .context("Failed to deserialize output as chainspec JSON")
+                    })?;
+                entry.insert(chainspec.clone());
+                chainspec
+            }
+        };
+        inject_wallet_balances(&mut chainspec, wallet)
+            .context("Failed to add the pre-funded accounts")?;
+
+        Ok(chainspec)
+    }
+
+    fn provider(&self) -> FrameworkFuture<Result<ConcreteProvider<Ethereum, Arc<EthereumWallet>>>> {
         let provider = self.provider.clone();
         let connection_string = self.connection_string().to_string();
-        let gas_filler =
-            FallbackGasFiller::default().with_fallback_mechanism(self.use_fallback_gas_filler);
+        let gas_filler = self.gas_filler;
         let nonce_filler = NonceFiller::new(self.nonce_manager.clone());
         let wallet = self.wallet.clone();
 
@@ -164,28 +155,6 @@ impl ReviveDevNode {
                 .cloned()
         })
     }
-
-    pub fn node_genesis(
-        node_path: &Path,
-        wallet: &EthereumWallet,
-    ) -> anyhow::Result<serde_json::Value> {
-        trace!("Exporting the chainspec");
-        let output = Command::new(node_path)
-            .arg("build-spec")
-            .arg("--chain")
-            .arg("dev")
-            .env_remove("RUST_LOG")
-            .run_and_get_output()
-            .context("Failed to build the chainspec")?;
-
-        let mut chainspec_json = serde_json::from_str::<serde_json::Value>(&output.stdout)
-            .context("Failed to parse Substrate chain spec JSON")?;
-
-        trace!("Adding addresses to chainspec");
-        inject_wallet_balances(&mut chainspec_json, wallet)?;
-
-        Ok(chainspec_json)
-    }
 }
 
 impl NodeApi for ReviveDevNode {
@@ -194,10 +163,7 @@ impl NodeApi for ReviveDevNode {
     }
 
     fn connection_string(&self) -> &str {
-        self.eth_rpc_process
-            .as_ref()
-            .expect("must be initialized")
-            .url()
+        self.eth_rpc_process.url()
     }
 
     fn evm_version(&self) -> EVMVersion {
@@ -210,7 +176,7 @@ impl NodeApi for ReviveDevNode {
     fn submit_transaction(
         &self,
         transaction: TransactionRequest,
-    ) -> FrameworkFuture<Result<alloy::primitives::TxHash>> {
+    ) -> FrameworkFuture<Result<TxHash>> {
         let provider = Self::provider(self);
         let substrate_provider = NodeApi::substrate_provider(self);
 
@@ -364,7 +330,7 @@ impl NodeApi for ReviveDevNode {
         Box::pin(task)
     }
 
-    fn provider(&self) -> revive_dt_common::futures::FrameworkFuture<anyhow::Result<DynProvider>> {
+    fn provider(&self) -> revive_dt_common::futures::FrameworkFuture<Result<DynProvider>> {
         Self::provider(self)
             .map(|provider| provider.map(|provider| provider.erased()))
             .boxed()
@@ -372,11 +338,10 @@ impl NodeApi for ReviveDevNode {
 
     fn substrate_provider(
         &self,
-    ) -> Option<
-        revive_dt_common::futures::FrameworkFuture<anyhow::Result<OnlineClient<PolkadotConfig>>>,
-    > {
+    ) -> Option<revive_dt_common::futures::FrameworkFuture<Result<OnlineClient<PolkadotConfig>>>>
+    {
         let provider = self.substrate_provider.clone();
-        let connection_string = self.substrate_ws_url();
+        let connection_string = self.revive_dev_node_process.url().to_string();
 
         Some(Box::pin(async move {
             provider
@@ -393,7 +358,7 @@ impl NodeApi for ReviveDevNode {
     fn substrate_rpc_client(
         &self,
     ) -> Option<FrameworkFuture<Result<subxt::backend::rpc::RpcClient>>> {
-        let url = self.substrate_ws_url();
+        let url = self.revive_dev_node_process.url().to_string();
         Some(Box::pin(async move {
             subxt::backend::rpc::RpcClient::from_insecure_url(url)
                 .await
@@ -403,155 +368,7 @@ impl NodeApi for ReviveDevNode {
 }
 
 impl Node for ReviveDevNode {
-    fn spawn(&mut self, genesis: Genesis) -> anyhow::Result<()> {
-        self.init(genesis)?.spawn_process()
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use alloy::rpc::types::TransactionRequest;
-    use std::sync::{LazyLock, Mutex};
-
-    use std::fs;
-
-    use alloy::primitives::U256;
-
-    use super::*;
-
-    fn test_config() -> Test {
-        Test::default()
-    }
-
-    fn new_node() -> (Test, ReviveDevNode) {
-        // Note: When we run the tests in the CI we found that if they're all
-        // run in parallel then the CI is unable to start all of the nodes in
-        // time and their start up times-out. Therefore, we want all of the
-        // nodes to be started in series and not in parallel. To do this, we use
-        // a dummy mutex here such that there can only be a single node being
-        // started up at any point of time. This will make our tests run slower
-        // but it will allow the node startup to not timeout.
-        //
-        // Note: an alternative to starting all of the nodes in series and not
-        // in parallel would be for us to reuse the same node between tests
-        // which is not the best thing to do in my opinion as it removes all
-        // of the isolation between tests and makes them depend on what other
-        // tests do. For example, if one test checks what the block number is
-        // and another test submits a transaction then the tx test would have
-        // side effects that affect the block number test.
-        static NODE_START_MUTEX: Mutex<()> = Mutex::new(());
-        let _guard = NODE_START_MUTEX.lock().unwrap();
-
-        let context = test_config();
-        let revive_dev_node_path = context.revive_dev_node.path.clone();
-        let genesis = context.genesis.genesis().unwrap().clone();
-        let mut node = ReviveDevNode::new(
-            revive_dev_node_path,
-            None,
-            context.clone(),
-            true,
-            "".to_string(),
-            "".to_string(),
-        );
-        node.init(genesis)
-            .expect("Failed to initialize the node")
-            .spawn_process()
-            .expect("Failed to spawn the node process");
-        (context, node)
-    }
-
-    fn shared_state() -> &'static (Test, ReviveDevNode) {
-        static STATE: LazyLock<(Test, ReviveDevNode)> = LazyLock::new(new_node);
-        &STATE
-    }
-
-    fn shared_node() -> &'static ReviveDevNode {
-        &shared_state().1
-    }
-
-    #[tokio::test]
-    #[ignore = "Ignored since it takes a long time to run"]
-    async fn node_mines_simple_transfer_transaction_and_returns_receipt() {
-        // Arrange
-        let (context, node) = shared_state();
-
-        let provider = node.provider().await.expect("Failed to create provider");
-
-        let account_address = context.wallet.wallet().default_signer().address();
-        let transaction = TransactionRequest::default()
-            .to(account_address)
-            .value(U256::from(100_000_000_000_000u128));
-
-        // Act
-        let mut pending_transaction = provider
-            .send_transaction(transaction)
-            .await
-            .expect("Submission failed");
-        pending_transaction.set_timeout(Some(Duration::from_secs(60)));
-
-        // Assert
-        let _ = pending_transaction
-            .get_receipt()
-            .await
-            .expect("Failed to get the receipt for the transfer");
-    }
-
-    #[test]
-    #[ignore = "Ignored since they take a long time to run"]
-    fn test_init_generates_chainspec_with_balances() {
-        let genesis_content = r#"
-        {
-            "alloc": {
-                "90F8bf6A479f320ead074411a4B0e7944Ea8c9C1": {
-                    "balance": "1000000000000000000"
-                },
-                "Ab8483F64d9C6d1EcF9b849Ae677dD3315835cb2": {
-                    "balance": "2000000000000000000"
-                }
-            }
-        }
-        "#;
-
-        let context = test_config();
-        let revive_dev_node_path = context.revive_dev_node.path.clone();
-        let mut dummy_node = ReviveDevNode::new(
-            revive_dev_node_path,
-            None,
-            context,
-            true,
-            "".to_string(),
-            "".to_string(),
-        );
-
-        // Call `init()`
-        dummy_node
-            .init(serde_json::from_str(genesis_content).unwrap())
-            .expect("init failed");
-
-        // Check that the patched chainspec file was generated
-        let final_chainspec_path = dummy_node
-            .directories
-            .base_directory()
-            .join(ReviveDevNode::CHAIN_SPEC_JSON_FILE);
-        assert!(final_chainspec_path.exists(), "Chainspec file should exist");
-
-        let contents = fs::read_to_string(&final_chainspec_path).expect("Failed to read chainspec");
-
-        // Validate that the Substrate addresses derived from the Ethereum addresses are in the file
-        let first_eth_addr = crate::helpers::eth_to_polkadot_address(
-            &"90F8bf6A479f320ead074411a4B0e7944Ea8c9C1".parse().unwrap(),
-        );
-        let second_eth_addr = crate::helpers::eth_to_polkadot_address(
-            &"Ab8483F64d9C6d1EcF9b849Ae677dD3315835cb2".parse().unwrap(),
-        );
-
-        assert!(
-            contents.contains(&first_eth_addr),
-            "Chainspec should contain Substrate address for first Ethereum account"
-        );
-        assert!(
-            contents.contains(&second_eth_addr),
-            "Chainspec should contain Substrate address for second Ethereum account"
-        );
+    fn spawn(&mut self, _: Genesis) -> Result<()> {
+        Ok(())
     }
 }

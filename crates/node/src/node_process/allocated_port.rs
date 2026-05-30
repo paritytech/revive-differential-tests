@@ -7,7 +7,7 @@ static ALREADY_ALLOCATED: LazyLock<Arc<StdMutex<Vec<u16>>>> = LazyLock::new(Defa
 pub struct AllocatedPort(TcpListener);
 
 impl AllocatedPort {
-    pub fn allocate() -> anyhow::Result<Self> {
+    pub fn allocate() -> Result<Self> {
         loop {
             let listener = TcpListener::bind("127.0.0.1:0")
                 .context("Failed to bind to an available localhost port")?;
@@ -54,7 +54,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn returns_distinct_ports_when_called_repeatedly() -> anyhow::Result<()> {
+    fn returns_distinct_ports_when_called_repeatedly() -> Result<()> {
         let first_port = AllocatedPort::allocate()?;
         let second_port = AllocatedPort::allocate()?;
         let first_port = first_port.value();
@@ -65,7 +65,7 @@ mod tests {
     }
 
     #[test]
-    fn does_not_reuse_consumed_port_reserved_in_static() -> anyhow::Result<()> {
+    fn does_not_reuse_consumed_port_reserved_in_static() -> Result<()> {
         let consumed_port = AllocatedPort::allocate()?.value();
         let next_port = AllocatedPort::allocate()?.value();
 

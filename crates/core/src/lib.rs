@@ -342,7 +342,8 @@ fn new_geth_node(context: Context) -> Result<JoinHandle<Result<Box<dyn NodeApi +
     let genesis = context.as_genesis_configuration().genesis()?.clone();
     Ok(thread::spawn(move || {
         let use_fallback_gas_filler = matches!(context, Context::Test(..));
-        let node = GethNode::new(context, use_fallback_gas_filler);
+        let node =
+            GethNode::new(context, use_fallback_gas_filler).context("Failed to spawn geth node")?;
         let node = spawn_node(node, genesis)?;
         Ok(Box::new(node) as _)
     }))
@@ -354,7 +355,8 @@ fn new_lighthouse_geth_node(
     let genesis = context.as_genesis_configuration().genesis()?.clone();
     Ok(thread::spawn(move || {
         let use_fallback_gas_filler = matches!(context, Context::Test(..));
-        let node = LighthouseGethNode::new(context, use_fallback_gas_filler);
+        let node = LighthouseGethNode::new(context, use_fallback_gas_filler)
+            .context("Failed to spawn lighthouse node")?;
         let node = spawn_node(node, genesis)?;
         Ok(Box::new(node) as _)
     }))
@@ -363,25 +365,11 @@ fn new_lighthouse_geth_node(
 fn new_revive_dev_node(
     context: Context,
 ) -> Result<JoinHandle<Result<Box<dyn NodeApi + Send + Sync>>>> {
-    let revive_dev_node_configuration = context.as_revive_dev_node_configuration();
-    let eth_rpc_configuration = context.as_eth_rpc_configuration();
-
-    let revive_dev_node_path = revive_dev_node_configuration.path.clone();
-    let revive_dev_node_consensus = revive_dev_node_configuration.consensus.clone();
-    let node_logging_level = revive_dev_node_configuration.logging_level.clone();
-    let eth_rpc_logging_level = eth_rpc_configuration.logging_level.clone();
-
     let genesis = context.as_genesis_configuration().genesis()?.clone();
     Ok(thread::spawn(move || {
         let use_fallback_gas_filler = matches!(context, Context::Test(..));
-        let node = ReviveDevNode::new(
-            revive_dev_node_path,
-            Some(revive_dev_node_consensus),
-            context,
-            use_fallback_gas_filler,
-            node_logging_level,
-            eth_rpc_logging_level,
-        );
+        let node = ReviveDevNode::new(context, use_fallback_gas_filler)
+            .context("Failed to spawn revive-dev-node")?;
         let node = spawn_node(node, genesis)?;
         Ok(Box::new(node) as _)
     }))
@@ -391,11 +379,11 @@ fn new_revive_dev_node(
 fn new_zombienet_node(
     context: Context,
 ) -> Result<JoinHandle<Result<Box<dyn NodeApi + Send + Sync>>>> {
-    let polkadot_parachain_path = context.as_polkadot_parachain_configuration().path.clone();
     let genesis = context.as_genesis_configuration().genesis()?.clone();
     Ok(thread::spawn(move || {
         let use_fallback_gas_filler = matches!(context, Context::Test(..));
-        let node = ZombienetNode::new(polkadot_parachain_path, context, use_fallback_gas_filler);
+        let node = ZombienetNode::new(context, use_fallback_gas_filler)
+            .context("Failed to spawn zombienet")?;
         let node = spawn_node(node, genesis)?;
         Ok(Box::new(node) as _)
     }))
@@ -407,7 +395,8 @@ fn new_polkadot_omni_node(
     let genesis = context.as_genesis_configuration().genesis()?.clone();
     Ok(thread::spawn(move || {
         let use_fallback_gas_filler = matches!(context, Context::Test(..));
-        let node = PolkadotOmnichainNode::new(context, use_fallback_gas_filler);
+        let node = PolkadotOmnichainNode::new(context, use_fallback_gas_filler)
+            .context("Failed to spawn polkadot-omni-node")?;
         let node = spawn_node(node, genesis)?;
         Ok(Box::new(node) as _)
     }))
@@ -450,7 +439,7 @@ fn export_lighthouse_geth_genesis(context: Context) -> Result<serde_json::Value>
 fn export_revive_dev_node_genesis(context: Context) -> Result<serde_json::Value> {
     let revive_dev_node_path = context.as_revive_dev_node_configuration().path.as_path();
     let wallet = context.as_wallet_configuration().wallet();
-    ReviveDevNode::node_genesis(revive_dev_node_path, &wallet)
+    ReviveDevNode::chainspec(revive_dev_node_path, &wallet)
 }
 
 #[cfg(unix)]
@@ -463,7 +452,7 @@ fn export_zombienet_genesis(context: Context) -> Result<serde_json::Value> {
 fn export_polkadot_omni_node_genesis(context: Context) -> Result<serde_json::Value> {
     let config = context.as_polkadot_omnichain_node_configuration();
     let wallet = context.as_wallet_configuration().wallet();
-    PolkadotOmnichainNode::node_genesis(
+    PolkadotOmnichainNode::chainspec(
         &wallet,
         config
             .chain_spec_path

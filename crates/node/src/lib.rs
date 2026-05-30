@@ -29,10 +29,10 @@ pub(crate) mod internal_prelude {
     pub use revive_dt_node_interaction::prelude::*;
 
     pub use std::borrow::Cow;
-    pub use std::collections::BTreeMap;
+    pub use std::collections::{BTreeMap, HashMap, hash_map::Entry as HashMapEntry};
     pub use std::ffi::{OsStr, OsString};
     pub use std::fs::{File, OpenOptions, create_dir_all, remove_dir_all};
-    pub use std::io::{BufRead, BufReader, Read, Write};
+    pub use std::io::{BufRead, BufReader, BufWriter, Read, Write};
     pub use std::net::TcpListener;
     pub use std::ops::ControlFlow;
     pub use std::path::{Path, PathBuf};
@@ -49,7 +49,7 @@ pub(crate) mod internal_prelude {
             AnyNetwork, BlockResponse, Ethereum, EthereumWallet, Network, NetworkWallet,
             TransactionBuilder, TransactionBuilder4844,
         },
-        primitives::{Address, ChainId, U256, address},
+        primitives::{Address, ChainId, TxHash, U256},
         providers::{
             DynProvider, Identity, Provider, ProviderBuilder, RootProvider, SendableTx,
             ext::DebugApi,
@@ -76,10 +76,7 @@ pub(crate) mod internal_prelude {
     pub use anyhow::{Context as _, Result, bail};
     pub use futures::FutureExt;
     pub use futures::StreamExt;
-    pub use serde::{Deserialize, Deserializer, Serialize, Serializer};
     pub use serde_json::{self, Value, json};
-    pub use serde_with::serde_as;
-    pub use serde_yaml_ng;
     pub use sp_core::crypto::Ss58Codec;
     pub use sp_runtime::AccountId32;
     pub use subxt::{OnlineClient, PolkadotConfig, tx::TxStatus};
@@ -109,5 +106,5 @@ pub trait Node: NodeApi {
     /// Spawns a node configured according to the genesis json.
     ///
     /// Blocking until it's ready to accept transactions.
-    fn spawn(&mut self, genesis: Genesis) -> anyhow::Result<()>;
+    fn spawn(&mut self, genesis: Genesis) -> Result<()>;
 }

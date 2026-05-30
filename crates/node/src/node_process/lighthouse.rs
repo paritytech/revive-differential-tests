@@ -11,7 +11,7 @@ pub struct LighthouseNodeProcess {
 
 impl LighthouseNodeProcess {
     const READY_MARKER: &str = "RUNNING";
-    const ERROR_MARKER: &str = "error encountered";
+    const ERROR_MARKER: &str = "Error encountered";
 
     pub fn new(
         kurtosis_binary_path: impl AsRef<Path>,
@@ -19,7 +19,8 @@ impl LighthouseNodeProcess {
         wrapper_directory: impl AsRef<Path>,
         args_file: impl AsRef<Path>,
         logs_directory: impl AsRef<Path>,
-    ) -> anyhow::Result<Self> {
+        start_timeout: Duration,
+    ) -> Result<Self> {
         let process = NodeProcess::builder(kurtosis_binary_path.as_ref())
             .arg("run")
             .arg("--enclave")
@@ -28,12 +29,10 @@ impl LighthouseNodeProcess {
             .arg("--args-file")
             .arg(args_file.as_ref())
             .log("kurtosis", logs_directory)
-            .wait_for_startup(WaitForStartupSentinel {
-                // TODO(better-config): Turn this into an argument
-                timeout: Duration::from_secs(60 * 15),
-                successful_startup_if_encountered: Self::READY_MARKER.into(),
-                failed_startup_if_encountered: Some(Self::ERROR_MARKER.into()),
-            })
+            .wait_for_startup(
+                WaitForStartupSentinel::new(start_timeout, Self::READY_MARKER)
+                    .with_failed_startup_if_encountered(Self::ERROR_MARKER),
+            )
             .build()
             .context("Failed to start the kurtosis process")?;
 
@@ -56,7 +55,7 @@ impl LighthouseNodeProcess {
         &self.ws_url
     }
 
-    fn fill_in_urls(mut self) -> anyhow::Result<Self> {
+    fn fill_in_urls(mut self) -> Result<Self> {
         let enclave_inspection_result = Command::new(self.kurtosis_binary_path.as_path())
             .arg("enclave")
             .arg("inspect")

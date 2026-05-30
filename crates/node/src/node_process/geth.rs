@@ -17,7 +17,8 @@ impl GethProcess {
         data_directory: impl AsRef<Path>,
         logs_directory: impl AsRef<Path>,
         logging_level: impl AsRef<OsStr>,
-    ) -> anyhow::Result<Self> {
+        start_timeout: Duration,
+    ) -> Result<Self> {
         Command::new(binary_path.as_ref())
             .arg("--state.scheme")
             .arg("hash")
@@ -52,11 +53,10 @@ impl GethProcess {
             .arg("--rpc.batch-request-limit")
             .arg("0")
             .log("geth", logs_directory)
-            .wait_for_startup(WaitForStartupSentinel {
-                timeout: Duration::from_secs(120),
-                successful_startup_if_encountered: Self::READY_MARKER.into(),
-                failed_startup_if_encountered: Some(Self::ERROR_MARKER.into()),
-            })
+            .wait_for_startup(
+                WaitForStartupSentinel::new(start_timeout, Self::READY_MARKER)
+                    .with_failed_startup_if_encountered(Self::ERROR_MARKER),
+            )
             .build()
             .context("Failed to start the geth process")?;
 

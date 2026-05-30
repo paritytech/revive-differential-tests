@@ -14,7 +14,8 @@ impl EthRpcProcess {
         logs_directory: impl AsRef<Path>,
         substrate_rpc_url: impl AsRef<OsStr>,
         logging_level: impl AsRef<OsStr>,
-    ) -> anyhow::Result<Self> {
+        start_timeout: Duration,
+    ) -> Result<Self> {
         let eth_rpc_port =
             AllocatedPort::allocate().context("Failed to allocate port for the eth-rpc")?;
         let url = format!("http://127.0.0.1:{eth_rpc_port}");
@@ -33,12 +34,10 @@ impl EthRpcProcess {
             .arg("archive")
             .log("eth_rpc", logs_directory)
             .env("RUST_LOG", logging_level)
-            .wait_for_startup(WaitForStartupSentinel {
-                // TODO(better-config): Turn this into an argument
-                timeout: Duration::from_secs(30),
-                successful_startup_if_encountered: Self::READY_MARKER.into(),
-                failed_startup_if_encountered: None::<Cow<'static, str>>,
-            })
+            .wait_for_startup(WaitForStartupSentinel::new(
+                start_timeout,
+                Self::READY_MARKER,
+            ))
             .arg("--rpc-port")
             .arg(eth_rpc_port.value().to_string())
             .build()
