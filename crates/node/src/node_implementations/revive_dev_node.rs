@@ -9,7 +9,7 @@ static NODE_COUNT: AtomicU32 = AtomicU32::new(0);
 /// to the command.
 #[derive(Debug)]
 
-pub struct SubstrateNode {
+pub struct ReviveDevNode {
     id: u32,
     node_binary: PathBuf,
     eth_proxy_binary: PathBuf,
@@ -28,14 +28,12 @@ pub struct SubstrateNode {
     eth_rpc_logging_level: String,
 }
 
-impl SubstrateNode {
+impl ReviveDevNode {
     const SUBSTRATE_READY_MARKER: &str = "Running JSON-RPC server";
     const ETH_PROXY_READY_MARKER: &str = "Running JSON-RPC server";
     const CHAIN_SPEC_JSON_FILE: &str = "template_chainspec.json";
     const BASE_SUBSTRATE_RPC_PORT: u16 = 9944;
     const BASE_PROXY_RPC_PORT: u16 = 8545;
-
-    pub const REVIVE_DEV_NODE_EXPORT_CHAINSPEC_COMMAND: &str = "build-spec";
 
     /// Returns the WebSocket URL for the substrate RPC endpoint of this node.
     fn substrate_ws_url(&self) -> String {
@@ -326,7 +324,7 @@ impl SubstrateNode {
     }
 }
 
-impl NodeApi for SubstrateNode {
+impl NodeApi for ReviveDevNode {
     fn id(&self) -> usize {
         self.id as _
     }
@@ -537,7 +535,7 @@ impl NodeApi for SubstrateNode {
     }
 }
 
-impl Node for SubstrateNode {
+impl Node for ReviveDevNode {
     fn shutdown(&mut self) -> anyhow::Result<()> {
         drop(self.substrate_process.take());
         drop(self.eth_proxy_process.take());
@@ -564,7 +562,7 @@ impl Node for SubstrateNode {
     }
 }
 
-impl Drop for SubstrateNode {
+impl Drop for ReviveDevNode {
     fn drop(&mut self) {
         self.shutdown().expect("Failed to shutdown")
     }
@@ -586,7 +584,7 @@ mod tests {
         Test::default()
     }
 
-    fn new_node() -> (Test, SubstrateNode) {
+    fn new_node() -> (Test, ReviveDevNode) {
         // Note: When we run the tests in the CI we found that if they're all
         // run in parallel then the CI is unable to start all of the nodes in
         // time and their start up times-out. Therefore, we want all of the
@@ -608,9 +606,9 @@ mod tests {
         let context = test_config();
         let revive_dev_node_path = context.revive_dev_node.path.clone();
         let genesis = context.genesis.genesis().unwrap().clone();
-        let mut node = SubstrateNode::new(
+        let mut node = ReviveDevNode::new(
             revive_dev_node_path,
-            SubstrateNode::REVIVE_DEV_NODE_EXPORT_CHAINSPEC_COMMAND,
+            "build-spec",
             None,
             context.clone(),
             &[],
@@ -625,12 +623,12 @@ mod tests {
         (context, node)
     }
 
-    fn shared_state() -> &'static (Test, SubstrateNode) {
-        static STATE: LazyLock<(Test, SubstrateNode)> = LazyLock::new(new_node);
+    fn shared_state() -> &'static (Test, ReviveDevNode) {
+        static STATE: LazyLock<(Test, ReviveDevNode)> = LazyLock::new(new_node);
         &STATE
     }
 
-    fn shared_node() -> &'static SubstrateNode {
+    fn shared_node() -> &'static ReviveDevNode {
         &shared_state().1
     }
 
@@ -679,9 +677,9 @@ mod tests {
 
         let context = test_config();
         let revive_dev_node_path = context.revive_dev_node.path.clone();
-        let mut dummy_node = SubstrateNode::new(
+        let mut dummy_node = ReviveDevNode::new(
             revive_dev_node_path,
-            SubstrateNode::REVIVE_DEV_NODE_EXPORT_CHAINSPEC_COMMAND,
+            "build-spec",
             None,
             context,
             &[],
@@ -699,7 +697,7 @@ mod tests {
         let final_chainspec_path = dummy_node
             .directories
             .base_directory()
-            .join(SubstrateNode::CHAIN_SPEC_JSON_FILE);
+            .join(ReviveDevNode::CHAIN_SPEC_JSON_FILE);
         assert!(final_chainspec_path.exists(), "Chainspec file should exist");
 
         let contents = fs::read_to_string(&final_chainspec_path).expect("Failed to read chainspec");

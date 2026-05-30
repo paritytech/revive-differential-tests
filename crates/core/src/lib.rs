@@ -375,9 +375,9 @@ fn new_revive_dev_node(
     let genesis = context.as_genesis_configuration().genesis()?.clone();
     Ok(thread::spawn(move || {
         let use_fallback_gas_filler = matches!(context, Context::Test(..));
-        let node = SubstrateNode::new(
+        let node = ReviveDevNode::new(
             revive_dev_node_path,
-            SubstrateNode::REVIVE_DEV_NODE_EXPORT_CHAINSPEC_COMMAND,
+            "build-spec",
             Some(revive_dev_node_consensus),
             context,
             &eth_rpc_connection_strings,
@@ -453,8 +453,8 @@ fn export_lighthouse_geth_genesis(context: Context) -> Result<serde_json::Value>
 fn export_revive_dev_node_genesis(context: Context) -> Result<serde_json::Value> {
     let revive_dev_node_path = context.as_revive_dev_node_configuration().path.as_path();
     let wallet = context.as_wallet_configuration().wallet();
-    let export_chainspec_command = SubstrateNode::REVIVE_DEV_NODE_EXPORT_CHAINSPEC_COMMAND;
-    SubstrateNode::node_genesis(revive_dev_node_path, export_chainspec_command, &wallet)
+    let export_chainspec_command = "build-spec";
+    ReviveDevNode::node_genesis(revive_dev_node_path, export_chainspec_command, &wallet)
 }
 
 #[cfg(unix)]
