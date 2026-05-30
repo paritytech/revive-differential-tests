@@ -60,7 +60,7 @@ pub(crate) mod internal_prelude {
     pub use revive_common::EVMVersion;
     pub use revive_dt_common::cached_fs::read_to_string;
     pub use revive_dt_common::fs::normalize_path;
-    pub use revive_dt_common::futures::FrameworkFuture;
+    pub use revive_dt_common::futures::StaticFuture;
     pub use revive_dt_common::types::VersionOrRequirement;
     pub use revive_dt_solc_binaries::download_solc;
 }
@@ -77,7 +77,7 @@ pub trait SolidityCompiler {
     fn path(&self) -> &Path;
 
     /// The low-level compiler interface.
-    fn build(&self, input: CompilerInput) -> FrameworkFuture<Result<CompilerOutput>>;
+    fn build(&self, input: CompilerInput) -> StaticFuture<Result<CompilerOutput>>;
 
     /// Does the compiler support the provided mode and version settings.
     fn supports_mode(&self, mode: &Mode) -> bool;

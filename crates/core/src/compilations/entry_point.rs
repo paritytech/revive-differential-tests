@@ -132,7 +132,7 @@ pub async fn handle_compilations(mut context: Compile, reporter: Reporter) -> an
 fn start_cli_reporting_task(
     output_format: OutputFormatConfiguration,
     mut aggregator_events_rx: broadcast::Receiver<ReporterEvent>,
-) -> FrameworkFuture<()> {
+) -> StaticFuture<()> {
     Box::pin(async move {
         let start = Instant::now();
 

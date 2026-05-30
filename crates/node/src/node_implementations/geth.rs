@@ -93,7 +93,7 @@ impl NodeApi for GethNode {
         EVMVersion::Cancun
     }
 
-    fn provider(&self) -> FrameworkFuture<Result<DynProvider>> {
+    fn provider(&self) -> StaticFuture<Result<DynProvider>> {
         let provider = self.provider.clone();
         let connection_string = self.connection_string().to_owned();
         let gas_filler = self.gas_filler;

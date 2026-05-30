@@ -83,7 +83,7 @@ pub trait Platform {
         &self,
         context: Context,
         version: Option<VersionOrRequirement>,
-    ) -> FrameworkFuture<Result<Box<dyn SolidityCompiler + Send + Sync>>> {
+    ) -> StaticFuture<Result<Box<dyn SolidityCompiler + Send + Sync>>> {
         match self.compiler_identifier() {
             CompilerIdentifier::Solc => new_solc_compiler(context, version),
             CompilerIdentifier::Resolc => new_resolc_compiler(context, version),
@@ -405,7 +405,7 @@ fn new_polkadot_omni_node(
 fn new_solc_compiler(
     context: Context,
     version: Option<VersionOrRequirement>,
-) -> FrameworkFuture<Result<Box<dyn SolidityCompiler + Send + Sync>>> {
+) -> StaticFuture<Result<Box<dyn SolidityCompiler + Send + Sync>>> {
     Box::pin(async move {
         let compiler = Solc::new_native(context, version).await;
         compiler.map(|compiler| Box::new(compiler) as _)
@@ -415,7 +415,7 @@ fn new_solc_compiler(
 fn new_resolc_compiler(
     context: Context,
     version: Option<VersionOrRequirement>,
-) -> FrameworkFuture<Result<Box<dyn SolidityCompiler + Send + Sync>>> {
+) -> StaticFuture<Result<Box<dyn SolidityCompiler + Send + Sync>>> {
     Box::pin(async move {
         let compiler = Resolc::new(context, version).await;
         compiler.map(|compiler| Box::new(compiler) as _)

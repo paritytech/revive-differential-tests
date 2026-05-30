@@ -277,7 +277,7 @@ impl ArtifactsCache {
         }
     }
 
-    pub fn with_invalidated_cache(self) -> FrameworkFuture<Result<Self>> {
+    pub fn with_invalidated_cache(self) -> StaticFuture<Result<Self>> {
         Box::pin(async move {
             match cacache::clear(self.path.as_path()).await {
                 Ok(()) => Ok(self),

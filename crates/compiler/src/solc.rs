@@ -30,7 +30,7 @@ impl Solc {
         context: impl HasSolcConfiguration + HasWorkingDirectoryConfiguration + Send + 'static,
         version: impl Into<Option<VersionOrRequirement>> + Send + 'static,
         runtime_target: SolcRuntimeTarget,
-    ) -> FrameworkFuture<Result<Self>> {
+    ) -> StaticFuture<Result<Self>> {
         Box::pin(async move {
             // This is a cache for the compiler objects so that whenever the same compiler version is
             // requested the same object is returned. We do this as we do not want to keep cloning the
@@ -79,14 +79,14 @@ impl Solc {
     pub fn new_native(
         context: impl HasSolcConfiguration + HasWorkingDirectoryConfiguration + Send + 'static,
         version: impl Into<Option<VersionOrRequirement>> + Send + 'static,
-    ) -> FrameworkFuture<Result<Self>> {
+    ) -> StaticFuture<Result<Self>> {
         Self::new(context, version, SolcRuntimeTarget::Native)
     }
 
     pub fn new_wasm(
         context: impl HasSolcConfiguration + HasWorkingDirectoryConfiguration + Send + 'static,
         version: impl Into<Option<VersionOrRequirement>> + Send + 'static,
-    ) -> FrameworkFuture<Result<Self>> {
+    ) -> StaticFuture<Result<Self>> {
         Self::new(context, version, SolcRuntimeTarget::Wasm)
     }
 }
@@ -119,7 +119,7 @@ impl SolidityCompiler for Solc {
             libraries,
             revert_string_handling,
         }: CompilerInput,
-    ) -> FrameworkFuture<Result<CompilerOutput>> {
+    ) -> StaticFuture<Result<CompilerOutput>> {
         let this = self.clone();
         Box::pin(async move {
             if matches!(this.0.runtime_target, SolcRuntimeTarget::Wasm) {

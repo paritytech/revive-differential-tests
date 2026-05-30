@@ -216,7 +216,7 @@ impl ZombienetNode {
         }
     }
 
-    fn provider(&self) -> FrameworkFuture<Result<ConcreteProvider<Ethereum, Arc<EthereumWallet>>>> {
+    fn provider(&self) -> StaticFuture<Result<ConcreteProvider<Ethereum, Arc<EthereumWallet>>>> {
         let provider = self.provider.clone();
         let connection_string = self.connection_string().to_string();
         let gas_filler = self.gas_filler;
@@ -276,7 +276,7 @@ impl NodeApi for ZombienetNode {
     fn submit_transaction(
         &self,
         mut transaction: TransactionRequest,
-    ) -> FrameworkFuture<Result<TxHash>> {
+    ) -> StaticFuture<Result<TxHash>> {
         transaction.set_gas_price(u128::MAX);
 
         let provider = self.provider();
@@ -318,14 +318,14 @@ impl NodeApi for ZombienetNode {
         })
     }
 
-    fn provider(&self) -> FrameworkFuture<Result<DynProvider>> {
+    fn provider(&self) -> StaticFuture<Result<DynProvider>> {
         Box::pin(
             self.provider()
                 .map(|provider| provider.map(|provider| provider.erased())),
         )
     }
 
-    fn substrate_provider(&self) -> Option<FrameworkFuture<Result<OnlineClient<PolkadotConfig>>>> {
+    fn substrate_provider(&self) -> Option<StaticFuture<Result<OnlineClient<PolkadotConfig>>>> {
         let provider = self.substrate_provider.clone();
         let connection_string = self.zombienet_process.url().to_string();
 
@@ -341,9 +341,7 @@ impl NodeApi for ZombienetNode {
         }))
     }
 
-    fn substrate_rpc_client(
-        &self,
-    ) -> Option<FrameworkFuture<Result<subxt::backend::rpc::RpcClient>>> {
+    fn substrate_rpc_client(&self) -> Option<StaticFuture<Result<subxt::backend::rpc::RpcClient>>> {
         let connection_string = self.zombienet_process.url().to_string();
 
         Some(Box::pin(async move {

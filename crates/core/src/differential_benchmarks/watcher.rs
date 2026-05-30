@@ -71,7 +71,7 @@ pub struct Watcher {
 
     /// This is a stream of the blocks that were mined by the node. This is for a single platform
     /// and a single node from that platform.
-    blocks_stream: FrameworkStream<MinedBlockInformation>,
+    blocks_stream: StaticStream<MinedBlockInformation>,
 
     /// This is the provider to use to communicate with the eth-rpc. We use this to get the receipts
     /// of the various blocks that get mined for ethereum native chains.
@@ -87,7 +87,7 @@ pub struct Watcher {
 
 impl Watcher {
     pub fn new(
-        blocks_stream: FrameworkStream<MinedBlockInformation>,
+        blocks_stream: StaticStream<MinedBlockInformation>,
         provider: DynProvider,
         substrate_provider: Option<OnlineClient<PolkadotConfig>>,
         reporter: ExecutionSpecificReporter,
@@ -138,7 +138,7 @@ impl Watcher {
     /// Finally, the watcher reports all observed block information, per-block transaction counts,
     /// and per-transaction metadata (submission time, block inclusion time) to the reporter.
     #[allow(irrefutable_let_patterns)]
-    pub fn run(mut self) -> FrameworkFuture<Result<()>> {
+    pub fn run(mut self) -> StaticFuture<Result<()>> {
         Box::pin(async move {
             // We start by waiting for the `StartEvent` which informs us of the first block that we want
             // to watch for. Any event that we receive before this `StartEvent` is ignored as the driver

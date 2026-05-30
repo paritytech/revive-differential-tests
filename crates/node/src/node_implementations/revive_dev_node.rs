@@ -131,7 +131,7 @@ impl ReviveDevNode {
         Ok(chainspec)
     }
 
-    fn provider(&self) -> FrameworkFuture<Result<ConcreteProvider<Ethereum, Arc<EthereumWallet>>>> {
+    fn provider(&self) -> StaticFuture<Result<ConcreteProvider<Ethereum, Arc<EthereumWallet>>>> {
         let provider = self.provider.clone();
         let connection_string = self.connection_string().to_string();
         let gas_filler = self.gas_filler;
@@ -176,7 +176,7 @@ impl NodeApi for ReviveDevNode {
     fn submit_transaction(
         &self,
         transaction: TransactionRequest,
-    ) -> FrameworkFuture<Result<TxHash>> {
+    ) -> StaticFuture<Result<TxHash>> {
         let provider = Self::provider(self);
         let substrate_provider = NodeApi::substrate_provider(self);
 
@@ -330,7 +330,7 @@ impl NodeApi for ReviveDevNode {
         Box::pin(task)
     }
 
-    fn provider(&self) -> revive_dt_common::futures::FrameworkFuture<Result<DynProvider>> {
+    fn provider(&self) -> revive_dt_common::futures::StaticFuture<Result<DynProvider>> {
         Self::provider(self)
             .map(|provider| provider.map(|provider| provider.erased()))
             .boxed()
@@ -338,7 +338,7 @@ impl NodeApi for ReviveDevNode {
 
     fn substrate_provider(
         &self,
-    ) -> Option<revive_dt_common::futures::FrameworkFuture<Result<OnlineClient<PolkadotConfig>>>>
+    ) -> Option<revive_dt_common::futures::StaticFuture<Result<OnlineClient<PolkadotConfig>>>>
     {
         let provider = self.substrate_provider.clone();
         let connection_string = self.revive_dev_node_process.url().to_string();
@@ -357,7 +357,7 @@ impl NodeApi for ReviveDevNode {
 
     fn substrate_rpc_client(
         &self,
-    ) -> Option<FrameworkFuture<Result<subxt::backend::rpc::RpcClient>>> {
+    ) -> Option<StaticFuture<Result<subxt::backend::rpc::RpcClient>>> {
         let url = self.revive_dev_node_process.url().to_string();
         Some(Box::pin(async move {
             subxt::backend::rpc::RpcClient::from_insecure_url(url)

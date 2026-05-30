@@ -1157,7 +1157,7 @@ mod tests {
 
         fn provider(
             &self,
-        ) -> revive_dt_common::futures::FrameworkFuture<anyhow::Result<alloy::providers::DynProvider>>
+        ) -> revive_dt_common::futures::StaticFuture<anyhow::Result<alloy::providers::DynProvider>>
         {
             let provider = ProviderBuilder::new()
                 .disable_recommended_fillers()

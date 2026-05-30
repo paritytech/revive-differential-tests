@@ -24,7 +24,7 @@ use futures::{Stream, StreamExt, stream};
 use pallet_revive::codec::Decode;
 use pallet_revive::evm::Block as EthBlock;
 use revive_common::EVMVersion;
-use revive_dt_common::futures::{FrameworkFuture, FrameworkStream};
+use revive_dt_common::futures::{StaticFuture, StaticStream};
 
 use revive_dt_common::subscriptions::{
     EthereumMinedBlockInformation, MinedBlockInformation, SubstrateMinedBlockInformation,
@@ -47,10 +47,7 @@ pub trait NodeApi {
     /// Returns the nodes connection string.
     fn connection_string(&self) -> &str;
 
-    fn submit_transaction(
-        &self,
-        transaction: TransactionRequest,
-    ) -> FrameworkFuture<Result<TxHash>> {
+    fn submit_transaction(&self, transaction: TransactionRequest) -> StaticFuture<Result<TxHash>> {
         let provider = self.provider();
         Box::pin(async move {
             provider
@@ -63,7 +60,7 @@ pub trait NodeApi {
         })
     }
 
-    fn get_receipt(&self, tx_hash: TxHash) -> FrameworkFuture<Result<TransactionReceipt>> {
+    fn get_receipt(&self, tx_hash: TxHash) -> StaticFuture<Result<TransactionReceipt>> {
         let provider = self.provider();
         Box::pin(async move {
             provider
@@ -80,7 +77,7 @@ pub trait NodeApi {
     fn execute_transaction(
         &self,
         transaction: TransactionRequest,
-    ) -> FrameworkFuture<Result<TransactionReceipt>> {
+    ) -> StaticFuture<Result<TransactionReceipt>> {
         let submission_future = self.submit_transaction(transaction);
         let provider = self.provider();
         Box::pin(async move {
@@ -116,7 +113,7 @@ pub trait NodeApi {
         &self,
         tx_hash: TxHash,
         trace_options: GethDebugTracingOptions,
-    ) -> FrameworkFuture<Result<GethTrace>> {
+    ) -> StaticFuture<Result<GethTrace>> {
         let provider = self.provider();
         Box::pin(async move {
             provider
@@ -129,7 +126,7 @@ pub trait NodeApi {
     }
 
     /// Returns the state diff of the transaction hash in the [TransactionReceipt].
-    fn state_diff(&self, tx_hash: TxHash) -> FrameworkFuture<Result<DiffMode>> {
+    fn state_diff(&self, tx_hash: TxHash) -> StaticFuture<Result<DiffMode>> {
         let provider = self.provider();
         Box::pin(async move {
             let trace_options = GethDebugTracingOptions::prestate_tracer(PreStateConfig {
@@ -153,7 +150,7 @@ pub trait NodeApi {
     }
 
     /// Returns the balance of the provided [`Address`] back.
-    fn balance_of(&self, address: Address) -> FrameworkFuture<Result<U256>> {
+    fn balance_of(&self, address: Address) -> StaticFuture<Result<U256>> {
         let provider = self.provider();
         Box::pin(async move {
             provider
@@ -170,7 +167,7 @@ pub trait NodeApi {
         &self,
         address: Address,
         keys: Vec<StorageKey>,
-    ) -> FrameworkFuture<Result<EIP1186AccountProofResponse>> {
+    ) -> StaticFuture<Result<EIP1186AccountProofResponse>> {
         let provider = self.provider();
         Box::pin(async move {
             provider
@@ -189,7 +186,7 @@ pub trait NodeApi {
     /// Returns a stream of the blocks that were mined by the node.
     fn subscribe_to_full_blocks_information(
         &self,
-    ) -> FrameworkFuture<Result<FrameworkStream<MinedBlockInformation>>> {
+    ) -> StaticFuture<Result<StaticStream<MinedBlockInformation>>> {
         let provider = self.subscriptions_provider();
         let substrate_provider = self.substrate_provider();
 
@@ -221,7 +218,7 @@ pub trait NodeApi {
     /// blocks.
     fn subscribe_to_transaction_inclusions(
         &self,
-    ) -> FrameworkFuture<Result<FrameworkStream<(u64, TxHash)>>> {
+    ) -> StaticFuture<Result<StaticStream<(u64, TxHash)>>> {
         let provider = self.subscriptions_provider();
         let substrate_provider = self.substrate_provider();
 
@@ -236,20 +233,20 @@ pub trait NodeApi {
     }
 
     /// A function to run post spawning the nodes and before any transactions are run on the node.
-    fn pre_transactions(&mut self) -> FrameworkFuture<Result<()>> {
+    fn pre_transactions(&mut self) -> StaticFuture<Result<()>> {
         Box::pin(async move { Ok(()) })
     }
 
     /// The alloy provider connected to the node's Rpc.
-    fn provider(&self) -> FrameworkFuture<Result<DynProvider>>;
+    fn provider(&self) -> StaticFuture<Result<DynProvider>>;
 
     /// The alloy provider we use for all of the subscriptions through this node.
-    fn subscriptions_provider(&self) -> FrameworkFuture<Result<DynProvider>> {
+    fn subscriptions_provider(&self) -> StaticFuture<Result<DynProvider>> {
         self.provider()
     }
 
     /// The substrate provider used by the node. None if it's not a substrate node.
-    fn substrate_provider(&self) -> Option<FrameworkFuture<Result<OnlineClient<PolkadotConfig>>>> {
+    fn substrate_provider(&self) -> Option<StaticFuture<Result<OnlineClient<PolkadotConfig>>>> {
         None
     }
 
@@ -258,18 +255,16 @@ pub trait NodeApi {
     /// This is separate from [`Self::substrate_provider`] because [`OnlineClient`] does not expose
     /// the underlying [`subxt::backend::rpc::RpcClient`]. Callers that need to issue arbitrary RPC
     /// requests (e.g. `author_pendingExtrinsics`) should use this method.
-    fn substrate_rpc_client(
-        &self,
-    ) -> Option<FrameworkFuture<Result<subxt::backend::rpc::RpcClient>>> {
+    fn substrate_rpc_client(&self) -> Option<StaticFuture<Result<subxt::backend::rpc::RpcClient>>> {
         None
     }
 }
 
 fn subscribe_to_full_blocks_information_ethereum(
-    provider: FrameworkFuture<Result<DynProvider>>,
-) -> FrameworkFuture<Result<FrameworkStream<MinedBlockInformation>>> {
+    provider: StaticFuture<Result<DynProvider>>,
+) -> StaticFuture<Result<StaticStream<MinedBlockInformation>>> {
     Box::pin(async move {
-        let stream: FrameworkStream<MinedBlockInformation> = Box::pin(
+        let stream: StaticStream<MinedBlockInformation> = Box::pin(
             provider
                 .await
                 .context("Failed to get the provider")?
@@ -305,8 +300,8 @@ fn subscribe_to_full_blocks_information_ethereum(
 
 #[allow(clippy::type_complexity)]
 fn subscribe_to_full_blocks_information_substrate(
-    substrate_provider: FrameworkFuture<Result<OnlineClient<PolkadotConfig>>>,
-) -> FrameworkFuture<Result<FrameworkStream<MinedBlockInformation>>> {
+    substrate_provider: StaticFuture<Result<OnlineClient<PolkadotConfig>>>,
+) -> StaticFuture<Result<StaticStream<MinedBlockInformation>>> {
     Box::pin(async move {
         let substrate_provider = substrate_provider.await.context("Failed to get provider")?;
 
@@ -524,8 +519,8 @@ where
 }
 
 fn subscribe_to_transaction_inclusions_ethereum(
-    provider: FrameworkFuture<Result<DynProvider>>,
-) -> FrameworkFuture<Result<FrameworkStream<(u64, TxHash)>>> {
+    provider: StaticFuture<Result<DynProvider>>,
+) -> StaticFuture<Result<StaticStream<(u64, TxHash)>>> {
     Box::pin(async move {
         let stream = provider
             .await
@@ -549,8 +544,8 @@ fn subscribe_to_transaction_inclusions_ethereum(
 }
 
 fn subscribe_to_transaction_inclusions_substrate(
-    provider: FrameworkFuture<Result<OnlineClient<PolkadotConfig>>>,
-) -> FrameworkFuture<Result<FrameworkStream<(u64, TxHash)>>> {
+    provider: StaticFuture<Result<OnlineClient<PolkadotConfig>>>,
+) -> StaticFuture<Result<StaticStream<(u64, TxHash)>>> {
     Box::pin(async move {
         let stream = provider
             .await

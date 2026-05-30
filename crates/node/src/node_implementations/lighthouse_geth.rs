@@ -121,7 +121,7 @@ impl LighthouseGethNode {
     fn construct_provider(
         &self,
         provider_cell: Arc<OnceCell<ConcreteProvider<Ethereum, Arc<EthereumWallet>>>>,
-    ) -> FrameworkFuture<Result<DynProvider>> {
+    ) -> StaticFuture<Result<DynProvider>> {
         let provider = provider_cell;
         let connection_string = self.connection_string().to_string();
         let gas_filler = self.gas_filler;
@@ -163,7 +163,7 @@ impl NodeApi for LighthouseGethNode {
     fn submit_transaction(
         &self,
         mut transaction: TransactionRequest,
-    ) -> FrameworkFuture<Result<TxHash>> {
+    ) -> StaticFuture<Result<TxHash>> {
         // EIP-1559 adjusts the base fee per block based on how full the previous block was relative
         // to the target (50% of the gas limit). During benchmarks, blocks are consistently ~99%
         // full, which causes the base fee to grow exponentially at ~12.4% per block. With a
@@ -188,11 +188,11 @@ impl NodeApi for LighthouseGethNode {
         })
     }
 
-    fn provider(&self) -> FrameworkFuture<Result<DynProvider>> {
+    fn provider(&self) -> StaticFuture<Result<DynProvider>> {
         self.construct_provider(self.ws_provider.clone())
     }
 
-    fn subscriptions_provider(&self) -> FrameworkFuture<Result<DynProvider>> {
+    fn subscriptions_provider(&self) -> StaticFuture<Result<DynProvider>> {
         self.construct_provider(self.ws_subscriptions_provider.clone())
     }
 }

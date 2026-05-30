@@ -38,7 +38,7 @@ impl ReportAggregator {
         }
     }
 
-    pub fn into_task(mut self) -> (Reporter, FrameworkFuture<Result<Report>>) {
+    pub fn into_task(mut self) -> (Reporter, StaticFuture<Result<Report>>) {
         let reporter = self
             .runner_tx
             .take()
@@ -47,7 +47,7 @@ impl ReportAggregator {
         (reporter, self.aggregate())
     }
 
-    fn aggregate(mut self) -> FrameworkFuture<Result<Report>> {
+    fn aggregate(mut self) -> StaticFuture<Result<Report>> {
         Box::pin(async move {
             debug!("Starting to aggregate report");
 

@@ -25,7 +25,7 @@ where
         }
     }
 
-    pub fn insert(&self, key: K, value: V) -> FrameworkFuture<()> {
+    pub fn insert(&self, key: K, value: V) -> StaticFuture<()> {
         let inner_map = self.inner.clone();
         Box::pin(async move {
             // Locking the outer map.
@@ -52,7 +52,7 @@ where
         })
     }
 
-    pub fn get(&self, k: K) -> FrameworkFuture<V> {
+    pub fn get(&self, k: K) -> StaticFuture<V> {
         let inner_map = self.inner.clone();
         Box::pin(async move {
             // Locking the outer map.

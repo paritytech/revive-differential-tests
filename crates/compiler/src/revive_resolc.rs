@@ -38,7 +38,7 @@ impl Resolc {
         + Send
         + 'static,
         version: impl Into<Option<VersionOrRequirement>> + Send + 'static,
-    ) -> FrameworkFuture<Result<Self>> {
+    ) -> StaticFuture<Result<Self>> {
         Box::pin(async move {
             /// This is a cache of all of the resolc compiler objects.
             static COMPILERS_CACHE: LazyLock<DashMap<ResolcInner, Resolc>> =
@@ -142,7 +142,7 @@ impl SolidityCompiler for Resolc {
             // resolc. So, we need to go back to this later once it's supported.
             revert_string_handling: _,
         }: CompilerInput,
-    ) -> FrameworkFuture<Result<CompilerOutput>> {
+    ) -> StaticFuture<Result<CompilerOutput>> {
         let this = self.clone();
         Box::pin(async move {
             if !matches!(pipeline, None | Some(ModePipeline::ViaYulIR)) {

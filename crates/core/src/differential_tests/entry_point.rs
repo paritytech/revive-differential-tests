@@ -192,7 +192,7 @@ pub async fn handle_differential_tests(context: Test, reporter: Reporter) -> any
 fn start_cli_reporting_task(
     output_format: OutputFormatConfiguration,
     reporter: Reporter,
-) -> FrameworkFuture<()> {
+) -> StaticFuture<()> {
     Box::pin(async move {
         let mut aggregator_events_rx = reporter.subscribe().await.expect("Can't fail");
         drop(reporter);

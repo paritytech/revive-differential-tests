@@ -13,7 +13,7 @@ impl InclusionWatcher {
         }
     }
 
-    pub fn await_transaction(&self, tx_hash: TxHash) -> FrameworkFuture<u64> {
+    pub fn await_transaction(&self, tx_hash: TxHash) -> StaticFuture<u64> {
         let await_future = self.transactions_map.get(tx_hash);
         Box::pin(async move {
             info!(%tx_hash, "Awaiting transaction inclusion");
@@ -27,8 +27,8 @@ impl InclusionWatcher {
 
     pub fn run(
         &self,
-        mut transaction_inclusion_stream: FrameworkStream<(u64, TxHash)>,
-    ) -> FrameworkFuture<()> {
+        mut transaction_inclusion_stream: StaticStream<(u64, TxHash)>,
+    ) -> StaticFuture<()> {
         let transactions_map = self.transactions_map.clone();
         let notify = self.stop_notifier.clone();
 

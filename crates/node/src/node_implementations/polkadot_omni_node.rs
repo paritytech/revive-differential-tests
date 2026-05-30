@@ -123,7 +123,7 @@ impl NodeApi for PolkadotOmnichainNode {
         EVMVersion::Cancun
     }
 
-    fn provider(&self) -> FrameworkFuture<Result<DynProvider>> {
+    fn provider(&self) -> StaticFuture<Result<DynProvider>> {
         let provider = self.provider.clone();
         let connection_string = self.connection_string().to_string();
         let gas_filler = self.gas_filler;
@@ -148,7 +148,7 @@ impl NodeApi for PolkadotOmnichainNode {
         })
     }
 
-    fn substrate_provider(&self) -> Option<FrameworkFuture<Result<OnlineClient<PolkadotConfig>>>> {
+    fn substrate_provider(&self) -> Option<StaticFuture<Result<OnlineClient<PolkadotConfig>>>> {
         let provider = self.substrate_provider.clone();
         let connection_string = self.polkadot_omnichain_node_process.url().to_string();
 
@@ -166,7 +166,7 @@ impl NodeApi for PolkadotOmnichainNode {
 
     fn substrate_rpc_client(
         &self,
-    ) -> Option<FrameworkFuture<Result<subxt::backend::rpc::RpcClient>>> {
+    ) -> Option<StaticFuture<Result<subxt::backend::rpc::RpcClient>>> {
         let url = self.polkadot_omnichain_node_process.url().to_string();
         Some(Box::pin(async move {
             subxt::backend::rpc::RpcClient::from_insecure_url(url)
