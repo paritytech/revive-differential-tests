@@ -115,7 +115,7 @@ impl<'a, 'b> NodeProcessBuilder<'a, 'b> {
         self,
         chainspec_path: impl AsRef<Path>,
         base_directory: impl AsRef<Path>,
-        node_port: u16,
+        node_port: AllocatedPort,
         logging_level: impl AsRef<OsStr>,
     ) -> Self {
         [
@@ -132,7 +132,7 @@ impl<'a, 'b> NodeProcessBuilder<'a, 'b> {
         .arg("--log")
         .arg(logging_level.as_ref())
         .arg("--rpc-port")
-        .arg(node_port.to_string())
+        .arg(node_port.value().to_string())
         .arg("--rpc-methods")
         .arg("Unsafe")
         .arg("--rpc-cors")

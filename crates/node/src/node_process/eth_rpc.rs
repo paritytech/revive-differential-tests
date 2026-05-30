@@ -16,7 +16,8 @@ impl EthRpcProcess {
         logging_level: impl AsRef<OsStr>,
     ) -> anyhow::Result<Self> {
         let eth_rpc_port =
-            PortAllocator::allocate_port().context("Failed to allocate port for the eth-rpc")?;
+            AllocatedPort::allocate().context("Failed to allocate port for the eth-rpc")?;
+        let url = format!("http://127.0.0.1:{eth_rpc_port}");
 
         let process = NodeProcess::builder(binary_path.as_ref())
             .arg("--dev")
@@ -26,8 +27,6 @@ impl EthRpcProcess {
             .arg("all")
             .arg("--rpc-max-connections")
             .arg(u32::MAX.to_string())
-            .arg("--rpc-port")
-            .arg(eth_rpc_port.to_string())
             .arg("--rpc-max-batch-request-len")
             .arg(u32::MAX.to_string())
             .arg("--eth-pruning")
@@ -40,12 +39,14 @@ impl EthRpcProcess {
                 successful_startup_if_encountered: Self::READY_MARKER.into(),
                 failed_startup_if_encountered: None::<Cow<'static, str>>,
             })
+            .arg("--rpc-port")
+            .arg(eth_rpc_port.value().to_string())
             .build()
             .context("Failed to start the eth-rpc processes")?;
 
         Ok(Self {
             _process: process,
-            url: format!("http://127.0.0.1:{eth_rpc_port}"),
+            url,
         })
     }
 

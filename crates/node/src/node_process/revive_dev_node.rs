@@ -17,8 +17,9 @@ impl ReviveDevNodeProcess {
         logs_directory: impl AsRef<Path>,
         logging_level: impl AsRef<OsStr>,
     ) -> anyhow::Result<Self> {
-        let node_port = PortAllocator::allocate_port()
-            .context("Failed to allocate port for the revive-dev-node")?;
+        let node_port =
+            AllocatedPort::allocate().context("Failed to allocate port for the revive-dev-node")?;
+        let url = format!("ws://127.0.0.1:{node_port}");
 
         let builder = NodeProcess::builder(binary_path.as_ref())
             .with_common_substrate_node_args(
@@ -47,7 +48,7 @@ impl ReviveDevNodeProcess {
 
         Ok(Self {
             _process: process,
-            url: format!("ws://127.0.0.1:{node_port}"),
+            url,
         })
     }
 
