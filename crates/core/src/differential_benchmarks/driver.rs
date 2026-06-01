@@ -347,11 +347,11 @@ where
             .handle_function_call_contract_deployment(step_path, step)
             .await
             .context("Failed to deploy contracts for the function call step")?;
-        let transaction_hash = self
+        let (transaction_hash, receipt) = self
             .handle_function_call_execution(step_path, step, deployment_receipts)
             .await
             .context("Failed to handle the function call execution")?;
-        self.handle_function_call_variable_assignment(step, transaction_hash)
+        self.handle_function_call_variable_assignment(step, transaction_hash, receipt.as_ref())
             .await
             .context("Failed to handle function call variable assignment")?;
         Ok(1)
@@ -459,7 +459,7 @@ where
         step_path: &StepPath,
         step: &FunctionCallStep,
         mut deployment_receipts: HashMap<ContractInstance, TransactionReceipt>,
-    ) -> Result<TxHash> {
+    ) -> Result<(TxHash, Option<TransactionReceipt>)> {
         match step.method {
             // This step was already executed when `handle_step` was called. We just need to
             // lookup the transaction receipt in this case and continue on.
@@ -469,10 +469,11 @@ where
                     .contract_instance(&step.instance)
                     .await
                     .context("Failed to resolve the step's instance")?;
-                deployment_receipts
+                let receipt = deployment_receipts
                     .remove(&instance)
-                    .context("Failed to find deployment receipt for constructor call")
-                    .map(|receipt| receipt.transaction_hash)
+                    .context("Failed to find deployment receipt for constructor call")?;
+                let tx_hash = receipt.transaction_hash;
+                Ok((tx_hash, Some(receipt)))
             }
             Method::Fallback | Method::FunctionName(_) => {
                 let tx = step
@@ -485,16 +486,21 @@ where
                 let (tx_hash, receipt_future, inclusion_future) = self
                     .execute_transaction(tx.clone(), Some(step_path), Duration::from_secs(30 * 60))
                     .await?;
-                if self.await_transaction_receipts || step.variable_assignments.is_some() {
-                    let receipt = receipt_future.await?;
-                    if !receipt.status() {
-                        bail!("Transaction failed {receipt:?}");
-                    }
-                } else if self.await_transaction_inclusion {
-                    inclusion_future.await;
-                };
+                let receipt =
+                    if self.await_transaction_receipts || step.variable_assignments.is_some() {
+                        let receipt = receipt_future.await?;
+                        if !receipt.status() {
+                            bail!("Transaction failed {receipt:?}");
+                        }
+                        Some(receipt)
+                    } else {
+                        if self.await_transaction_inclusion {
+                            inclusion_future.await;
+                        }
+                        None
+                    };
 
-                Ok(tx_hash)
+                Ok((tx_hash, receipt))
             }
         }
     }
@@ -534,33 +540,73 @@ where
         &mut self,
         step: &FunctionCallStep,
         tx_hash: TxHash,
+        receipt: Option<&TransactionReceipt>,
     ) -> Result<()> {
         let Some(ref assignments) = step.variable_assignments else {
             return Ok(());
         };
 
-        let callframe = OnceCell::new();
-        for (raw_name, output_word) in assignments.return_data.iter().zip(
-            callframe
-                .get_or_try_init(|| self.handle_function_call_call_frame_tracing(tx_hash))
-                .await
-                .context("Failed to get the callframe trace for transaction")?
-                .output
-                .as_ref()
-                .unwrap_or_default()
-                .to_vec()
-                .chunks(32),
-        ) {
+        // Collect 32-byte value words for each variable to assign, based on the source.
+        let value_words: Vec<[u8; 32]> = match assignments {
+            VariableAssignments::EventTopics { topics, .. } => {
+                let receipt = receipt.context(
+                    "event_topics capture requires the receipt; \
+                     ensure await_transaction_receipts is set or step.variable_assignments is present",
+                )?;
+                let logs = receipt.inner.logs();
+                topics
+                    .iter()
+                    .map(|et| {
+                        let log = logs.get(et.log_index).with_context(|| {
+                            format!(
+                                "event_topics: log_index {} out of range (receipt has {} logs)",
+                                et.log_index,
+                                logs.len(),
+                            )
+                        })?;
+                        let topic = log.topics().get(et.topic_index).with_context(|| {
+                            format!(
+                                "event_topics: topic_index {} out of range in log {} (log has {} topics)",
+                                et.topic_index,
+                                et.log_index,
+                                log.topics().len(),
+                            )
+                        })?;
+                        Ok::<_, anyhow::Error>(topic.0)
+                    })
+                    .collect::<Result<Vec<_>>>()?
+            }
+            VariableAssignments::ReturnData { .. } => {
+                let callframe = self
+                    .handle_function_call_call_frame_tracing(tx_hash)
+                    .await
+                    .context("Failed to get the callframe trace for transaction")?;
+                callframe
+                    .output
+                    .as_ref()
+                    .unwrap_or_default()
+                    .to_vec()
+                    .chunks(32)
+                    .map(|chunk| {
+                        let mut padded = [0u8; 32];
+                        padded[..chunk.len()].copy_from_slice(chunk);
+                        padded
+                    })
+                    .collect()
+            }
+        };
+
+        for (raw_name, value_word) in assignments.names().iter().zip(value_words.iter()) {
             let variable_name: String = if raw_name.contains("$VARIABLE:") {
                 let context = self.default_resolution_context();
                 revive_dt_format::steps::CalldataToken::<&str>::resolve_variable_name_template(
                     raw_name, context,
                 )
-                .context("Failed to resolve return_data templated variable name")?
+                .context("Failed to resolve variable_assignments templated variable name")?
             } else {
                 raw_name.clone()
             };
-            let value = U256::from_be_slice(output_word);
+            let value = U256::from_be_slice(value_word);
             self.execution_state
                 .variables
                 .insert(variable_name.clone(), value);

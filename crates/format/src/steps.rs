@@ -355,12 +355,51 @@ define_wrapper_type!(
     pub struct EtherValue(U256) impl Display;
 );
 
-#[derive(Clone, Debug, Default, Serialize, Deserialize, Eq, PartialEq, JsonSchema)]
-pub struct VariableAssignments {
-    /// A vector of the variable names to assign to the return data.
+/// Captures variables from a transaction's effects. The `source` tag selects which mechanism
+/// is used to read the captured 32-byte values; in every variant `names` is the list of
+/// variable names to assign, paired by index with the values produced by the chosen source.
+#[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq, JsonSchema)]
+#[serde(tag = "source")]
+pub enum VariableAssignments {
+    /// Source: the top-level call's return bytes, obtained via `debug_traceTransaction`.
+    /// Return bytes are chunked into 32-byte words and paired by index with `names`.
     ///
-    /// Example: `UniswapV3PoolAddress`
-    pub return_data: Vec<String>,
+    /// Example: `UniswapV3PoolAddress` captured from `createPool`'s return value.
+    #[serde(rename = "return_data")]
+    ReturnData { names: Vec<String> },
+
+    /// Source: event log topics in the transaction receipt. Each entry in `topics` is paired
+    /// by index with the variable name at the same position in `names`, identifying which
+    /// log and which topic of that log to read.
+    ///
+    /// Prefer this over `return_data` whenever the contract emits the value as an indexed
+    /// event parameter — receipt logs are stable once the receipt is observed, whereas
+    /// `debug_traceTransaction` can be unreliable under load (eth-rpc's indexer transiently
+    /// prunes tx-hash mappings on best-block forks).
+    #[serde(rename = "event_topics")]
+    EventTopics {
+        names: Vec<String>,
+        topics: Vec<EventTopic>,
+    },
+}
+
+impl VariableAssignments {
+    /// The names of the variables this step assigns. Always defined, regardless of source.
+    pub fn names(&self) -> &[String] {
+        match self {
+            Self::ReturnData { names } | Self::EventTopics { names, .. } => names,
+        }
+    }
+}
+
+/// Identifies a value to capture from a transaction receipt's event logs.
+#[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq, JsonSchema)]
+pub struct EventTopic {
+    /// Index of the log within the receipt (0 = first log emitted).
+    pub log_index: usize,
+    /// Index of the topic within that log. `topics[0]` is the event signature hash;
+    /// `topics[1..]` are the indexed parameters in declaration order.
+    pub topic_index: usize,
 }
 
 /// An address type that might either be an address literal or a resolvable address.
@@ -1002,8 +1041,8 @@ impl<T: AsRef<str>> CalldataToken<T> {
     /// non-alphanumeric character (or end of string) ends an inner name.
     /// E.g. `CREATOR_$VARIABLE:I` with I=3 → `CREATOR_3`.
     ///
-    /// `pub` so the driver can reuse it for `allocate_account` and
-    /// `variable_assignments.return_data` target names.
+    /// `pub` so the driver can reuse it for `allocate_account` and for the
+    /// `variable_assignments` target names.
     pub fn resolve_variable_name_template(
         template: &str,
         context: ResolutionContext<'_>,
