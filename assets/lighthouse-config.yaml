@@ -1,10 +1,11 @@
 participants:
 - el_type: geth
+  el_image: ethereum/client-go:v1.17.3
   el_extra_params:
   - --syncmode=full
   - --nodiscover
   - --cache=4294967295
-  - --txlookuplimit=0
+  - --history.transactions=0
   - --gcmode=archive
   - --state.scheme=path
   - --txpool.globalslots=500000
@@ -22,6 +23,7 @@ participants:
   - --rpc.txfeecap=0
   - --rpc.batch-request-limit=0
   cl_type: lighthouse
+  cl_image: sigp/lighthouse:v8.1.3
   cl_extra_params:
   - --disable-quic
 network_params:

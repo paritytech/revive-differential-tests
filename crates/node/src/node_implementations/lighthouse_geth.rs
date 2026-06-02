@@ -204,7 +204,7 @@ impl Node for LighthouseGethNode {
     }
 }
 
-const WRAPPER_CODE: &str = r#"ethereum_package = import_module("github.com/ethpandaops/ethereum-package/main.star")
+const WRAPPER_CODE: &str = r#"ethereum_package = import_module("github.com/ethpandaops/ethereum-package/main.star@6.1.0")
 
 def run(plan, args={}):
     accounts_json = read_file("./prefunded_accounts.json")
