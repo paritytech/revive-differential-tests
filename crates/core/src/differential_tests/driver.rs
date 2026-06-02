@@ -566,8 +566,7 @@ where
             return Ok(());
         };
 
-        // Differential tests only support the trace-based source; event_topics capture
-        // would require plumbing the receipt through, which isn't done here.
+        // Differential tests only support the trace-based source.
         let VariableAssignments::ReturnData { names } = assignments else {
             anyhow::bail!(
                 "variable_assignments.source = \"event_topics\" is not supported in the \

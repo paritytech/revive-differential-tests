@@ -363,19 +363,12 @@ define_wrapper_type!(
 pub enum VariableAssignments {
     /// Source: the top-level call's return bytes, obtained via `debug_traceTransaction`.
     /// Return bytes are chunked into 32-byte words and paired by index with `names`.
-    ///
-    /// Example: `UniswapV3PoolAddress` captured from `createPool`'s return value.
     #[serde(rename = "return_data")]
     ReturnData { names: Vec<String> },
 
     /// Source: event log topics in the transaction receipt. Each entry in `topics` is paired
     /// by index with the variable name at the same position in `names`, identifying which
     /// log and which topic of that log to read.
-    ///
-    /// Prefer this over `return_data` whenever the contract emits the value as an indexed
-    /// event parameter — receipt logs are stable once the receipt is observed, whereas
-    /// `debug_traceTransaction` can be unreliable under load (eth-rpc's indexer transiently
-    /// prunes tx-hash mappings on best-block forks).
     #[serde(rename = "event_topics")]
     EventTopics {
         names: Vec<String>,
@@ -1009,11 +1002,6 @@ impl<T: AsRef<str>> CalldataToken<T> {
                 } else if item == Self::RANDOM_ADDRESS_VARIABLE {
                     Ok(U256::from_be_slice(Address::random().as_ref()))
                 } else if let Some(variable_name) = item.strip_prefix(Self::VARIABLE_PREFIX) {
-                    // Composition: an inner `$VARIABLE:X` is expanded to X's
-                    // decimal value before the outer lookup. Inner names are
-                    // ASCII-alphanumeric; the first other char ends them.
-                    // E.g. `$VARIABLE:CREATOR_$VARIABLE:I` with I=3 → look
-                    // up `CREATOR_3`.
                     let resolved = if variable_name.contains(Self::VARIABLE_PREFIX) {
                         Self::resolve_variable_name_template(variable_name, context)
                             .map(std::borrow::Cow::Owned)
@@ -1039,10 +1027,6 @@ impl<T: AsRef<str>> CalldataToken<T> {
     /// Expand each embedded `$VARIABLE:X` in `template` into the decimal value
     /// of variable `X`. Inner names are ASCII-alphanumeric — the first
     /// non-alphanumeric character (or end of string) ends an inner name.
-    /// E.g. `CREATOR_$VARIABLE:I` with I=3 → `CREATOR_3`.
-    ///
-    /// `pub` so the driver can reuse it for `allocate_account` and for the
-    /// `variable_assignments` target names.
     pub fn resolve_variable_name_template(
         template: &str,
         context: ResolutionContext<'_>,

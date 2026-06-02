@@ -560,28 +560,7 @@ where
                     "event_topics capture requires the receipt; \
                      ensure await_transaction_receipts is set or step.variable_assignments is present",
                 )?;
-                let logs = receipt.inner.logs();
-                topics
-                    .iter()
-                    .map(|et| {
-                        let log = logs.get(et.log_index).with_context(|| {
-                            format!(
-                                "event_topics: log_index {} out of range (receipt has {} logs)",
-                                et.log_index,
-                                logs.len(),
-                            )
-                        })?;
-                        let topic = log.topics().get(et.topic_index).with_context(|| {
-                            format!(
-                                "event_topics: topic_index {} out of range in log {} (log has {} topics)",
-                                et.topic_index,
-                                et.log_index,
-                                log.topics().len(),
-                            )
-                        })?;
-                        Ok::<_, anyhow::Error>(topic.0)
-                    })
-                    .collect::<Result<Vec<_>>>()?
+                extract_event_topic_values(receipt.inner.logs(), topics)?
             }
             VariableAssignments::ReturnData { .. } => {
                 let callframe = self
@@ -1040,4 +1019,113 @@ where
         ))
     }
     // endregion:Transaction Execution
+}
+
+/// Read each `EventTopic`'s referenced 32-byte topic value out of a receipt's logs.
+///
+/// Returns a [Vec] aligned by index with `topics`. Errors with a descriptive message if any
+/// `log_index` or `topic_index` is out of range — the assumption is that mis-specified indexes
+/// in a workload's `variable_assignments` should surface as actionable errors rather than
+/// silently produce wrong values.
+fn extract_event_topic_values(
+    logs: &[alloy::rpc::types::Log],
+    topics: &[EventTopic],
+) -> Result<Vec<[u8; 32]>> {
+    topics
+        .iter()
+        .map(|et| {
+            let log = logs.get(et.log_index).with_context(|| {
+                format!(
+                    "event_topics: log_index {} out of range (receipt has {} logs)",
+                    et.log_index,
+                    logs.len(),
+                )
+            })?;
+            let topic = log.topics().get(et.topic_index).with_context(|| {
+                format!(
+                    "event_topics: topic_index {} out of range in log {} (log has {} topics)",
+                    et.topic_index,
+                    et.log_index,
+                    log.topics().len(),
+                )
+            })?;
+            Ok(topic.0)
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alloy::primitives::{Address, Bytes, B256};
+    use alloy::rpc::types::Log;
+
+    /// Build a synthetic receipt log with the given list of topic bytes. Each entry becomes
+    /// one of the log's topics (in order). Address and data are zeroed — neither is read by
+    /// the topic-extraction code.
+    fn mk_log(topic_bytes: &[[u8; 32]]) -> Log {
+        let topics: Vec<B256> = topic_bytes.iter().copied().map(B256::from).collect();
+        Log {
+            inner: alloy::primitives::Log::new_unchecked(
+                Address::ZERO,
+                topics,
+                Bytes::new(),
+            ),
+            block_hash: None,
+            block_number: None,
+            block_timestamp: None,
+            transaction_hash: None,
+            transaction_index: None,
+            log_index: None,
+            removed: false,
+        }
+    }
+
+    #[test]
+    fn extract_event_topic_values_returns_correct_topics() {
+        // Two logs with different topic counts; capture across both.
+        let logs = vec![
+            mk_log(&[[0x00; 32], [0x11; 32], [0x22; 32]]), // log 0: 3 topics
+            mk_log(&[[0xAA; 32], [0xBB; 32]]),             // log 1: 2 topics
+        ];
+        let topics = vec![
+            EventTopic { log_index: 0, topic_index: 1 },
+            EventTopic { log_index: 1, topic_index: 1 },
+        ];
+
+        let result = extract_event_topic_values(&logs, &topics)
+            .expect("happy-path extraction should succeed");
+
+        assert_eq!(result, vec![[0x11; 32], [0xBB; 32]]);
+    }
+
+    #[test]
+    fn extract_event_topic_values_errors_on_out_of_range_log_index() {
+        let logs = vec![mk_log(&[[0x00; 32]])]; // only 1 log
+        let topics = vec![EventTopic { log_index: 5, topic_index: 0 }];
+
+        let err = extract_event_topic_values(&logs, &topics)
+            .expect_err("out-of-range log_index should error");
+
+        let msg = format!("{err}");
+        assert!(
+            msg.contains("log_index 5") && msg.contains("receipt has 1 logs"),
+            "error message should identify the bad index and actual log count, got: {msg}"
+        );
+    }
+
+    #[test]
+    fn extract_event_topic_values_errors_on_out_of_range_topic_index() {
+        let logs = vec![mk_log(&[[0x00; 32], [0x11; 32]])]; // 2 topics
+        let topics = vec![EventTopic { log_index: 0, topic_index: 5 }];
+
+        let err = extract_event_topic_values(&logs, &topics)
+            .expect_err("out-of-range topic_index should error");
+
+        let msg = format!("{err}");
+        assert!(
+            msg.contains("topic_index 5") && msg.contains("log has 2 topics"),
+            "error message should identify the bad index and actual topic count, got: {msg}"
+        );
+    }
 }
