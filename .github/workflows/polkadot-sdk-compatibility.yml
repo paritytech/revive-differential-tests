@@ -35,7 +35,6 @@ jobs:
 
       - name: Resolve the Container Image
         id: image
-        shell: bash
         run: |
           set -euo pipefail
           source .github/env
@@ -68,14 +67,12 @@ jobs:
           path: polkadot-sdk
 
       - name: Configure forklift
-        shell: bash
         run: |
           mkdir -p .forklift
           cp polkadot-sdk/.forklift/config.toml .forklift/config.toml
 
       - name: Download resolc
         id: resolc
-        shell: bash
         run: |
           set -euo pipefail
           source polkadot-sdk/.github/env
@@ -91,6 +88,6 @@ jobs:
           platform: ${{ matrix.platform }}
           revive-differential-tests-path: revive-differential-tests
           polkadot-sdk-path: polkadot-sdk
-          cargo-command: forklift cargo
+          cargo-command: "forklift cargo"
           resolc-path: ${{ steps.resolc.outputs.resolc-path }}
           expectations-file-path: polkadot-sdk/.github/assets/${{ matrix.platform }}.json
