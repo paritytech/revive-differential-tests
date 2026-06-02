@@ -63,6 +63,9 @@ impl LighthouseGethNode {
 
     const VALIDATOR_MNEMONIC: &str = "giant issue aisle success illegal bike spike question tent bar rely arctic volcano long crawl hungry vocal artwork sniff fantasy very lucky have athlete";
 
+    const GETH_IMAGE: &str = "ethereum/client-go:v1.17.3";
+    const LIGHTHOUSE_IMAGE: &str = "sigp/lighthouse:v8.1.3";
+
     pub fn new(
         context: impl HasWorkingDirectoryConfiguration
         + HasWalletConfiguration
@@ -149,12 +152,14 @@ impl LighthouseGethNode {
         let config = KurtosisNetworkConfig {
             participants: vec![ParticipantParameters {
                 execution_layer_type: ExecutionLayerType::Geth,
+                execution_layer_image: Self::GETH_IMAGE.to_string(),
                 consensus_layer_type: ConsensusLayerType::Lighthouse,
+                consensus_layer_image: Self::LIGHTHOUSE_IMAGE.to_string(),
                 execution_layer_extra_parameters: vec![
                     "--syncmode=full".to_string(),
                     "--nodiscover".to_string(),
                     "--cache=4294967295".to_string(),
-                    "--txlookuplimit=0".to_string(),
+                    "--history.transactions=0".to_string(),
                     "--gcmode=archive".to_string(),
                     "--state.scheme=path".to_string(),
                     "--txpool.globalslots=500000".to_string(),
@@ -229,7 +234,7 @@ impl LighthouseGethNode {
         // the package files and passes them to the upstream ethereum-package.
         std::fs::write(
             self.wrapper_directory.join("main.star"),
-            r#"ethereum_package = import_module("github.com/ethpandaops/ethereum-package/main.star")
+            r#"ethereum_package = import_module("github.com/ethpandaops/ethereum-package/main.star@6.1.0")
 
 def run(plan, args={}):
     accounts_json = read_file("./prefunded_accounts.json")
@@ -559,11 +564,17 @@ struct ParticipantParameters {
     #[serde(rename = "el_type")]
     pub execution_layer_type: ExecutionLayerType,
 
+    #[serde(rename = "el_image")]
+    pub execution_layer_image: String,
+
     #[serde(rename = "el_extra_params")]
     pub execution_layer_extra_parameters: Vec<String>,
 
     #[serde(rename = "cl_type")]
     pub consensus_layer_type: ConsensusLayerType,
+
+    #[serde(rename = "cl_image")]
+    pub consensus_layer_image: String,
 
     #[serde(rename = "cl_extra_params")]
     pub consensus_layer_extra_parameters: Vec<String>,
