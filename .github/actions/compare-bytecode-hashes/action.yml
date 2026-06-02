@@ -37,7 +37,22 @@ runs:
       shell: bash
       run: echo "path=${{ inputs.revive-differential-tests-path || 'revive-differential-tests' }}" >> "$GITHUB_OUTPUT"
 
+    - name: Resolve the report-processor cache key
+      id: report-processor-cache-key
+      shell: bash
+      run: |
+        sha=$(git -C "${{ steps.repo.outputs.path }}" rev-parse HEAD)
+        echo "key=report-processor-${{ runner.os }}-${{ runner.arch }}-${sha}" >> "$GITHUB_OUTPUT"
+
+    - name: Cache report-processor
+      id: report-processor-cache
+      uses: actions/cache@v5
+      with:
+        path: ~/.cargo/bin/report-processor${{ runner.os == 'Windows' && '.exe' || '' }}
+        key: ${{ steps.report-processor-cache-key.outputs.key }}
+
     - name: Install report-processor
+      if: ${{ steps.report-processor-cache.outputs.cache-hit != 'true' }}
       shell: bash
       run: cargo install --locked --path "${{ steps.repo.outputs.path }}/crates/report-processor"
 
