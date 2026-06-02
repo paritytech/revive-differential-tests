@@ -1057,7 +1057,7 @@ fn extract_event_topic_values(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use alloy::primitives::{Address, Bytes, B256};
+    use alloy::primitives::{Address, B256, Bytes};
     use alloy::rpc::types::Log;
 
     /// Build a synthetic receipt log with the given list of topic bytes. Each entry becomes
@@ -1066,11 +1066,7 @@ mod tests {
     fn mk_log(topic_bytes: &[[u8; 32]]) -> Log {
         let topics: Vec<B256> = topic_bytes.iter().copied().map(B256::from).collect();
         Log {
-            inner: alloy::primitives::Log::new_unchecked(
-                Address::ZERO,
-                topics,
-                Bytes::new(),
-            ),
+            inner: alloy::primitives::Log::new_unchecked(Address::ZERO, topics, Bytes::new()),
             block_hash: None,
             block_number: None,
             block_timestamp: None,
@@ -1089,8 +1085,14 @@ mod tests {
             mk_log(&[[0xAA; 32], [0xBB; 32]]),             // log 1: 2 topics
         ];
         let topics = vec![
-            EventTopic { log_index: 0, topic_index: 1 },
-            EventTopic { log_index: 1, topic_index: 1 },
+            EventTopic {
+                log_index: 0,
+                topic_index: 1,
+            },
+            EventTopic {
+                log_index: 1,
+                topic_index: 1,
+            },
         ];
 
         let result = extract_event_topic_values(&logs, &topics)
@@ -1102,7 +1104,10 @@ mod tests {
     #[test]
     fn extract_event_topic_values_errors_on_out_of_range_log_index() {
         let logs = vec![mk_log(&[[0x00; 32]])]; // only 1 log
-        let topics = vec![EventTopic { log_index: 5, topic_index: 0 }];
+        let topics = vec![EventTopic {
+            log_index: 5,
+            topic_index: 0,
+        }];
 
         let err = extract_event_topic_values(&logs, &topics)
             .expect_err("out-of-range log_index should error");
@@ -1117,7 +1122,10 @@ mod tests {
     #[test]
     fn extract_event_topic_values_errors_on_out_of_range_topic_index() {
         let logs = vec![mk_log(&[[0x00; 32], [0x11; 32]])]; // 2 topics
-        let topics = vec![EventTopic { log_index: 0, topic_index: 5 }];
+        let topics = vec![EventTopic {
+            log_index: 0,
+            topic_index: 5,
+        }];
 
         let err = extract_event_topic_values(&logs, &topics)
             .expect_err("out-of-range topic_index should error");
