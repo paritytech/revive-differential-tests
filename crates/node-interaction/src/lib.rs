@@ -1,42 +1,113 @@
 //! This crate implements all node interactions.
 
+pub mod config;
+pub mod connector;
+mod pool;
+mod providers;
+pub mod traits;
+
 pub mod prelude {
     pub use crate::NodeApi;
+    pub use crate::config::*;
+    pub use crate::connector::*;
     pub use crate::revive_metadata;
+    pub use crate::traits::*;
 }
 
-use std::collections::HashMap;
-use std::future::ready;
-use std::sync::Arc;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+pub(crate) mod internal_prelude {
+    pub use crate::pool::*;
+    pub use crate::prelude::*;
+    pub use crate::providers::*;
+    pub use crate::revive_metadata::revive::calls::types::EthTransact;
 
-use alloy::primitives::{Address, StorageKey, TxHash, U256, keccak256};
-use alloy::providers::ext::DebugApi;
-use alloy::providers::{DynProvider, Provider};
-use alloy::rpc::types::trace::geth::{
-    DiffMode, GethDebugTracingOptions, GethTrace, PreStateConfig, PreStateFrame,
-};
-use alloy::rpc::types::{EIP1186AccountProofResponse, TransactionReceipt, TransactionRequest};
-use anyhow::{Context as _, Result};
+    pub use std::borrow::Cow;
+    pub use std::collections::HashMap;
+    pub use std::future::ready;
+    pub use std::ops::{ControlFlow, Deref};
+    pub use std::sync::{Arc, LazyLock, Mutex as StdMutex, OnceLock, atomic::AtomicUsize};
+    pub use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use futures::future::Either;
-use futures::{Stream, StreamExt, stream};
-use pallet_revive::codec::Decode;
-use pallet_revive::evm::Block as EthBlock;
-use revive_common::EVMVersion;
-use revive_dt_common::futures::{StaticFuture, StaticStream};
+    pub use alloy::consensus::BlockHeader;
+    pub use alloy::eips::{BlockNumberOrTag, Encodable2718};
+    pub use alloy::network::{
+        AnyNetwork, BlockResponse, Ethereum, EthereumWallet, Network, TransactionBuilder,
+    };
+    pub use alloy::primitives::{Address, StorageKey, TxHash, U256, keccak256};
+    pub use alloy::providers::{
+        DynProvider, Identity, Provider, ProviderBuilder, RootProvider, SendableTx,
+        ext::DebugApi,
+        fillers::{
+            ChainIdFiller, FillProvider, GasFillable, GasFiller, JoinFill, NonceFiller, TxFiller,
+            WalletFiller,
+        },
+    };
+    pub use alloy::rpc::client::{BuiltInConnectionString, RpcClient};
+    pub use alloy::rpc::json_rpc::{
+        Id, RequestPacket, Response, ResponsePacket, SerializedRequest,
+    };
+    pub use alloy::rpc::types::trace::geth::{
+        GethDebugBuiltInTracerType, GethDebugTracerType, GethDebugTracingCallOptions,
+    };
+    pub use alloy::rpc::types::trace::geth::{GethDebugTracingOptions, GethTrace};
+    pub use alloy::rpc::types::{
+        EIP1186AccountProofResponse, TransactionReceipt, TransactionRequest,
+    };
+    pub use alloy::transports::{
+        BoxFuture, BoxTransport, RpcError, Transport, TransportConnect, TransportError,
+        TransportErrorKind, TransportFut, TransportResult,
+    };
+    pub use anyhow::{Context as _, Result, anyhow, bail};
+    pub use futures::future::{Either, try_join_all};
+    pub use futures::{FutureExt, Stream, StreamExt, TryFutureExt, stream};
+    pub use revive_common::EVMVersion;
+    pub use revive_dt_common::futures::{
+        AsyncHashMap, StaticFuture, StaticStream, retry_with_exponential_backoff,
+    };
 
-use revive_dt_common::subscriptions::{
-    EthereumMinedBlockInformation, MinedBlockInformation, SubstrateMinedBlockInformation,
-};
-use subxt::utils::H256;
-use subxt::{OnlineClient, PolkadotConfig};
-use tokio::sync::RwLock;
-use tokio::task::AbortHandle;
-use tokio::time::interval;
-use tracing::{debug, error, warn};
+    pub use pallet_revive::codec::{Decode, Encode};
+    pub use pallet_revive::evm::Block as EthBlock;
+    pub use revive_dt_common::subscriptions::{
+        EthereumMinedBlockInformation, MinedBlockInformation, SubstrateMinedBlockInformation,
+    };
+    pub use subxt::utils::H256;
+    pub use subxt::{OnlineClient, PolkadotConfig};
+    pub use tokio::sync::{
+        RwLock, Semaphore,
+        broadcast::{
+            Receiver as BroadcastReceiver, Sender as BroadcastSender, channel as broadcast_channel,
+        },
+    };
+    pub use tokio::task::AbortHandle;
+    pub use tokio::time::{interval, sleep, timeout};
+    pub use tokio_stream::wrappers::BroadcastStream;
+    pub use tower::{Layer, Service};
+    pub use tracing::{Instrument, debug, debug_span, error, info, warn};
+}
 
-#[subxt::subxt(runtime_metadata_path = "../../assets/revive_metadata.scale")]
+use internal_prelude::*;
+
+#[subxt::subxt(
+    runtime_metadata_path = "../../assets/revive_metadata.scale",
+    substitute_type(
+        path = "sp_runtime::generic::block::Block<A, B, C, D, E>",
+        with = "::subxt::utils::Static<::sp_runtime::generic::Block<
+            ::sp_runtime::generic::Header<u32, ::sp_runtime::traits::BlakeTwo256>,
+            ::sp_runtime::OpaqueExtrinsic
+        >>"
+    ),
+    substitute_type(
+        path = "pallet_revive::evm::api::debug_rpc_types::Trace",
+        with = "::subxt::utils::Static<::pallet_revive::evm::Trace>"
+    ),
+    substitute_type(
+        path = "pallet_revive::evm::api::debug_rpc_types::TracerType",
+        with = "::subxt::utils::Static<::pallet_revive::evm::TracerType>"
+    ),
+    substitute_type(
+        path = "pallet_revive::evm::api::rpc_types_gen::Block",
+        with = "::subxt::utils::Static<pallet_revive::evm::Block>"
+    )
+)]
 pub mod revive_metadata {}
 
 /// An interface for all interactions with Ethereum compatible nodes.
@@ -122,30 +193,6 @@ pub trait NodeApi {
                 .debug_trace_transaction(tx_hash, trace_options)
                 .await
                 .context("Failed to get the transaction trace")
-        })
-    }
-
-    /// Returns the state diff of the transaction hash in the [TransactionReceipt].
-    fn state_diff(&self, tx_hash: TxHash) -> StaticFuture<Result<DiffMode>> {
-        let provider = self.provider();
-        Box::pin(async move {
-            let trace_options = GethDebugTracingOptions::prestate_tracer(PreStateConfig {
-                diff_mode: Some(true),
-                disable_code: None,
-                disable_storage: None,
-            });
-            match provider
-                .await
-                .context("Failed to get the provider")?
-                .debug_trace_transaction(tx_hash, trace_options)
-                .await
-                .context("Failed to trace transaction for prestate diff")?
-                .try_into_pre_state_frame()
-                .context("Failed to convert trace into pre-state frame")?
-            {
-                PreStateFrame::Diff(diff) => Ok(diff),
-                _ => anyhow::bail!("expected a diff mode trace"),
-            }
         })
     }
 
@@ -247,15 +294,6 @@ pub trait NodeApi {
 
     /// The substrate provider used by the node. None if it's not a substrate node.
     fn substrate_provider(&self) -> Option<StaticFuture<Result<OnlineClient<PolkadotConfig>>>> {
-        None
-    }
-
-    /// The low-level substrate RPC client used by the node. None if it's not a substrate node.
-    ///
-    /// This is separate from [`Self::substrate_provider`] because [`OnlineClient`] does not expose
-    /// the underlying [`subxt::backend::rpc::RpcClient`]. Callers that need to issue arbitrary RPC
-    /// requests (e.g. `author_pendingExtrinsics`) should use this method.
-    fn substrate_rpc_client(&self) -> Option<StaticFuture<Result<subxt::backend::rpc::RpcClient>>> {
         None
     }
 }

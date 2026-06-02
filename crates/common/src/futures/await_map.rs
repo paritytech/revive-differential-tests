@@ -52,6 +52,33 @@ where
         })
     }
 
+    pub fn insert_batch(
+        &self,
+        iter: impl IntoIterator<Item = (K, V)> + Send + 'static,
+    ) -> StaticFuture<()> {
+        let inner_map = self.inner.clone();
+        Box::pin(async move {
+            let mut mutex_guard = inner_map.lock().await;
+
+            for (key, value) in iter.into_iter() {
+                let entry = mutex_guard
+                    .entry(key)
+                    .or_insert_with(|| Slot::Empty(Arc::new(Notify::new())));
+
+                let notify = if let Slot::Empty(notify) = entry {
+                    Some(notify.clone())
+                } else {
+                    None
+                };
+
+                *entry = Slot::Value(value);
+                if let Some(notify) = notify {
+                    notify.notify_waiters();
+                }
+            }
+        })
+    }
+
     pub fn get(&self, k: K) -> StaticFuture<V> {
         let inner_map = self.inner.clone();
         Box::pin(async move {
@@ -87,5 +114,10 @@ where
                 Slot::Value(value) => value.clone(),
             }
         })
+    }
+
+    pub fn contains_key_value(&self, k: K) -> StaticFuture<bool> {
+        let inner_map = self.inner.clone();
+        Box::pin(async move { matches!(inner_map.lock().await.get(&k), Some(Slot::Value(..))) })
     }
 }

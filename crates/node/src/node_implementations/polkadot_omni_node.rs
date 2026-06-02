@@ -163,17 +163,6 @@ impl NodeApi for PolkadotOmnichainNode {
                 .cloned()
         }))
     }
-
-    fn substrate_rpc_client(
-        &self,
-    ) -> Option<StaticFuture<Result<subxt::backend::rpc::RpcClient>>> {
-        let url = self.polkadot_omnichain_node_process.url().to_string();
-        Some(Box::pin(async move {
-            subxt::backend::rpc::RpcClient::from_insecure_url(url)
-                .await
-                .context("Failed to create the substrate RPC client")
-        }))
-    }
 }
 
 impl Node for PolkadotOmnichainNode {

@@ -173,10 +173,7 @@ impl NodeApi for ReviveDevNode {
     /// Submits a transaction and watches for it and if the transaction is dropped from the mempool
     /// then it resubmits it again. Times out after 5 minutes if the transaction is not finalized in
     /// that time frame.
-    fn submit_transaction(
-        &self,
-        transaction: TransactionRequest,
-    ) -> StaticFuture<Result<TxHash>> {
+    fn submit_transaction(&self, transaction: TransactionRequest) -> StaticFuture<Result<TxHash>> {
         let provider = Self::provider(self);
         let substrate_provider = NodeApi::substrate_provider(self);
 
@@ -338,8 +335,7 @@ impl NodeApi for ReviveDevNode {
 
     fn substrate_provider(
         &self,
-    ) -> Option<revive_dt_common::futures::StaticFuture<Result<OnlineClient<PolkadotConfig>>>>
-    {
+    ) -> Option<revive_dt_common::futures::StaticFuture<Result<OnlineClient<PolkadotConfig>>>> {
         let provider = self.substrate_provider.clone();
         let connection_string = self.revive_dev_node_process.url().to_string();
 
@@ -352,17 +348,6 @@ impl NodeApi for ReviveDevNode {
                 })
                 .await
                 .cloned()
-        }))
-    }
-
-    fn substrate_rpc_client(
-        &self,
-    ) -> Option<StaticFuture<Result<subxt::backend::rpc::RpcClient>>> {
-        let url = self.revive_dev_node_process.url().to_string();
-        Some(Box::pin(async move {
-            subxt::backend::rpc::RpcClient::from_insecure_url(url)
-                .await
-                .context("Failed to create the substrate RPC client")
         }))
     }
 }

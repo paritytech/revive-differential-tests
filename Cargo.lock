@@ -8617,9 +8617,14 @@ dependencies = [
  "pallet-revive",
  "revive-common",
  "revive-dt-common",
+ "schemars 1.2.0",
+ "serde",
  "serde_json",
+ "sp-runtime 43.0.0",
  "subxt 0.43.1",
  "tokio",
+ "tokio-stream",
+ "tower 0.5.3",
  "tracing",
 ]
 

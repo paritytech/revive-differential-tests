@@ -340,16 +340,6 @@ impl NodeApi for ZombienetNode {
                 .cloned()
         }))
     }
-
-    fn substrate_rpc_client(&self) -> Option<StaticFuture<Result<subxt::backend::rpc::RpcClient>>> {
-        let connection_string = self.zombienet_process.url().to_string();
-
-        Some(Box::pin(async move {
-            subxt::backend::rpc::RpcClient::from_insecure_url(connection_string)
-                .await
-                .context("Failed to create the substrate RPC client")
-        }))
-    }
 }
 
 impl Node for ZombienetNode {
