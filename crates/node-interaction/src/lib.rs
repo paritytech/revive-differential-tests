@@ -84,11 +84,28 @@ pub trait NodeApi {
         Box::pin(async move {
             let tx_hash = submission_future.await?;
             let provider = provider.await.context("Failed to get the provider")?;
-            provider
+            let receipt = provider
                 .get_transaction_receipt(tx_hash)
                 .await
                 .context("Failed to get the transaction receipt")?
-                .context("Failed to get the transaction receipt")
+                .context("Failed to get the transaction receipt")?;
+            let receipt_block_number = receipt
+                .block_number
+                .context("A receipt must have a block number")?;
+            tokio::time::timeout(Duration::from_secs(120), async move {
+                while provider
+                    .get_block_number()
+                    .await
+                    .context("Failed to get the block number")?
+                    < receipt_block_number
+                {
+                    tokio::time::sleep(Duration::from_millis(200)).await
+                }
+                Result::<(), anyhow::Error>::Ok(())
+            })
+            .await
+            .context("Waited 120 seconds for the rpc block to be updated but it wasn't")??;
+            Ok(receipt)
         })
     }
 
