@@ -1,3 +1,8 @@
+use pallet_revive::evm::Trace;
+use revive_dt_node_interaction::revive_metadata::runtime_apis::revive_api::types::trace_tx;
+use revive_dt_node_interaction::revive_metadata::runtime_types::pallet_revive::evm::api::debug_rpc_types::{TracerType, CallTracerConfig};
+use subxt::utils::UncheckedExtrinsic;
+
 use crate::internal_prelude::*;
 
 use crate::differential_benchmarks::ExecutionState;
@@ -52,6 +57,9 @@ pub struct Driver<'a, I> {
     /// proceeding forward.
     await_transaction_receipts: bool,
 
+    /// A service which allows us to find the specific block which contains a specific transaction.
+    transaction_finder: TransactionFinder,
+
     /// This is the queue of steps that are to be executed by the driver for this test case. Each
     /// time `execute_step` is called one of the steps is executed.
     steps_iterator: I,
@@ -72,6 +80,7 @@ where
         watcher_tx: UnboundedSender<WatcherEvent>,
         await_transaction_inclusion: bool,
         inclusion_watcher: &'a InclusionWatcher,
+        transaction_finder: TransactionFinder,
         steps: I,
     ) -> Result<Self> {
         let mut this = Driver {
@@ -88,6 +97,7 @@ where
             await_transaction_receipts: true,
             watcher_tx,
             gas_limits: Arc::new(Default::default()),
+            transaction_finder,
         };
         this.init_execution_state(cached_compiler)
             .await
@@ -516,31 +526,84 @@ where
         &mut self,
         tx_hash: TxHash,
     ) -> Result<CallFrame> {
-        self.platform_information
-            .node
-            .trace_transaction(
-                tx_hash,
-                GethDebugTracingOptions {
-                    tracer: Some(GethDebugTracerType::BuiltInTracer(
-                        GethDebugBuiltInTracerType::CallTracer,
-                    )),
-                    tracer_config: GethDebugTracerConfig(serde_json::json! {{
-                        "onlyTopCall": true,
-                        "withLog": false,
-                        "withStorage": false,
-                        "withMemory": false,
-                        "withStack": false,
-                        "withReturnData": true
-                    }}),
-                    ..Default::default()
-                },
-            )
-            .await
-            .map(|trace| {
-                trace
-                    .try_into_call_frame()
-                    .expect("Impossible - we requested a callframe trace so we must get it back")
-            })
+        let (transaction_index, transaction_block) = self.transaction_finder.find(tx_hash).await;
+
+        match transaction_block.substrate_block {
+            Some(ref substrate_block) => {
+                let substrate_block_parent_hash = substrate_block.header().parent_hash;
+
+                let header = Decode::decode(&mut substrate_block.header().encode().as_slice())
+                    .context("Failed to decode the header into the runtime header type")?;
+                let extrinsics = substrate_block
+                    .extrinsics()
+                    .await
+                    .context("Failed to get the extrinsics of the substrate block")?
+                    .iter()
+                    .map(|extrinsic| UncheckedExtrinsic::new(extrinsic.bytes().to_vec()))
+                    .collect();
+
+                let trace_call = revive_metadata::apis()
+                    .revive_api()
+                    .trace_tx(
+                        trace_tx::Block { header, extrinsics },
+                        transaction_index as _,
+                        TracerType::CallTracer(Some(CallTracerConfig {
+                            with_logs: true,
+                            only_top_call: false,
+                        })),
+                    )
+                    .unvalidated();
+                let trace = self
+                    .platform_information
+                    .node
+                    .substrate_provider()
+                    .expect("This is a substrate based node")
+                    .await
+                    .context("Failed to get the substrate provider for the node")?
+                    .runtime_api()
+                    .at(substrate_block_parent_hash)
+                    .call(trace_call)
+                    .await
+                    .context("Failed to get the transaction trace")?
+                    .context("Failed to get the transaction trace")?;
+
+                let trace = Trace::decode(&mut trace.encode().as_slice())
+                    .context("Failed to decode the trace into the pallet-revive trace type")?;
+                let Trace::Call(call_trace) = trace else {
+                    bail!("Requested a call trace but got a prestate trace back")
+                };
+                let serialized = serde_json::to_value(call_trace)
+                    .context("Failed to serialize the pallet-revive call trace")?;
+                serde_json::from_value::<CallFrame>(serialized)
+                    .context("Failed to deserialize the call trace into the alloy type")
+            }
+            None => self
+                .platform_information
+                .node
+                .trace_transaction(
+                    tx_hash,
+                    GethDebugTracingOptions {
+                        tracer: Some(GethDebugTracerType::BuiltInTracer(
+                            GethDebugBuiltInTracerType::CallTracer,
+                        )),
+                        tracer_config: GethDebugTracerConfig(serde_json::json! {{
+                            "onlyTopCall": true,
+                            "withLog": false,
+                            "withStorage": false,
+                            "withMemory": false,
+                            "withStack": false,
+                            "withReturnData": true
+                        }}),
+                        ..Default::default()
+                    },
+                )
+                .await
+                .map(|trace| {
+                    trace.try_into_call_frame().expect(
+                        "Impossible - we requested a callframe trace so we must get it back",
+                    )
+                }),
+        }
     }
 
     async fn handle_function_call_variable_assignment(
@@ -656,6 +719,7 @@ where
                             inclusion_watcher: self.inclusion_watcher,
                             watcher_tx: self.watcher_tx.clone(),
                             gas_limits: self.gas_limits.clone(),
+                            transaction_finder: self.transaction_finder.clone(),
                         }
                     })
                     .map(|driver| driver.execute_all());

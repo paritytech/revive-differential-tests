@@ -36,7 +36,15 @@ use tokio::task::AbortHandle;
 use tokio::time::interval;
 use tracing::{debug, error, warn};
 
-#[subxt::subxt(runtime_metadata_path = "../../assets/revive_metadata.scale")]
+#[subxt::subxt(
+    runtime_metadata_path = "../../assets/revive_metadata.scale",
+    derive_for_all_types = "::subxt::ext::codec::Encode, ::subxt::ext::codec::Decode",
+    attributes_for_all_types = "#[codec(crate = ::subxt::ext::codec)]",
+    attributes_for_type(
+        path = "pallet_revive::evm::api::debug_rpc_types::CallTrace",
+        attributes = "#[codec(dumb_trait_bound)]"
+    )
+)]
 pub mod revive_metadata {}
 
 /// An interface for all interactions with Ethereum compatible nodes.
