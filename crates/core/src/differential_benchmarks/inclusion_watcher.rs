@@ -1,7 +1,7 @@
 use crate::internal_prelude::*;
 
 pub struct InclusionWatcher {
-    transactions_map: AsyncHashMap<TxHash, ()>,
+    transactions_map: AsyncHashMap<TxHash, u64>,
     stop_notifier: Arc<Notify>,
 }
 
@@ -13,27 +13,33 @@ impl InclusionWatcher {
         }
     }
 
-    pub fn await_transaction(&self, tx_hash: TxHash) -> FrameworkFuture<()> {
+    pub fn await_transaction(&self, tx_hash: TxHash) -> FrameworkFuture<u64> {
         let await_future = self.transactions_map.get(tx_hash);
         Box::pin(async move {
             info!(%tx_hash, "Awaiting transaction inclusion");
             await_future
-                .inspect(move |_| info!(%tx_hash, "Transaction has been included"))
+                .inspect(move |&block_number| {
+                    info!(%tx_hash, block_number, "Transaction has been included")
+                })
                 .await
         })
     }
 
     pub fn run(
         &self,
-        mut transaction_inclusion_stream: FrameworkStream<TxHash>,
+        mut transaction_inclusion_stream: FrameworkStream<(u64, TxHash)>,
     ) -> FrameworkFuture<()> {
         let transactions_map = self.transactions_map.clone();
         let notify = self.stop_notifier.clone();
 
         Box::pin(async move {
             let task = async move {
-                while let Some(transaction_hash) = transaction_inclusion_stream.next().await {
-                    transactions_map.insert(transaction_hash, ()).await;
+                while let Some((block_number, transaction_hash)) =
+                    transaction_inclusion_stream.next().await
+                {
+                    transactions_map
+                        .insert(transaction_hash, block_number)
+                        .await;
                 }
             };
             select! {
