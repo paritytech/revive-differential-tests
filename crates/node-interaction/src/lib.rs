@@ -220,7 +220,7 @@ pub trait NodeApi {
     /// blocks.
     fn subscribe_to_transaction_inclusions(
         &self,
-    ) -> FrameworkFuture<Result<FrameworkStream<TxHash>>> {
+    ) -> FrameworkFuture<Result<FrameworkStream<(u64, TxHash)>>> {
         let provider = self.subscriptions_provider();
         let substrate_provider = self.substrate_provider();
 
@@ -517,7 +517,7 @@ where
 
 fn subscribe_to_transaction_inclusions_ethereum(
     provider: FrameworkFuture<Result<DynProvider>>,
-) -> FrameworkFuture<Result<FrameworkStream<TxHash>>> {
+) -> FrameworkFuture<Result<FrameworkStream<(u64, TxHash)>>> {
     Box::pin(async move {
         let stream = provider
             .await
@@ -527,14 +527,22 @@ fn subscribe_to_transaction_inclusions_ethereum(
             .await
             .context("Failed to subscribe to blocks")?
             .filter_map(|block| ready(block.ok()))
-            .flat_map(|block| stream::iter(block.into_hashes_vec()));
+            .flat_map(|block| {
+                let block_number = block.number();
+                stream::iter(
+                    block
+                        .into_hashes_vec()
+                        .into_iter()
+                        .map(move |transaction_hash| (block_number, transaction_hash)),
+                )
+            });
         Ok(Box::pin(stream) as _)
     })
 }
 
 fn subscribe_to_transaction_inclusions_substrate(
     provider: FrameworkFuture<Result<OnlineClient<PolkadotConfig>>>,
-) -> FrameworkFuture<Result<FrameworkStream<TxHash>>> {
+) -> FrameworkFuture<Result<FrameworkStream<(u64, TxHash)>>> {
     Box::pin(async move {
         let stream = provider
             .await
@@ -544,14 +552,21 @@ fn subscribe_to_transaction_inclusions_substrate(
             .await
             .context("Failed to subscribe to blocks")?
             .filter_map(|block| ready(block.ok()))
-            .then(|block| async move { block.extrinsics().await })
-            .filter_map(|extrinsics| ready(extrinsics.ok()))
-            .flat_map(move |extrinsics| {
+            .then(|block| async move {
+                let block_number = block.number();
+                block
+                    .extrinsics()
+                    .await
+                    .map(|extrinsics| (block_number, extrinsics))
+            })
+            .filter_map(|result| ready(result.ok()))
+            .flat_map(move |(block_number, extrinsics)| {
+                let block_number = u64::from(block_number);
                 stream::iter(
                     extrinsics
                         .find::<revive_metadata::revive::calls::types::EthTransact>()
                         .filter_map(|ext| ext.ok())
-                        .map(|ext| keccak256(&ext.value.payload))
+                        .map(move |ext| (block_number, keccak256(&ext.value.payload)))
                         .collect::<Vec<_>>(),
                 )
             });

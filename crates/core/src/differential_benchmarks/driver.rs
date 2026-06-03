@@ -388,7 +388,7 @@ where
                 bail!("Transfer transaction failed {receipt:?}");
             }
         } else if self.await_transaction_inclusion {
-            inclusion_future.await;
+            inclusion_future.await?;
         };
         Ok(1)
     }
@@ -498,7 +498,7 @@ where
                         bail!("Transaction failed {receipt:?}");
                     }
                 } else if self.await_transaction_inclusion {
-                    inclusion_future.await;
+                    inclusion_future.await?;
                 };
 
                 Ok(tx_hash)
@@ -887,7 +887,7 @@ where
     ) -> anyhow::Result<(
         TxHash,
         impl Future<Output = Result<TransactionReceipt>> + Send + 'static,
-        impl Future<Output = ()> + Send + 'static,
+        impl Future<Output = Result<()>> + Send + 'static,
     )> {
         let node = self.platform_information.node;
         let provider = node.provider().await.context("Creating provider failed")?;
@@ -964,16 +964,55 @@ where
                 .context("Failed to send the transaction hash to the watcher")?;
         };
 
-        Ok((
-            transaction_hash,
-            pending_transaction_builder
+        let inclusion_provider = provider.clone();
+        let receipt_future = async move {
+            let receipt = pending_transaction_builder
                 .with_timeout(Some(receipt_wait_duration))
                 .with_required_confirmations(2)
                 .get_receipt()
                 .inspect_ok(|receipt| info!(transaction_hash = %receipt.transaction_hash, "Obtained receipt"))
-                .map(|res| res.context("Failed to get the receipt of the transaction")),
-            self.inclusion_watcher.await_transaction(transaction_hash),
-        ))
+                .map(|res| res.context("Failed to get the receipt of the transaction")).await?;
+            let block_number = receipt
+                .block_number
+                .context("Receipt must have a block number")?;
+            tokio::time::timeout(Duration::from_secs(120), async move {
+                while provider
+                    .get_block_number()
+                    .await
+                    .context("Failed to get the block number")?
+                    < block_number
+                {
+                    tokio::time::sleep(Duration::from_millis(200)).await
+                }
+                Result::<(), anyhow::Error>::Ok(())
+            })
+            .await
+            .context("Waited 120 seconds for the rpc block to be updated but it wasn't")??;
+            anyhow::Result::<_, anyhow::Error>::Ok(receipt)
+        };
+
+        let inclusion_future = {
+            let await_inclusion = self.inclusion_watcher.await_transaction(transaction_hash);
+            async move {
+                let block_number = await_inclusion.await;
+                tokio::time::timeout(Duration::from_secs(120), async move {
+                    while inclusion_provider
+                        .get_block_number()
+                        .await
+                        .context("Failed to get the block number")?
+                        < block_number
+                    {
+                        tokio::time::sleep(Duration::from_millis(200)).await
+                    }
+                    Result::<(), anyhow::Error>::Ok(())
+                })
+                .await
+                .context("Waited 120 seconds for the rpc block to be updated but it wasn't")??;
+                anyhow::Result::<(), anyhow::Error>::Ok(())
+            }
+        };
+
+        Ok((transaction_hash, receipt_future, inclusion_future))
     }
     // endregion:Transaction Execution
 }
