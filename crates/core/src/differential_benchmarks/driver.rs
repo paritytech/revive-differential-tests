@@ -512,7 +512,7 @@ where
                         Some(receipt)
                     } else {
                         if self.await_transaction_inclusion {
-                            inclusion_future.await;
+                            inclusion_future.await?;
                         }
                         None
                     };
