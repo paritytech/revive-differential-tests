@@ -102,11 +102,19 @@ runs:
         curl -fL --retry 3 --retry-all-errors --connect-timeout 10 -o cache.tar.gz "https://github.com/paritytech/revive-differential-tests/releases/download/compilation-caches-v1.1/cache.tar.gz"
         tar -zxf cache.tar.gz -C ./workdir > /dev/null 2>&1
 
-    - name: Building the dependencies from the Polkadot SDK
+    - name: Building eth-rpc from the Polkadot SDK
       shell: bash
-      run: |
-        ${{ inputs['cargo-command'] }} build --locked --profile release -p pallet-revive-eth-rpc -p revive-dev-node --manifest-path ${{ inputs['polkadot-sdk-path'] }}/Cargo.toml
-        ${{ inputs['cargo-command'] }} build --locked --profile release --bin polkadot-omni-node --manifest-path ${{ inputs['polkadot-sdk-path'] }}/Cargo.toml
+      run: ${{ inputs['cargo-command'] }} build --locked --profile release -p pallet-revive-eth-rpc --manifest-path ${{ inputs['polkadot-sdk-path'] }}/Cargo.toml
+
+    - name: Building revive-dev-node from the Polkadot SDK
+      if: ${{ startsWith(inputs.platform, 'revive-dev-node') }}
+      shell: bash
+      run: ${{ inputs['cargo-command'] }} build --locked --profile release -p revive-dev-node --manifest-path ${{ inputs['polkadot-sdk-path'] }}/Cargo.toml
+
+    - name: Building polkadot-omni-node from the Polkadot SDK
+      if: ${{ startsWith(inputs.platform, 'polkadot-omni-node') }}
+      shell: bash
+      run: ${{ inputs['cargo-command'] }} build --locked --profile release --bin polkadot-omni-node --manifest-path ${{ inputs['polkadot-sdk-path'] }}/Cargo.toml
 
     - name: Resolve the retester cache key
       id: retester-cache-key
