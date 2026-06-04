@@ -103,9 +103,6 @@ pub async fn handle_differential_benchmarks(
     .map(Arc::new)
     .context("Failed to initialize cached compiler")?;
 
-    // The inclusion watcher to use for all of the benchmarks.
-    let inclusion_watcher = InclusionWatcher::new();
-
     // Note: we do not want to run all of the workloads concurrently on all platforms. Rather, we'd
     // like to run all of the workloads for one platform, and then the next sequentially as we'd
     // like for the effect of concurrency to be minimized when we're doing the benchmarking.
@@ -132,27 +129,8 @@ pub async fn handle_differential_benchmarks(
 
             // Initializing all of the components requires to execute this particular workload.
             let private_key_allocator = private_key_allocator.clone();
-            let provider = platform_information
-                .node
-                .provider()
-                .await
-                .context("Failed to create the node's provider")?;
-            let substrate_provider = match platform_information.node.substrate_provider() {
-                Some(future) => Some(
-                    future
-                        .await
-                        .context("Failed to create the substrate provider")?,
-                ),
-                None => None,
-            };
             let (watcher, watcher_tx) = Watcher::new(
-                platform_information
-                    .node
-                    .subscribe_to_full_blocks_information()
-                    .await
-                    .context("Failed to subscribe to full blocks information from the node")?,
-                provider,
-                substrate_provider,
+                platform_information.connector.clone(),
                 test_definition
                     .reporter
                     .execution_specific_reporter(0usize, platform_identifier),
@@ -165,7 +143,6 @@ pub async fn handle_differential_benchmarks(
                 cached_compiler.as_ref(),
                 watcher_tx.clone(),
                 false,
-                &inclusion_watcher,
                 test_definition
                     .case
                     .steps_iterator_for_benchmarks(context.benchmark_run.default_repetition_count)
@@ -183,15 +160,6 @@ pub async fn handle_differential_benchmarks(
                 %platform_identifier,
                 case_name = %test_definition.case.name.clone().unwrap_or_default()
             )));
-            let inclusion_watcher_task = tokio::spawn(
-                inclusion_watcher.run(
-                    platform_information
-                        .node
-                        .subscribe_to_transaction_inclusions()
-                        .await
-                        .context("Failed to subscribe to full blocks information from the node")?,
-                ),
-            );
 
             // Running the driver.
             let driver_rtn = driver
@@ -215,25 +183,21 @@ pub async fn handle_differential_benchmarks(
             watcher_tx
                 .send(WatcherEvent::AllTransactionsSubmitted)
                 .unwrap();
-            inclusion_watcher.stop();
 
             let watcher_rtn = watcher_task.await.context("Watcher failed").flatten();
-            let inclusion_rtn = inclusion_watcher_task.await;
 
             info!(
                 keep_alive_on_failures = context.shutdown.keep_alive_on_failures,
                 driver_rtn = driver_rtn.is_err(),
                 watcher_rtn = watcher_rtn.is_err(),
-                inclusion_rtn = inclusion_rtn.is_err(),
             );
 
             if context.shutdown.keep_alive_on_failures
-                && (driver_rtn.is_err() || watcher_rtn.is_err() || inclusion_rtn.is_err())
+                && (driver_rtn.is_err() || watcher_rtn.is_err())
             {
                 error!(
                     driver_rtn = ?driver_rtn.err(),
                     watcher_rtn = ?watcher_rtn.err(),
-                    inclusion_rtn = ?inclusion_rtn.err(),
                     "One of the critical tasks failed, keeping the tool alive to investigate"
                 );
                 loop {
@@ -243,7 +207,6 @@ pub async fn handle_differential_benchmarks(
 
             let _ = driver_rtn.context("Driver failed")?;
             watcher_rtn.context("Watcher failed")?;
-            inclusion_rtn.context("Inclusion watcher failed")?;
         }
     }
 

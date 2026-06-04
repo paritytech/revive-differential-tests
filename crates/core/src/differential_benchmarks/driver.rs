@@ -37,10 +37,6 @@ pub struct Driver<'a, I> {
     /// The number of steps that were executed on the driver.
     steps_executed: usize,
 
-    /// A watcher used to watch for the inclusion of transactions in a block, which is better than
-    /// polling for their receipts and clogging up the network.
-    inclusion_watcher: &'a InclusionWatcher,
-
     /// A map of the gas limit for all of the transactions we have.
     gas_limits: Arc<RwLock<HashMap<StepPath, u64>>>,
 
@@ -71,7 +67,6 @@ where
         cached_compiler: &CachedCompiler<'a>,
         watcher_tx: UnboundedSender<WatcherEvent>,
         await_transaction_inclusion: bool,
-        inclusion_watcher: &'a InclusionWatcher,
         steps: I,
     ) -> Result<Self> {
         let mut this = Driver {
@@ -83,7 +78,6 @@ where
             execution_state: ExecutionState::empty(),
             steps_executed: 0,
             steps_iterator: steps,
-            inclusion_watcher,
             await_transaction_inclusion,
             await_transaction_receipts: true,
             watcher_tx,
@@ -192,51 +186,33 @@ where
         // than including the actual bytecode. This creates a problem where a factory contract could
         // be deployed but the code it's supposed to create is not on chain. Therefore, we upload
         // all the code to the chain prior to running any transactions on the driver.
-        if let Some(substrate_provider_fut) = self.platform_information.node.substrate_provider()
-            && self.platform_information.platform.vm_identifier() == VmIdentifier::PolkaVM
-        {
-            let substrate_client = substrate_provider_fut
-                .await
-                .context("Failed to connect to the substrate node")?;
-            let metadata = substrate_client.metadata();
-
-            const RUNTIME_PALLET_ADDRESS: Address =
-                address!("0x6d6f646c70792f70616464720000000000000000");
-
+        if self.platform_information.platform.vm_identifier() == VmIdentifier::PolkaVM {
             let code_upload_tasks = compiler_output
                 .contracts
                 .values()
                 .flat_map(|item| item.values())
-                .map(|(code_string, _)| {
-                    let metadata = metadata.clone();
-                    let node = self.platform_information.node;
-                    async move {
-                        let code = alloy::hex::decode(code_string)
-                            .context("Failed to hex-decode the post-link code. This is a bug")?;
-                        let upload_call = subxt::dynamic::tx(
-                            "Revive",
-                            "upload_code",
-                            vec![
-                                subxt::dynamic::Value::from_bytes(code),
-                                subxt::dynamic::Value::u128(u128::MAX),
-                            ],
-                        );
-                        let encoded_payload = upload_call
-                            .encode_call_data(&metadata)
-                            .context("Failed to encode the upload code payload")?;
-
-                        let tx_request = TransactionRequest::default()
-                            .from(deployer_address)
-                            .to(RUNTIME_PALLET_ADDRESS)
-                            .input(encoded_payload.into());
-                        node.execute_transaction(tx_request)
-                            .await
-                            .context("Failed to execute transaction")
-                    }
+                .map(|(code_string, ..)| {
+                    alloy::hex::decode(code_string)
+                        .context("Failed to decode the contract as hex even after linking")
+                        .and_then(|code| {
+                            self.platform_information
+                                .connector
+                                .code_upload_transaction(code)
+                        })
+                })
+                .collect::<Result<Vec<_>>>()
+                .context("Failed to create the code upload transactions")?
+                .into_iter()
+                .map(|transaction| transaction.from(deployer_address))
+                .map(|transaction| {
+                    self.platform_information
+                        .connector
+                        .execute_transaction(transaction)
+                        .map(|res| res.context("Code upload transaction failed"))
                 });
             try_join_all(code_upload_tasks)
                 .await
-                .context("Code upload failed")?;
+                .context("Some code upload transactions failed")?;
         }
 
         for (contract_path, contract_name_to_info_mapping) in compiler_output.contracts.iter() {
@@ -294,7 +270,6 @@ where
         err(Debug),
     )]
     async fn execute_step(&mut self, step_path: &StepPath, step: &Step) -> Result<()> {
-        self.platform_information.node.provider().await.unwrap();
         let steps_executed = match step {
             Step::FunctionCall(step) => {
                 // If a function call step fails then we stop this driver and allow the other
@@ -366,12 +341,12 @@ where
         let context = self.default_resolution_context();
         let from = step
             .from
-            .resolve_address(self.platform_information.node, context)
+            .resolve_address(context)
             .await
             .context("Failed to resolve transfer sender")?;
         let to = step
             .to
-            .resolve_address(self.platform_information.node, context)
+            .resolve_address(context)
             .await
             .context("Failed to resolve transfer recipient")?;
         let tx = TransactionRequest::default()
@@ -388,7 +363,12 @@ where
                 bail!("Transfer transaction failed {receipt:?}");
             }
         } else if self.await_transaction_inclusion {
-            inclusion_future.await?;
+            timeout(Duration::from_secs(2 * 60), inclusion_future)
+                .await
+                .context(
+                    "Waited 2 minutes for transaction inclusion but transaction was never included \
+                    in a block",
+                )?;
         };
         Ok(1)
     }
@@ -432,9 +412,7 @@ where
 
             let caller = {
                 let context = self.default_resolution_context();
-                step.caller
-                    .resolve_address(self.platform_information.node, context)
-                    .await?
+                step.caller.resolve_address(context).await?
             };
             if let (_, _, Some(receipt)) = self
                 .get_or_deploy_contract_instance(
@@ -476,10 +454,7 @@ where
             }
             Method::Fallback | Method::FunctionName(_) => {
                 let mut tx = step
-                    .as_transaction(
-                        self.platform_information.node,
-                        self.default_resolution_context(),
-                    )
+                    .as_transaction(self.default_resolution_context())
                     .await?;
 
                 let gas_overrides = step
@@ -498,7 +473,12 @@ where
                         bail!("Transaction failed {receipt:?}");
                     }
                 } else if self.await_transaction_inclusion {
-                    inclusion_future.await?;
+                    timeout(Duration::from_secs(2 * 60), inclusion_future)
+                        .await
+                        .context(
+                            "Waited 2 minutes for transaction inclusion but transaction was never \
+                            included in a block",
+                        )?;
                 };
 
                 Ok(tx_hash)
@@ -511,7 +491,7 @@ where
         tx_hash: TxHash,
     ) -> Result<CallFrame> {
         self.platform_information
-            .node
+            .connector
             .trace_transaction(
                 tx_hash,
                 GethDebugTracingOptions {
@@ -620,7 +600,6 @@ where
                             },
                             await_transaction_inclusion: step.await_transaction_inclusion,
                             await_transaction_receipts: self.await_transaction_receipts && i == 0,
-                            inclusion_watcher: self.inclusion_watcher,
                             watcher_tx: self.watcher_tx.clone(),
                             gas_limits: self.gas_limits.clone(),
                         }
@@ -645,13 +624,12 @@ where
                         .send(WatcherEvent::StartEvent {
                             ignore_block_before: self
                                 .platform_information
-                                .node
-                                .provider()
+                                .connector
+                                .latest_finalized_block()
                                 .await
-                                .context("Failed to get the provider")?
-                                .get_block_number()
-                                .await
-                                .context("Failed to get the block number of the latest block")?,
+                                .context("Failed to get the latest block")?
+                                .evm_block
+                                .number(),
                         })
                         .context("Failed to send message on the watcher's tx")?;
                 }
@@ -807,12 +785,7 @@ where
         };
 
         if let Some(calldata) = calldata {
-            let calldata = calldata
-                .calldata(
-                    self.platform_information.node,
-                    self.default_resolution_context(),
-                )
-                .await?;
+            let calldata = calldata.calldata(self.default_resolution_context()).await?;
             code.extend(calldata);
         }
 
@@ -864,7 +837,7 @@ where
             .with_deployed_contracts(&self.execution_state.deployed_contracts)
             .with_variables(&self.execution_state.variables)
             .with_metadata(&self.test_definition.metadata.content)
-            .with_node_api(self.platform_information.node)
+            .with_node_connector(&*self.platform_information.connector)
     }
     // endregion:Resolution & Resolver
 
@@ -887,11 +860,9 @@ where
     ) -> anyhow::Result<(
         TxHash,
         impl Future<Output = Result<TransactionReceipt>> + Send + 'static,
-        impl Future<Output = Result<()>> + Send + 'static,
+        impl Future<Output = ()> + Send + 'static,
     )> {
-        let node = self.platform_information.node;
-        let provider = node.provider().await.context("Creating provider failed")?;
-
+        let connector = self.platform_information.connector.clone();
         if let Some(step_path) = step_path
             && self.platform_information.platform.allow_caching_gas_limit()
         {
@@ -918,7 +889,7 @@ where
                                 let mut interval = interval(Duration::from_millis(200));
                                 loop {
                                     interval.tick().await;
-                                    match provider.estimate_gas(transaction.clone()).await {
+                                    match connector.estimate_gas(transaction.clone()).await {
                                         Ok(gas_estimate) => break gas_estimate,
                                         Err(err) => {
                                             warn!(?err, "Failed to get the gas estimate, retrying");
@@ -945,12 +916,10 @@ where
 
         let transaction_hash = self
             .platform_information
-            .node
-            .submit_transaction(transaction)
+            .connector
+            .send_transaction(transaction)
             .await
             .context("Failed to submit transaction")?;
-        let pending_transaction_builder =
-            PendingTransactionBuilder::new(provider.root().clone(), transaction_hash);
         Span::current().record("transaction_hash", display(transaction_hash));
 
         info!(%transaction_hash, "Submitted transaction");
@@ -964,53 +933,15 @@ where
                 .context("Failed to send the transaction hash to the watcher")?;
         };
 
-        let inclusion_provider = provider.clone();
-        let receipt_future = async move {
-            let receipt = pending_transaction_builder
-                .with_timeout(Some(receipt_wait_duration))
-                .with_required_confirmations(2)
-                .get_receipt()
-                .inspect_ok(|receipt| info!(transaction_hash = %receipt.transaction_hash, "Obtained receipt"))
-                .map(|res| res.context("Failed to get the receipt of the transaction")).await?;
-            let block_number = receipt
-                .block_number
-                .context("Receipt must have a block number")?;
-            tokio::time::timeout(Duration::from_secs(120), async move {
-                while provider
-                    .get_block_number()
-                    .await
-                    .context("Failed to get the block number")?
-                    < block_number
-                {
-                    tokio::time::sleep(Duration::from_millis(200)).await
-                }
-                Result::<(), anyhow::Error>::Ok(())
-            })
-            .await
-            .context("Waited 120 seconds for the rpc block to be updated but it wasn't")??;
-            anyhow::Result::<_, anyhow::Error>::Ok(receipt)
-        };
-
-        let inclusion_future = {
-            let await_inclusion = self.inclusion_watcher.await_transaction(transaction_hash);
-            async move {
-                let block_number = await_inclusion.await;
-                tokio::time::timeout(Duration::from_secs(120), async move {
-                    while inclusion_provider
-                        .get_block_number()
-                        .await
-                        .context("Failed to get the block number")?
-                        < block_number
-                    {
-                        tokio::time::sleep(Duration::from_millis(200)).await
-                    }
-                    Result::<(), anyhow::Error>::Ok(())
-                })
-                .await
-                .context("Waited 120 seconds for the rpc block to be updated but it wasn't")??;
-                anyhow::Result::<(), anyhow::Error>::Ok(())
-            }
-        };
+        let inclusion_future = connector.inclusion_future(transaction_hash);
+        let receipt_future = timeout(
+            receipt_wait_duration,
+            connector.get_receipt(transaction_hash),
+        )
+        .map(|res| {
+            res.context("Failed to get the receipt within the allocated duration")
+                .flatten()
+        });
 
         Ok((transaction_hash, receipt_future, inclusion_future))
     }

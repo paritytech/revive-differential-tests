@@ -8,6 +8,7 @@ pub struct Pool<T> {
 }
 
 impl<T> Pool<T> {
+    #[allow(dead_code)]
     pub fn new(items: impl IntoIterator<Item = T>) -> anyhow::Result<Self> {
         let items = items.into_iter().collect::<Arc<[T]>>();
         if items.is_empty() {

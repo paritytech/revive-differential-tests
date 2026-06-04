@@ -67,7 +67,7 @@ mod internal_prelude {
 
     pub use crate::compilations::handle_compilations;
     pub use crate::differential_benchmarks::{
-        InclusionWatcher, Watcher, WatcherEvent, handle_differential_benchmarks,
+        Watcher, WatcherEvent, handle_differential_benchmarks,
     };
     pub use crate::differential_tests::handle_differential_tests;
     pub use crate::helpers::{

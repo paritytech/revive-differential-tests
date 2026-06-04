@@ -29,14 +29,12 @@ pub(crate) mod internal_prelude {
     pub use std::str::FromStr;
     pub use std::sync::Arc;
 
-    pub use alloy::eips::BlockNumberOrTag;
     pub use alloy::hex::ToHexExt;
     pub use alloy::json_abi::{Function, JsonAbi};
     pub use alloy::network::{Network, TransactionBuilder};
     pub use alloy::primitives::map::HashSet;
     pub use alloy::primitives::utils::parse_units;
     pub use alloy::primitives::{Address, BlockNumber, Bytes, FixedBytes, TxHash, U256};
-    pub use alloy::providers::Provider;
     pub use alloy::rpc::types::TransactionRequest;
     pub use anyhow::Context as _;
     pub use futures::{FutureExt, StreamExt, TryFutureExt, TryStreamExt, stream};

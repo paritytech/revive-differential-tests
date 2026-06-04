@@ -269,7 +269,6 @@ impl ReportAggregator {
         execution_information.node = Some(TestCaseNodeInformation {
             id: event.id,
             platform_identifier: event.platform_identifier,
-            connection_string: event.connection_string,
         });
     }
 
@@ -716,8 +715,6 @@ pub struct TestCaseNodeInformation {
     pub id: usize,
     /// The platform of the node.
     pub platform_identifier: PlatformIdentifier,
-    /// The connection string of the node.
-    pub connection_string: String,
 }
 
 /// Execution information tied to the platform.

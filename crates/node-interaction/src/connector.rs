@@ -8,26 +8,30 @@ type AlloyProvider = FillProvider<
     RootProvider,
 >;
 
-type RuntimeHeader = sp_runtime::generic::Header<u32, sp_runtime::traits::BlakeTwo256>;
-type RuntimeBlock = sp_runtime::generic::Block<RuntimeHeader, sp_runtime::OpaqueExtrinsic>;
+pub type RuntimeSubxtBlock = GenericBlock<GenericHeader<u32, BlakeTwo256>, OpaqueExtrinsic>;
+type OnlineSubxtBlock = SubxtBlock<PolkadotConfig, OnlineClient<PolkadotConfig>>;
 
 pub struct NodeConnector {
     eth_providers: SingleOrPool<AlloyProvider>,
     substrate_providers: Option<SingleOrPool<OnlineClient<PolkadotConfig>>>,
+    config: NodeConnectorConfiguration,
     /* State */
-    latest_finalized_block: Arc<RwLock<Option<Arc<BlockPair>>>>,
-    finalized_block_broadcast: BroadcastSender<Arc<BlockPair>>,
+    latest_finalized_block: Arc<RwLock<Option<BlockPair>>>,
+    finalized_block_broadcast: BroadcastSender<BlockPair>,
+    blocks_by_number: AsyncHashMap<u64, BlockPair>,
     indexed_transactions: AsyncHashMap<TxHash, IndexedTransactionInformation>,
     /* Auxiliary */
-    _node: Box<dyn NodeConfiguration>,
+    node: Box<dyn NodeConfiguration + Send + Sync>,
 }
 
 impl NodeConnector {
-    pub fn new<N: NodeConfiguration + Send + 'static>(
+    pub fn new<N: NodeConfiguration + Send + Sync + 'static>(
         node: N,
         wallet: Arc<EthereumWallet>,
         config: NodeConnectorConfiguration,
     ) -> StaticFuture<Result<Self>> {
+        let config = config.resolve(node.configurations());
+
         let eth_provider_urls = node.eth_provider_url();
         let substrate_rpc_urls = node.substrate_provider_url();
 
@@ -47,9 +51,13 @@ impl NodeConnector {
                 None => None,
             };
 
-            let latest_finalized_block = Arc::new(RwLock::new(None));
-            let finalized_blocks_broadcast_tx = Self::start_finalized_blocks_broadcaster(
-                eth_providers.clone(),
+            let unresolved_finalized_blocks_broadcast_tx =
+                Self::start_unresolved_finalized_blocks_broadcaster(
+                    eth_providers.clone(),
+                    substrate_providers.clone(),
+                );
+            let finalized_blocks_broadcast_tx = Self::start_resolved_finalized_blocks_broadcaster(
+                unresolved_finalized_blocks_broadcast_tx.subscribe(),
                 substrate_providers.clone(),
             );
             let indexed_transactions = AsyncHashMap::new();
@@ -57,20 +65,36 @@ impl NodeConnector {
                 finalized_blocks_broadcast_tx.subscribe(),
                 indexed_transactions.clone(),
             );
+            let latest_finalized_block = Arc::new(RwLock::new(None));
             Self::start_latest_finalized_block_updater(
                 latest_finalized_block.clone(),
+                finalized_blocks_broadcast_tx.subscribe(),
+            );
+            let blocks_by_number = AsyncHashMap::new();
+            Self::start_block_by_number_indexer(
+                blocks_by_number.clone(),
                 finalized_blocks_broadcast_tx.subscribe(),
             );
 
             Ok(Self {
                 eth_providers,
                 substrate_providers,
+                config,
                 latest_finalized_block,
                 finalized_block_broadcast: finalized_blocks_broadcast_tx,
+                blocks_by_number,
                 indexed_transactions,
-                _node: Box::new(node),
+                node: Box::new(node),
             })
         })
+    }
+
+    pub fn node_id(&self) -> usize {
+        self.node.id()
+    }
+
+    pub fn evm_version(&self) -> EVMVersion {
+        self.node.evm_version()
     }
 
     pub fn chain_id(&self) -> StaticFuture<Result<u64>> {
@@ -102,7 +126,17 @@ impl NodeConnector {
             .boxed()
     }
 
-    pub fn send_transaction(&self, tx: TransactionRequest) -> StaticFuture<Result<TxHash>> {
+    pub fn send_transaction(&self, mut tx: TransactionRequest) -> StaticFuture<Result<TxHash>> {
+        let config = self
+            .config
+            .hooks
+            .as_ref()
+            .and_then(|config| config.pre_submission_hook.as_ref());
+        match config {
+            Some(PreSubmissionHook::MaxGasPrice) => tx = tx.gas_price(u128::MAX),
+            Some(PreSubmissionHook::Disabled) | None => {}
+        }
+
         match self.substrate_providers.as_ref() {
             Some(substrate_providers) => {
                 self.send_transaction_substrate(tx, substrate_providers.clone())
@@ -160,6 +194,8 @@ impl NodeConnector {
         })
     }
 
+    // TODO: Do we want the connector to cache the receipts in memory too as the blocks become
+    // available in order to eliminate any issues with the eth-rpc?
     pub fn get_receipt(&self, tx_hash: TxHash) -> StaticFuture<Result<TransactionReceipt>> {
         Self::get_receipt_internal(
             self.eth_providers.clone(),
@@ -188,7 +224,7 @@ impl NodeConnector {
                     {
                         sleep(Duration::from_millis(200)).await
                     }
-                    Result::<(), anyhow::Error>::Ok(())
+                    Result::<(), Error>::Ok(())
                 })
                 .await
                 .context("Failed to wait for eth-rpc block to advance")?
@@ -203,7 +239,43 @@ impl NodeConnector {
         })
     }
 
-    pub fn subscribe_to_finalized_blocks(&self) -> StaticStream<Arc<BlockPair>> {
+    pub fn code_upload_transaction(&self, code: impl AsRef<[u8]>) -> Result<TransactionRequest> {
+        const RUNTIME_PALLET_ADDRESS: Address =
+            address!("0x6d6f646c70792f70616464720000000000000000");
+
+        let provider = self.substrate_providers.clone();
+        let provider = provider
+            .context("Code upload operations are only supported on substrate based chains")?;
+        let metadata = provider.metadata();
+        let upload_call = dynamic::tx(
+            "Revive",
+            "upload_code",
+            vec![
+                dynamic::Value::from_bytes(code),
+                dynamic::Value::u128(u128::MAX),
+            ],
+        );
+        let encoded_payload = upload_call
+            .encode_call_data(&metadata)
+            .context("Failed to encode the upload code payload")?;
+
+        Ok(TransactionRequest::default()
+            .to(RUNTIME_PALLET_ADDRESS)
+            .input(encoded_payload.into()))
+    }
+
+    // TODO: Add a different path to take when we want to do this through subxt since we know that
+    // it's supported there.
+    pub fn estimate_gas(&self, tx: TransactionRequest) -> StaticFuture<Result<u64>> {
+        self.eth_providers
+            .clone()
+            .estimate_gas(tx)
+            .into_future()
+            .map(|res| res.context("Failed to get the gas estimate"))
+            .boxed()
+    }
+
+    pub fn subscribe_to_finalized_blocks(&self) -> StaticStream<BlockPair> {
         BroadcastStream::new(self.finalized_block_broadcast.subscribe())
             .filter_map(|block| async move { block.ok() })
             .boxed()
@@ -250,7 +322,7 @@ impl NodeConnector {
 
         Box::pin(async move {
             let indexed_transaction = inclusion_future.await;
-            let substrate_block = indexed_transaction
+            let substrate_block_information = indexed_transaction
                 .block_pair
                 .substrate_block
                 .as_ref()
@@ -260,28 +332,13 @@ impl NodeConnector {
                 .expect("qed; this is a substrate transaction");
             let extrinsic_index = extrinsic_index as u32;
 
-            let parent_hash = substrate_block.header().parent_hash;
-            let header = RuntimeHeader::decode(&mut substrate_block.header().encode().as_slice())
-                .context(
-                "Failed to decode the substrate block header into the runtime header type",
-            )?;
-            let extrinsics = substrate_block
-                .extrinsics()
-                .await
-                .context("Failed to get the substrate block extrinsics")?
-                .iter()
-                .map(|extrinsic| {
-                    sp_runtime::OpaqueExtrinsic::from_bytes(extrinsic.bytes())
-                        .context("Failed to decode the extrinsic into an opaque extrinsic")
-                })
-                .collect::<Result<Vec<_>>>()?;
-            let block = RuntimeBlock { header, extrinsics };
+            let parent_hash = substrate_block_information.runtime_block.header.parent_hash;
+            let block = substrate_block_information.runtime_block.clone();
 
             let trace_options = serde_json::to_value(trace_options)
                 .expect("qed; alloy geth tracing options serialize to JSON");
-            let trace_options =
-                serde_json::from_value::<pallet_revive::evm::TracerConfig>(trace_options)
-                    .context("Failed to convert geth tracing options into revive tracer config")?;
+            let trace_options = serde_json::from_value::<TracerConfig>(trace_options)
+                .context("Failed to convert geth tracing options into revive tracer config")?;
             let payload = revive_metadata::apis()
                 .revive_api()
                 .trace_tx(block.into(), extrinsic_index, trace_options.config.into())
@@ -338,6 +395,7 @@ impl NodeConnector {
                     .substrate_block
                     .as_ref()
                     .expect("qed; this is a substrate node")
+                    .online_block
                     .hash()),
                 None => provider
                     .runtime_api()
@@ -350,6 +408,61 @@ impl NodeConnector {
                 .await
                 .context("Failed to get the balance")?;
             Ok(U256::from_limbs_slice(&balance.0))
+        })
+    }
+
+    pub fn block(&self, number: u64) -> StaticFuture<BlockPair> {
+        self.blocks_by_number.get(number)
+    }
+
+    pub fn latest_finalized_block(&self) -> StaticFuture<Result<BlockPair>> {
+        let mut finalized_blocks = self.finalized_block_broadcast.subscribe();
+        let latest_block = self.latest_finalized_block.clone();
+
+        Box::pin(async move {
+            if let Some(block) = latest_block.read().await.as_ref() {
+                return Ok(block.clone());
+            }
+
+            finalized_blocks
+                .recv()
+                .await
+                .context("Failed to receive the latest finalized block")
+        })
+    }
+
+    pub fn pre_dispatch_weights(
+        &self,
+        block_hash: [u8; 32],
+        payload: Vec<u8>,
+    ) -> StaticFuture<Result<Weight>> {
+        let provider = self.substrate_providers.clone();
+        Box::pin(async move {
+            let provider = provider.context("No substrate provider available")?;
+            let encoded_args = payload.encode();
+            let encoded_result =
+                retry_with_exponential_backoff(5, Duration::from_millis(500), || async {
+                    match provider
+                        .runtime_api()
+                        .at(H256(block_hash))
+                        .call_raw(
+                            "ReviveApi_eth_pre_dispatch_weight",
+                            Some(encoded_args.as_slice()),
+                        )
+                        .await
+                    {
+                        Ok(result) => ControlFlow::Break(result),
+                        Err(err) => ControlFlow::Continue(anyhow!("{err:?}")),
+                    }
+                })
+                .await
+                .context("Failed to get the pre-dispatch weights")?;
+
+            let result =
+                StdResult::<Weight, EthTransactError>::decode(&mut encoded_result.as_slice())
+                    .context("Failed to decode pre-dispatch weight result")?;
+
+            result.map_err(|err| anyhow!("pre-dispatch weight returned an error: {err:?}"))
         })
     }
 
@@ -381,7 +494,7 @@ impl NodeConnector {
                 ipc: None,
                 ws: None,
                 http: None,
-            } => Box::pin(ready(Err(anyhow::anyhow!(
+            } => Box::pin(ready(Err(anyhow!(
                 "Node didn't provide any URLs for the eth rpc"
             )))),
         }
@@ -401,7 +514,7 @@ impl NodeConnector {
                 Some(
                     OnlineClient::<PolkadotConfig>::from_url(url)
                         .map_ok(SingleOrPool::Single)
-                        .map_err(anyhow::Error::from)
+                        .map_err(Error::from)
                         .boxed() as StaticFuture<_>,
                 )
             }
@@ -415,7 +528,7 @@ impl NodeConnector {
                     try_join_all(
                         (0..10).map(move |_| OnlineClient::<PolkadotConfig>::from_url(url.clone())),
                     )
-                    .map_err(anyhow::Error::from)
+                    .map_err(Error::from)
                     .map_ok(Pool::new_unchecked)
                     .map_ok(SingleOrPool::Pool)
                     .boxed() as StaticFuture<_>,
@@ -433,24 +546,24 @@ impl NodeConnector {
         Box::pin(self.indexed_transactions.get(tx_hash).map(|_| ()))
     }
 
-    fn start_finalized_blocks_broadcaster(
+    fn start_unresolved_finalized_blocks_broadcaster(
         provider: SingleOrPool<AlloyProvider>,
         substrate_provider: Option<SingleOrPool<OnlineClient<PolkadotConfig>>>,
-    ) -> BroadcastSender<Arc<BlockPair>> {
-        let (tx, _) = broadcast_channel::<Arc<BlockPair>>(2048);
+    ) -> BroadcastSender<UnresolvedBlockPair> {
+        let (tx, _) = broadcast_channel::<UnresolvedBlockPair>(2048);
         let task = match substrate_provider {
             Some(provider) => {
-                Self::start_finalized_blocks_broadcaster_substrate(provider, tx.clone())
+                Self::start_unresolved_finalized_blocks_broadcaster_substrate(provider, tx.clone())
             }
-            None => Self::start_finalized_blocks_broadcaster_evm(provider, tx.clone()),
+            None => Self::start_unresolved_finalized_blocks_broadcaster_evm(provider, tx.clone()),
         };
-        tokio::spawn(task);
+        spawn(task);
         tx
     }
 
-    fn start_finalized_blocks_broadcaster_evm(
+    fn start_unresolved_finalized_blocks_broadcaster_evm(
         provider: SingleOrPool<AlloyProvider>,
-        tx: BroadcastSender<Arc<BlockPair>>,
+        tx: BroadcastSender<UnresolvedBlockPair>,
     ) -> StaticFuture<Result<()>> {
         Box::pin(async move {
             let mut subscription = provider
@@ -459,20 +572,20 @@ impl NodeConnector {
                 .into_stream()
                 .await?;
             while let Some(Ok(block)) = subscription.next().await {
-                let block_pair = Arc::new(BlockPair {
+                let block_pair = UnresolvedBlockPair {
                     observation_time: SystemTime::now(),
-                    evm_block: block,
+                    evm_block: Arc::new(block),
                     substrate_block: None,
-                });
+                };
                 let _ = tx.send(block_pair);
             }
             bail!("Block subscription ended prematurely")
         })
     }
 
-    fn start_finalized_blocks_broadcaster_substrate(
+    fn start_unresolved_finalized_blocks_broadcaster_substrate(
         provider: SingleOrPool<OnlineClient<PolkadotConfig>>,
-        tx: BroadcastSender<Arc<BlockPair>>,
+        tx: BroadcastSender<UnresolvedBlockPair>,
     ) -> StaticFuture<Result<()>> {
         Box::pin(async move {
             let mut subscription = provider.blocks().subscribe_finalized().await?;
@@ -501,29 +614,170 @@ impl NodeConnector {
                     .context("Failed to call the eth_block runtime API")?;
                 let eth_block_json = serde_json::to_value(eth_block.0)
                     .expect("qed; pallet-revive eth block serializes to JSON");
-                let evm_block = serde_json::from_value::<alloy::rpc::types::Block>(eth_block_json)
+                let evm_block = serde_json::from_value::<EvmBlock>(eth_block_json)
                     .expect("qed; pallet-revive and alloy block JSON formats are identical");
 
-                let block_pair = Arc::new(BlockPair {
+                let block_pair = UnresolvedBlockPair {
                     observation_time: SystemTime::now(),
-                    evm_block,
-                    substrate_block: Some(substrate_block),
-                });
+                    evm_block: Arc::new(evm_block),
+                    substrate_block: Some(Arc::new(substrate_block)),
+                };
                 let _ = tx.send(block_pair);
             }
             bail!("Block subscription ended prematurely")
         })
     }
 
+    fn start_resolved_finalized_blocks_broadcaster(
+        mut rx: BroadcastReceiver<UnresolvedBlockPair>,
+        substrate_provider: Option<SingleOrPool<OnlineClient<PolkadotConfig>>>,
+    ) -> BroadcastSender<BlockPair> {
+        let (tx, _) = broadcast_channel::<BlockPair>(2048);
+        let task_tx = tx.clone();
+        spawn(async move {
+            let limits = match substrate_provider.as_ref() {
+                Some(substrate_provider) => {
+                    match Self::substrate_block_limits(substrate_provider) {
+                        Ok(limits) => Some(limits),
+                        Err(err) => {
+                            error!(?err, "Failed to resolve substrate block limits");
+                            return;
+                        }
+                    }
+                }
+                None => None,
+            };
+
+            while let Ok(block) = rx.recv().await {
+                match Self::resolve_block_pair(block, limits).await {
+                    Ok(block) => {
+                        let _ = task_tx.send(block);
+                    }
+                    Err(err) => error!(?err, "Failed to resolve finalized block"),
+                }
+            }
+        });
+        tx
+    }
+
+    async fn resolve_block_pair(
+        block: UnresolvedBlockPair,
+        limits: Option<Weight>,
+    ) -> Result<BlockPair> {
+        let substrate_block = match block.substrate_block.as_ref() {
+            Some(substrate_block) => Some(
+                Self::resolve_substrate_block(substrate_block.clone(), limits)
+                    .await
+                    .context("Failed to resolve substrate block")?,
+            ),
+            None => None,
+        };
+
+        Ok(BlockPair {
+            observation_time: block.observation_time,
+            evm_block: block.evm_block,
+            substrate_block: substrate_block.map(Arc::new),
+        })
+    }
+
+    async fn resolve_substrate_block(
+        online_block: Arc<OnlineSubxtBlock>,
+        limits: Option<Weight>,
+    ) -> Result<SubstrateBlockInformation> {
+        let extrinsics = retry_with_exponential_backoff(10, Duration::from_millis(10), || {
+            let online_block = &online_block;
+            async move {
+                match online_block.extrinsics().await {
+                    Ok(extrinsics) => ControlFlow::Break(extrinsics),
+                    Err(err) => ControlFlow::Continue(err),
+                }
+            }
+        })
+        .await
+        .context("Failed to get the substrate block extrinsics")?;
+
+        let header = GenericHeader::<u32, BlakeTwo256>::decode(
+            &mut online_block.header().encode().as_slice(),
+        )
+        .context("Failed to decode the substrate block header into the runtime header type")?;
+        let runtime_extrinsics = extrinsics
+            .iter()
+            .map(|extrinsic| {
+                OpaqueExtrinsic::from_bytes(extrinsic.bytes())
+                    .context("Failed to decode the extrinsic into an opaque extrinsic")
+            })
+            .collect::<Result<Vec<_>>>()?;
+        let eth_transactions = extrinsics
+            .find::<EthTransact>()
+            .map(|extrinsic| {
+                let extrinsic = extrinsic.context("Failed to decode the eth_transact extrinsic")?;
+                let extrinsic_index = extrinsic.details.index() as _;
+                Ok(EthTransactionExtrinsic {
+                    payload: extrinsic.value.payload,
+                    extrinsic_index,
+                })
+            })
+            .collect::<Result<Vec<_>>>()?;
+        let consumed_weight = Self::consumed_block_weight(online_block.as_ref())
+            .await
+            .context("Failed to resolve consumed block weight")?;
+
+        Ok(SubstrateBlockInformation {
+            runtime_block: RuntimeSubxtBlock {
+                header,
+                extrinsics: runtime_extrinsics,
+            },
+            block_hash: online_block.hash().0,
+            consumed_weight,
+            limits: limits.context("No substrate block limits available")?,
+            online_block,
+            eth_transactions,
+        })
+    }
+
+    fn substrate_block_limits(
+        provider: &SingleOrPool<OnlineClient<PolkadotConfig>>,
+    ) -> Result<Weight> {
+        let limits = provider
+            .constants()
+            .at(&revive_metadata::constants().system().block_weights())
+            .context("Failed to get the substrate block weight constants")?
+            .per_class
+            .normal
+            .max_extrinsic
+            .context("No max extrinsic weight found for normal substrate extrinsics")?;
+
+        Ok(*limits)
+    }
+
+    async fn consumed_block_weight(block: &OnlineSubxtBlock) -> Result<Weight> {
+        let used = retry_with_exponential_backoff(10, Duration::from_millis(10), || async {
+            match block
+                .storage()
+                .fetch_or_default(&revive_metadata::storage().system().block_weight())
+                .await
+            {
+                Ok(weight) => ControlFlow::Break(weight),
+                Err(err) => ControlFlow::Continue(err),
+            }
+        })
+        .await
+        .context("Failed to fetch consumed substrate block weight")?;
+
+        Ok((*used.normal)
+            .saturating_add(*used.operational)
+            .saturating_add(*used.mandatory))
+    }
+
     fn start_transaction_indexer(
-        mut rx: BroadcastReceiver<Arc<BlockPair>>,
+        mut rx: BroadcastReceiver<BlockPair>,
         map: AsyncHashMap<TxHash, IndexedTransactionInformation>,
     ) {
-        tokio::spawn(async move {
+        spawn(async move {
             let result = async move {
                 while let Ok(block) = rx.recv().await {
                     match block.substrate_block.as_ref() {
-                        Some(substrate_block) => {
+                        Some(substrate_block_information) => {
                             let mut staged_transactions =
                                 HashMap::<TxHash, (Option<usize>, Option<usize>)>::new();
 
@@ -541,21 +795,12 @@ impl NodeConnector {
                                     .0 = Some(transaction_index);
                             }
 
-                            let extrinsics = substrate_block
-                                .extrinsics()
-                                .await
-                                .context("Failed to get the substrate block extrinsics")?;
-                            for extrinsic in extrinsics.find::<EthTransact>() {
-                                let extrinsic = extrinsic
-                                    .context("Failed to decode the eth_transact extrinsic")?;
-                                let transaction_hash = keccak256(&extrinsic.value.payload);
-                                let extrinsic_index = usize::try_from(extrinsic.details.index())
-                                    .expect("qed; subxt extrinsic indices must fit in usize");
-
+                            for extrinsic in substrate_block_information.eth_transactions.iter() {
+                                let transaction_hash = keccak256(&extrinsic.payload);
                                 staged_transactions
                                     .entry(transaction_hash)
                                     .or_default()
-                                    .1 = Some(extrinsic_index);
+                                    .1 = Some(extrinsic.extrinsic_index);
                             }
 
                             let indexed_transactions = staged_transactions
@@ -610,7 +855,7 @@ impl NodeConnector {
                         }
                     }
                 }
-                anyhow::Result::<(), anyhow::Error>::Err(anyhow!("Subscription ended prematurely"))
+                Result::<(), Error>::Err(anyhow!("Subscription ended prematurely"))
             }
             .await;
 
@@ -621,12 +866,24 @@ impl NodeConnector {
     }
 
     fn start_latest_finalized_block_updater(
-        field: Arc<RwLock<Option<Arc<BlockPair>>>>,
-        mut rx: BroadcastReceiver<Arc<BlockPair>>,
+        field: Arc<RwLock<Option<BlockPair>>>,
+        mut rx: BroadcastReceiver<BlockPair>,
     ) {
-        tokio::spawn(async move {
+        spawn(async move {
             while let Ok(latest_block) = rx.recv().await {
                 *field.write().await = Some(latest_block)
+            }
+        });
+    }
+
+    fn start_block_by_number_indexer(
+        map: AsyncHashMap<u64, BlockPair>,
+        mut rx: BroadcastReceiver<BlockPair>,
+    ) {
+        spawn(async move {
+            while let Ok(latest_block) = rx.recv().await {
+                let block_number = latest_block.evm_block.number();
+                map.insert(block_number, latest_block).await;
             }
         });
     }
@@ -675,8 +932,8 @@ fn handle_concurrency_config(
         .as_ref()
         .and_then(|config| config.concurrency_configuration.as_ref());
     match config {
-        Some(ConcurrencyConfiguration::Disabled) | None => transport,
-        Some(ConcurrencyConfiguration::SemaphoreBasedLimiter { permits }) => {
+        Some(ProviderConcurrencyConfiguration::Disabled) | None => transport,
+        Some(ProviderConcurrencyConfiguration::SemaphoreBasedLimiter { permits }) => {
             ConcurrencyLimiterLayer::new(*permits)
                 .layer(transport)
                 .as_boxed()
@@ -696,8 +953,8 @@ fn handle_global_concurrency_config(
         .as_ref()
         .and_then(|config| config.global_concurrency_configuration.as_ref());
     let permits = match config {
-        Some(ConcurrencyConfiguration::Disabled) => return transport,
-        Some(ConcurrencyConfiguration::SemaphoreBasedLimiter { permits }) => *permits,
+        Some(ProviderConcurrencyConfiguration::Disabled) => return transport,
+        Some(ProviderConcurrencyConfiguration::SemaphoreBasedLimiter { permits }) => *permits,
         None => 1_000,
     };
     let layer = GLOBAL_CONCURRENCY_LAYERS
@@ -743,7 +1000,10 @@ fn handle_retry_config(
             polling_duration,
             initial_backoff,
             max_backoff,
-        }) => RetryLayer::new(*polling_duration, *initial_backoff, *max_backoff)
+        }) => RetryLayer::default()
+            .with_polling_duration(*polling_duration)
+            .with_initial_backoff(*initial_backoff)
+            .with_max_backoff(*max_backoff)
             .layer(transport)
             .as_boxed(),
         None => RetryLayer::default().layer(transport).as_boxed(),
@@ -766,15 +1026,37 @@ fn handle_gas_filler_config(config: &NodeConnectorConfiguration) -> FallbackGasF
     }
 }
 
+#[derive(Clone)]
 pub struct BlockPair {
     pub observation_time: SystemTime,
-    pub evm_block: alloy::rpc::types::Block,
-    pub substrate_block: Option<subxt::blocks::Block<PolkadotConfig, OnlineClient<PolkadotConfig>>>,
+    pub evm_block: Arc<EvmBlock>,
+    pub substrate_block: Option<Arc<SubstrateBlockInformation>>,
+}
+
+pub struct SubstrateBlockInformation {
+    pub runtime_block: RuntimeSubxtBlock,
+    pub block_hash: [u8; 32],
+    pub consumed_weight: Weight,
+    pub limits: Weight,
+    pub eth_transactions: Vec<EthTransactionExtrinsic>,
+    online_block: Arc<OnlineSubxtBlock>,
+}
+
+#[derive(Clone)]
+struct UnresolvedBlockPair {
+    observation_time: SystemTime,
+    evm_block: Arc<EvmBlock>,
+    substrate_block: Option<Arc<OnlineSubxtBlock>>,
+}
+
+pub struct EthTransactionExtrinsic {
+    pub payload: Vec<u8>,
+    pub extrinsic_index: usize,
 }
 
 #[derive(Clone)]
 pub struct IndexedTransactionInformation {
     pub transaction_index: usize,
     pub extrinsic_index: Option<usize>,
-    pub block_pair: Arc<BlockPair>,
+    pub block_pair: BlockPair,
 }

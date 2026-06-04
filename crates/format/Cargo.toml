@@ -23,7 +23,7 @@ semver = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 itertools = { workspace = true }
-indexmap = { workspace = true }
+indexmap = { workspace = true, features = ["serde"] }
 
 [dev-dependencies]
 tokio = { workspace = true }

@@ -1,9 +1,10 @@
 use crate::internal_prelude::*;
 
-static IDS: LazyLock<Arc<StdMutex<BTreeMap<String, AtomicU32>>>> = LazyLock::new(Default::default);
+static IDS: LazyLock<Arc<StdMutex<BTreeMap<String, AtomicUsize>>>> =
+    LazyLock::new(Default::default);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct NodeId(pub u32);
+pub struct NodeId(pub usize);
 
 impl NodeId {
     pub fn for_node(node: impl ToString) -> Self {

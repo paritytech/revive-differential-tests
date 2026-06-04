@@ -2,15 +2,9 @@ use crate::internal_prelude::*;
 
 #[derive(Debug)]
 pub struct ZombienetNode {
-    id: u32,
+    id: usize,
     eth_rpc_process: EthRpcProcess,
     zombienet_process: ZombienetProcess,
-    wallet: Arc<EthereumWallet>,
-    nonce_manager: CachedNonceManager,
-    gas_filler: FallbackGasFiller,
-    provider: Arc<OnceCell<ConcreteProvider<Ethereum, Arc<EthereumWallet>>>>,
-    substrate_provider: Arc<OnceCell<OnlineClient<PolkadotConfig>>>,
-    submission_semaphore: Arc<Semaphore>,
     _directories: NodeDirectories,
 }
 
@@ -20,7 +14,6 @@ impl ZombienetNode {
         + HasEthRpcConfiguration
         + HasWalletConfiguration
         + HasZombienetConfiguration,
-        use_fallback_gas_filler: bool,
     ) -> Result<Self> {
         let workdir_config = context.as_working_directory_configuration();
         let wallet_config = context.as_wallet_configuration();
@@ -65,12 +58,6 @@ impl ZombienetNode {
             id: id.0,
             eth_rpc_process,
             zombienet_process,
-            wallet,
-            nonce_manager: CachedNonceManager::default(),
-            gas_filler: FallbackGasFiller::new().with_fallback_mechanism(use_fallback_gas_filler),
-            provider: Default::default(),
-            substrate_provider: Default::default(),
-            submission_semaphore: Arc::new(Semaphore::new(1000)),
             _directories: directories,
         })
     }
@@ -216,31 +203,6 @@ impl ZombienetNode {
         }
     }
 
-    fn provider(&self) -> StaticFuture<Result<ConcreteProvider<Ethereum, Arc<EthereumWallet>>>> {
-        let provider = self.provider.clone();
-        let connection_string = self.connection_string().to_string();
-        let gas_filler = self.gas_filler;
-        let nonce_filler = NonceFiller::new(self.nonce_manager.clone());
-        let wallet = self.wallet.clone();
-
-        Box::pin(async move {
-            provider
-                .get_or_try_init(|| async move {
-                    construct_concurrency_limited_provider(
-                        &connection_string,
-                        gas_filler,
-                        ChainIdFiller::default(),
-                        nonce_filler,
-                        wallet,
-                    )
-                    .await
-                    .context("Failed to construct the provider")
-                })
-                .await
-                .cloned()
-        })
-    }
-
     pub fn node_genesis(node_path: impl AsRef<Path>, wallet: &EthereumWallet) -> Result<Value> {
         let mut chainspec_json = Command::new(node_path.as_ref())
             .arg("build-spec")
@@ -260,90 +222,20 @@ impl ZombienetNode {
     }
 }
 
-impl NodeApi for ZombienetNode {
+impl NodeConfiguration for ZombienetNode {
     fn id(&self) -> usize {
-        self.id as _
-    }
-
-    fn connection_string(&self) -> &str {
-        self.eth_rpc_process.url()
+        self.id
     }
 
     fn evm_version(&self) -> EVMVersion {
         EVMVersion::Cancun
     }
 
-    fn submit_transaction(
-        &self,
-        mut transaction: TransactionRequest,
-    ) -> StaticFuture<Result<TxHash>> {
-        transaction.set_gas_price(u128::MAX);
-
-        let provider = self.provider();
-        let substrate_provider = NodeApi::substrate_provider(self);
-        let semaphore = self.submission_semaphore.clone();
-
-        Box::pin(async move {
-            let provider = provider.await.context("Failed to get the provider")?;
-            let substrate_provider = substrate_provider
-                .expect("qed; this is a substrate node")
-                .await
-                .context("Failed to get the provider")?;
-
-            let signed_transaction = provider
-                .fill(transaction)
-                .await
-                .context("Failed to fill transaction")?
-                .try_into_envelope()
-                .context("Failed to construct envelope from filled transaction")?;
-            let tx_hash = signed_transaction.tx_hash();
-            let payload = signed_transaction.encoded_2718();
-
-            let call = revive_metadata::tx()
-                .revive()
-                .eth_transact(payload.to_vec());
-            let _guard = semaphore
-                .acquire_owned()
-                .await
-                .context("Failed to acquire permit")?;
-            substrate_provider
-                .tx()
-                .create_unsigned(&call)
-                .context("Failed to create an unsigned transaction")?
-                .submit()
-                .await
-                .context("Failed to submit the transaction through subxt")?;
-
-            Ok(*tx_hash)
-        })
+    fn eth_provider_url(&self) -> NodeUrlCollection<'_> {
+        NodeUrlCollection::new().with_http_url(self.eth_rpc_process.url())
     }
 
-    fn provider(&self) -> StaticFuture<Result<DynProvider>> {
-        Box::pin(
-            self.provider()
-                .map(|provider| provider.map(|provider| provider.erased())),
-        )
-    }
-
-    fn substrate_provider(&self) -> Option<StaticFuture<Result<OnlineClient<PolkadotConfig>>>> {
-        let provider = self.substrate_provider.clone();
-        let connection_string = self.zombienet_process.url().to_string();
-
-        Some(Box::pin(async move {
-            provider
-                .get_or_try_init(|| async move {
-                    OnlineClient::from_url(connection_string)
-                        .await
-                        .context("Failed to create a new online client")
-                })
-                .await
-                .cloned()
-        }))
-    }
-}
-
-impl Node for ZombienetNode {
-    fn spawn(&mut self, _: Genesis) -> Result<()> {
-        Ok(())
+    fn substrate_provider_url(&self) -> Option<NodeUrlCollection<'_>> {
+        Some(NodeUrlCollection::new().with_ws_url(self.zombienet_process.url()))
     }
 }

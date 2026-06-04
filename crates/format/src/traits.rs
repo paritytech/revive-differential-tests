@@ -15,14 +15,14 @@ pub struct ResolutionContext<'a> {
     /// When provided the variables in here will be used for performing resolutions.
     variables: Option<&'a HashMap<String, U256>>,
 
-    /// When provided this block number will be treated as the tip of the chain.
-    block_number: Option<&'a BlockNumber>,
+    /// When provided resolution will use this block instead of the latest block.
+    pinned_block_number: Option<&'a BlockNumber>,
 
-    /// When provided the resolver will use this transaction hash for all of its resolutions.
+    /// When provided resolution will use this transaction hash.
     transaction_hash: Option<&'a TxHash>,
 
-    /// When provided the resolver will use this node for any operations which require node access.
-    node_api: Option<&'a dyn NodeApi>,
+    /// When provided resolution will use this connector for operations that require node access.
+    node_connector: Option<&'a NodeConnector>,
 }
 
 impl<'a> ResolutionContext<'a> {
@@ -51,8 +51,11 @@ impl<'a> ResolutionContext<'a> {
         self
     }
 
-    pub fn with_block_number(mut self, block_number: impl Into<Option<&'a BlockNumber>>) -> Self {
-        self.block_number = block_number.into();
+    pub fn with_pinned_block_number(
+        mut self,
+        pinned_block_number: impl Into<Option<&'a BlockNumber>>,
+    ) -> Self {
+        self.pinned_block_number = pinned_block_number.into();
         self
     }
 
@@ -64,23 +67,12 @@ impl<'a> ResolutionContext<'a> {
         self
     }
 
-    pub fn with_node_api(mut self, node_api: impl Into<Option<&'a dyn NodeApi>>) -> Self {
-        self.node_api = node_api.into();
+    pub fn with_node_connector(
+        mut self,
+        node_connector: impl Into<Option<&'a NodeConnector>>,
+    ) -> Self {
+        self.node_connector = node_connector.into();
         self
-    }
-
-    pub fn resolve_block_number(&self, number: BlockNumberOrTag) -> BlockNumberOrTag {
-        match self.block_number {
-            Some(block_number) => match number {
-                BlockNumberOrTag::Latest => BlockNumberOrTag::Number(*block_number),
-                n @ (BlockNumberOrTag::Finalized
-                | BlockNumberOrTag::Safe
-                | BlockNumberOrTag::Earliest
-                | BlockNumberOrTag::Pending
-                | BlockNumberOrTag::Number(_)) => n,
-            },
-            None => number,
-        }
     }
 
     pub async fn deployed_contract<'b>(
@@ -112,12 +104,16 @@ impl<'a> ResolutionContext<'a> {
             .and_then(|variables| variables.get(name.as_ref()))
     }
 
-    pub fn tip_block_number(&self) -> Option<&'a BlockNumber> {
-        self.block_number
+    pub fn pinned_block_number(&self) -> Option<&'a BlockNumber> {
+        self.pinned_block_number
     }
 
     pub fn transaction_hash(&self) -> Option<&'a TxHash> {
         self.transaction_hash
+    }
+
+    pub fn node_connector(&self) -> Option<&'a NodeConnector> {
+        self.node_connector
     }
 
     pub fn contract_instance<'b>(
@@ -128,14 +124,13 @@ impl<'a> ResolutionContext<'a> {
             let instance = instance.into();
             match instance {
                 ContractInstanceOrReference::Reference(reference) => {
-                    let node_api = self.node_api.as_ref()?;
                     let metadata = self.metadata.as_ref()?;
                     let contracts = metadata.contracts.as_ref()?;
 
                     let CalldataToken::Item(resolved) = reference
                         .into_owned()
                         .into_inner()
-                        .resolve(*node_api, *self)
+                        .resolve(*self)
                         .await
                         .ok()?
                     else {

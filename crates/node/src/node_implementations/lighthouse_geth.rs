@@ -2,13 +2,8 @@ use crate::internal_prelude::*;
 
 #[derive(Debug)]
 pub struct LighthouseGethNode {
-    id: u32,
+    id: usize,
     process: LighthouseNodeProcess,
-    wallet: Arc<EthereumWallet>,
-    nonce_manager: CachedNonceManager,
-    gas_filler: FallbackGasFiller,
-    ws_provider: Arc<OnceCell<ConcreteProvider<Ethereum, Arc<EthereumWallet>>>>,
-    ws_subscriptions_provider: Arc<OnceCell<ConcreteProvider<Ethereum, Arc<EthereumWallet>>>>,
     _directories: NodeDirectories,
 }
 
@@ -17,7 +12,6 @@ impl LighthouseGethNode {
         context: impl HasWorkingDirectoryConfiguration
         + HasWalletConfiguration
         + HasKurtosisConfiguration,
-        use_fallback_gas_filler: bool,
     ) -> Result<Self> {
         let workdir_config = context.as_working_directory_configuration();
         let wallet_config = context.as_wallet_configuration();
@@ -63,11 +57,6 @@ impl LighthouseGethNode {
         Ok(Self {
             id: id.0,
             process,
-            wallet,
-            nonce_manager: Default::default(),
-            gas_filler: FallbackGasFiller::new().with_fallback_mechanism(use_fallback_gas_filler),
-            ws_provider: Default::default(),
-            ws_subscriptions_provider: Default::default(),
             _directories: directories,
         })
     }
@@ -117,90 +106,34 @@ impl LighthouseGethNode {
     pub fn node_genesis(genesis: Genesis, _: &EthereumWallet) -> Genesis {
         genesis
     }
-
-    fn construct_provider(
-        &self,
-        provider_cell: Arc<OnceCell<ConcreteProvider<Ethereum, Arc<EthereumWallet>>>>,
-    ) -> StaticFuture<Result<DynProvider>> {
-        let provider = provider_cell;
-        let connection_string = self.connection_string().to_string();
-        let gas_filler = self.gas_filler;
-        let nonce_filler = NonceFiller::new(self.nonce_manager.clone());
-        let wallet = self.wallet.clone();
-
-        Box::pin(async move {
-            provider
-                .get_or_try_init(|| async move {
-                    construct_concurrency_limited_provider::<Ethereum, _>(
-                        &connection_string,
-                        gas_filler,
-                        ChainIdFiller::default(),
-                        nonce_filler,
-                        wallet,
-                    )
-                    .await
-                    .context("Failed to construct the provider")
-                })
-                .await
-                .map(|provider| provider.clone().erased())
-        })
-    }
 }
 
-impl NodeApi for LighthouseGethNode {
+impl NodeConfiguration for LighthouseGethNode {
     fn id(&self) -> usize {
-        self.id as _
+        self.id
     }
 
-    fn connection_string(&self) -> &str {
-        self.process.ws_url()
+    fn configurations(&self) -> NodeConnectorConfiguration {
+        NodeConnectorConfiguration {
+            hooks: Some(NodeConnectorHooks {
+                pre_submission_hook: Some(PreSubmissionHook::MaxGasPrice),
+            }),
+            ..Default::default()
+        }
     }
 
     fn evm_version(&self) -> EVMVersion {
         EVMVersion::Cancun
     }
 
-    fn submit_transaction(
-        &self,
-        mut transaction: TransactionRequest,
-    ) -> StaticFuture<Result<TxHash>> {
-        // EIP-1559 adjusts the base fee per block based on how full the previous block was relative
-        // to the target (50% of the gas limit). During benchmarks, blocks are consistently ~99%
-        // full, which causes the base fee to grow exponentially at ~12.4% per block. With a
-        // moderate gas price (e.g. 20,000 gwei), the base fee exceeds it after roughly 90 blocks,
-        // making transactions un-includable. This produces an alternating pattern of one full block
-        // followed by one empty block: the empty block lowers the base fee just enough for the next
-        // block to be full, which raises it again, and so on — halving effective TPS.
-        //
-        // Setting the gas price to u128::MAX ensures the base fee cannot exceed it for any
-        // practical benchmark duration (~580 blocks / ~116 minutes of sustained full blocks). The
-        // accounts are funded with U256::MAX so balance is not a concern.
-        transaction.set_gas_price(u128::MAX);
-        let provider = self.provider();
-        Box::pin(async move {
-            provider
-                .await
-                .context("Failed to get the provider")?
-                .send_transaction(transaction)
-                .await
-                .context("Failed to submit transaction")
-                .map(|pending_transaction| *pending_transaction.tx_hash())
-        })
+    fn eth_provider_url(&self) -> NodeUrlCollection<'_> {
+        NodeUrlCollection::new()
+            .with_ws_url(self.process.ws_url())
+            .with_http_url(self.process.http_url())
     }
 
-    fn provider(&self) -> StaticFuture<Result<DynProvider>> {
-        self.construct_provider(self.ws_provider.clone())
-    }
-
-    fn subscriptions_provider(&self) -> StaticFuture<Result<DynProvider>> {
-        self.construct_provider(self.ws_subscriptions_provider.clone())
-    }
-}
-
-impl Node for LighthouseGethNode {
-    #[instrument(level = "info", skip_all, fields(lighthouse_node_id = self.id))]
-    fn spawn(&mut self, _: Genesis) -> Result<()> {
-        Ok(())
+    fn substrate_provider_url(&self) -> Option<NodeUrlCollection<'_>> {
+        None
     }
 }
 

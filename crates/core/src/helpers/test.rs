@@ -64,21 +64,17 @@ pub async fn create_test_definitions_stream<'a>(
                     .ok()?;
 
                 reporter
-                    .report_node_assigned_event(
-                        node.id(),
-                        platform.platform_identifier(),
-                        node.connection_string(),
-                    )
+                    .report_node_assigned_event(node.node_id(), platform.platform_identifier())
                     .expect("Can't fail");
 
-                let reporter =
-                    reporter.execution_specific_reporter(node.id(), platform.platform_identifier());
+                let reporter = reporter
+                    .execution_specific_reporter(node.node_id(), platform.platform_identifier());
 
                 platforms.insert(
                     platform.platform_identifier(),
                     TestPlatformInformation {
                         platform: *platform,
-                        node,
+                        connector: node,
                         compiler,
                         reporter,
                     },
@@ -310,7 +306,7 @@ impl<'a> TestDefinition<'a> {
         let mut is_allowed = true;
         for (_, platform_information) in self.platforms.iter() {
             let is_allowed_for_platform =
-                evm_version_requirement.matches(&platform_information.node.evm_version());
+                evm_version_requirement.matches(&platform_information.connector.evm_version());
             is_allowed &= is_allowed_for_platform;
             error_map.insert(
                 platform_information.platform.platform_identifier().into(),
@@ -403,7 +399,7 @@ impl<'a> TestDefinition<'a> {
 
 pub struct TestPlatformInformation<'a> {
     pub platform: &'a dyn Platform,
-    pub node: &'a dyn NodeApi,
+    pub connector: Arc<NodeConnector>,
     pub compiler: Box<dyn SolidityCompiler>,
     pub reporter: ExecutionSpecificReporter,
 }

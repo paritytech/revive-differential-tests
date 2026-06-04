@@ -402,16 +402,12 @@ impl StepAddress {
         }
     }
 
-    pub async fn resolve_address(
-        &self,
-        resolver: &(impl NodeApi + ?Sized),
-        context: ResolutionContext<'_>,
-    ) -> anyhow::Result<Address> {
+    pub async fn resolve_address(&self, context: ResolutionContext<'_>) -> anyhow::Result<Address> {
         match self {
             StepAddress::Address(address) => Ok(*address),
             StepAddress::ResolvableAddress(address) => Ok(Address::from_slice(
                 Calldata::new_compound([address])
-                    .calldata(resolver, context)
+                    .calldata(context)
                     .await?
                     .get(12..32)
                     .expect("Can't fail"),
@@ -435,16 +431,12 @@ impl FunctionCallStep {
         ContractInstance::new("Test").into()
     }
 
-    pub async fn encoded_input(
-        &self,
-        resolver: &(impl NodeApi + ?Sized),
-        context: ResolutionContext<'_>,
-    ) -> anyhow::Result<Bytes> {
+    pub async fn encoded_input(&self, context: ResolutionContext<'_>) -> anyhow::Result<Bytes> {
         match self.method {
             Method::Deployer | Method::Fallback => {
                 let calldata = self
                     .calldata
-                    .calldata(resolver, context)
+                    .calldata(context)
                     .await
                     .context("Failed to produce calldata for deployer/fallback method")?;
 
@@ -495,7 +487,7 @@ impl FunctionCallStep {
                 let mut calldata = Vec::<u8>::with_capacity(4 + self.calldata.size_requirement());
                 calldata.extend(selector.0);
                 self.calldata
-                    .calldata_into_slice(&mut calldata, resolver, context)
+                    .calldata_into_slice(&mut calldata, context)
                     .await
                     .context("Failed to append encoded argument to calldata buffer")?;
 
@@ -507,14 +499,13 @@ impl FunctionCallStep {
     /// Parse this input into a legacy transaction.
     pub async fn as_transaction(
         &self,
-        resolver: &(impl NodeApi + ?Sized),
         context: ResolutionContext<'_>,
     ) -> anyhow::Result<TransactionRequest> {
         let input_data = self
-            .encoded_input(resolver, context)
+            .encoded_input(context)
             .await
             .context("Failed to encode input bytes for transaction request")?;
-        let caller = self.caller.resolve_address(resolver, context).await?;
+        let caller = self.caller.resolve_address(context).await?;
         let transaction_request = TransactionRequest::default().from(caller).value(
             self.value
                 .map(|value| value.into_inner())
@@ -606,21 +597,15 @@ impl Calldata {
         }
     }
 
-    pub async fn calldata(
-        &self,
-        resolver: &(impl NodeApi + ?Sized),
-        context: ResolutionContext<'_>,
-    ) -> anyhow::Result<Vec<u8>> {
+    pub async fn calldata(&self, context: ResolutionContext<'_>) -> anyhow::Result<Vec<u8>> {
         let mut buffer = Vec::<u8>::with_capacity(self.size_requirement());
-        self.calldata_into_slice(&mut buffer, resolver, context)
-            .await?;
+        self.calldata_into_slice(&mut buffer, context).await?;
         Ok(buffer)
     }
 
     pub async fn calldata_into_slice(
         &self,
         buffer: &mut Vec<u8>,
-        resolver: &(impl NodeApi + ?Sized),
         context: ResolutionContext<'_>,
     ) -> anyhow::Result<()> {
         match self {
@@ -630,7 +615,7 @@ impl Calldata {
             Calldata::Compound(items) => {
                 let resolved = stream::iter(items.iter().enumerate())
                     .map(|(arg_idx, arg)| async move {
-                        arg.resolve(resolver, context)
+                        arg.resolve(context)
                             .instrument(info_span!("Resolving argument", %arg, arg_idx))
                             .map_ok(|value| value.to_be_bytes::<32>())
                             .await
@@ -657,7 +642,6 @@ impl Calldata {
     pub async fn is_equivalent(
         &self,
         other: &[u8],
-        resolver: &(impl NodeApi + ?Sized),
         context: ResolutionContext<'_>,
     ) -> anyhow::Result<bool> {
         match self {
@@ -680,7 +664,7 @@ impl Calldata {
                         };
 
                         let this = this
-                            .resolve(resolver, context)
+                            .resolve(context)
                             .await
                             .context("Failed to resolve calldata item during equivalence check")?;
                         let other = U256::from_be_slice(&other);
@@ -698,17 +682,10 @@ impl Calldata {
 
 impl CalldataItem {
     #[instrument(level = "info", skip_all, err(Debug))]
-    async fn resolve(
-        &self,
-        resolver: &(impl NodeApi + ?Sized),
-        context: ResolutionContext<'_>,
-    ) -> anyhow::Result<U256> {
+    async fn resolve(&self, context: ResolutionContext<'_>) -> anyhow::Result<U256> {
         let mut stack = Vec::<CalldataToken<U256>>::new();
 
-        for token in self
-            .calldata_tokens()
-            .map(|token| token.resolve(resolver, context))
-        {
+        for token in self.calldata_tokens().map(|token| token.resolve(context)) {
             let token = token.await?;
             let new_token = match token {
                 CalldataToken::Item(_) => token,
@@ -802,6 +779,36 @@ impl<T> CalldataToken<T> {
     }
 }
 
+fn required_node_connector<'a>(
+    context: ResolutionContext<'a>,
+) -> anyhow::Result<&'a NodeConnector> {
+    context
+        .node_connector()
+        .context("No node connector provided")
+}
+
+async fn resolve_latest_block(context: ResolutionContext<'_>) -> anyhow::Result<BlockPair> {
+    let node_connector = required_node_connector(context)?;
+    match context.pinned_block_number() {
+        Some(block_number) => Ok(node_connector.block(*block_number).await),
+        None => node_connector
+            .latest_finalized_block()
+            .await
+            .context("Failed to query latest finalized block"),
+    }
+}
+
+async fn resolve_current_block_number(context: ResolutionContext<'_>) -> anyhow::Result<u64> {
+    match context.pinned_block_number() {
+        Some(block_number) => Ok(*block_number),
+        None => required_node_connector(context)?
+            .latest_finalized_block()
+            .await
+            .context("Failed to query latest finalized block")
+            .map(|block| block.evm_block.number()),
+    }
+}
+
 impl<T: AsRef<str>> CalldataToken<T> {
     /// This function takes in the string calldata argument provided in the JSON input and resolves
     /// it into a [`U256`] which is later used to construct the calldata.
@@ -813,7 +820,6 @@ impl<T: AsRef<str>> CalldataToken<T> {
     /// https://github.com/matter-labs/era-compiler-tester/blob/0ed598a27f6eceee7008deab3ff2311075a2ec69/compiler_tester/src/test/case/input/value.rs#L43-L146
     pub async fn resolve(
         self,
-        resolver: &(impl NodeApi + ?Sized),
         context: ResolutionContext<'_>,
     ) -> anyhow::Result<CalldataToken<U256>> {
         match self {
@@ -842,131 +848,70 @@ impl<T: AsRef<str>> CalldataToken<T> {
                     U256::from_str_radix(value, 16)
                         .map_err(|error| anyhow::anyhow!("Invalid hexadecimal literal: {}", error))
                 } else if item == Self::CHAIN_VARIABLE {
-                    let provider = resolver
-                        .provider()
-                        .await
-                        .context("Failed to get provider")?;
-                    provider
-                        .get_chain_id()
+                    required_node_connector(context)?
+                        .chain_id()
                         .await
                         .map(U256::from)
-                        .map_err(Into::into)
                 } else if item == Self::TRANSACTION_GAS_PRICE {
                     let tx_hash = context
                         .transaction_hash()
                         .context("No transaction hash provided to get the transaction gas price")?;
-                    let provider = resolver
-                        .provider()
+                    required_node_connector(context)?
+                        .get_receipt(*tx_hash)
                         .await
-                        .context("Failed to get provider")?;
-                    provider
-                        .get_transaction_receipt(*tx_hash)
-                        .await
-                        .context("Failed to get the transaction receipt")?
-                        .context("Transaction receipt not found")
+                        .context("Failed to get the transaction receipt")
                         .map(|receipt| U256::from(receipt.effective_gas_price))
                 } else if item == Self::GAS_LIMIT_VARIABLE {
-                    let provider = resolver
-                        .provider()
+                    resolve_latest_block(context)
                         .await
-                        .context("Failed to get provider")?;
-                    provider
-                        .get_block_by_number(context.resolve_block_number(BlockNumberOrTag::Latest))
-                        .await
-                        .context("Failed to get the block")?
-                        .context("Block not found")
-                        .map(|block| U256::from(block.header.gas_limit))
+                        .map(|block| U256::from(block.evm_block.header.gas_limit))
                 } else if item == Self::COINBASE_VARIABLE {
-                    let provider = resolver
-                        .provider()
-                        .await
-                        .context("Failed to get provider")?;
-                    provider
-                        .get_block_by_number(context.resolve_block_number(BlockNumberOrTag::Latest))
-                        .await
-                        .context("Failed to get the block")?
-                        .context("Block not found")
-                        .map(|block| U256::from_be_slice(block.header.beneficiary.as_ref()))
+                    resolve_latest_block(context).await.map(|block| {
+                        U256::from_be_slice(block.evm_block.header.beneficiary.as_ref())
+                    })
                 } else if item == Self::DIFFICULTY_VARIABLE {
-                    let provider = resolver
-                        .provider()
+                    resolve_latest_block(context)
                         .await
-                        .context("Failed to get provider")?;
-                    provider
-                        .get_block_by_number(context.resolve_block_number(BlockNumberOrTag::Latest))
-                        .await
-                        .context("Failed to get the block")?
-                        .context("Block not found")
-                        .map(|block| U256::from_be_bytes(block.header.mix_hash.0))
+                        .map(|block| U256::from_be_bytes(block.evm_block.header.mix_hash.0))
                 } else if item == Self::BLOCK_BASE_FEE_VARIABLE {
-                    let provider = resolver
-                        .provider()
-                        .await
-                        .context("Failed to get provider")?;
-                    provider
-                        .get_block_by_number(context.resolve_block_number(BlockNumberOrTag::Latest))
-                        .await
-                        .context("Failed to get the block")?
-                        .context("Block not found")
-                        .and_then(|block| {
-                            block
-                                .header
-                                .base_fee_per_gas
-                                .context("Failed to get the base fee per gas")
-                                .map(U256::from)
-                        })
+                    resolve_latest_block(context)
+                        .await?
+                        .evm_block
+                        .header
+                        .base_fee_per_gas
+                        .context("Failed to get the base fee per gas")
+                        .map(U256::from)
                 } else if item.starts_with(Self::BLOCK_HASH_VARIABLE_PREFIX) {
-                    let offset: u64 = item
+                    let offset = item
                         .split(':')
                         .next_back()
                         .and_then(|value| value.parse().ok())
                         .unwrap_or_default();
 
-                    let provider = resolver
-                        .provider()
+                    let current_block_number = resolve_current_block_number(context)
                         .await
-                        .context("Failed to get provider")?;
-                    let current_block_number = match context.tip_block_number() {
-                        Some(block_number) => *block_number,
-                        None => provider.get_block_number().await.context(
-                            "Failed to query last block number while resolving $BLOCK_HASH",
-                        )?,
-                    };
+                        .context("Failed to query last block number while resolving $BLOCK_HASH")?;
                     let desired_block_number = current_block_number.saturating_sub(offset);
 
-                    provider
-                        .get_block_by_number(desired_block_number.into())
-                        .await
-                        .context(format!(
-                            "Failed to resolve the block hash of block number {desired_block_number}"
-                        ))?
-                        .context("Block not found")
-                        .map(|block| U256::from_be_bytes(block.header.hash.0))
+                    Ok(U256::from_be_bytes(
+                        required_node_connector(context)?
+                            .block(desired_block_number)
+                            .await
+                            .evm_block
+                            .header
+                            .hash
+                            .0,
+                    ))
                 } else if item == Self::BLOCK_NUMBER_VARIABLE {
-                    let current_block_number = match context.tip_block_number() {
-                        Some(block_number) => *block_number,
-                        None => {
-                            let provider = resolver
-                                .provider()
-                                .await
-                                .context("Failed to get provider")?;
-                            provider.get_block_number().await.context(
-                                "Failed to query last block number while resolving $BLOCK_NUMBER",
-                            )?
-                        }
-                    };
+                    let current_block_number =
+                        resolve_current_block_number(context).await.context(
+                            "Failed to query last block number while resolving $BLOCK_NUMBER",
+                        )?;
                     Ok(U256::from(current_block_number))
                 } else if item == Self::BLOCK_TIMESTAMP_VARIABLE {
-                    let provider = resolver
-                        .provider()
+                    resolve_latest_block(context)
                         .await
-                        .context("Failed to get provider")?;
-                    provider
-                        .get_block_by_number(context.resolve_block_number(BlockNumberOrTag::Latest))
-                        .await
-                        .context("Failed to get the block")?
-                        .context("Block not found")
-                        .map(|block| U256::from(block.header.timestamp))
+                        .map(|block| U256::from(block.evm_block.header.timestamp))
                 } else if item == Self::RANDOM_ADDRESS_VARIABLE {
                     Ok(U256::from_be_slice(Address::random().as_ref()))
                 } else if let Some(variable_name) = item.strip_prefix(Self::VARIABLE_PREFIX) {
@@ -1072,100 +1017,11 @@ mod tests {
 
     use alloy::json_abi::JsonAbi;
     use alloy::primitives::address;
-    use alloy::providers::ProviderBuilder;
     use alloy::sol_types::SolValue;
-    use alloy::transports::mock::Asserter;
     use std::collections::HashMap;
 
     use super::*;
     use crate::metadata::ContractIdent;
-
-    /// Mock block constants used across tests.
-    const MOCK_CHAIN_ID: u64 = 0x123;
-    const MOCK_GAS_LIMIT: u128 = 0x1234;
-    const MOCK_BASE_FEE: u128 = 0x100;
-    const MOCK_BLOCK_NUMBER: u64 = 0x1234567;
-    const MOCK_BLOCK_TIMESTAMP: u64 = 0x123456;
-    /// Returns a mock block JSON value with our test constants.
-    fn mock_block_json() -> serde_json::Value {
-        serde_json::json!({
-            "hash": "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
-            "parentHash": "0x0000000000000000000000000000000000000000000000000000000000000000",
-            "sha3Uncles": "0x0000000000000000000000000000000000000000000000000000000000000000",
-            "miner": "0x0000000000000000000000000000000000000000",
-            "stateRoot": "0x0000000000000000000000000000000000000000000000000000000000000000",
-            "transactionsRoot": "0x0000000000000000000000000000000000000000000000000000000000000000",
-            "receiptsRoot": "0x0000000000000000000000000000000000000000000000000000000000000000",
-            "logsBloom": "0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
-            "difficulty": "0x12345",
-            "number": format!("0x{:x}", MOCK_BLOCK_NUMBER),
-            "gasLimit": format!("0x{:x}", MOCK_GAS_LIMIT),
-            "gasUsed": "0x0",
-            "timestamp": format!("0x{:x}", MOCK_BLOCK_TIMESTAMP),
-            "extraData": "0x",
-            "mixHash": "0x0000000000000000000000000000000000000000000000000000000000012345",
-            "nonce": "0x0000000000000000",
-            "baseFeePerGas": format!("0x{:x}", MOCK_BASE_FEE),
-            "totalDifficulty": "0x0",
-            "uncles": [],
-            "transactions": [],
-            "size": "0x0"
-        })
-    }
-
-    struct MockResolver {
-        asserter: Asserter,
-    }
-
-    impl MockResolver {
-        fn new() -> Self {
-            Self {
-                asserter: Asserter::new(),
-            }
-        }
-
-        /// Push a mock `eth_chainId` response.
-        fn push_chain_id(&self) {
-            self.asserter
-                .push_success(&format!("0x{:x}", MOCK_CHAIN_ID));
-        }
-
-        /// Push a mock `eth_blockNumber` response.
-        fn push_block_number(&self) {
-            self.asserter
-                .push_success(&format!("0x{:x}", MOCK_BLOCK_NUMBER));
-        }
-
-        /// Push a mock `eth_getBlockByNumber` response.
-        fn push_block(&self) {
-            self.asserter.push_success(&mock_block_json());
-        }
-    }
-
-    impl NodeApi for MockResolver {
-        fn id(&self) -> usize {
-            0
-        }
-
-        fn connection_string(&self) -> &str {
-            "mock"
-        }
-
-        fn evm_version(&self) -> revive_common::EVMVersion {
-            revive_common::EVMVersion::Cancun
-        }
-
-        fn provider(
-            &self,
-        ) -> revive_dt_common::futures::StaticFuture<anyhow::Result<alloy::providers::DynProvider>>
-        {
-            let provider = ProviderBuilder::new()
-                .disable_recommended_fillers()
-                .connect_mocked_client(self.asserter.clone())
-                .erased();
-            Box::pin(async move { Ok(provider) })
-        }
-    }
 
     #[tokio::test]
     async fn test_encoded_input_uint256() {
@@ -1203,9 +1059,8 @@ mod tests {
             Arc::new((ContractIdent::new("Contract"), Address::ZERO, parsed_abi)),
         );
 
-        let resolver = MockResolver::new();
         let context = ResolutionContext::default().with_deployed_contracts(&contracts);
-        let encoded = input.encoded_input(&resolver, context).await.unwrap();
+        let encoded = input.encoded_input(context).await.unwrap();
         assert!(encoded.0.starts_with(&selector));
 
         type T = (u64,);
@@ -1247,9 +1102,8 @@ mod tests {
             Arc::new((ContractIdent::new("Contract"), Address::ZERO, parsed_abi)),
         );
 
-        let resolver = MockResolver::new();
         let context = ResolutionContext::default().with_deployed_contracts(&contracts);
-        let encoded = input.encoded_input(&resolver, context).await.unwrap();
+        let encoded = input.encoded_input(context).await.unwrap();
         assert!(encoded.0.starts_with(&selector));
 
         type T = (alloy::primitives::Address,);
@@ -1294,9 +1148,8 @@ mod tests {
             Arc::new((ContractIdent::new("Contract"), Address::ZERO, parsed_abi)),
         );
 
-        let resolver = MockResolver::new();
         let context = ResolutionContext::default().with_deployed_contracts(&contracts);
-        let encoded = input.encoded_input(&resolver, context).await.unwrap();
+        let encoded = input.encoded_input(context).await.unwrap();
         assert!(encoded.0.starts_with(&selector));
 
         type T = (alloy::primitives::Address,);
@@ -1310,133 +1163,9 @@ mod tests {
     async fn resolve_calldata_item(
         input: &str,
         deployed_contracts: &HashMap<ContractInstance, Arc<(ContractIdent, Address, JsonAbi)>>,
-        resolver: &(impl NodeApi + ?Sized),
     ) -> anyhow::Result<U256> {
         let context = ResolutionContext::default().with_deployed_contracts(deployed_contracts);
-        CalldataItem::new(input).resolve(resolver, context).await
-    }
-
-    #[tokio::test]
-    async fn resolver_can_resolve_chain_id_variable() {
-        // Arrange
-        let input = "$CHAIN_ID";
-        let resolver = MockResolver::new();
-        resolver.push_chain_id();
-
-        // Act
-        let resolved = resolve_calldata_item(input, &Default::default(), &resolver).await;
-
-        // Assert
-        let resolved = resolved.expect("Failed to resolve argument");
-        assert_eq!(resolved, U256::from(MOCK_CHAIN_ID))
-    }
-
-    #[tokio::test]
-    async fn resolver_can_resolve_gas_limit_variable() {
-        // Arrange
-        let input = "$GAS_LIMIT";
-        let resolver = MockResolver::new();
-        resolver.push_block();
-
-        // Act
-        let resolved = resolve_calldata_item(input, &Default::default(), &resolver).await;
-
-        // Assert
-        let resolved = resolved.expect("Failed to resolve argument");
-        assert_eq!(resolved, U256::from(MOCK_GAS_LIMIT))
-    }
-
-    #[tokio::test]
-    async fn resolver_can_resolve_coinbase_variable() {
-        // Arrange
-        let input = "$COINBASE";
-        let resolver = MockResolver::new();
-        resolver.push_block();
-
-        // Act
-        let resolved = resolve_calldata_item(input, &Default::default(), &resolver).await;
-
-        // Assert
-        let resolved = resolved.expect("Failed to resolve argument");
-        assert_eq!(resolved, U256::from_be_slice(Address::ZERO.as_ref()))
-    }
-
-    #[tokio::test]
-    async fn resolver_can_resolve_block_difficulty_variable() {
-        // Arrange
-        let input = "$DIFFICULTY";
-        let resolver = MockResolver::new();
-        resolver.push_block();
-
-        // Act
-        let resolved = resolve_calldata_item(input, &Default::default(), &resolver).await;
-
-        // Assert
-        let resolved = resolved.expect("Failed to resolve argument");
-        // mix_hash in mock is 0x0...012345
-        assert_eq!(resolved, U256::from(0x12345u128))
-    }
-
-    #[tokio::test]
-    async fn resolver_can_resolve_block_base_fee_variable() {
-        // Arrange
-        let input = "$BASE_FEE";
-        let resolver = MockResolver::new();
-        resolver.push_block();
-
-        // Act
-        let resolved = resolve_calldata_item(input, &Default::default(), &resolver).await;
-
-        // Assert
-        let resolved = resolved.expect("Failed to resolve argument");
-        assert_eq!(resolved, U256::from(MOCK_BASE_FEE))
-    }
-
-    #[tokio::test]
-    async fn resolver_can_resolve_block_hash_variable() {
-        // Arrange
-        let input = "$BLOCK_HASH";
-        let resolver = MockResolver::new();
-        // $BLOCK_HASH calls eth_blockNumber first, then eth_getBlockByNumber
-        resolver.push_block_number();
-        resolver.push_block();
-
-        // Act
-        let resolved = resolve_calldata_item(input, &Default::default(), &resolver).await;
-
-        // Assert
-        let resolved = resolved.expect("Failed to resolve argument");
-        assert_eq!(resolved, U256::from_be_bytes([0xEE; 32]))
-    }
-
-    #[tokio::test]
-    async fn resolver_can_resolve_block_number_variable() {
-        // Arrange
-        let input = "$BLOCK_NUMBER";
-        let resolver = MockResolver::new();
-        resolver.push_block_number();
-
-        // Act
-        let resolved = resolve_calldata_item(input, &Default::default(), &resolver).await;
-
-        // Assert
-        let resolved = resolved.expect("Failed to resolve argument");
-        assert_eq!(resolved, U256::from(MOCK_BLOCK_NUMBER))
-    }
-
-    #[tokio::test]
-    async fn resolver_can_resolve_block_timestamp_variable() {
-        // Arrange
-        let input = "$BLOCK_TIMESTAMP";
-        let resolver = MockResolver::new();
-        resolver.push_block();
-
-        // Act
-        let resolved = resolve_calldata_item(input, &Default::default(), &resolver).await;
-
-        // Assert
-        let resolved = resolved.expect("Failed to resolve argument");
-        assert_eq!(resolved, U256::from(MOCK_BLOCK_TIMESTAMP))
+        CalldataItem::new(input).resolve(context).await
     }
 
     #[tokio::test]
@@ -1445,8 +1174,7 @@ mod tests {
         let input = "2 4 +";
 
         // Act
-        let resolved =
-            resolve_calldata_item(input, &Default::default(), &MockResolver::new()).await;
+        let resolved = resolve_calldata_item(input, &Default::default()).await;
 
         // Assert
         let resolved = resolved.expect("Failed to resolve argument");
@@ -1459,8 +1187,7 @@ mod tests {
         let input = "4 2 -";
 
         // Act
-        let resolved =
-            resolve_calldata_item(input, &Default::default(), &MockResolver::new()).await;
+        let resolved = resolve_calldata_item(input, &Default::default()).await;
 
         // Assert
         let resolved = resolved.expect("Failed to resolve argument");
@@ -1473,8 +1200,7 @@ mod tests {
         let input = "4 2 *";
 
         // Act
-        let resolved =
-            resolve_calldata_item(input, &Default::default(), &MockResolver::new()).await;
+        let resolved = resolve_calldata_item(input, &Default::default()).await;
 
         // Assert
         let resolved = resolved.expect("Failed to resolve argument");
@@ -1487,8 +1213,7 @@ mod tests {
         let input = "4 2 /";
 
         // Act
-        let resolved =
-            resolve_calldata_item(input, &Default::default(), &MockResolver::new()).await;
+        let resolved = resolve_calldata_item(input, &Default::default()).await;
 
         // Assert
         let resolved = resolved.expect("Failed to resolve argument");
@@ -1501,8 +1226,7 @@ mod tests {
         let input = "4 0 /";
 
         // Act
-        let resolved =
-            resolve_calldata_item(input, &Default::default(), &MockResolver::new()).await;
+        let resolved = resolve_calldata_item(input, &Default::default()).await;
 
         // Assert
         assert!(resolved.is_err())
@@ -1511,27 +1235,25 @@ mod tests {
     #[tokio::test]
     async fn arithmetic_with_resolution_works() {
         // Arrange
-        let input = "$BLOCK_NUMBER 10 +";
-        let resolver = MockResolver::new();
-        resolver.push_block_number();
+        let input = "$VARIABLE:BLOCK_NUMBER 10 +";
+        let variables = HashMap::from([("BLOCK_NUMBER".to_owned(), U256::from(10))]);
+        let context = ResolutionContext::default().with_variables(&variables);
 
         // Act
-        let resolved = resolve_calldata_item(input, &Default::default(), &resolver).await;
+        let resolved = CalldataItem::new(input).resolve(context).await;
 
         // Assert
         let resolved = resolved.expect("Failed to resolve argument");
-        assert_eq!(resolved, U256::from(MOCK_BLOCK_NUMBER + 10));
+        assert_eq!(resolved, U256::from(20));
     }
 
     #[tokio::test]
     async fn incorrect_number_of_arguments_errors() {
         // Arrange
-        let input = "$BLOCK_NUMBER 10 + +";
-        let resolver = MockResolver::new();
-        resolver.push_block_number();
+        let input = "1 10 + +";
 
         // Act
-        let resolved = resolve_calldata_item(input, &Default::default(), &resolver).await;
+        let resolved = resolve_calldata_item(input, &Default::default()).await;
 
         // Assert
         assert!(resolved.is_err())

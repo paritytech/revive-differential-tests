@@ -21,10 +21,8 @@ pub(crate) mod internal_prelude {
 
     pub use std::thread::{self, JoinHandle};
 
-    pub use alloy::genesis::Genesis;
     pub use anyhow::{Context as _, Result};
     pub use serde_json;
-    pub use tracing::info;
 }
 
 use crate::internal_prelude::*;
@@ -59,7 +57,7 @@ pub trait Platform {
     fn new_node(
         &self,
         context: Context,
-    ) -> Result<JoinHandle<Result<Box<dyn NodeApi + Send + Sync>>>> {
+    ) -> Result<JoinHandle<Result<StaticFuture<Result<NodeConnector>>>>> {
         match self.node_identifier() {
             NodeIdentifier::Geth => new_geth_node(context),
             NodeIdentifier::LighthouseGeth => new_lighthouse_geth_node(context),
@@ -338,68 +336,81 @@ impl From<PlatformIdentifier> for &dyn Platform {
     }
 }
 
-fn new_geth_node(context: Context) -> Result<JoinHandle<Result<Box<dyn NodeApi + Send + Sync>>>> {
-    let genesis = context.as_genesis_configuration().genesis()?.clone();
+fn new_geth_node(
+    context: Context,
+) -> Result<JoinHandle<Result<StaticFuture<Result<NodeConnector>>>>> {
     Ok(thread::spawn(move || {
-        let use_fallback_gas_filler = matches!(context, Context::Test(..));
-        let node =
-            GethNode::new(context, use_fallback_gas_filler).context("Failed to spawn geth node")?;
-        let node = spawn_node(node, genesis)?;
-        Ok(Box::new(node) as _)
+        let wallet = context.as_wallet_configuration().wallet();
+        let node_config = node_configuration(&context);
+        let node = GethNode::new(context).context("Failed to spawn geth node")?;
+        Ok(NodeConnector::new(node, wallet, node_config))
     }))
 }
 
 fn new_lighthouse_geth_node(
     context: Context,
-) -> Result<JoinHandle<Result<Box<dyn NodeApi + Send + Sync>>>> {
-    let genesis = context.as_genesis_configuration().genesis()?.clone();
+) -> Result<JoinHandle<Result<StaticFuture<Result<NodeConnector>>>>> {
     Ok(thread::spawn(move || {
-        let use_fallback_gas_filler = matches!(context, Context::Test(..));
-        let node = LighthouseGethNode::new(context, use_fallback_gas_filler)
-            .context("Failed to spawn lighthouse node")?;
-        let node = spawn_node(node, genesis)?;
-        Ok(Box::new(node) as _)
+        let wallet = context.as_wallet_configuration().wallet();
+        let node_config = node_configuration(&context);
+        let node = LighthouseGethNode::new(context).context("Failed to spawn lighthouse node")?;
+        Ok(NodeConnector::new(node, wallet, node_config))
     }))
 }
 
 fn new_revive_dev_node(
     context: Context,
-) -> Result<JoinHandle<Result<Box<dyn NodeApi + Send + Sync>>>> {
-    let genesis = context.as_genesis_configuration().genesis()?.clone();
+) -> Result<JoinHandle<Result<StaticFuture<Result<NodeConnector>>>>> {
     Ok(thread::spawn(move || {
-        let use_fallback_gas_filler = matches!(context, Context::Test(..));
-        let node = ReviveDevNode::new(context, use_fallback_gas_filler)
-            .context("Failed to spawn revive-dev-node")?;
-        let node = spawn_node(node, genesis)?;
-        Ok(Box::new(node) as _)
+        let wallet = context.as_wallet_configuration().wallet();
+        let node_config = node_configuration(&context);
+        let node = ReviveDevNode::new(context).context("Failed to spawn revive-dev-node")?;
+        Ok(NodeConnector::new(node, wallet, node_config))
     }))
 }
 
 #[cfg(unix)]
 fn new_zombienet_node(
     context: Context,
-) -> Result<JoinHandle<Result<Box<dyn NodeApi + Send + Sync>>>> {
-    let genesis = context.as_genesis_configuration().genesis()?.clone();
+) -> Result<JoinHandle<Result<StaticFuture<Result<NodeConnector>>>>> {
     Ok(thread::spawn(move || {
-        let use_fallback_gas_filler = matches!(context, Context::Test(..));
-        let node = ZombienetNode::new(context, use_fallback_gas_filler)
-            .context("Failed to spawn zombienet")?;
-        let node = spawn_node(node, genesis)?;
-        Ok(Box::new(node) as _)
+        let wallet = context.as_wallet_configuration().wallet();
+        let node_config = node_configuration(&context);
+        let node = ZombienetNode::new(context).context("Failed to spawn zombienet")?;
+        Ok(NodeConnector::new(node, wallet, node_config))
     }))
 }
 
 fn new_polkadot_omni_node(
     context: Context,
-) -> Result<JoinHandle<Result<Box<dyn NodeApi + Send + Sync>>>> {
-    let genesis = context.as_genesis_configuration().genesis()?.clone();
+) -> Result<JoinHandle<Result<StaticFuture<Result<NodeConnector>>>>> {
     Ok(thread::spawn(move || {
-        let use_fallback_gas_filler = matches!(context, Context::Test(..));
-        let node = PolkadotOmnichainNode::new(context, use_fallback_gas_filler)
-            .context("Failed to spawn polkadot-omni-node")?;
-        let node = spawn_node(node, genesis)?;
-        Ok(Box::new(node) as _)
+        let wallet = context.as_wallet_configuration().wallet();
+        let node_config = node_configuration(&context);
+        let node =
+            PolkadotOmnichainNode::new(context).context("Failed to spawn polkadot-omni-node")?;
+        Ok(NodeConnector::new(node, wallet, node_config))
     }))
+}
+
+fn node_configuration(context: &Context) -> NodeConnectorConfiguration {
+    if let Context::Benchmark(..) = context {
+        NodeConnectorConfiguration {
+            eth_provider_configuration: Some(EthProviderConfiguration {
+                gas_filler_configuration: Some(GasFillerConfiguration::DisableTracingFallback),
+                ..Default::default()
+            }),
+            ..Default::default()
+        }
+    } else {
+        NodeConnectorConfiguration {
+            eth_provider_configuration: Some(EthProviderConfiguration {
+                gas_filler_configuration: Some(GasFillerConfiguration::EnableTracingFallback),
+                ..Default::default()
+            }),
+            ..Default::default()
+        }
+    }
 }
 
 fn new_solc_compiler(
@@ -459,20 +470,4 @@ fn export_polkadot_omni_node_genesis(context: Context) -> Result<serde_json::Val
             .as_ref()
             .context("No WASM runtime path found in the polkadot-omni-node configuration")?,
     )
-}
-
-fn spawn_node<T: Node + NodeApi + Send + Sync>(mut node: T, genesis: Genesis) -> Result<T> {
-    info!(
-        id = node.id(),
-        connection_string = node.connection_string(),
-        "Spawning node"
-    );
-    node.spawn(genesis)
-        .context("Failed to spawn node process")?;
-    info!(
-        id = node.id(),
-        connection_string = node.connection_string(),
-        "Spawned node"
-    );
-    Ok(node)
 }

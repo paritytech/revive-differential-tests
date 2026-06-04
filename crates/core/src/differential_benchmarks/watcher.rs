@@ -1,65 +1,5 @@
 use crate::internal_prelude::*;
-use alloy::{eips::eip2718::Encodable2718, providers::Provider};
-use pallet_revive::{
-    EthTransactError, Weight,
-    codec::{Decode, Encode},
-};
-use subxt::utils::H256 as SubxtH256;
-
-const ETH_PRE_DISPATCH_WEIGHT_RUNTIME_API: &str = "ReviveApi_eth_pre_dispatch_weight";
-
-async fn eth_pre_dispatch_weight(
-    substrate_provider: &OnlineClient<PolkadotConfig>,
-    block_hash: SubxtH256,
-    signed_payload: Vec<u8>,
-) -> Result<Weight> {
-    let encoded_args = signed_payload.encode();
-
-    let result_bytes = retry_with_exponential_backoff(5, Duration::from_millis(500), || async {
-        match substrate_provider
-            .runtime_api()
-            .at(block_hash)
-            .call_raw(
-                ETH_PRE_DISPATCH_WEIGHT_RUNTIME_API,
-                Some(encoded_args.as_slice()),
-            )
-            .await
-        {
-            Ok(result) => ControlFlow::Break(result),
-            Err(err) => {
-                warn!(
-                    ?block_hash,
-                    ?err,
-                    "Failed to call eth_pre_dispatch_weight runtime API, retrying"
-                );
-                ControlFlow::Continue(anyhow::anyhow!("{err:?}"))
-            }
-        }
-    })
-    .await
-    .with_context(|| {
-        format!(
-            "Failed to call {ETH_PRE_DISPATCH_WEIGHT_RUNTIME_API} at block {block_hash:?} \
-             after retries"
-        )
-    })?;
-
-    let mut result_bytes = result_bytes.as_slice();
-    let result =
-        Result::<Weight, EthTransactError>::decode(&mut result_bytes).with_context(|| {
-            format!(
-                "Failed to decode {ETH_PRE_DISPATCH_WEIGHT_RUNTIME_API} result at block \
-                 {block_hash:?}"
-            )
-        })?;
-
-    result.map_err(|err| {
-        anyhow::anyhow!(
-            "{ETH_PRE_DISPATCH_WEIGHT_RUNTIME_API} returned an error at block {block_hash:?}: \
-             {err:?}"
-        )
-    })
-}
+use pallet_revive::Weight;
 
 /// This struct defines the watcher used in the benchmarks. A watcher is only valid for 1 workload
 /// and MUST NOT be re-used between workloads since it holds important internal state for a given
@@ -69,17 +9,8 @@ pub struct Watcher {
     /// send events to the watcher on.
     rx: UnboundedReceiver<WatcherEvent>,
 
-    /// This is a stream of the blocks that were mined by the node. This is for a single platform
-    /// and a single node from that platform.
-    blocks_stream: StaticStream<MinedBlockInformation>,
-
-    /// This is the provider to use to communicate with the eth-rpc. We use this to get the receipts
-    /// of the various blocks that get mined for ethereum native chains.
-    provider: DynProvider,
-
-    /// This is the substrate RPC which we use to communicate with substrate based nodes. We use
-    /// this provider only for chains which are substrate based.
-    substrate_provider: Option<OnlineClient<PolkadotConfig>>,
+    /// The primary connection provider for the network.
+    connector: Arc<NodeConnector>,
 
     /// The reporter used to send events to the report aggregator.
     reporter: ExecutionSpecificReporter,
@@ -87,124 +18,65 @@ pub struct Watcher {
 
 impl Watcher {
     pub fn new(
-        blocks_stream: StaticStream<MinedBlockInformation>,
-        provider: DynProvider,
-        substrate_provider: Option<OnlineClient<PolkadotConfig>>,
+        connector: Arc<NodeConnector>,
         reporter: ExecutionSpecificReporter,
     ) -> (Self, UnboundedSender<WatcherEvent>) {
         let (tx, rx) = unbounded_channel::<WatcherEvent>();
         (
             Self {
                 rx,
-                blocks_stream,
-                provider,
-                substrate_provider,
+                connector,
                 reporter,
             },
             tx,
         )
     }
 
-    /// The main future which should be polled in order for the watcher to run.
-    ///
-    /// This task spawns three concurrent tasks which work together until a final outcome is reached.
-    ///
-    /// 1. **Registration task**: Listens for [`WatcherEvent`]s. For each transaction that it
-    ///    encounters it adds its hash to a `watching_transaction_hashes` [`HashSet`] which means
-    ///    that the task is watching for this transaction hash and waiting for it to be mined into a
-    ///    block. This is akin to a user sending a request saying "please watch for this transaction
-    ///    hash for me" and this task is the handler of such a request. All that it does is that it
-    ///    stores the hash of this transaction in a shared [`HashSet`] for the other tasks to handle
-    ///    later on. Additionally, when this task receives a
-    ///    [`WatcherEvent::AllTransactionsSubmitted`] event it mutates a shared boolean which informs
-    ///    the other tasks of the fact that submission is completed. It also guarantees that no more
-    ///    transaction hashes will be requested to be watched for by closing the channel completely.
-    /// 2. **Block subscription task**: Watches for blocks getting mined and notes down all of the
-    ///    transactions that it has observed in these blocks. It does so by storing them in a
-    ///    [`HashSet`] of transaction hashes. Eventually, when the shared boolean denoting the
-    ///    completion of submission is set to [`true`], this task compares its set of observed
-    ///    transactions to the set of transactions that we wanted to watch for. If the set has no
-    ///    differences it means that we've successfully observed all of the transactions we wanted
-    ///    to observe and this task completes.
-    /// 3. **Receipt watching task**: Consumes the `receipts_stream` provided at construction time,
-    ///    collecting all transaction receipts as they arrive from the finalized blocks. Like the
-    ///    block subscription task, it completes once all requested transaction hashes have had their
-    ///    receipts observed.
-    ///
-    /// All three tasks run concurrently via [`join3`]. Once they all resolve, the watcher checks
-    /// that all collected receipts have a successful status. If any receipt indicates a failed
-    /// transaction, this future resolves with an [`Err`].
-    ///
-    /// Finally, the watcher reports all observed block information, per-block transaction counts,
-    /// and per-transaction metadata (submission time, block inclusion time) to the reporter.
-    #[allow(irrefutable_let_patterns)]
-    pub fn run(mut self) -> StaticFuture<Result<()>> {
+    pub fn run(self) -> StaticFuture<Result<()>> {
         Box::pin(async move {
-            // We start by waiting for the `StartEvent` which informs us of the first block that we want
-            // to watch for. Any event that we receive before this `StartEvent` is ignored as the driver
-            // is allowed to send events to the watcher before watching has started.
+            let Self {
+                mut rx,
+                connector,
+                reporter,
+            } = self;
             let ignore_blocks_before_block_number = loop {
                 let Some(WatcherEvent::StartEvent {
                     ignore_block_before,
-                }) = self.rx.recv().await
+                }) = rx.recv().await
                 else {
                     continue;
                 };
                 break ignore_block_before;
             };
 
-            /* Initializing the shared state between the two tasks we will be spawning */
-
-            // This boolean is shared between the two tasks and it's a boolean which the registration
-            // task uses to denote the block subscription task when the submission of transactions has
-            // completed and no more transactions will be submitted. When this boolean is set to `true`
-            // it means that not a single hash more will be added to the set of transactions we're
-            // watching for making the set immutable at that point.
             let is_submission_completed = Arc::new(RwLock::new(false));
+            let txs_to_watch_for = Arc::new(RwLock::new(HashSet::<TxHash>::new()));
 
-            // This is the set of transaction hashes which the registration task were asked to register
-            // and have the block subscription task watch for. This is the absolute and canonical set of
-            // transaction hashes we expect to see mined in the blocks and any other transaction hashes
-            // which are observed in blocks are accidental or non canonical.
-            let watch_requests = Arc::new(RwLock::new(HashSet::<TxHash>::new()));
-
-            // The registration task, which performs what's been described in the doc-comment of this
-            // method.
-            let registration_task = tokio::spawn({
+            let watcher_event_consumer_task = {
                 let is_submission_completed = is_submission_completed.clone();
-                let watch_requests = watch_requests.clone();
+                let txs_to_watch_for = txs_to_watch_for.clone();
+
                 async move {
                     let mut transaction_information = IndexMap::new();
-                    while let Some(watcher_event) = self.rx.recv().await {
-                        match watcher_event {
-                            // A start event which was resent to the watcher. There's nothing that we do
-                            // about this event since the drivers are permitted to resend this event
-                            // even after the initial start had happened and therefore we skip this
-                            // event without doing any kind of processing on it.
+                    while let Some(event) = rx.recv().await {
+                        match event {
                             WatcherEvent::StartEvent { .. } => {}
-                            // The driver submitted a transaction to the chain and therefore it's being
-                            // registered for the block subscription task to watch for it. We add it to
-                            // the shared state between us and the subscription task and also to the map
-                            // that will be returned when this task resolves containing the step that
-                            // the transaction belongs to as well as when it was submitted.
                             WatcherEvent::SubmittedTransaction {
                                 transaction_hash,
                                 step_path,
                                 submission_time,
                             } => {
-                                transaction_information
-                                    .insert(transaction_hash, (step_path, submission_time));
-                                watch_requests.write().await.insert(transaction_hash);
-                            }
-                            // The driver has completed the submission of all of the tasks at this point
-                            // and we can safely stop this task. We update the `is_submission_completed`
-                            // shared boolean and then we break out of the loop.
-                            WatcherEvent::AllTransactionsSubmitted => {
-                                info!(
-                                    tx_count = transaction_information.len(),
-                                    "All transactions have been submitted"
+                                txs_to_watch_for.write().await.insert(transaction_hash);
+                                transaction_information.insert(
+                                    transaction_hash,
+                                    SubmittedTransactionInformation {
+                                        step_path,
+                                        submitted_at: submission_time,
+                                    },
                                 );
-                                self.rx.close();
+                            }
+                            WatcherEvent::AllTransactionsSubmitted => {
+                                info!("All transactions submitted");
                                 *is_submission_completed.write().await = true;
                                 break;
                             }
@@ -212,290 +84,185 @@ impl Watcher {
                     }
                     transaction_information
                 }
-            });
+            };
 
-            // This is the block subscription task which is the main watcher task watching for all of
-            // the observed transactions and keeping track of them. It's implemented as described in the
-            // doc comment of the function.
-            let block_subscription_task = tokio::spawn({
+            let block_watching_task = {
                 let is_submission_completed = is_submission_completed.clone();
-                let watch_requests = watch_requests.clone();
+                let txs_to_watch_for = txs_to_watch_for.clone();
+                let mut block_subscription = connector.subscribe_to_finalized_blocks();
+
                 async move {
-                    // This is a kill switch which we use in cases where it appears like the chain
-                    // has stopped processing transactions and appears to have halted. If we have
-                    // encountered 100 blocks with no transactions then we stop this task and move
-                    // on even if we are yet to observe all of the transactions. We also provide a
-                    // warning that this was the halting reason just in case it needs further
-                    // investigation.
                     let mut number_of_consecutive_blocks_with_zero_transactions = 0usize;
 
                     let mut observed_transaction_hashes = HashSet::new();
                     let mut observed_blocks = vec![];
-                    while let Some(block_information) = self.blocks_stream.next().await {
-                        let block_number =
-                            block_information.ethereum_block_information.block_number;
 
-                        // Keep skipping block as long as their block number is below the block number
-                        // we were tasked to start at.
+                    while let Some(block) = block_subscription.next().await {
+                        let block_number = block.evm_block.number();
+
                         if block_number < ignore_blocks_before_block_number {
                             info!(
-                                block_number =
-                                    block_information.ethereum_block_information.block_number,
+                                block_number,
                                 ignore_blocks_before_block_number,
                                 "Observed a block, but it's being ignored"
                             );
                             continue;
                         }
 
-                        // Add the transaction hashes from this block to the set of transaction hashes
-                        // we've observed and also add it's information to the map we store where we
-                        // keep track of the transaction and which block contained it.
-                        observed_transaction_hashes.extend(
-                            block_information
-                                .ethereum_block_information
-                                .transaction_hashes
-                                .clone(),
-                        );
-
-                        // Logging information about this newly observed block and adding it to the set
-                        // of block we will return at the end.
-                        let requested_transactions_len = watch_requests.read().await.len();
+                        observed_transaction_hashes.extend(block.evm_block.transactions.hashes());
+                        let requested_transactions_len = txs_to_watch_for.read().await.len();
                         info!(
-                            block.number =
-                                block_information.ethereum_block_information.block_number,
-                            block.timestamp =
-                                block_information.ethereum_block_information.block_timestamp,
-                            block.observation_time = block_information
+                            block.number = block.evm_block.number(),
+                            block.timestamp = block.evm_block.header.timestamp,
+                            block.observation_time = block
                                 .observation_time
                                 .duration_since(UNIX_EPOCH)
                                 .unwrap()
                                 .as_millis(),
-                            block.tx_hashes_len = block_information
-                                .ethereum_block_information
-                                .transaction_hashes
-                                .len(),
+                            block.tx_hashes_len = block.evm_block.transactions.len(),
                             transactions.observed = observed_transaction_hashes.len(),
                             transactions.requested = requested_transactions_len,
                             transactions.remaining = requested_transactions_len
                                 .saturating_sub(observed_transaction_hashes.len()),
                             "Observed a new block"
                         );
-                        let has_transactions = !block_information
-                            .ethereum_block_information
-                            .transaction_hashes
-                            .is_empty();
 
-                        let mut block_information = block_information;
-                        block_information.pending_transaction_count = requested_transactions_len
-                            .saturating_sub(observed_transaction_hashes.len());
-
-                        observed_blocks.push(block_information);
-
-                        if !has_transactions {
-                            number_of_consecutive_blocks_with_zero_transactions += 1
+                        if block.evm_block.transactions.is_empty() {
+                            number_of_consecutive_blocks_with_zero_transactions += 1;
                         } else {
                             number_of_consecutive_blocks_with_zero_transactions = 0
+                        };
+                        if number_of_consecutive_blocks_with_zero_transactions >= 30 {
+                            bail!("30 blocks have went by with 0 transaction in them. Stopping");
                         }
 
-                        // This is the primary condition which determines if we should break out of the
-                        // loop or not. If all of the transactions have been submitted and there's no
-                        // difference between the transactions the user requested us to watch and the
-                        // ones we've seen then we break out of the loop and stop.
-                        let all_blocks_observed = watch_requests
-                            .read()
-                            .await
-                            .is_subset(&observed_transaction_hashes);
-                        let block_empty_timeout =
-                            number_of_consecutive_blocks_with_zero_transactions >= 100;
+                        let block_information = ObservedBlockInformation {
+                            pending_transactions_when_observed: requested_transactions_len
+                                .saturating_sub(observed_transaction_hashes.len()),
+                            block,
+                        };
+                        observed_blocks.push(block_information);
+
                         if *is_submission_completed.read().await
-                            && (all_blocks_observed || block_empty_timeout)
+                            && txs_to_watch_for
+                                .read()
+                                .await
+                                .is_subset(&observed_transaction_hashes)
                         {
-                            info!(
-                                all_blocks_observed,
-                                block_empty_timeout, "All transactions observed"
-                            );
+                            info!("All transactions observed");
                             break;
                         }
                     }
-                    observed_blocks
+                    Ok(observed_blocks)
                 }
-            });
+            };
 
-            // Execute both of the tasks concurrently until they both complete.
-            let (transaction_registration_information, observed_blocks) =
-                try_join(registration_task, block_subscription_task).await?;
+            // When resolved, this is the point when:
+            // 1. All txs have been submitted.
+            // 2. All txs have been included in finalized blocks.
+            let (tx_information, observed_blocks) = try_join(
+                tokio::spawn(watcher_event_consumer_task),
+                tokio::spawn(block_watching_task),
+            )
+            .await
+            .context("One of the watcher tasks failed")?;
+            let observed_blocks = observed_blocks.context("Error observing the blocks")?;
 
-            // The registration and the block observation tasks are done, getting receipts is now
-            // safe. Txs have been mined and should have been on the chain for a while now.
-            let observed_receipts =
-                stream::iter(transaction_registration_information.keys().copied())
-                    .map(|tx_hash| {
-                        let provider = self.provider.clone();
-                        async move {
-                            provider
-                                .get_transaction_receipt(tx_hash)
-                                .await
-                                .context("Failed to get the transaction receipt")?
-                                .context("Failed to get the transaction receipt")
-                        }
-                    })
-                    .buffer_unordered(100)
-                    .try_collect::<Vec<_>>()
-                    .await?;
-
-            if let failing_receipts = observed_receipts
-                .into_iter()
+            let receipts = stream::iter(tx_information.keys().copied())
+                .map(|tx_hash| connector.get_receipt(tx_hash))
+                .buffered(100)
+                .try_collect::<Vec<_>>()
+                .await
+                .context("Failed to get the receipt of some transactions")?;
+            let failing_receipt_count = receipts
+                .iter()
                 .filter(|receipt| !receipt.status())
-                .collect::<Vec<_>>()
-                && !failing_receipts.is_empty()
-            {
-                let watched_hashes: std::collections::HashSet<_> =
-                    transaction_registration_information
-                        .keys()
-                        .copied()
-                        .collect();
-                let (watched_failures, unwatched_failures): (Vec<_>, Vec<_>) = failing_receipts
-                    .iter()
-                    .partition(|r| watched_hashes.contains(&r.transaction_hash));
-                error!(
-                    total_failing = failing_receipts.len(),
-                    watched_failing = watched_failures.len(),
-                    unwatched_failing = unwatched_failures.len(),
-                    "Encountered failing receipts"
-                );
-                for r in &failing_receipts {
-                    let is_watched = watched_hashes.contains(&r.transaction_hash);
-                    let step_path = transaction_registration_information
-                        .get(&r.transaction_hash)
-                        .map(|(sp, _)| sp.to_string());
-                    error!(
-                        tx_hash = %r.transaction_hash,
-                        block_number = ?r.block_number,
-                        from = %r.from,
-                        to = ?r.to,
-                        gas_used = %r.gas_used,
-                        step_path = ?step_path,
-                        is_watched,
-                        "Failing receipt"
-                    );
-                }
-                bail!(
-                    "Encountered failing receipts, len: {}",
-                    failing_receipts.len()
-                );
+                .inspect(|receipt| error!(?receipt, "Encountered a failing receipt"))
+                .count();
+            if failing_receipt_count != 0 {
+                bail!("Encountered failing receipts when watching")
             }
 
-            // Getting the pre-dispatch weights for each one of the transaction steps that we have.
-            // Then, injecting this data into the block by estimating what the block's pre-dispatch
-            // weights would've been.
-            let mut pre_dispatch_weight_of_step = HashMap::new();
-            if let Some(substrate_provider) = &self.substrate_provider {
-                let block_hash = substrate_provider
-                    .blocks()
-                    .at_latest()
-                    .await
-                    .context("Failed to fetch latest substrate block for pre-dispatch weight")?
-                    .hash();
-
-                for (tx_hash, (path, _)) in transaction_registration_information.iter() {
-                    if pre_dispatch_weight_of_step.contains_key(path) {
-                        continue;
-                    }
-
-                    let signed_payload = self
-                        .provider
-                        .get_transaction_by_hash(*tx_hash)
-                        .await
-                        .with_context(|| {
-                            format!("Failed to fetch the signed transaction for step {path}")
-                        })?
-                        .with_context(|| {
-                            format!(
-                                "Transaction {tx_hash} for step {path} was not found by \
-                                 eth_getTransactionByHash"
-                            )
-                        })?
-                        .into_inner()
-                        .encoded_2718();
-                    let pre_dispatch_weight =
-                        eth_pre_dispatch_weight(substrate_provider, block_hash, signed_payload)
-                            .await
-                            .unwrap_or(Weight::MAX);
-
-                    info!(
-                        step_path = %path,
-                        %tx_hash,
-                        ref_time = pre_dispatch_weight.ref_time(),
-                        proof_size = pre_dispatch_weight.proof_size(),
-                        "Collected pre-dispatch weight for step"
-                    );
-
-                    pre_dispatch_weight_of_step.insert(path.clone(), pre_dispatch_weight);
-                }
-            }
-
-            // Reporting all of the information to the reporter about all of the observed blocks, the tx
-            // counts, the transaction information, and everything else.
-            for mut block in observed_blocks.into_iter() {
-                // Update the tx counts for this block
-                for tx_hash in block.ethereum_block_information.transaction_hashes.iter() {
-                    let Some((step_path, _)) = transaction_registration_information.get(tx_hash)
-                    else {
+            for block_info in observed_blocks {
+                for hash in block_info.block.evm_block.transactions.hashes() {
+                    let Some(info) = tx_information.get(&hash) else {
                         continue;
                     };
-                    *block.tx_counts.entry(step_path.clone()).or_default() += 1;
-                }
-
-                if let Some(substrate_info) = &mut block.substrate_block_information {
-                    let mut pre_dispatch_ref_time = 0u128;
-                    let mut pre_dispatch_proof_size = 0u128;
-
-                    for (step_path, tx_count) in block.tx_counts.iter() {
-                        let weight =
-                            pre_dispatch_weight_of_step
-                                .get(step_path)
-                                .with_context(|| {
-                                    format!("Missing pre-dispatch weight for step {step_path}")
-                                })?;
-                        let tx_count = *tx_count as u128;
-
-                        pre_dispatch_ref_time = pre_dispatch_ref_time
-                            .saturating_add(u128::from(weight.ref_time()).saturating_mul(tx_count));
-                        pre_dispatch_proof_size = pre_dispatch_proof_size.saturating_add(
-                            u128::from(weight.proof_size()).saturating_mul(tx_count),
-                        );
-                    }
-
-                    substrate_info.pre_dispatch_ref_time = pre_dispatch_ref_time;
-                    substrate_info.pre_dispatch_proof_size = pre_dispatch_proof_size;
-                }
-
-                // Report information about the transactions within a block.
-                for tx_hash in block.ethereum_block_information.transaction_hashes.iter() {
-                    let Some((step_path, submission_time)) =
-                        transaction_registration_information.get(tx_hash)
-                    else {
-                        continue;
-                    };
-                    let transaction_information = TransactionInformation {
-                        transaction_hash: *tx_hash,
-                        submission_timestamp: submission_time
-                            .duration_since(UNIX_EPOCH)
-                            .expect("Can't fail")
-                            .as_secs() as _,
-                        block_timestamp: block.ethereum_block_information.block_timestamp,
-                        block_number: block.ethereum_block_information.block_number,
-                    };
-                    self.reporter
+                    reporter
                         .report_step_transaction_information_event(
-                            step_path.clone(),
-                            transaction_information,
+                            info.step_path.clone(),
+                            TransactionInformation {
+                                transaction_hash: hash,
+                                submission_timestamp: info
+                                    .submitted_at
+                                    .duration_since(UNIX_EPOCH)
+                                    .expect("OS Time is misconfigured")
+                                    .as_secs(),
+                                block_timestamp: block_info.block.evm_block.header.timestamp,
+                                block_number: block_info.block.evm_block.number(),
+                            },
                         )
-                        .expect("Can't fail")
+                        .expect("qed; can't fail");
                 }
 
-                // Report the block to the reporter.
-                let _ = self.reporter.report_block_mined_event(block);
+                let mut mined_block_information = MinedBlockInformation {
+                    ethereum_block_information: EthereumMinedBlockInformation {
+                        block_number: block_info.block.evm_block.number(),
+                        block_timestamp: block_info.block.evm_block.header.timestamp,
+                        mined_gas: block_info.block.evm_block.header.gas_used as _,
+                        block_gas_limit: block_info.block.evm_block.header.gas_limit as _,
+                        transaction_hashes: block_info
+                            .block
+                            .evm_block
+                            .transactions
+                            .hashes()
+                            .collect(),
+                    },
+                    substrate_block_information: None,
+                    tx_counts: block_info.block.evm_block.transactions.hashes().fold(
+                        BTreeMap::new(),
+                        |mut acc, tx_hash| match tx_information.get(&tx_hash) {
+                            Some(info) => {
+                                *acc.entry(info.step_path.clone()).or_default() += 1;
+                                acc
+                            }
+                            None => acc,
+                        },
+                    ),
+                    observation_time: block_info.block.observation_time,
+                    pending_transaction_count: block_info.pending_transactions_when_observed,
+                };
+
+                if let Some(substrate_block) = block_info.block.substrate_block.as_ref() {
+                    let pre_dispatch_weights =
+                        stream::iter(substrate_block.eth_transactions.iter())
+                            .map(|value| value.payload.clone())
+                            .then(|payload| {
+                                connector.pre_dispatch_weights(substrate_block.block_hash, payload)
+                            })
+                            .try_collect::<Vec<_>>()
+                            .await;
+                    let block_pre_dispatch_weight = match pre_dispatch_weights {
+                        Ok(weights) => weights
+                            .into_iter()
+                            .fold(Weight::zero(), Weight::saturating_add),
+                        Err(_) => Weight::MAX,
+                    };
+
+                    mined_block_information.substrate_block_information =
+                        Some(SubstrateMinedBlockInformation {
+                            ref_time: substrate_block.consumed_weight.ref_time() as _,
+                            max_ref_time: substrate_block.limits.ref_time() as _,
+                            proof_size: substrate_block.consumed_weight.proof_size() as _,
+                            max_proof_size: substrate_block.limits.proof_size() as _,
+                            block_hash: substrate_block.block_hash,
+                            pre_dispatch_ref_time: block_pre_dispatch_weight.ref_time() as _,
+                            pre_dispatch_proof_size: block_pre_dispatch_weight.proof_size() as _,
+                        });
+                }
+                reporter
+                    .report_block_mined_event(mined_block_information)
+                    .expect("qed; can't fail")
             }
 
             Ok(())
@@ -535,4 +302,14 @@ pub enum WatcherEvent {
     /// that it can expect to receive no further transaction hashes and not even watch the channel
     /// any longer.
     AllTransactionsSubmitted,
+}
+
+struct SubmittedTransactionInformation {
+    pub step_path: StepPath,
+    pub submitted_at: SystemTime,
+}
+
+struct ObservedBlockInformation {
+    pub block: BlockPair,
+    pub pending_transactions_when_observed: usize,
 }

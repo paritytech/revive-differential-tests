@@ -8,6 +8,7 @@ pub struct RetryLayer {
 }
 
 impl RetryLayer {
+    #[allow(dead_code)]
     pub fn new(
         polling_duration: Duration,
         initial_backoff: Duration,

@@ -86,8 +86,6 @@ revive_dt_proc_macros::define_runner_event! {
                 id: usize,
                 /// The identifier of the platform used.
                 platform_identifier: PlatformIdentifier,
-                /// The connection string of the node.
-                connection_string: String,
             },
         },
 

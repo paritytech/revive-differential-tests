@@ -208,7 +208,7 @@ where
                 code,
             );
             let receipt = platform_information
-                .node
+                .connector
                 .execute_transaction(tx)
                 .await
                 .inspect_err(|err| {
@@ -255,52 +255,31 @@ where
         // than including the actual bytecode. This creates a problem where a factory contract could
         // be deployed but the code it's supposed to create is not on chain. Therefore, we upload
         // all the code to the chain prior to running any transactions on the driver.
-        if let Some(substrate_provider_fut) = platform_information.node.substrate_provider()
-            && platform_information.platform.vm_identifier() == VmIdentifier::PolkaVM
-        {
-            let substrate_client = substrate_provider_fut
-                .await
-                .context("Failed to connect to the substrate node")?;
-            let metadata = substrate_client.metadata();
-
-            const RUNTIME_PALLET_ADDRESS: Address =
-                address!("0x6d6f646c70792f70616464720000000000000000");
-
+        if platform_information.platform.vm_identifier() == VmIdentifier::PolkaVM {
             let code_upload_tasks = compiler_output
                 .contracts
                 .values()
                 .flat_map(|item| item.values())
-                .map(|(code_string, _)| {
-                    let metadata = metadata.clone();
-                    async move {
-                        let code = alloy::hex::decode(code_string)
-                            .context("Failed to hex-decode the post-link code. This is a bug")?;
-                        let upload_call = subxt::dynamic::tx(
-                            "Revive",
-                            "upload_code",
-                            vec![
-                                subxt::dynamic::Value::from_bytes(code),
-                                subxt::dynamic::Value::u128(u128::MAX),
-                            ],
-                        );
-                        let encoded_payload = upload_call
-                            .encode_call_data(&metadata)
-                            .context("Failed to encode the upload code payload")?;
-
-                        let tx_request = TransactionRequest::default()
-                            .from(deployer_address)
-                            .to(RUNTIME_PALLET_ADDRESS)
-                            .input(encoded_payload.into());
-                        platform_information
-                            .node
-                            .execute_transaction(tx_request)
-                            .await
-                            .context("Failed to execute transaction")
-                    }
+                .map(|(code_string, ..)| {
+                    alloy::hex::decode(code_string)
+                        .context("Failed to decode the contract as hex even after linking")
+                        .and_then(|code| {
+                            platform_information.connector.code_upload_transaction(code)
+                        })
+                })
+                .collect::<Result<Vec<_>>>()
+                .context("Failed to create the code upload transactions")?
+                .into_iter()
+                .map(|transaction| transaction.from(deployer_address))
+                .map(|transaction| {
+                    platform_information
+                        .connector
+                        .execute_transaction(transaction)
+                        .map(|res| res.context("Code upload transaction failed"))
                 });
             try_join_all(code_upload_tasks)
                 .await
-                .context("Code upload failed")?;
+                .context("Some code upload transactions failed")?;
         }
 
         Ok(ExecutionState::new(
@@ -334,7 +313,7 @@ where
         skip_all,
         fields(
             platform_identifier = %self.platform_information.platform.platform_identifier(),
-            node_id = self.platform_information.node.id(),
+            node_id = self.platform_information.connector.node_id(),
             %step_path,
         ),
         err(Debug),
@@ -407,12 +386,12 @@ where
         let context = self.default_resolution_context();
         let from = step
             .from
-            .resolve_address(self.platform_information.node, context)
+            .resolve_address(context)
             .await
             .context("Failed to resolve transfer sender")?;
         let to = step
             .to
-            .resolve_address(self.platform_information.node, context)
+            .resolve_address(context)
             .await
             .context("Failed to resolve transfer recipient")?;
         let tx = TransactionRequest::default()
@@ -421,7 +400,7 @@ where
             .value(step.amount.into_inner());
         let receipt = self
             .platform_information
-            .node
+            .connector
             .execute_transaction(tx)
             .await?;
         if !receipt.status() {
@@ -469,9 +448,7 @@ where
 
             let caller = {
                 let context = self.default_resolution_context();
-                step.caller
-                    .resolve_address(self.platform_information.node, context)
-                    .await?
+                step.caller.resolve_address(context).await?
             };
             if let (_, _, Some(receipt)) = self
                 .get_or_deploy_contract_instance(&instance, caller, calldata, value)
@@ -506,10 +483,7 @@ where
             }
             Method::Fallback | Method::FunctionName(_) => {
                 let mut tx = step
-                    .as_transaction(
-                        self.platform_information.node,
-                        self.default_resolution_context(),
-                    )
+                    .as_transaction(self.default_resolution_context())
                     .await?;
 
                 let gas_overrides = step
@@ -519,7 +493,10 @@ where
                     .unwrap_or_default();
                 gas_overrides.apply_to::<Ethereum>(&mut tx);
 
-                self.platform_information.node.execute_transaction(tx).await
+                self.platform_information
+                    .connector
+                    .execute_transaction(tx)
+                    .await
             }
         }
     }
@@ -530,7 +507,7 @@ where
         tx_hash: TxHash,
     ) -> Result<CallFrame> {
         self.platform_information
-            .node
+            .connector
             .trace_transaction(
                 tx_hash,
                 GethDebugTracingOptions {
@@ -639,8 +616,6 @@ where
         tracing_result: &CallFrame,
         assertion: ExpectedOutput,
     ) -> Result<()> {
-        let node = self.platform_information.node;
-
         if let Some(ref version_requirement) = assertion.compiler_version
             && !version_requirement.matches(self.platform_information.compiler.version())
         {
@@ -649,7 +624,7 @@ where
 
         let resolution_context = self
             .default_resolution_context()
-            .with_block_number(receipt.block_number.as_ref())
+            .with_pinned_block_number(receipt.block_number.as_ref())
             .with_transaction_hash(&receipt.transaction_hash);
 
         // Handling the receipt state assertion.
@@ -678,7 +653,7 @@ where
             let expected = expected_output;
             let actual = &tracing_result.output.as_ref().unwrap_or_default();
             if !expected
-                .is_equivalent(actual, node, resolution_context)
+                .is_equivalent(actual, resolution_context)
                 .await
                 .context("Failed to resolve calldata equivalence for return data assertion")?
             {
@@ -710,9 +685,7 @@ where
             {
                 // Handling the emitter assertion.
                 if let Some(ref expected_address) = expected_event.address {
-                    let expected = expected_address
-                        .resolve_address(node, resolution_context)
-                        .await?;
+                    let expected = expected_address.resolve_address(resolution_context).await?;
                     let actual = actual_event.address();
                     if actual != expected {
                         tracing::error!(
@@ -736,7 +709,7 @@ where
                 {
                     let expected = Calldata::new_compound([expected]);
                     if !expected
-                        .is_equivalent(&actual.0, node, resolution_context)
+                        .is_equivalent(&actual.0, resolution_context)
                         .await
                         .context("Failed to resolve event topic equivalence")?
                     {
@@ -757,7 +730,7 @@ where
                 let expected = &expected_event.values;
                 let actual = &actual_event.data().data;
                 if !expected
-                    .is_equivalent(&actual.0, node, resolution_context)
+                    .is_equivalent(&actual.0, resolution_context)
                     .await
                     .context("Failed to resolve event value equivalence")?
                 {
@@ -790,13 +763,14 @@ where
 
         let address = step
             .address
-            .resolve_address(
-                self.platform_information.node,
-                self.default_resolution_context(),
-            )
+            .resolve_address(self.default_resolution_context())
             .await?;
 
-        let balance = self.platform_information.node.balance_of(address).await?;
+        let balance = self
+            .platform_information
+            .connector
+            .balance_of(address)
+            .await?;
 
         let expected = step.expected_balance;
         let actual = balance;
@@ -818,41 +792,9 @@ where
     async fn execute_storage_empty_assertion_step(
         &mut self,
         _: &StepPath,
-        step: &StorageEmptyAssertionStep,
+        _: &StorageEmptyAssertionStep,
     ) -> Result<usize> {
-        self.step_address_auto_deployment(&step.address)
-            .await
-            .context("Failed to perform auto-deployment for the step address")?;
-
-        let address = step
-            .address
-            .resolve_address(
-                self.platform_information.node,
-                self.default_resolution_context(),
-            )
-            .await?;
-
-        let storage = self
-            .platform_information
-            .node
-            .latest_state_proof(address, Default::default())
-            .await?;
-        let is_empty = storage.storage_hash == EMPTY_ROOT_HASH;
-
-        let expected = step.is_storage_empty;
-        let actual = is_empty;
-
-        if expected != actual {
-            tracing::error!(%expected, %actual, %address, "Storage Empty Assertion failed");
-            anyhow::bail!(
-                "Storage Empty Assertion failed - Expected {} but got {} for {} resolved to {}",
-                expected,
-                actual,
-                address,
-                address,
-            )
-        };
-
+        warn!("Storage Empty Assertions are not supported in retester");
         Ok(1)
     }
 
@@ -1038,12 +980,7 @@ where
         };
 
         if let Some(calldata) = calldata {
-            let calldata = calldata
-                .calldata(
-                    self.platform_information.node,
-                    self.default_resolution_context(),
-                )
-                .await?;
+            let calldata = calldata.calldata(self.default_resolution_context()).await?;
             code.extend(calldata);
         }
 
@@ -1056,7 +993,12 @@ where
             TransactionBuilder::<Ethereum>::with_deploy_code(tx, code)
         };
 
-        let receipt = match self.platform_information.node.execute_transaction(tx).await {
+        let receipt = match self
+            .platform_information
+            .connector
+            .execute_transaction(tx)
+            .await
+        {
             Ok(receipt) => receipt,
             Err(error) => {
                 tracing::error!(?error, "Contract deployment transaction failed.");
@@ -1118,7 +1060,7 @@ where
             .with_deployed_contracts(&self.execution_state.deployed_contracts)
             .with_variables(&self.execution_state.variables)
             .with_metadata(&self.test_definition.metadata.content)
-            .with_node_api(self.platform_information.node)
+            .with_node_connector(&*self.platform_information.connector)
     }
     // endregion:Resolution & Resolver
 }

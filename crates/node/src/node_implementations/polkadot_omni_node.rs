@@ -2,14 +2,9 @@ use crate::internal_prelude::*;
 
 #[derive(Debug)]
 pub struct PolkadotOmnichainNode {
-    id: u32,
+    id: usize,
     eth_rpc_process: EthRpcProcess,
     polkadot_omnichain_node_process: PolkadotOmniNodeProcess,
-    wallet: Arc<EthereumWallet>,
-    nonce_manager: CachedNonceManager,
-    gas_filler: FallbackGasFiller,
-    provider: Arc<OnceCell<ConcreteProvider<Ethereum, Arc<EthereumWallet>>>>,
-    substrate_provider: Arc<OnceCell<OnlineClient<PolkadotConfig>>>,
     _directories: NodeDirectories,
 }
 
@@ -19,7 +14,6 @@ impl PolkadotOmnichainNode {
         + HasEthRpcConfiguration
         + HasWalletConfiguration
         + HasPolkadotOmnichainNodeConfiguration,
-        use_fallback_gas_filler: bool,
     ) -> Result<Self> {
         let workdir_config = context.as_working_directory_configuration();
         let wallet_config = context.as_wallet_configuration();
@@ -71,11 +65,6 @@ impl PolkadotOmnichainNode {
             id: id.0,
             eth_rpc_process,
             polkadot_omnichain_node_process,
-            wallet,
-            nonce_manager: Default::default(),
-            gas_filler: FallbackGasFiller::new().with_fallback_mechanism(use_fallback_gas_filler),
-            provider: Default::default(),
-            substrate_provider: Default::default(),
             _directories: directories,
         })
     }
@@ -110,63 +99,20 @@ impl PolkadotOmnichainNode {
     }
 }
 
-impl NodeApi for PolkadotOmnichainNode {
+impl NodeConfiguration for PolkadotOmnichainNode {
     fn id(&self) -> usize {
-        self.id as _
-    }
-
-    fn connection_string(&self) -> &str {
-        self.eth_rpc_process.url()
+        self.id
     }
 
     fn evm_version(&self) -> EVMVersion {
         EVMVersion::Cancun
     }
 
-    fn provider(&self) -> StaticFuture<Result<DynProvider>> {
-        let provider = self.provider.clone();
-        let connection_string = self.connection_string().to_string();
-        let gas_filler = self.gas_filler;
-        let nonce_filler = NonceFiller::new(self.nonce_manager.clone());
-        let wallet = self.wallet.clone();
-
-        Box::pin(async move {
-            provider
-                .get_or_try_init(|| async move {
-                    construct_concurrency_limited_provider::<Ethereum, _>(
-                        &connection_string,
-                        gas_filler,
-                        ChainIdFiller::default(),
-                        nonce_filler,
-                        wallet,
-                    )
-                    .await
-                    .context("Failed to construct the provider")
-                })
-                .await
-                .map(|provider| provider.clone().erased())
-        })
+    fn eth_provider_url(&self) -> NodeUrlCollection<'_> {
+        NodeUrlCollection::new().with_http_url(self.eth_rpc_process.url())
     }
 
-    fn substrate_provider(&self) -> Option<StaticFuture<Result<OnlineClient<PolkadotConfig>>>> {
-        let provider = self.substrate_provider.clone();
-        let connection_string = self.polkadot_omnichain_node_process.url().to_string();
-
-        Some(Box::pin(async move {
-            provider
-                .get_or_try_init(|| async move {
-                    OnlineClient::from_url(connection_string)
-                        .await
-                        .context("Failed to create a new online client")
-                })
-                .await
-                .cloned()
-        }))
-    }
-}
-
-impl Node for PolkadotOmnichainNode {
-    fn spawn(&mut self, _: Genesis) -> Result<()> {
-        Ok(())
+    fn substrate_provider_url(&self) -> Option<NodeUrlCollection<'_>> {
+        Some(NodeUrlCollection::new().with_ws_url(self.polkadot_omnichain_node_process.url()))
     }
 }

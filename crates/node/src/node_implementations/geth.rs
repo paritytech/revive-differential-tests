@@ -1,15 +1,9 @@
-//! The go-ethereum node implementation.
-
 use crate::internal_prelude::*;
 
 #[derive(Debug)]
 pub struct GethNode {
-    id: u32,
+    id: usize,
     process: GethProcess,
-    wallet: Arc<EthereumWallet>,
-    nonce_manager: CachedNonceManager,
-    provider: Arc<OnceCell<ConcreteProvider<Ethereum, Arc<EthereumWallet>>>>,
-    gas_filler: FallbackGasFiller,
     _directories: NodeDirectories,
 }
 
@@ -20,7 +14,6 @@ impl GethNode {
         + HasGethConfiguration
         + HasGenesisConfiguration
         + Clone,
-        use_fallback_gas_filler: bool,
     ) -> Result<Self> {
         let workdir_config = context.as_working_directory_configuration();
         let genesis_config = context.as_genesis_configuration();
@@ -66,10 +59,6 @@ impl GethNode {
         Ok(Self {
             id: id.0,
             process,
-            wallet,
-            nonce_manager: CachedNonceManager::default(),
-            provider: Default::default(),
-            gas_filler: FallbackGasFiller::new().with_fallback_mechanism(use_fallback_gas_filler),
             _directories: directories,
         })
     }
@@ -80,48 +69,20 @@ impl GethNode {
     }
 }
 
-impl NodeApi for GethNode {
+impl NodeConfiguration for GethNode {
     fn id(&self) -> usize {
-        self.id as _
-    }
-
-    fn connection_string(&self) -> &str {
-        self.process.url()
+        self.id
     }
 
     fn evm_version(&self) -> EVMVersion {
         EVMVersion::Cancun
     }
 
-    fn provider(&self) -> StaticFuture<Result<DynProvider>> {
-        let provider = self.provider.clone();
-        let connection_string = self.connection_string().to_owned();
-        let gas_filler = self.gas_filler;
-        let nonce_filler = NonceFiller::new(self.nonce_manager.clone());
-        let wallet = self.wallet.clone();
-
-        Box::pin(async move {
-            provider
-                .get_or_try_init(|| async move {
-                    construct_concurrency_limited_provider::<Ethereum, _>(
-                        &connection_string,
-                        gas_filler,
-                        ChainIdFiller::default(),
-                        nonce_filler,
-                        wallet,
-                    )
-                    .await
-                    .context("Failed to construct the provider")
-                })
-                .await
-                .map(|provider| provider.clone().erased())
-        })
+    fn eth_provider_url(&self) -> NodeUrlCollection<'_> {
+        NodeUrlCollection::new().with_ipc_url(self.process.url())
     }
-}
 
-impl Node for GethNode {
-    #[instrument(level = "info", skip_all, fields(geth_node_id = self.id))]
-    fn spawn(&mut self, _: Genesis) -> Result<()> {
-        Ok(())
+    fn substrate_provider_url(&self) -> Option<NodeUrlCollection<'_>> {
+        None
     }
 }
