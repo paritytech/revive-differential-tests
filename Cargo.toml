@@ -75,7 +75,9 @@ tokio = { version = "1.47.0", default-features = false, features = [
     "process",
     "rt",
 ] }
-tokio-stream = { version = "0.1.18", default-features = false, features = ["sync"] }
+tokio-stream = { version = "0.1.18", default-features = false, features = [
+    "sync",
+] }
 tower = { version = "0.5.2", features = ["limit"] }
 uuid = { version = "1.8", features = ["v4"] }
 tracing = { version = "0.1.41" }
@@ -95,7 +97,7 @@ revive-common = { version = "0.3.0" }
 revive-differential = { version = "0.3.0" }
 
 zombienet-sdk = { version = "0.4.11" }
-pallet-revive = { version = "0.11.3", default-features = true }
+pallet-revive = { version = "0.18.0", default-features = true }
 
 [profile.bench]
 inherits = "release"

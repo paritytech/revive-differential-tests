@@ -176,11 +176,22 @@ impl NodeConnector {
                 .revive()
                 .eth_transact(payload.to_vec())
                 .unvalidated();
-            let substrate_hash = substrate_provider
-                .tx()
-                .create_unsigned(&call)
-                .context("Failed to create an unsigned transaction")?
-                .submit()
+            let substrate_hash =
+                retry_with_exponential_backoff(10, Duration::from_millis(10), || {
+                    let call = &call;
+                    let substrate_provider = &substrate_provider;
+                    async move {
+                        let transaction = match substrate_provider.tx().create_unsigned(call) {
+                            Ok(transaction) => transaction,
+                            Err(err) => return ControlFlow::Continue(err),
+                        };
+
+                        match transaction.submit().await {
+                            Ok(substrate_hash) => ControlFlow::Break(substrate_hash),
+                            Err(err) => ControlFlow::Continue(err),
+                        }
+                    }
+                })
                 .await
                 .context("Failed to submit the transaction through subxt")?;
 
@@ -339,18 +350,26 @@ impl NodeConnector {
                 .expect("qed; alloy geth tracing options serialize to JSON");
             let trace_options = serde_json::from_value::<TracerConfig>(trace_options)
                 .context("Failed to convert geth tracing options into revive tracer config")?;
-            let payload = revive_metadata::apis()
-                .revive_api()
-                .trace_tx(block.into(), extrinsic_index, trace_options.config.into())
-                .unvalidated();
-            let trace = provider
-                .runtime_api()
-                .at(parent_hash)
-                .call(payload)
-                .await
-                .context("Failed to get the transaction trace")?
-                .context("Failed to get the transaction trace")?
-                .0;
+            let trace = retry_with_exponential_backoff(10, Duration::from_millis(10), || {
+                let provider = &provider;
+                let block = block.clone();
+                let trace_config = trace_options.config.clone();
+                async move {
+                    let payload = revive_metadata::apis()
+                        .revive_api()
+                        .trace_tx(block.into(), extrinsic_index, trace_config.into())
+                        .unvalidated();
+
+                    match provider.runtime_api().at(parent_hash).call(payload).await {
+                        Ok(trace) => ControlFlow::Break(trace),
+                        Err(err) => ControlFlow::Continue(err),
+                    }
+                }
+            })
+            .await
+            .context("Failed to get the transaction trace")?
+            .context("Failed to get the transaction trace")?
+            .0;
 
             let trace_json =
                 serde_json::to_value(trace).expect("qed; pallet-revive trace serializes to JSON");
@@ -386,10 +405,6 @@ impl NodeConnector {
         let latest_block = self.latest_finalized_block.clone();
 
         Box::pin(async move {
-            let payload = revive_metadata::apis()
-                .revive_api()
-                .balance(address.0.0.into())
-                .unvalidated();
             let runtime_api = match latest_block.read().await.as_ref() {
                 Some(latest_block) => provider.runtime_api().at(latest_block
                     .substrate_block
@@ -397,16 +412,34 @@ impl NodeConnector {
                     .expect("qed; this is a substrate node")
                     .online_block
                     .hash()),
-                None => provider
-                    .runtime_api()
-                    .at_latest()
-                    .await
-                    .context("Failed to get the runtime API at the latest finalized block")?,
-            };
-            let balance = runtime_api
-                .call(payload)
+                None => retry_with_exponential_backoff(10, Duration::from_millis(10), || {
+                    let provider = &provider;
+                    async move {
+                        match provider.runtime_api().at_latest().await {
+                            Ok(runtime_api) => ControlFlow::Break(runtime_api),
+                            Err(err) => ControlFlow::Continue(err),
+                        }
+                    }
+                })
                 .await
-                .context("Failed to get the balance")?;
+                .context("Failed to get the runtime API at the latest finalized block")?,
+            };
+            let balance = retry_with_exponential_backoff(10, Duration::from_millis(10), || {
+                let runtime_api = &runtime_api;
+                async move {
+                    let payload = revive_metadata::apis()
+                        .revive_api()
+                        .balance(address.0.0.into())
+                        .unvalidated();
+
+                    match runtime_api.call(payload).await {
+                        Ok(balance) => ControlFlow::Break(balance),
+                        Err(err) => ControlFlow::Continue(err),
+                    }
+                }
+            })
+            .await
+            .context("Failed to get the balance")?;
             Ok(U256::from_limbs_slice(&balance.0))
         })
     }
@@ -588,43 +621,69 @@ impl NodeConnector {
         tx: BroadcastSender<UnresolvedBlockPair>,
     ) -> StaticFuture<Result<()>> {
         Box::pin(async move {
-            let mut subscription = provider.blocks().subscribe_finalized().await?;
-            while let Some(Ok(substrate_block)) = subscription.next().await {
-                let runtime_api = substrate_block
-                    .runtime_api()
+            loop {
+                let mut subscription = provider
+                    .blocks()
+                    .subscribe_finalized()
                     .await
-                    .context("Failed to get the runtime API")?;
+                    .context("Failed to subscribe to finalized substrate blocks")?;
 
-                let eth_block =
-                    retry_with_exponential_backoff(10, Duration::from_millis(10), || {
-                        let runtime_api = &runtime_api;
-                        let payload = revive_metadata::apis()
-                            .revive_api()
-                            .eth_block()
-                            .unvalidated();
-
-                        async move {
-                            match runtime_api.call(payload).await {
-                                Ok(block) => ControlFlow::Break(block),
-                                Err(err) => ControlFlow::Continue(err),
-                            }
+                while let Some(substrate_block) = subscription.next().await {
+                    let substrate_block = match substrate_block {
+                        Ok(substrate_block) => substrate_block,
+                        Err(err) => {
+                            warn!(
+                                ?err,
+                                "Finalized substrate block subscription failed; resubscribing"
+                            );
+                            break;
                         }
-                    })
-                    .await
-                    .context("Failed to call the eth_block runtime API")?;
-                let eth_block_json = serde_json::to_value(eth_block.0)
-                    .expect("qed; pallet-revive eth block serializes to JSON");
-                let evm_block = serde_json::from_value::<EvmBlock>(eth_block_json)
-                    .expect("qed; pallet-revive and alloy block JSON formats are identical");
+                    };
+                    let runtime_api =
+                        retry_with_exponential_backoff(10, Duration::from_millis(10), || {
+                            let substrate_block = &substrate_block;
+                            async move {
+                                match substrate_block.runtime_api().await {
+                                    Ok(runtime_api) => ControlFlow::Break(runtime_api),
+                                    Err(err) => ControlFlow::Continue(err),
+                                }
+                            }
+                        })
+                        .await
+                        .context("Failed to get the runtime API")?;
 
-                let block_pair = UnresolvedBlockPair {
-                    observation_time: SystemTime::now(),
-                    evm_block: Arc::new(evm_block),
-                    substrate_block: Some(Arc::new(substrate_block)),
-                };
-                let _ = tx.send(block_pair);
+                    let eth_block =
+                        retry_with_exponential_backoff(10, Duration::from_millis(10), || {
+                            let runtime_api = &runtime_api;
+                            let payload = revive_metadata::apis()
+                                .revive_api()
+                                .eth_block()
+                                .unvalidated();
+
+                            async move {
+                                match runtime_api.call(payload).await {
+                                    Ok(block) => ControlFlow::Break(block),
+                                    Err(err) => ControlFlow::Continue(err),
+                                }
+                            }
+                        })
+                        .await
+                        .context("Failed to call the eth_block runtime API")?;
+                    let eth_block_json = serde_json::to_value(eth_block.0)
+                        .expect("qed; pallet-revive eth block serializes to JSON");
+                    let evm_block = serde_json::from_value::<EvmBlock>(eth_block_json)
+                        .expect("qed; pallet-revive and alloy block JSON formats are identical");
+
+                    let block_pair = UnresolvedBlockPair {
+                        observation_time: SystemTime::now(),
+                        evm_block: Arc::new(evm_block),
+                        substrate_block: Some(Arc::new(substrate_block)),
+                    };
+                    let _ = tx.send(block_pair);
+                }
+
+                warn!("Finalized substrate block subscription ended; resubscribing");
             }
-            bail!("Block subscription ended prematurely")
         })
     }
 
