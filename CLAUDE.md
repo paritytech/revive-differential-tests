@@ -22,11 +22,11 @@ Run `retester --help` and `report-processor --help` for up-to-date CLI usage inf
 | `--resolc.stack-size` | 131072 | Contract stack size in bytes. |
 | `--resolc.path` | (from PATH) | Path to resolc binary. |
 
-**Critical:** These are **compile-time** settings embedded in the PVM bytecode. Changing them requires clearing the compilation cache (see [Clearing the Compilation Cache](#clearing-the-compilation-cache)).
+These are **compile-time** settings embedded in the PVM bytecode. They are folded into the compilation cache fingerprint (along with a sha256 of the resolc and solc binaries), so changing them automatically invalidates affected cache entries — no manual cache clear required.
 
-### Clearing the Compilation Cache
+### Compilation Cache
 
-Compilation artifacts are cached in the working directory. If you change compiler settings (like `--resolc.heap-size`), you must clear the cache:
+Compilation artifacts are cached in the working directory. The cache key includes a sha256 fingerprint of the resolc and solc binaries plus the PVM heap/stack sizes, so swapping binaries or tweaking those settings invalidates the cache automatically. If you ever need to force a full rebuild, pass `--compilation.invalidate-cache` or delete the working directory:
 
 ```bash
 rm -rf ./workdir
@@ -36,10 +36,8 @@ rm -rf ./workdir
 
 1. **"Failed to find information for contract"** - The resolc output selection doesn't include bytecode. Ensure `crates/compiler/src/revive_resolc.rs` uses `new_required_for_tests()` instead of `new_required()`.
 
-2. **"OutOfGas" errors on tests with large memory offsets** - Increase `--resolc.heap-size` (e.g., to 528000) and clear the compilation cache.
+2. **"OutOfGas" errors on tests with large memory offsets** - Increase `--resolc.heap-size` (e.g., to 528000).
 
 3. **"ContractTrapped" on memory access** - The contract is accessing memory beyond the configured heap size. Increase `--resolc.heap-size`.
 
-4. **Tests failing after changing resolc parameters** - Clear the compilation cache (`rm -rf ./workdir`) to force recompilation.
-
-5. **Gas estimation failures for reverting transactions** - The test may need `gas_overrides` in the test metadata to specify a hardcoded gas limit.
+4. **Gas estimation failures for reverting transactions** - The test may need `gas_overrides` in the test metadata to specify a hardcoded gas limit.

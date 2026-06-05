@@ -55,6 +55,7 @@ impl<'a> CachedCompiler<'a> {
         let cache_key = CacheKey {
             compiler_identifier,
             compiler_version: compiler.version().clone(),
+            compiler_fingerprint: compiler.fingerprint().to_owned(),
             metadata_file_path,
             compiler_mode: mode.clone(),
         };
@@ -80,6 +81,7 @@ impl<'a> CachedCompiler<'a> {
                 "Running compilation for the cache key",
                 cache_key.compiler_identifier = %cache_key.compiler_identifier,
                 cache_key.compiler_version = %cache_key.compiler_version,
+                cache_key.compiler_fingerprint = %cache_key.compiler_fingerprint,
                 cache_key.metadata_file_path = %cache_key.metadata_file_path.display(),
                 cache_key.compiler_mode = %cache_key.compiler_mode,
             ))
@@ -319,8 +321,14 @@ struct CacheKey<'a> {
     /// The identifier of the used compiler.
     compiler_identifier: CompilerIdentifier,
 
-    /// The version of the compiler that was used to compile the artifacts.
+    /// The version of the compiler that was used to compile the artifacts. Retained for
+    /// human-readable logging; correctness of the cache is determined by `compiler_fingerprint`.
     compiler_version: Version,
+
+    /// Hex-encoded sha256 of the compiler binary (plus any compile-time settings baked into its
+    /// output, e.g. PVM heap/stack sizes for resolc). Distinguishes binaries with the same
+    /// version string and ensures the cache invalidates when the binary changes.
+    compiler_fingerprint: String,
 
     /// The path of the metadata file that the compilation artifacts are for.
     metadata_file_path: &'a Path,

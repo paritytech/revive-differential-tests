@@ -19,7 +19,7 @@ pub mod prelude {
 
 pub(crate) mod internal_prelude {
     pub use crate::prelude::*;
-    pub use crate::resolve_output_source_path;
+    pub use crate::{resolve_output_source_path, sha256_file_hex};
     pub use revive_dt_config::prelude::*;
 
     pub use std::collections::{BTreeSet, HashMap};
@@ -54,6 +54,7 @@ pub(crate) mod internal_prelude {
     };
     pub use semver::Version;
     pub use serde::{Deserialize, Serialize};
+    pub use sha2::{Digest, Sha256};
     pub use tokio::{io::AsyncWriteExt, process::Command as AsyncCommand};
     pub use tracing::{Span, field::display, info};
 
@@ -75,6 +76,12 @@ pub trait SolidityCompiler {
 
     /// Returns the path of the compiler executable.
     fn path(&self) -> &Path;
+
+    /// A hex-encoded sha256 fingerprint of the compiler that uniquely identifies the binary and
+    /// any compile-time settings baked into its output (e.g. PVM heap/stack sizes for resolc).
+    /// Used as part of the compilation cache key so that swapping binaries or tweaking settings
+    /// invalidates cached artifacts without relying on the version string.
+    fn fingerprint(&self) -> &str;
 
     /// The low-level compiler interface.
     fn build(&self, input: CompilerInput) -> FrameworkFuture<Result<CompilerOutput>>;
@@ -208,6 +215,58 @@ pub enum RevertString {
     Debug,
     Strip,
     VerboseDebug,
+}
+
+/// Resolves an executable path. If `path` already includes a directory component (relative or
+/// absolute), it is returned as-is. Otherwise, `PATH` is searched for an executable file matching
+/// the bare name.
+pub fn resolve_executable_path(path: &Path) -> Result<PathBuf> {
+    if path.parent().is_some_and(|p| !p.as_os_str().is_empty()) {
+        return Ok(path.to_path_buf());
+    }
+    let path_env = std::env::var_os("PATH").with_context(|| {
+        format!(
+            "Cannot resolve bare executable {}: PATH not set",
+            path.display()
+        )
+    })?;
+    std::env::split_paths(&path_env)
+        .map(|dir| dir.join(path))
+        .find(|candidate| candidate.is_file())
+        .with_context(|| format!("Executable {} not found on PATH", path.display()))
+}
+
+/// Reads the file at `path` (resolving bare names against `PATH`) and returns the sha256 digest
+/// of its contents as a lowercase hex string. Results are memoized per canonical path for the
+/// lifetime of the process — `Resolc::new` is called once per (test × mode) tuple, so a naïve
+/// implementation would rehash multi-MB binaries tens of thousands of times per run.
+pub async fn sha256_file_hex(path: &Path) -> Result<String> {
+    static FILE_HASH_CACHE: LazyLock<dashmap::DashMap<PathBuf, String>> =
+        LazyLock::new(Default::default);
+
+    let resolved = resolve_executable_path(path)?;
+    let canonical = std::fs::canonicalize(&resolved)
+        .with_context(|| format!("Failed to canonicalize {} for hashing", resolved.display()))?;
+
+    if let Some(cached) = FILE_HASH_CACHE.get(&canonical) {
+        return Ok(cached.clone());
+    }
+
+    let canonical_for_blocking = canonical.clone();
+    let hash = tokio::task::spawn_blocking(move || -> Result<String> {
+        let bytes = std::fs::read(&canonical_for_blocking).with_context(|| {
+            format!(
+                "Failed to read {} for hashing",
+                canonical_for_blocking.display()
+            )
+        })?;
+        Ok(hex::encode(Sha256::digest(&bytes)))
+    })
+    .await
+    .context("sha256_file_hex blocking task panicked")??;
+
+    FILE_HASH_CACHE.insert(canonical, hash.clone());
+    Ok(hash)
 }
 
 /// Resolves a compiler output source path to an absolute, canonicalized file system path.
