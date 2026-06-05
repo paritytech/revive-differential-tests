@@ -59,7 +59,10 @@ impl Solc {
             .context("Failed to download/get path to solc binary")?;
 
             let fingerprint = sha256_file_hex(&path).await.with_context(|| {
-                format!("Failed to compute sha256 of solc binary at {}", path.display())
+                format!(
+                    "Failed to compute sha256 of solc binary at {}",
+                    path.display()
+                )
             })?;
 
             let inner = SolcInner {

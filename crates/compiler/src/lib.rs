@@ -217,12 +217,28 @@ pub enum RevertString {
     VerboseDebug,
 }
 
-/// Reads the file at `path` and returns its sha256 digest as a lowercase hex string.
+/// Resolves an executable path. If `path` already includes a directory component (relative or
+/// absolute), it is returned as-is. Otherwise, `PATH` is searched for an executable file matching
+/// the bare name.
+pub fn resolve_executable_path(path: &Path) -> Result<PathBuf> {
+    if path.parent().is_some_and(|p| !p.as_os_str().is_empty()) {
+        return Ok(path.to_path_buf());
+    }
+    let path_env = std::env::var_os("PATH")
+        .with_context(|| format!("Cannot resolve bare executable {}: PATH not set", path.display()))?;
+    std::env::split_paths(&path_env)
+        .map(|dir| dir.join(path))
+        .find(|candidate| candidate.is_file())
+        .with_context(|| format!("Executable {} not found on PATH", path.display()))
+}
+
+/// Reads the file at `path` (resolving bare names against `PATH`) and returns the sha256 digest
+/// of its contents as a lowercase hex string.
 pub async fn sha256_file_hex(path: &Path) -> Result<String> {
-    let path = path.to_path_buf();
+    let resolved = resolve_executable_path(path)?;
     tokio::task::spawn_blocking(move || {
-        let bytes = std::fs::read(&path)
-            .with_context(|| format!("Failed to read {} for hashing", path.display()))?;
+        let bytes = std::fs::read(&resolved)
+            .with_context(|| format!("Failed to read {} for hashing", resolved.display()))?;
         Ok(hex::encode(Sha256::digest(&bytes)))
     })
     .await
