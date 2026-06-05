@@ -20,6 +20,7 @@ pub struct NodeConnector {
     finalized_block_broadcast: BroadcastSender<BlockPair>,
     blocks_by_number: AsyncHashMap<u64, BlockPair>,
     indexed_transactions: AsyncHashMap<TxHash, IndexedTransactionInformation>,
+    submission_locks: DashMap<Address, Arc<Mutex<()>>>,
     /* Auxiliary */
     node: Box<dyn NodeConfiguration + Send + Sync>,
 }
@@ -84,6 +85,7 @@ impl NodeConnector {
                 finalized_block_broadcast: finalized_blocks_broadcast_tx,
                 blocks_by_number,
                 indexed_transactions,
+                submission_locks: DashMap::new(),
                 node: Box::new(node),
             })
         })
@@ -162,7 +164,14 @@ impl NodeConnector {
         substrate_provider: SingleOrPool<OnlineClient<PolkadotConfig>>,
     ) -> StaticFuture<Result<TxHash>> {
         let provider = self.eth_providers.clone();
+        let submission_mutex = tx
+            .from
+            .map(|addr| self.submission_locks.entry(addr).or_default().clone());
         Box::pin(async move {
+            let _guard = match submission_mutex {
+                Some(mutex) => Some(mutex.lock_owned().await),
+                None => None,
+            };
             let signed_transaction = provider
                 .fill(tx)
                 .await

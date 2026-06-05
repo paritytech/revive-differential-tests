@@ -8676,6 +8676,7 @@ version = "0.1.0"
 dependencies = [
  "alloy",
  "anyhow",
+ "dashmap",
  "futures",
  "pallet-revive",
  "revive-common",

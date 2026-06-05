@@ -55,6 +55,7 @@ pub(crate) mod internal_prelude {
         TransportErrorKind, TransportFut, TransportResult,
     };
     pub use anyhow::{Context as _, Error, Result, anyhow, bail};
+    pub use dashmap::DashMap;
     pub use futures::future::try_join_all;
     pub use futures::{FutureExt, StreamExt, TryFutureExt};
     pub use pallet_revive::{
@@ -73,8 +74,18 @@ pub(crate) mod internal_prelude {
         traits::BlakeTwo256,
     };
     pub use subxt::{
-        OnlineClient, PolkadotConfig, blocks::Block as SubxtBlock, dynamic, tx::Payload,
+        OnlineClient, PolkadotConfig,
+        backend::{
+            legacy::{
+                LegacyRpcMethods, rpc_methods::TransactionStatus as LegacyTransactionStatus,
+            },
+            rpc::RpcClient as SubxtRpcClient,
+        },
+        blocks::Block as SubxtBlock,
+        dynamic,
+        tx::Payload,
     };
+    pub use tokio::sync::Mutex;
     pub use tokio::task::AbortHandle;
     pub use tokio::time::{interval, sleep, timeout};
     pub use tokio::{

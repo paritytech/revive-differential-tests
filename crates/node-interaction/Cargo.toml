@@ -26,6 +26,7 @@ tokio = { workspace = true }
 tokio-stream = { workspace = true }
 tower = { workspace = true }
 tracing = { workspace = true }
+dashmap = { workspace = true }
 
 [lints]
 workspace = true
