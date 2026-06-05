@@ -19,6 +19,9 @@ struct ResolcInner {
     pvm_heap_size: u32,
     /// The PVM stack size in bytes.
     pvm_stack_size: u32,
+    /// Hex-encoded sha256 over the resolc binary, the inner solc's fingerprint, and the
+    /// PVM heap/stack sizes — all of which influence compiled output.
+    fingerprint: String,
 }
 
 /// The runtime used for the resolc build.
@@ -60,12 +63,28 @@ impl Resolc {
             .await
             .context("Failed to create the solc compiler frontend for resolc")?;
 
+            let resolc_binary_hash = sha256_file_hex(&resolc_path).await.with_context(|| {
+                format!(
+                    "Failed to compute sha256 of resolc binary at {}",
+                    resolc_path.display()
+                )
+            })?;
+            let fingerprint = {
+                let mut hasher = Sha256::new();
+                hasher.update(resolc_binary_hash.as_bytes());
+                hasher.update(SolidityCompiler::fingerprint(&solc).as_bytes());
+                hasher.update(pvm_heap_size.to_le_bytes());
+                hasher.update(pvm_stack_size.to_le_bytes());
+                hex::encode(hasher.finalize())
+            };
+
             let inner = ResolcInner {
                 runtime_target,
                 solc,
                 resolc_path,
                 pvm_heap_size,
                 pvm_stack_size,
+                fingerprint,
             };
             Ok(COMPILERS_CACHE
                 .entry(inner.clone())
@@ -113,6 +132,10 @@ impl SolidityCompiler for Resolc {
 
     fn path(&self) -> &std::path::Path {
         &self.0.resolc_path
+    }
+
+    fn fingerprint(&self) -> &str {
+        &self.0.fingerprint
     }
 
     #[tracing::instrument(level = "debug", skip_all, ret)]

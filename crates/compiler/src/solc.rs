@@ -14,6 +14,8 @@ struct SolcInner {
     solc_path: PathBuf,
     /// The version of the solc compiler that this object uses.
     solc_version: Version,
+    /// Hex-encoded sha256 of the solc binary contents.
+    fingerprint: String,
 }
 
 /// The runtime used for the solc build.
@@ -56,10 +58,15 @@ impl Solc {
             .await
             .context("Failed to download/get path to solc binary")?;
 
+            let fingerprint = sha256_file_hex(&path).await.with_context(|| {
+                format!("Failed to compute sha256 of solc binary at {}", path.display())
+            })?;
+
             let inner = SolcInner {
                 runtime_target,
                 solc_path: path,
                 solc_version: version,
+                fingerprint,
             };
             Ok(COMPILERS_CACHE
                 .entry(inner.clone())
@@ -98,6 +105,10 @@ impl SolidityCompiler for Solc {
 
     fn path(&self) -> &std::path::Path {
         &self.0.solc_path
+    }
+
+    fn fingerprint(&self) -> &str {
+        &self.0.fingerprint
     }
 
     #[tracing::instrument(level = "debug", skip_all, ret)]
