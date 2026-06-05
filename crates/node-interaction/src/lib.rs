@@ -4,6 +4,7 @@ pub mod config;
 pub mod connector;
 mod pool;
 mod providers;
+mod subxt_provider;
 pub mod traits;
 
 pub mod prelude {
@@ -18,10 +19,11 @@ pub(crate) mod internal_prelude {
     pub use crate::prelude::*;
     pub use crate::providers::*;
     pub use crate::revive_metadata::revive::calls::types::EthTransact;
+    pub use crate::subxt_provider::*;
 
     pub use std::borrow::Cow;
     pub use std::collections::HashMap;
-    pub use std::future::ready;
+    pub use std::future::{Future, ready};
     pub use std::ops::{ControlFlow, Deref};
     pub use std::result::Result as StdResult;
     pub use std::sync::{Arc, LazyLock, Mutex as StdMutex, OnceLock, atomic::AtomicUsize};
@@ -37,8 +39,8 @@ pub(crate) mod internal_prelude {
         Identity, Provider, ProviderBuilder, RootProvider, SendableTx,
         ext::DebugApi,
         fillers::{
-            ChainIdFiller, FillProvider, GasFillable, GasFiller, JoinFill, NonceFiller, TxFiller,
-            WalletFiller,
+            CachedNonceManager, ChainIdFiller, FillProvider, GasFillable, GasFiller, JoinFill,
+            NonceFiller, TxFiller, WalletFiller,
         },
     };
     pub use alloy::rpc::client::{BuiltInConnectionString, RpcClient};
@@ -65,7 +67,7 @@ pub(crate) mod internal_prelude {
     };
     pub use revive_common::EVMVersion;
     pub use revive_dt_common::futures::{
-        AsyncHashMap, StaticFuture, StaticStream, retry_with_exponential_backoff,
+        AsyncHashMap, StaticFuture, StaticStream, retry_future_with_exponential_backoff,
     };
     pub use serde_json;
     pub use sp_runtime::{
@@ -75,14 +77,13 @@ pub(crate) mod internal_prelude {
     };
     pub use subxt::{
         OnlineClient, PolkadotConfig,
-        backend::{
-            legacy::{
-                LegacyRpcMethods, rpc_methods::TransactionStatus as LegacyTransactionStatus,
-            },
-            rpc::RpcClient as SubxtRpcClient,
+        backend::rpc::{
+            RawRpcFuture, RawRpcSubscription, RawValue, RpcClient as SubxtRpcClient, RpcClientT,
+            reconnecting_rpc_client,
         },
         blocks::Block as SubxtBlock,
         dynamic,
+        ext::subxt_rpcs::{Error as RpcsError, utils::validate_url_is_secure},
         tx::Payload,
     };
     pub use tokio::sync::Mutex;

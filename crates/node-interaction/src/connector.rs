@@ -35,8 +35,10 @@ impl NodeConnector {
 
         let eth_provider_urls = node.eth_provider_url();
         let substrate_rpc_urls = node.substrate_provider_url();
+        let nonce_manager = CachedNonceManager::default();
 
-        let eth_providers_future = Self::eth_providers_future(eth_provider_urls, config, wallet);
+        let eth_providers_future =
+            Self::eth_providers_future(eth_provider_urls, config, wallet, nonce_manager);
         let substrate_providers_future = Self::substrate_providers_future(substrate_rpc_urls);
 
         Box::pin(async move {
@@ -139,11 +141,30 @@ impl NodeConnector {
             Some(PreSubmissionHook::Disabled) | None => {}
         }
 
-        match self.substrate_providers.as_ref() {
-            Some(substrate_providers) => {
-                self.send_transaction_substrate(tx, substrate_providers.clone())
+        let config = self
+            .config
+            .behaviors
+            .as_ref()
+            .and_then(|config| config.submission_behavior)
+            .unwrap_or(SubmissionBehavior::UseDefaultForPlatform);
+
+        match (config, self.substrate_providers.as_ref()) {
+            (SubmissionBehavior::UseDefaultForPlatform, None)
+            | (SubmissionBehavior::UseEthRpc, ..) => self.send_transaction_evm(tx),
+            (
+                SubmissionBehavior::UseDefaultForPlatform | SubmissionBehavior::UseSubstrateRpc,
+                Some(substrate_provider),
+            ) => self.send_transaction_substrate(tx, substrate_provider.clone()),
+            (SubmissionBehavior::UseSubstrateRpcAndAwaitValidation, Some(substrate_provider)) => {
+                self.send_transaction_and_await_validation_substrate(tx, substrate_provider.clone())
             }
-            None => self.send_transaction_evm(tx),
+            (
+                SubmissionBehavior::UseSubstrateRpc
+                | SubmissionBehavior::UseSubstrateRpcAndAwaitValidation,
+                None,
+            ) => Box::pin(ready(Err(anyhow!(
+                "Can not use the substrate provider on a non-substrate chain"
+            )))),
         }
     }
 
@@ -185,22 +206,11 @@ impl NodeConnector {
                 .revive()
                 .eth_transact(payload.to_vec())
                 .unvalidated();
-            let substrate_hash =
-                retry_with_exponential_backoff(10, Duration::from_millis(10), || {
-                    let call = &call;
-                    let substrate_provider = &substrate_provider;
-                    async move {
-                        let transaction = match substrate_provider.tx().create_unsigned(call) {
-                            Ok(transaction) => transaction,
-                            Err(err) => return ControlFlow::Continue(err),
-                        };
-
-                        match transaction.submit().await {
-                            Ok(substrate_hash) => ControlFlow::Break(substrate_hash),
-                            Err(err) => ControlFlow::Continue(err),
-                        }
-                    }
-                })
+            let substrate_hash = substrate_provider
+                .tx()
+                .create_unsigned(&call)
+                .context("Failed to create the unsigned transaction")?
+                .submit()
                 .await
                 .context("Failed to submit the transaction through subxt")?;
 
@@ -209,6 +219,64 @@ impl NodeConnector {
                 ?substrate_hash,
                 "Submitting a substrate transaction"
             );
+
+            Ok(*ethereum_tx_hash)
+        })
+    }
+
+    fn send_transaction_and_await_validation_substrate(
+        &self,
+        tx: TransactionRequest,
+        substrate_provider: SingleOrPool<OnlineClient<PolkadotConfig>>,
+    ) -> StaticFuture<Result<TxHash>> {
+        let provider = self.eth_providers.clone();
+        let submission_mutex = tx
+            .from
+            .map(|addr| self.submission_locks.entry(addr).or_default().clone());
+
+        Box::pin(async move {
+            let _guard = match submission_mutex {
+                Some(mutex) => Some(mutex.lock_owned().await),
+                None => None,
+            };
+
+            let signed_transaction = provider
+                .fill(tx)
+                .await
+                .context("Failed to fill transaction")?
+                .try_into_envelope()
+                .context("Failed to construct envelope from filled transaction")?;
+            let ethereum_tx_hash = signed_transaction.tx_hash();
+            let payload = signed_transaction.encoded_2718();
+
+            let call = revive_metadata::tx()
+                .revive()
+                .eth_transact(payload.to_vec())
+                .unvalidated();
+            let substrate_transaction = substrate_provider
+                .tx()
+                .create_unsigned(&call)
+                .context("Failed to create substrate transaction")?;
+            let substrate_tx_hash = substrate_transaction.hash();
+
+            info!(
+                evm_hash = %ethereum_tx_hash,
+                substrate_hash = ?substrate_tx_hash,
+                "Create a substrate transaction, but didn't yet submit it"
+            );
+
+            let mut watch = substrate_transaction
+                .submit_and_watch()
+                .await
+                .context("Failed to submit transaction")?;
+            loop {
+                match watch.next().await {
+                    Some(Ok(subxt::tx::TxStatus::InFinalizedBlock(..))) => break,
+                    Some(Ok(..)) => {}
+                    Some(Err(err)) => Err(err).context("Failed to get the transaction status")?,
+                    None => bail!("Transaction status closed before we could receive it"),
+                }
+            }
 
             Ok(*ethereum_tx_hash)
         })
@@ -359,26 +427,18 @@ impl NodeConnector {
                 .expect("qed; alloy geth tracing options serialize to JSON");
             let trace_options = serde_json::from_value::<TracerConfig>(trace_options)
                 .context("Failed to convert geth tracing options into revive tracer config")?;
-            let trace = retry_with_exponential_backoff(10, Duration::from_millis(10), || {
-                let provider = &provider;
-                let block = block.clone();
-                let trace_config = trace_options.config.clone();
-                async move {
-                    let payload = revive_metadata::apis()
-                        .revive_api()
-                        .trace_tx(block.into(), extrinsic_index, trace_config.into())
-                        .unvalidated();
-
-                    match provider.runtime_api().at(parent_hash).call(payload).await {
-                        Ok(trace) => ControlFlow::Break(trace),
-                        Err(err) => ControlFlow::Continue(err),
-                    }
-                }
-            })
-            .await
-            .context("Failed to get the transaction trace")?
-            .context("Failed to get the transaction trace")?
-            .0;
+            let payload = revive_metadata::apis()
+                .revive_api()
+                .trace_tx(block.into(), extrinsic_index, trace_options.config.into())
+                .unvalidated();
+            let trace = provider
+                .runtime_api()
+                .at(parent_hash)
+                .call(payload)
+                .await
+                .context("Failed to get the transaction trace")?
+                .context("Failed to get the transaction trace")?
+                .0;
 
             let trace_json =
                 serde_json::to_value(trace).expect("qed; pallet-revive trace serializes to JSON");
@@ -421,34 +481,20 @@ impl NodeConnector {
                     .expect("qed; this is a substrate node")
                     .online_block
                     .hash()),
-                None => retry_with_exponential_backoff(10, Duration::from_millis(10), || {
-                    let provider = &provider;
-                    async move {
-                        match provider.runtime_api().at_latest().await {
-                            Ok(runtime_api) => ControlFlow::Break(runtime_api),
-                            Err(err) => ControlFlow::Continue(err),
-                        }
-                    }
-                })
-                .await
-                .context("Failed to get the runtime API at the latest finalized block")?,
+                None => provider
+                    .runtime_api()
+                    .at_latest()
+                    .await
+                    .context("Failed to get the runtime API at the latest finalized block")?,
             };
-            let balance = retry_with_exponential_backoff(10, Duration::from_millis(10), || {
-                let runtime_api = &runtime_api;
-                async move {
-                    let payload = revive_metadata::apis()
-                        .revive_api()
-                        .balance(address.0.0.into())
-                        .unvalidated();
-
-                    match runtime_api.call(payload).await {
-                        Ok(balance) => ControlFlow::Break(balance),
-                        Err(err) => ControlFlow::Continue(err),
-                    }
-                }
-            })
-            .await
-            .context("Failed to get the balance")?;
+            let payload = revive_metadata::apis()
+                .revive_api()
+                .balance(address.0.0.into())
+                .unvalidated();
+            let balance = runtime_api
+                .call(payload)
+                .await
+                .context("Failed to get the balance")?;
             Ok(U256::from_limbs_slice(&balance.0))
         })
     }
@@ -482,21 +528,13 @@ impl NodeConnector {
         Box::pin(async move {
             let provider = provider.context("No substrate provider available")?;
             let encoded_args = payload.encode();
-            let encoded_result =
-                retry_with_exponential_backoff(5, Duration::from_millis(500), || async {
-                    match provider
-                        .runtime_api()
-                        .at(H256(block_hash))
-                        .call_raw(
-                            "ReviveApi_eth_pre_dispatch_weight",
-                            Some(encoded_args.as_slice()),
-                        )
-                        .await
-                    {
-                        Ok(result) => ControlFlow::Break(result),
-                        Err(err) => ControlFlow::Continue(anyhow!("{err:?}")),
-                    }
-                })
+            let encoded_result = provider
+                .runtime_api()
+                .at(H256(block_hash))
+                .call_raw(
+                    "ReviveApi_eth_pre_dispatch_weight",
+                    Some(encoded_args.as_slice()),
+                )
                 .await
                 .context("Failed to get the pre-dispatch weights")?;
 
@@ -512,6 +550,7 @@ impl NodeConnector {
         eth_provider_urls: NodeUrlCollection<'_>,
         config: NodeConnectorConfiguration,
         wallet: Arc<EthereumWallet>,
+        nonce_manager: CachedNonceManager,
     ) -> StaticFuture<Result<SingleOrPool<AlloyProvider>>> {
         match eth_provider_urls {
             NodeUrlCollection { ipc: Some(url), .. }
@@ -519,16 +558,16 @@ impl NodeConnector {
                 ipc: None,
                 ws: None,
                 http: Some(url),
-            } => new_alloy_provider(url, config, wallet.clone())
+            } => new_alloy_provider(url, config, wallet.clone(), nonce_manager)
                 .map_ok(SingleOrPool::Single)
                 .boxed() as StaticFuture<_>,
             NodeUrlCollection {
                 ipc: None,
                 ws: Some(url),
                 ..
-            } => try_join_all(
-                (0..10).map(move |_| new_alloy_provider(url.as_ref(), config, wallet.clone())),
-            )
+            } => try_join_all((0..10).map(move |_| {
+                new_alloy_provider(url.as_ref(), config, wallet.clone(), nonce_manager.clone())
+            }))
             .map_ok(Pool::new_unchecked)
             .map_ok(SingleOrPool::Pool)
             .boxed() as StaticFuture<_>,
@@ -554,9 +593,8 @@ impl NodeConnector {
             } => {
                 let url = url.to_string();
                 Some(
-                    OnlineClient::<PolkadotConfig>::from_url(url)
+                    new_substrate_client(url)
                         .map_ok(SingleOrPool::Single)
-                        .map_err(Error::from)
                         .boxed() as StaticFuture<_>,
                 )
             }
@@ -567,13 +605,10 @@ impl NodeConnector {
             } => {
                 let url = url.to_string();
                 Some(
-                    try_join_all(
-                        (0..10).map(move |_| OnlineClient::<PolkadotConfig>::from_url(url.clone())),
-                    )
-                    .map_err(Error::from)
-                    .map_ok(Pool::new_unchecked)
-                    .map_ok(SingleOrPool::Pool)
-                    .boxed() as StaticFuture<_>,
+                    try_join_all((0..10).map(move |_| new_substrate_client(url.clone())))
+                        .map_ok(Pool::new_unchecked)
+                        .map_ok(SingleOrPool::Pool)
+                        .boxed() as StaticFuture<_>,
                 )
             }
             NodeUrlCollection {
@@ -648,34 +683,17 @@ impl NodeConnector {
                             break;
                         }
                     };
-                    let runtime_api =
-                        retry_with_exponential_backoff(10, Duration::from_millis(10), || {
-                            let substrate_block = &substrate_block;
-                            async move {
-                                match substrate_block.runtime_api().await {
-                                    Ok(runtime_api) => ControlFlow::Break(runtime_api),
-                                    Err(err) => ControlFlow::Continue(err),
-                                }
-                            }
-                        })
+                    let runtime_api = substrate_block
+                        .runtime_api()
                         .await
                         .context("Failed to get the runtime API")?;
 
-                    let eth_block =
-                        retry_with_exponential_backoff(10, Duration::from_millis(10), || {
-                            let runtime_api = &runtime_api;
-                            let payload = revive_metadata::apis()
-                                .revive_api()
-                                .eth_block()
-                                .unvalidated();
-
-                            async move {
-                                match runtime_api.call(payload).await {
-                                    Ok(block) => ControlFlow::Break(block),
-                                    Err(err) => ControlFlow::Continue(err),
-                                }
-                            }
-                        })
+                    let payload = revive_metadata::apis()
+                        .revive_api()
+                        .eth_block()
+                        .unvalidated();
+                    let eth_block = runtime_api
+                        .call(payload)
                         .await
                         .context("Failed to call the eth_block runtime API")?;
                     let eth_block_json = serde_json::to_value(eth_block.0)
@@ -752,17 +770,10 @@ impl NodeConnector {
         online_block: Arc<OnlineSubxtBlock>,
         limits: Option<Weight>,
     ) -> Result<SubstrateBlockInformation> {
-        let extrinsics = retry_with_exponential_backoff(10, Duration::from_millis(10), || {
-            let online_block = &online_block;
-            async move {
-                match online_block.extrinsics().await {
-                    Ok(extrinsics) => ControlFlow::Break(extrinsics),
-                    Err(err) => ControlFlow::Continue(err),
-                }
-            }
-        })
-        .await
-        .context("Failed to get the substrate block extrinsics")?;
+        let extrinsics = online_block
+            .extrinsics()
+            .await
+            .context("Failed to get the substrate block extrinsics")?;
 
         let header = GenericHeader::<u32, BlakeTwo256>::decode(
             &mut online_block.header().encode().as_slice(),
@@ -819,18 +830,11 @@ impl NodeConnector {
     }
 
     async fn consumed_block_weight(block: &OnlineSubxtBlock) -> Result<Weight> {
-        let used = retry_with_exponential_backoff(10, Duration::from_millis(10), || async {
-            match block
-                .storage()
-                .fetch_or_default(&revive_metadata::storage().system().block_weight())
-                .await
-            {
-                Ok(weight) => ControlFlow::Break(weight),
-                Err(err) => ControlFlow::Continue(err),
-            }
-        })
-        .await
-        .context("Failed to fetch consumed substrate block weight")?;
+        let used = block
+            .storage()
+            .fetch_or_default(&revive_metadata::storage().system().block_weight())
+            .await
+            .context("Failed to fetch consumed substrate block weight")?;
 
         Ok((*used.normal)
             .saturating_add(*used.operational)
@@ -961,6 +965,7 @@ pub fn new_alloy_provider(
     url: impl ToString,
     config: NodeConnectorConfiguration,
     wallet: Arc<EthereumWallet>,
+    nonce_manager: CachedNonceManager,
 ) -> StaticFuture<Result<AlloyProvider>> {
     let url = url.to_string();
 
@@ -985,7 +990,7 @@ pub fn new_alloy_provider(
             .network::<Ethereum>()
             .filler(handle_gas_filler_config(&config))
             .fetch_chain_id()
-            .with_cached_nonce_management()
+            .with_nonce_management(nonce_manager)
             .wallet(wallet)
             .connect_client(client))
     })

@@ -127,6 +127,15 @@ impl NodeConfiguration for ReviveDevNode {
         EVMVersion::Cancun
     }
 
+    fn configurations(&self) -> NodeConnectorConfiguration {
+        NodeConnectorConfiguration {
+            behaviors: Some(NodeConnectorBehaviors {
+                submission_behavior: Some(SubmissionBehavior::UseDefaultForPlatform),
+            }),
+            ..Default::default()
+        }
+    }
+
     fn eth_provider_url(&self) -> NodeUrlCollection<'_> {
         NodeUrlCollection::new().with_http_url(self.eth_rpc_process.url())
     }

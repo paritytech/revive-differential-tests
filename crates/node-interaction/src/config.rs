@@ -13,6 +13,7 @@ macro_rules! resolve {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 pub struct NodeConnectorConfiguration {
     pub hooks: Option<NodeConnectorHooks>,
+    pub behaviors: Option<NodeConnectorBehaviors>,
     pub eth_provider_configuration: Option<EthProviderConfiguration>,
 }
 
@@ -20,12 +21,34 @@ impl NodeConnectorConfiguration {
     pub fn resolve(self, other: Self) -> Self {
         Self {
             hooks: resolve!(self.hooks, other.hooks),
+            behaviors: resolve!(self.behaviors, other.behaviors),
             eth_provider_configuration: resolve!(
                 self.eth_provider_configuration,
                 other.eth_provider_configuration
             ),
         }
     }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+pub struct NodeConnectorBehaviors {
+    pub submission_behavior: Option<SubmissionBehavior>,
+}
+
+impl NodeConnectorBehaviors {
+    pub fn resolve(self, other: Self) -> Self {
+        Self {
+            submission_behavior: self.submission_behavior.or(other.submission_behavior),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum SubmissionBehavior {
+    UseDefaultForPlatform,
+    UseEthRpc,
+    UseSubstrateRpc,
+    UseSubstrateRpcAndAwaitValidation,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]

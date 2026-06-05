@@ -64,7 +64,7 @@ sp-core = "38.0.1"
 sp-runtime = "43.0.0"
 strum = { version = "0.27.2", features = ["derive"] }
 syn = { version = "2.0.117", features = ["full"] }
-subxt = { version = "0.43.0" }
+subxt = { version = "0.43.0", features = ["reconnecting-rpc-client"] }
 temp-dir = { version = "0.1.16" }
 tempfile = "3.3"
 thiserror = "2"
