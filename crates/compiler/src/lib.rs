@@ -224,8 +224,12 @@ pub fn resolve_executable_path(path: &Path) -> Result<PathBuf> {
     if path.parent().is_some_and(|p| !p.as_os_str().is_empty()) {
         return Ok(path.to_path_buf());
     }
-    let path_env = std::env::var_os("PATH")
-        .with_context(|| format!("Cannot resolve bare executable {}: PATH not set", path.display()))?;
+    let path_env = std::env::var_os("PATH").with_context(|| {
+        format!(
+            "Cannot resolve bare executable {}: PATH not set",
+            path.display()
+        )
+    })?;
     std::env::split_paths(&path_env)
         .map(|dir| dir.join(path))
         .find(|candidate| candidate.is_file())
