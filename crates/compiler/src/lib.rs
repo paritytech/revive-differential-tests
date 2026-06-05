@@ -237,16 +237,36 @@ pub fn resolve_executable_path(path: &Path) -> Result<PathBuf> {
 }
 
 /// Reads the file at `path` (resolving bare names against `PATH`) and returns the sha256 digest
-/// of its contents as a lowercase hex string.
+/// of its contents as a lowercase hex string. Results are memoized per canonical path for the
+/// lifetime of the process — `Resolc::new` is called once per (test × mode) tuple, so a naïve
+/// implementation would rehash multi-MB binaries tens of thousands of times per run.
 pub async fn sha256_file_hex(path: &Path) -> Result<String> {
+    static FILE_HASH_CACHE: LazyLock<dashmap::DashMap<PathBuf, String>> =
+        LazyLock::new(Default::default);
+
     let resolved = resolve_executable_path(path)?;
-    tokio::task::spawn_blocking(move || {
-        let bytes = std::fs::read(&resolved)
-            .with_context(|| format!("Failed to read {} for hashing", resolved.display()))?;
+    let canonical = std::fs::canonicalize(&resolved)
+        .with_context(|| format!("Failed to canonicalize {} for hashing", resolved.display()))?;
+
+    if let Some(cached) = FILE_HASH_CACHE.get(&canonical) {
+        return Ok(cached.clone());
+    }
+
+    let canonical_for_blocking = canonical.clone();
+    let hash = tokio::task::spawn_blocking(move || -> Result<String> {
+        let bytes = std::fs::read(&canonical_for_blocking).with_context(|| {
+            format!(
+                "Failed to read {} for hashing",
+                canonical_for_blocking.display()
+            )
+        })?;
         Ok(hex::encode(Sha256::digest(&bytes)))
     })
     .await
-    .context("sha256_file_hex blocking task panicked")?
+    .context("sha256_file_hex blocking task panicked")??;
+
+    FILE_HASH_CACHE.insert(canonical, hash.clone());
+    Ok(hash)
 }
 
 /// Resolves a compiler output source path to an absolute, canonicalized file system path.
