@@ -145,6 +145,8 @@ pub async fn handle_differential_benchmarks(
                 ),
                 None => None,
             };
+            let transaction_finder =
+                TransactionFinder::new(provider.clone(), substrate_provider.clone());
             let (watcher, watcher_tx) = Watcher::new(
                 platform_information
                     .node
@@ -166,6 +168,7 @@ pub async fn handle_differential_benchmarks(
                 watcher_tx.clone(),
                 false,
                 &inclusion_watcher,
+                transaction_finder,
                 test_definition
                     .case
                     .steps_iterator_for_benchmarks(context.benchmark_run.default_repetition_count)

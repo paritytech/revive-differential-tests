@@ -1,3 +1,8 @@
+use pallet_revive::evm::Trace;
+use revive_dt_node_interaction::revive_metadata::runtime_apis::revive_api::types::trace_tx;
+use revive_dt_node_interaction::revive_metadata::runtime_types::pallet_revive::evm::api::debug_rpc_types::{TracerType, CallTracerConfig};
+use subxt::utils::UncheckedExtrinsic;
+
 use crate::internal_prelude::*;
 
 use crate::differential_benchmarks::ExecutionState;
@@ -52,6 +57,9 @@ pub struct Driver<'a, I> {
     /// proceeding forward.
     await_transaction_receipts: bool,
 
+    /// A service which allows us to find the specific block which contains a specific transaction.
+    transaction_finder: TransactionFinder,
+
     /// This is the queue of steps that are to be executed by the driver for this test case. Each
     /// time `execute_step` is called one of the steps is executed.
     steps_iterator: I,
@@ -72,6 +80,7 @@ where
         watcher_tx: UnboundedSender<WatcherEvent>,
         await_transaction_inclusion: bool,
         inclusion_watcher: &'a InclusionWatcher,
+        transaction_finder: TransactionFinder,
         steps: I,
     ) -> Result<Self> {
         let mut this = Driver {
@@ -88,6 +97,7 @@ where
             await_transaction_receipts: true,
             watcher_tx,
             gas_limits: Arc::new(Default::default()),
+            transaction_finder,
         };
         this.init_execution_state(cached_compiler)
             .await
@@ -499,8 +509,7 @@ where
                     }
                 } else if self.await_transaction_inclusion {
                     inclusion_future.await?;
-                };
-
+                }
                 Ok(tx_hash)
             }
         }
@@ -510,31 +519,151 @@ where
         &mut self,
         tx_hash: TxHash,
     ) -> Result<CallFrame> {
-        self.platform_information
+        let (transaction_index, transaction_block) = self.transaction_finder.find(tx_hash).await;
+
+        match transaction_block.substrate_block {
+            Some(ref substrate_block) => {
+                let substrate_block_parent_hash = substrate_block.header().parent_hash;
+
+                let header = Decode::decode(&mut substrate_block.header().encode().as_slice())
+                    .context("Failed to decode the header into the runtime header type")?;
+                let extrinsics = substrate_block
+                    .extrinsics()
+                    .await
+                    .context("Failed to get the extrinsics of the substrate block")?
+                    .iter()
+                    .map(|extrinsic| UncheckedExtrinsic::new(extrinsic.bytes().to_vec()))
+                    .collect();
+
+                let trace_call = revive_metadata::apis()
+                    .revive_api()
+                    .trace_tx(
+                        trace_tx::Block { header, extrinsics },
+                        transaction_index as _,
+                        TracerType::CallTracer(Some(CallTracerConfig {
+                            with_logs: true,
+                            only_top_call: false,
+                        })),
+                    )
+                    .unvalidated();
+                let trace = self
+                    .platform_information
+                    .node
+                    .substrate_provider()
+                    .expect("This is a substrate based node")
+                    .await
+                    .context("Failed to get the substrate provider for the node")?
+                    .runtime_api()
+                    .at(substrate_block_parent_hash)
+                    .call(trace_call)
+                    .await
+                    .context("Failed to get the transaction trace")?
+                    .context("Failed to get the transaction trace")?;
+
+                let trace = Trace::decode(&mut trace.encode().as_slice())
+                    .context("Failed to decode the trace into the pallet-revive trace type")?;
+                let Trace::Call(call_trace) = trace else {
+                    bail!("Requested a call trace but got a prestate trace back")
+                };
+                let serialized = serde_json::to_value(call_trace)
+                    .context("Failed to serialize the pallet-revive call trace")?;
+                serde_json::from_value::<CallFrame>(serialized)
+                    .context("Failed to deserialize the call trace into the alloy type")
+            }
+            None => self
+                .platform_information
+                .node
+                .trace_transaction(
+                    tx_hash,
+                    GethDebugTracingOptions {
+                        tracer: Some(GethDebugTracerType::BuiltInTracer(
+                            GethDebugBuiltInTracerType::CallTracer,
+                        )),
+                        tracer_config: GethDebugTracerConfig(serde_json::json! {{
+                            "onlyTopCall": true,
+                            "withLog": false,
+                            "withStorage": false,
+                            "withMemory": false,
+                            "withStack": false,
+                            "withReturnData": true
+                        }}),
+                        ..Default::default()
+                    },
+                )
+                .await
+                .map(|trace| {
+                    trace.try_into_call_frame().expect(
+                        "Impossible - we requested a callframe trace so we must get it back",
+                    )
+                }),
+        }
+    }
+
+    /// Fetch the topic-lists of every EVM log emitted by `tx_hash`, in execution order.
+    /// Substrate: walks `ContractEmitted` events at the finalized block.
+    /// Ethereum: reads `receipt.logs`. Returns `Err` on revert.
+    async fn fetch_tx_log_topics(&self, tx_hash: TxHash) -> Result<Vec<Vec<B256>>> {
+        if self
+            .platform_information
             .node
-            .trace_transaction(
-                tx_hash,
-                GethDebugTracingOptions {
-                    tracer: Some(GethDebugTracerType::BuiltInTracer(
-                        GethDebugBuiltInTracerType::CallTracer,
-                    )),
-                    tracer_config: GethDebugTracerConfig(serde_json::json! {{
-                        "onlyTopCall": true,
-                        "withLog": false,
-                        "withStorage": false,
-                        "withMemory": false,
-                        "withStack": false,
-                        "withReturnData": true
-                    }}),
-                    ..Default::default()
-                },
-            )
+            .substrate_provider()
+            .is_some()
+        {
+            self.fetch_tx_log_topics_via_substrate_events(tx_hash).await
+        } else {
+            let receipt = self
+                .platform_information
+                .node
+                .get_receipt(tx_hash)
+                .await
+                .context("Failed to get receipt for event_topics capture")?;
+            if !receipt.status() {
+                bail!("Transaction failed {receipt:?}");
+            }
+            Ok(receipt
+                .inner
+                .logs()
+                .iter()
+                .map(|l| l.topics().to_vec())
+                .collect())
+        }
+    }
+
+    /// Substrate path of [`Self::fetch_tx_log_topics`]. Returns `Err` on `EthExtrinsicRevert`.
+    async fn fetch_tx_log_topics_via_substrate_events(
+        &self,
+        tx_hash: TxHash,
+    ) -> Result<Vec<Vec<B256>>> {
+        debug!(%tx_hash, "Fetching event log topics via substrate events");
+        let (tx_index, transaction_block) = self.transaction_finder.find(tx_hash).await;
+        let substrate_block = transaction_block.substrate_block.as_ref().context(
+            "Substrate block missing on TransactionFinder result \
+             (caller should have gated on substrate_provider().is_some())",
+        )?;
+
+        let events = substrate_block
+            .events()
             .await
-            .map(|trace| {
-                trace
-                    .try_into_call_frame()
-                    .expect("Impossible - we requested a callframe trace so we must get it back")
-            })
+            .context("Failed to fetch substrate events")?;
+
+        let target_phase = subxt::events::Phase::ApplyExtrinsic(tx_index as u32);
+        let mut log_topics: Vec<Vec<B256>> = Vec::new();
+        for ev in events.iter() {
+            let ev = ev.context("Failed to decode event")?;
+            if ev.phase() != target_phase {
+                continue;
+            }
+            if let Some(revert) =
+                ev.as_event::<revive_metadata::revive::events::EthExtrinsicRevert>()?
+            {
+                bail!("Transaction reverted: {:?}", revert.dispatch_error);
+            }
+            if let Some(emit) = ev.as_event::<revive_metadata::revive::events::ContractEmitted>()? {
+                log_topics.push(emit.topics.into_iter().map(|h| B256::from(h.0)).collect());
+            }
+        }
+        debug!(%tx_hash, num_logs = log_topics.len(), "Fetched event log topics from substrate");
+        Ok(log_topics)
     }
 
     async fn handle_function_call_variable_assignment(
@@ -546,20 +675,47 @@ where
             return Ok(());
         };
 
-        // Handling the return data variable assignments.
-        let callframe = OnceCell::new();
-        for (variable_name, output_word) in assignments.return_data.iter().zip(
-            callframe
-                .get_or_try_init(|| self.handle_function_call_call_frame_tracing(tx_hash))
-                .await
-                .context("Failed to get the callframe trace for transaction")?
-                .output
-                .as_ref()
-                .unwrap_or_default()
-                .to_vec()
-                .chunks(32),
-        ) {
-            let value = U256::from_be_slice(output_word);
+        // Collect 32-byte value words for each variable to assign, based on the source.
+        let value_words: Vec<[u8; 32]> = match assignments {
+            VariableAssignments::EventTopics { topics, .. } => {
+                let log_topics = self.fetch_tx_log_topics(tx_hash).await?;
+                let log_topics: Vec<&[B256]> = log_topics.iter().map(|t| t.as_slice()).collect();
+                extract_event_topic_values(&log_topics, topics)?
+            }
+            VariableAssignments::ReturnData { .. } => {
+                let callframe = self
+                    .handle_function_call_call_frame_tracing(tx_hash)
+                    .await
+                    .context("Failed to get the callframe trace for transaction")?;
+                if let Some(err) = callframe.error.as_ref() {
+                    bail!("Transaction reverted: {err}");
+                }
+                callframe
+                    .output
+                    .as_ref()
+                    .unwrap_or_default()
+                    .to_vec()
+                    .chunks(32)
+                    .map(|chunk| {
+                        let mut padded = [0u8; 32];
+                        padded[..chunk.len()].copy_from_slice(chunk);
+                        padded
+                    })
+                    .collect()
+            }
+        };
+
+        for (raw_name, value_word) in assignments.names().iter().zip(value_words.iter()) {
+            let variable_name: String = if raw_name.contains("$VARIABLE:") {
+                let context = self.default_resolution_context();
+                revive_dt_format::steps::CalldataToken::<&str>::resolve_variable_name_template(
+                    raw_name, context,
+                )
+                .context("Failed to resolve variable_assignments templated variable name")?
+            } else {
+                raw_name.clone()
+            };
+            let value = U256::from_be_slice(value_word);
             self.execution_state
                 .variables
                 .insert(variable_name.clone(), value);
@@ -623,6 +779,7 @@ where
                             inclusion_watcher: self.inclusion_watcher,
                             watcher_tx: self.watcher_tx.clone(),
                             gas_limits: self.gas_limits.clone(),
+                            transaction_finder: self.transaction_finder.clone(),
                         }
                     })
                     .map(|driver| driver.execute_all());
@@ -681,8 +838,18 @@ where
         _: &StepPath,
         step: &AllocateAccountStep,
     ) -> Result<usize> {
-        let Some(variable_name) = step.variable_name.strip_prefix("$VARIABLE:") else {
+        let Some(raw_name) = step.variable_name.strip_prefix("$VARIABLE:") else {
             bail!("Account allocation must start with $VARIABLE:");
+        };
+
+        let variable_name: String = if raw_name.contains("$VARIABLE:") {
+            let context = self.default_resolution_context();
+            revive_dt_format::steps::CalldataToken::<&str>::resolve_variable_name_template(
+                raw_name, context,
+            )
+            .context("Failed to resolve allocate_account templated name")?
+        } else {
+            raw_name.to_owned()
         };
 
         let private_key = self
@@ -696,7 +863,7 @@ where
 
         self.execution_state
             .variables
-            .insert(variable_name.to_string(), variable);
+            .insert(variable_name, variable);
 
         Ok(1)
     }
@@ -1015,4 +1182,106 @@ where
         Ok((transaction_hash, receipt_future, inclusion_future))
     }
     // endregion:Transaction Execution
+}
+
+/// Read each `EventTopic`'s referenced 32-byte topic value out of the per-log topic arrays.
+/// Errors on out-of-range `log_index` or `topic_index`.
+fn extract_event_topic_values(
+    log_topics: &[&[B256]],
+    topics: &[EventTopic],
+) -> Result<Vec<[u8; 32]>> {
+    topics
+        .iter()
+        .map(|et| {
+            let topics_of_log = log_topics.get(et.log_index).with_context(|| {
+                format!(
+                    "event_topics: log_index {} out of range (got {} logs)",
+                    et.log_index,
+                    log_topics.len(),
+                )
+            })?;
+            let topic = topics_of_log.get(et.topic_index).with_context(|| {
+                format!(
+                    "event_topics: topic_index {} out of range in log {} (log has {} topics)",
+                    et.topic_index,
+                    et.log_index,
+                    topics_of_log.len(),
+                )
+            })?;
+            Ok(topic.0)
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alloy::primitives::B256;
+
+    /// Build a topic list (a single log's worth) from raw 32-byte patterns.
+    fn topics(bytes: &[[u8; 32]]) -> Vec<B256> {
+        bytes.iter().copied().map(B256::from).collect()
+    }
+
+    #[test]
+    fn extract_event_topic_values_returns_correct_topics() {
+        // Two logs with different topic counts; capture across both.
+        let log0 = topics(&[[0x00; 32], [0x11; 32], [0x22; 32]]); // 3 topics
+        let log1 = topics(&[[0xAA; 32], [0xBB; 32]]); // 2 topics
+        let log_topics: Vec<&[B256]> = vec![&log0, &log1];
+
+        let topics = vec![
+            EventTopic {
+                log_index: 0,
+                topic_index: 1,
+            },
+            EventTopic {
+                log_index: 1,
+                topic_index: 1,
+            },
+        ];
+
+        let result = extract_event_topic_values(&log_topics, &topics)
+            .expect("happy-path extraction should succeed");
+
+        assert_eq!(result, vec![[0x11; 32], [0xBB; 32]]);
+    }
+
+    #[test]
+    fn extract_event_topic_values_errors_on_out_of_range_log_index() {
+        let log0 = topics(&[[0x00; 32]]);
+        let log_topics: Vec<&[B256]> = vec![&log0]; // only 1 log
+        let topics = vec![EventTopic {
+            log_index: 5,
+            topic_index: 0,
+        }];
+
+        let err = extract_event_topic_values(&log_topics, &topics)
+            .expect_err("out-of-range log_index should error");
+
+        let msg = format!("{err}");
+        assert!(
+            msg.contains("log_index 5") && msg.contains("got 1 logs"),
+            "error message should identify the bad index and actual log count, got: {msg}"
+        );
+    }
+
+    #[test]
+    fn extract_event_topic_values_errors_on_out_of_range_topic_index() {
+        let log0 = topics(&[[0x00; 32], [0x11; 32]]); // 2 topics
+        let log_topics: Vec<&[B256]> = vec![&log0];
+        let topics = vec![EventTopic {
+            log_index: 0,
+            topic_index: 5,
+        }];
+
+        let err = extract_event_topic_values(&log_topics, &topics)
+            .expect_err("out-of-range topic_index should error");
+
+        let msg = format!("{err}");
+        assert!(
+            msg.contains("topic_index 5") && msg.contains("log has 2 topics"),
+            "error message should identify the bad index and actual topic count, got: {msg}"
+        );
+    }
 }
