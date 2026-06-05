@@ -357,11 +357,11 @@ where
             .handle_function_call_contract_deployment(step_path, step)
             .await
             .context("Failed to deploy contracts for the function call step")?;
-        let (transaction_hash, receipt) = self
+        let transaction_hash = self
             .handle_function_call_execution(step_path, step, deployment_receipts)
             .await
             .context("Failed to handle the function call execution")?;
-        self.handle_function_call_variable_assignment(step, transaction_hash, receipt.as_ref())
+        self.handle_function_call_variable_assignment(step, transaction_hash)
             .await
             .context("Failed to handle function call variable assignment")?;
         Ok(1)
@@ -469,7 +469,7 @@ where
         step_path: &StepPath,
         step: &FunctionCallStep,
         mut deployment_receipts: HashMap<ContractInstance, TransactionReceipt>,
-    ) -> Result<(TxHash, Option<TransactionReceipt>)> {
+    ) -> Result<TxHash> {
         match step.method {
             // This step was already executed when `handle_step` was called. We just need to
             // lookup the transaction receipt in this case and continue on.
@@ -479,11 +479,10 @@ where
                     .contract_instance(&step.instance)
                     .await
                     .context("Failed to resolve the step's instance")?;
-                let receipt = deployment_receipts
+                deployment_receipts
                     .remove(&instance)
-                    .context("Failed to find deployment receipt for constructor call")?;
-                let tx_hash = receipt.transaction_hash;
-                Ok((tx_hash, Some(receipt)))
+                    .context("Failed to find deployment receipt for constructor call")
+                    .map(|receipt| receipt.transaction_hash)
             }
             Method::Fallback | Method::FunctionName(_) => {
                 let mut tx = step
@@ -503,30 +502,15 @@ where
                 let (tx_hash, receipt_future, inclusion_future) = self
                     .execute_transaction(tx.clone(), Some(step_path), Duration::from_secs(30 * 60))
                     .await?;
-                let captures_use_substrate_events = step.variable_assignments.is_some()
-                    && self
-                        .platform_information
-                        .node
-                        .substrate_provider()
-                        .is_some();
-                let receipt = if self.await_transaction_receipts
-                    || (step.variable_assignments.is_some() && !captures_use_substrate_events)
-                {
+                if self.await_transaction_receipts {
                     let receipt = receipt_future.await?;
                     if !receipt.status() {
                         bail!("Transaction failed {receipt:?}");
                     }
-                    Some(receipt)
-                } else if captures_use_substrate_events {
-                    None
                 } else if self.await_transaction_inclusion {
                     inclusion_future.await?;
-                    None
-                } else {
-                    None
-                };
-
-                Ok((tx_hash, receipt))
+                }
+                Ok(tx_hash)
             }
         }
     }
@@ -615,10 +599,42 @@ where
         }
     }
 
-    async fn fetch_tx_logs_via_substrate_events(
+    /// Fetch the topic-lists of every EVM log emitted by `tx_hash`, in execution order.
+    /// Substrate: walks `ContractEmitted` events at the finalized block.
+    /// Ethereum: reads `receipt.logs`. Returns `Err` on revert.
+    async fn fetch_tx_log_topics(&self, tx_hash: TxHash) -> Result<Vec<Vec<B256>>> {
+        if self
+            .platform_information
+            .node
+            .substrate_provider()
+            .is_some()
+        {
+            self.fetch_tx_log_topics_via_substrate_events(tx_hash).await
+        } else {
+            let receipt = self
+                .platform_information
+                .node
+                .get_receipt(tx_hash)
+                .await
+                .context("Failed to get receipt for event_topics capture")?;
+            if !receipt.status() {
+                bail!("Transaction failed {receipt:?}");
+            }
+            Ok(receipt
+                .inner
+                .logs()
+                .iter()
+                .map(|l| l.topics().to_vec())
+                .collect())
+        }
+    }
+
+    /// Substrate path of [`Self::fetch_tx_log_topics`]. Returns `Err` on `EthExtrinsicRevert`.
+    async fn fetch_tx_log_topics_via_substrate_events(
         &self,
         tx_hash: TxHash,
-    ) -> Result<Vec<alloy::rpc::types::Log>> {
+    ) -> Result<Vec<Vec<B256>>> {
+        debug!(%tx_hash, "Fetching event log topics via substrate events");
         let (tx_index, transaction_block) = self.transaction_finder.find(tx_hash).await;
         let substrate_block = transaction_block.substrate_block.as_ref().context(
             "Substrate block missing on TransactionFinder result \
@@ -628,40 +644,32 @@ where
         let events = substrate_block
             .events()
             .await
-            .context("Failed to fetch substrate events for the finalized block")?;
+            .context("Failed to fetch substrate events")?;
 
         let target_phase = subxt::events::Phase::ApplyExtrinsic(tx_index as u32);
-        let mut logs = Vec::new();
+        let mut log_topics: Vec<Vec<B256>> = Vec::new();
         for ev in events.iter() {
-            let ev = ev.context("Failed to decode substrate event details")?;
+            let ev = ev.context("Failed to decode event")?;
             if ev.phase() != target_phase {
                 continue;
             }
-            if let Some(revert) = ev
-                .as_event::<revive_metadata::revive::events::EthExtrinsicRevert>()
-                .context("Failed to decode candidate EthExtrinsicRevert event")?
+            if let Some(revert) =
+                ev.as_event::<revive_metadata::revive::events::EthExtrinsicRevert>()?
             {
                 bail!("Transaction reverted: {:?}", revert.dispatch_error);
             }
-            if let Some(emit) = ev
-                .as_event::<revive_metadata::revive::events::ContractEmitted>()
-                .context("Failed to decode candidate ContractEmitted event")?
-            {
-                logs.push(contract_emitted_to_log(
-                    emit.contract.0,
-                    emit.topics.into_iter().map(|t| t.0).collect(),
-                    emit.data,
-                ));
+            if let Some(emit) = ev.as_event::<revive_metadata::revive::events::ContractEmitted>()? {
+                log_topics.push(emit.topics.into_iter().map(|h| B256::from(h.0)).collect());
             }
         }
-        Ok(logs)
+        debug!(%tx_hash, num_logs = log_topics.len(), "Fetched event log topics from substrate");
+        Ok(log_topics)
     }
 
     async fn handle_function_call_variable_assignment(
         &mut self,
         step: &FunctionCallStep,
         tx_hash: TxHash,
-        receipt: Option<&TransactionReceipt>,
     ) -> Result<()> {
         let Some(ref assignments) = step.variable_assignments else {
             return Ok(());
@@ -670,28 +678,18 @@ where
         // Collect 32-byte value words for each variable to assign, based on the source.
         let value_words: Vec<[u8; 32]> = match assignments {
             VariableAssignments::EventTopics { topics, .. } => {
-                if self
-                    .platform_information
-                    .node
-                    .substrate_provider()
-                    .is_some()
-                {
-                    // Substrate path: logs come from pallet-revive's ContractEmitted
-                    // events at the finalized block
-                    let logs = self.fetch_tx_logs_via_substrate_events(tx_hash).await?;
-                    extract_event_topic_values(&logs, topics)?
-                } else {
-                    let receipt = receipt.context(
-                        "event_topics capture requires the receipt on ethereum-only platforms",
-                    )?;
-                    extract_event_topic_values(receipt.inner.logs(), topics)?
-                }
+                let log_topics = self.fetch_tx_log_topics(tx_hash).await?;
+                let log_topics: Vec<&[B256]> = log_topics.iter().map(|t| t.as_slice()).collect();
+                extract_event_topic_values(&log_topics, topics)?
             }
             VariableAssignments::ReturnData { .. } => {
                 let callframe = self
                     .handle_function_call_call_frame_tracing(tx_hash)
                     .await
                     .context("Failed to get the callframe trace for transaction")?;
+                if let Some(err) = callframe.error.as_ref() {
+                    bail!("Transaction reverted: {err}");
+                }
                 callframe
                     .output
                     .as_ref()
@@ -1186,62 +1184,28 @@ where
     // endregion:Transaction Execution
 }
 
-/// Build an alloy [`Log`](alloy::rpc::types::Log) from the raw bytes of a pallet-revive
-/// `ContractEmitted` event.
-///
-/// Only the inner `(address, topics, data)` trio is populated. Receipt-positional metadata
-/// (block_hash, log_index, transaction_hash, etc.) is left absent because we're synthesizing
-/// this from substrate events rather than reading it back from an indexed receipt.
-fn contract_emitted_to_log(
-    contract: [u8; 20],
-    topics: Vec<[u8; 32]>,
-    data: Vec<u8>,
-) -> alloy::rpc::types::Log {
-    alloy::rpc::types::Log {
-        inner: alloy::primitives::Log::new_unchecked(
-            alloy::primitives::Address::from(contract),
-            topics
-                .into_iter()
-                .map(alloy::primitives::B256::from)
-                .collect(),
-            alloy::primitives::Bytes::from(data),
-        ),
-        block_hash: None,
-        block_number: None,
-        block_timestamp: None,
-        transaction_hash: None,
-        transaction_index: None,
-        log_index: None,
-        removed: false,
-    }
-}
-
-/// Read each `EventTopic`'s referenced 32-byte topic value out of a receipt's logs.
-///
-/// Returns a [Vec] aligned by index with `topics`. Errors with a descriptive message if any
-/// `log_index` or `topic_index` is out of range — the assumption is that mis-specified indexes
-/// in a workload's `variable_assignments` should surface as actionable errors rather than
-/// silently produce wrong values.
+/// Read each `EventTopic`'s referenced 32-byte topic value out of the per-log topic arrays.
+/// Errors on out-of-range `log_index` or `topic_index`.
 fn extract_event_topic_values(
-    logs: &[alloy::rpc::types::Log],
+    log_topics: &[&[B256]],
     topics: &[EventTopic],
 ) -> Result<Vec<[u8; 32]>> {
     topics
         .iter()
         .map(|et| {
-            let log = logs.get(et.log_index).with_context(|| {
+            let topics_of_log = log_topics.get(et.log_index).with_context(|| {
                 format!(
-                    "event_topics: log_index {} out of range (receipt has {} logs)",
+                    "event_topics: log_index {} out of range (got {} logs)",
                     et.log_index,
-                    logs.len(),
+                    log_topics.len(),
                 )
             })?;
-            let topic = log.topics().get(et.topic_index).with_context(|| {
+            let topic = topics_of_log.get(et.topic_index).with_context(|| {
                 format!(
                     "event_topics: topic_index {} out of range in log {} (log has {} topics)",
                     et.topic_index,
                     et.log_index,
-                    log.topics().len(),
+                    topics_of_log.len(),
                 )
             })?;
             Ok(topic.0)
@@ -1252,33 +1216,20 @@ fn extract_event_topic_values(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use alloy::primitives::{Address, B256, Bytes};
-    use alloy::rpc::types::Log;
+    use alloy::primitives::B256;
 
-    /// Build a synthetic receipt log with the given list of topic bytes. Each entry becomes
-    /// one of the log's topics (in order). Address and data are zeroed — neither is read by
-    /// the topic-extraction code.
-    fn mk_log(topic_bytes: &[[u8; 32]]) -> Log {
-        let topics: Vec<B256> = topic_bytes.iter().copied().map(B256::from).collect();
-        Log {
-            inner: alloy::primitives::Log::new_unchecked(Address::ZERO, topics, Bytes::new()),
-            block_hash: None,
-            block_number: None,
-            block_timestamp: None,
-            transaction_hash: None,
-            transaction_index: None,
-            log_index: None,
-            removed: false,
-        }
+    /// Build a topic list (a single log's worth) from raw 32-byte patterns.
+    fn topics(bytes: &[[u8; 32]]) -> Vec<B256> {
+        bytes.iter().copied().map(B256::from).collect()
     }
 
     #[test]
     fn extract_event_topic_values_returns_correct_topics() {
         // Two logs with different topic counts; capture across both.
-        let logs = vec![
-            mk_log(&[[0x00; 32], [0x11; 32], [0x22; 32]]), // log 0: 3 topics
-            mk_log(&[[0xAA; 32], [0xBB; 32]]),             // log 1: 2 topics
-        ];
+        let log0 = topics(&[[0x00; 32], [0x11; 32], [0x22; 32]]); // 3 topics
+        let log1 = topics(&[[0xAA; 32], [0xBB; 32]]); // 2 topics
+        let log_topics: Vec<&[B256]> = vec![&log0, &log1];
+
         let topics = vec![
             EventTopic {
                 log_index: 0,
@@ -1290,7 +1241,7 @@ mod tests {
             },
         ];
 
-        let result = extract_event_topic_values(&logs, &topics)
+        let result = extract_event_topic_values(&log_topics, &topics)
             .expect("happy-path extraction should succeed");
 
         assert_eq!(result, vec![[0x11; 32], [0xBB; 32]]);
@@ -1298,31 +1249,33 @@ mod tests {
 
     #[test]
     fn extract_event_topic_values_errors_on_out_of_range_log_index() {
-        let logs = vec![mk_log(&[[0x00; 32]])]; // only 1 log
+        let log0 = topics(&[[0x00; 32]]);
+        let log_topics: Vec<&[B256]> = vec![&log0]; // only 1 log
         let topics = vec![EventTopic {
             log_index: 5,
             topic_index: 0,
         }];
 
-        let err = extract_event_topic_values(&logs, &topics)
+        let err = extract_event_topic_values(&log_topics, &topics)
             .expect_err("out-of-range log_index should error");
 
         let msg = format!("{err}");
         assert!(
-            msg.contains("log_index 5") && msg.contains("receipt has 1 logs"),
+            msg.contains("log_index 5") && msg.contains("got 1 logs"),
             "error message should identify the bad index and actual log count, got: {msg}"
         );
     }
 
     #[test]
     fn extract_event_topic_values_errors_on_out_of_range_topic_index() {
-        let logs = vec![mk_log(&[[0x00; 32], [0x11; 32]])]; // 2 topics
+        let log0 = topics(&[[0x00; 32], [0x11; 32]]); // 2 topics
+        let log_topics: Vec<&[B256]> = vec![&log0];
         let topics = vec![EventTopic {
             log_index: 0,
             topic_index: 5,
         }];
 
-        let err = extract_event_topic_values(&logs, &topics)
+        let err = extract_event_topic_values(&log_topics, &topics)
             .expect_err("out-of-range topic_index should error");
 
         let msg = format!("{err}");
@@ -1330,46 +1283,5 @@ mod tests {
             msg.contains("topic_index 5") && msg.contains("log has 2 topics"),
             "error message should identify the bad index and actual topic count, got: {msg}"
         );
-    }
-
-    #[test]
-    fn contract_emitted_to_log_preserves_address_topics_data() {
-        // Use distinct, non-zero byte patterns so any field swap is detectable.
-        let contract: [u8; 20] = [0xAB; 20];
-        let topic0: [u8; 32] = [0x11; 32];
-        let topic1: [u8; 32] = [0x22; 32];
-        let data: Vec<u8> = vec![0xDE, 0xAD, 0xBE, 0xEF];
-
-        let log = contract_emitted_to_log(contract, vec![topic0, topic1], data.clone());
-
-        assert_eq!(*log.inner.address.as_slice(), contract);
-        assert_eq!(log.topics(), &[B256::from(topic0), B256::from(topic1)]);
-        assert_eq!(log.data().data, Bytes::from(data));
-        // Synthesized logs have no receipt-positional metadata.
-        assert!(log.block_hash.is_none());
-        assert!(log.log_index.is_none());
-        assert!(log.transaction_hash.is_none());
-        assert!(!log.removed);
-    }
-
-    #[test]
-    fn contract_emitted_to_log_topics_extraction_round_trips() {
-        // Verify the conversion composes with extract_event_topic_values exactly the same
-        // way as if the log had come from a receipt — this is the actual property that
-        // matters for the workload's variable_assignments capture path.
-        let log = contract_emitted_to_log(
-            [0; 20],
-            vec![[0xAA; 32], [0xBB; 32], [0xCC; 32]],
-            vec![],
-        );
-        let extracted = extract_event_topic_values(
-            &[log],
-            &[EventTopic {
-                log_index: 0,
-                topic_index: 2,
-            }],
-        )
-        .expect("topic extraction should succeed");
-        assert_eq!(extracted, vec![[0xCC; 32]]);
     }
 }
