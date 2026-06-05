@@ -99,5 +99,3 @@ jobs:
           cargo-command: "forklift cargo"
           resolc-path: ${{ steps.resolc.outputs.resolc-path }}
           expectations-file-path: polkadot-sdk/.github/assets/${{ matrix.platform }}.json
-          # TODO: Temporarily testing if this would fix polkadot-sdk CI.
-          concurrency-number-of-concurrent-tasks: 1000
