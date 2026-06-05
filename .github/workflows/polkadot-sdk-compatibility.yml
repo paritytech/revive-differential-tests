@@ -1,6 +1,6 @@
-# Runs the run-differential-tests action the same way polkadot-sdk does,
-# but against the current working tree and polkadot-sdk's master branch,
-# in order to detect breaking changes before it bumps the commit it pins.
+# Exercises the relevant GH action the same way polkadot-sdk does, but against
+# this repo's current working tree and polkadot-sdk's master branch, to catch
+# breaking changes before polkadot-sdk bumps the revive-differential-tests commit it pins.
 name: Polkadot SDK Compatibility
 
 on:
@@ -21,32 +21,36 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  resolve-image:
+  resolve-config:
     runs-on: ubuntu-24.04
     outputs:
-      image: ${{ steps.image.outputs.image }}
+      image: ${{ steps.config.outputs.image }}
+      resolc-version: ${{ steps.config.outputs.resolc-version }}
+      polkadot-sdk-sha: ${{ steps.config.outputs.polkadot-sdk-sha }}
     steps:
-      - name: Checkout the Polkadot SDK CI Environment
+      - name: Checkout the Polkadot SDK CI environment
         uses: actions/checkout@v6
         with:
           repository: paritytech/polkadot-sdk
           ref: master
           sparse-checkout: .github
 
-      - name: Resolve the Container Image
-        id: image
+      - name: Resolve Polkadot SDK configuration
+        id: config
         shell: bash
         run: |
           set -euo pipefail
           source .github/env
           echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
+          echo "resolc-version=$RESOLC_VERSION" >> "$GITHUB_OUTPUT"
+          echo "polkadot-sdk-sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
   differential-tests:
-    needs: resolve-image
+    needs: resolve-config
     runs-on: parity-large-persistent
     timeout-minutes: 60
     container:
-      image: ${{ needs.resolve-image.outputs.image }}
+      image: ${{ needs.resolve-config.outputs.image }}
     strategy:
       fail-fast: false
       matrix:
@@ -54,7 +58,7 @@ jobs:
           - revive-dev-node-revm-solc
           - revive-dev-node-polkavm-resolc
     steps:
-      - name: Checkout This Repository
+      - name: Checkout revive-differential-tests
         uses: actions/checkout@v6
         with:
           path: revive-differential-tests
@@ -64,7 +68,7 @@ jobs:
         uses: actions/checkout@v6
         with:
           repository: paritytech/polkadot-sdk
-          ref: master
+          ref: ${{ needs.resolve-config.outputs.polkadot-sdk-sha }}
           path: polkadot-sdk
 
       - name: Configure forklift
@@ -76,16 +80,17 @@ jobs:
       - name: Download resolc
         id: resolc
         shell: bash
+        env:
+          RESOLC_VERSION: ${{ needs.resolve-config.outputs.resolc-version }}
         run: |
           set -euo pipefail
-          source polkadot-sdk/.github/env
           INSTALL_DIR="/usr/local/bin"
           curl -fsSL --retry 3 -o "$INSTALL_DIR/resolc" "https://github.com/paritytech/revive/releases/download/v${RESOLC_VERSION}/resolc-x86_64-unknown-linux-musl"
           chmod +x "$INSTALL_DIR/resolc"
           resolc --version
           echo "resolc-path=$INSTALL_DIR/resolc" >> "$GITHUB_OUTPUT"
 
-      - name: Run the Differential Tests
+      - name: Run the differential tests
         uses: ./revive-differential-tests/.github/actions/run-differential-tests
         with:
           platform: ${{ matrix.platform }}
