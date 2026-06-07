@@ -2,7 +2,7 @@ use crate::internal_prelude::*;
 
 type AlloyProvider = FillProvider<
     JoinFill<
-        JoinFill<JoinFill<JoinFill<Identity, FallbackGasFiller>, ChainIdFiller>, NonceFiller>,
+        JoinFill<JoinFill<JoinFill<Identity, GasFiller>, ChainIdFiller>, DelayedNonceFiller>,
         WalletFiller<Arc<EthereumWallet>>,
     >,
     RootProvider,
@@ -14,6 +14,11 @@ type OnlineSubxtBlock = SubxtBlock<PolkadotConfig, OnlineClient<PolkadotConfig>>
 pub struct NodeConnector {
     eth_providers: SingleOrPool<AlloyProvider>,
     substrate_providers: Option<SingleOrPool<OnlineClient<PolkadotConfig>>>,
+    /// The raw substrate RPC client(s), sharing connections with
+    /// `substrate_providers`. Used to submit transactions via the raw
+    /// `author_submitExtrinsic` method (fire-and-forget, no status
+    /// subscription).
+    submission_rpc: Option<SingleOrPool<SubxtRpcClient>>,
     config: NodeConnectorConfiguration,
     /* State */
     latest_finalized_block: Arc<RwLock<Option<BlockPair>>>,
@@ -21,6 +26,7 @@ pub struct NodeConnector {
     blocks_by_number: AsyncHashMap<u64, BlockPair>,
     indexed_transactions: AsyncHashMap<TxHash, IndexedTransactionInformation>,
     submission_locks: DashMap<Address, Arc<Mutex<()>>>,
+    tx_hash_to_receipt_mapping: AsyncHashMap<TxHash, Arc<TransactionReceipt>>,
     /* Auxiliary */
     node: Box<dyn NodeConfiguration + Send + Sync>,
 }
@@ -35,23 +41,24 @@ impl NodeConnector {
 
         let eth_provider_urls = node.eth_provider_url();
         let substrate_rpc_urls = node.substrate_provider_url();
-        let nonce_manager = CachedNonceManager::default();
+        let nonce_filler = DelayedNonceFiller::default();
 
         let eth_providers_future =
-            Self::eth_providers_future(eth_provider_urls, config, wallet, nonce_manager);
+            Self::eth_providers_future(eth_provider_urls, config, wallet, nonce_filler);
         let substrate_providers_future = Self::substrate_providers_future(substrate_rpc_urls);
 
         Box::pin(async move {
             let eth_providers = eth_providers_future
                 .await
                 .context("Failed to get the eth providers")?;
-            let substrate_providers = match substrate_providers_future {
-                Some(substrate_providers_future) => Some(
-                    substrate_providers_future
+            let (substrate_providers, submission_rpc) = match substrate_providers_future {
+                Some(substrate_providers_future) => {
+                    let (online_providers, rpc_clients) = substrate_providers_future
                         .await
-                        .context("Failed to get the substrate providers")?,
-                ),
-                None => None,
+                        .context("Failed to get the substrate providers")?;
+                    (Some(online_providers), Some(rpc_clients))
+                }
+                None => (None, None),
             };
 
             let unresolved_finalized_blocks_broadcast_tx =
@@ -78,16 +85,27 @@ impl NodeConnector {
                 blocks_by_number.clone(),
                 finalized_blocks_broadcast_tx.subscribe(),
             );
+            let tx_hash_to_receipt_mapping = AsyncHashMap::new();
+            let block_hash_to_receipt_mapping = AsyncHashMap::new();
+            Self::start_receipt_provider(
+                finalized_blocks_broadcast_tx.subscribe(),
+                eth_providers.clone(),
+                substrate_providers.clone(),
+                tx_hash_to_receipt_mapping.clone(),
+                block_hash_to_receipt_mapping,
+            );
 
             Ok(Self {
                 eth_providers,
                 substrate_providers,
+                submission_rpc,
                 config,
                 latest_finalized_block,
                 finalized_block_broadcast: finalized_blocks_broadcast_tx,
                 blocks_by_number,
                 indexed_transactions,
                 submission_locks: DashMap::new(),
+                tx_hash_to_receipt_mapping,
                 node: Box::new(node),
             })
         })
@@ -114,16 +132,18 @@ impl NodeConnector {
     pub fn execute_transaction(
         &self,
         tx: TransactionRequest,
-    ) -> StaticFuture<Result<TransactionReceipt>> {
+    ) -> StaticFuture<Result<Arc<TransactionReceipt>>> {
         let provider = self.eth_providers.clone();
         let substrate_provider = self.substrate_providers.clone();
         let indexed_transactions = self.indexed_transactions.clone();
+        let tx_hash_to_receipt_mapping = self.tx_hash_to_receipt_mapping.clone();
         self.send_transaction(tx)
             .and_then(move |tx_hash| {
                 Self::get_receipt_internal(
                     provider,
                     substrate_provider,
                     indexed_transactions,
+                    tx_hash_to_receipt_mapping,
                     tx_hash,
                 )
             })
@@ -156,7 +176,15 @@ impl NodeConnector {
                 Some(substrate_provider),
             ) => self.send_transaction_substrate(tx, substrate_provider.clone()),
             (SubmissionBehavior::UseSubstrateRpcAndAwaitValidation, Some(substrate_provider)) => {
-                self.send_transaction_and_await_validation_substrate(tx, substrate_provider.clone())
+                let submission_rpc = self
+                    .submission_rpc
+                    .clone()
+                    .expect("submission rpc is built alongside the substrate providers");
+                self.send_transaction_and_await_validation_substrate(
+                    tx,
+                    substrate_provider.clone(),
+                    submission_rpc,
+                )
             }
             (
                 SubmissionBehavior::UseSubstrateRpc
@@ -228,11 +256,13 @@ impl NodeConnector {
         &self,
         tx: TransactionRequest,
         substrate_provider: SingleOrPool<OnlineClient<PolkadotConfig>>,
+        submission_rpc: SingleOrPool<SubxtRpcClient>,
     ) -> StaticFuture<Result<TxHash>> {
         let provider = self.eth_providers.clone();
         let submission_mutex = tx
             .from
             .map(|addr| self.submission_locks.entry(addr).or_default().clone());
+        let indexed_transactions = self.indexed_transactions.clone();
 
         Box::pin(async move {
             let _guard = match submission_mutex {
@@ -265,18 +295,17 @@ impl NodeConnector {
                 "Create a substrate transaction, but didn't yet submit it"
             );
 
-            let mut watch = substrate_transaction
-                .submit_and_watch()
+            const ALREADY_IMPORTED_CODE: i32 = 1013;
+            let submitter = LegacyRpcMethods::<PolkadotConfig>::new(submission_rpc.item().clone());
+            match submitter
+                .author_submit_extrinsic(substrate_transaction.encoded())
                 .await
-                .context("Failed to submit transaction")?;
-            loop {
-                match watch.next().await {
-                    Some(Ok(subxt::tx::TxStatus::InFinalizedBlock(..))) => break,
-                    Some(Ok(..)) => {}
-                    Some(Err(err)) => Err(err).context("Failed to get the transaction status")?,
-                    None => bail!("Transaction status closed before we could receive it"),
-                }
+            {
+                Ok(_) => {}
+                Err(RpcsError::User(user)) if user.code == ALREADY_IMPORTED_CODE => {}
+                Err(error) => return Err(error).context("Failed to submit transaction"),
             }
+            let _ = indexed_transactions.get(*ethereum_tx_hash).await;
 
             Ok(*ethereum_tx_hash)
         })
@@ -284,11 +313,12 @@ impl NodeConnector {
 
     // TODO: Do we want the connector to cache the receipts in memory too as the blocks become
     // available in order to eliminate any issues with the eth-rpc?
-    pub fn get_receipt(&self, tx_hash: TxHash) -> StaticFuture<Result<TransactionReceipt>> {
+    pub fn get_receipt(&self, tx_hash: TxHash) -> StaticFuture<Result<Arc<TransactionReceipt>>> {
         Self::get_receipt_internal(
             self.eth_providers.clone(),
             self.substrate_providers.clone(),
             self.indexed_transactions.clone(),
+            self.tx_hash_to_receipt_mapping.clone(),
             tx_hash,
         )
     }
@@ -297,8 +327,9 @@ impl NodeConnector {
         provider: SingleOrPool<AlloyProvider>,
         substrate_provider: Option<SingleOrPool<OnlineClient<PolkadotConfig>>>,
         indexed_transactions: AsyncHashMap<TxHash, IndexedTransactionInformation>,
+        tx_hash_to_receipt_mapping: AsyncHashMap<TxHash, Arc<TransactionReceipt>>,
         tx_hash: TxHash,
-    ) -> StaticFuture<Result<TransactionReceipt>> {
+    ) -> StaticFuture<Result<Arc<TransactionReceipt>>> {
         Box::pin(async move {
             let block = indexed_transactions.get(tx_hash).await;
 
@@ -319,11 +350,7 @@ impl NodeConnector {
                 .context("Failed to wait for eth-rpc block to advance")?
             }
 
-            provider
-                .get_transaction_receipt(tx_hash)
-                .await
-                .context("Failed to get transaction receipt")?
-                .context("Failed to get transaction receipt")
+            Ok(tx_hash_to_receipt_mapping.get(tx_hash).await)
         })
     }
 
@@ -382,6 +409,76 @@ impl NodeConnector {
         }
     }
 
+    pub fn trace_call(
+        &self,
+        tx: TransactionRequest,
+        block: BlockPair,
+        trace_options: GethDebugTracingOptions,
+    ) -> StaticFuture<Result<GethTrace>> {
+        match self.substrate_providers.as_ref() {
+            Some(substrate_provider) => {
+                self.trace_call_substrate(tx, block, trace_options, substrate_provider)
+            }
+            None => self.trace_call_evm(tx, block, trace_options),
+        }
+    }
+
+    fn trace_call_evm(
+        &self,
+        tx: TransactionRequest,
+        block: BlockPair,
+        trace_options: GethDebugTracingOptions,
+    ) -> StaticFuture<Result<GethTrace>> {
+        let provider = self.eth_providers.clone();
+
+        Box::pin(async move {
+            provider
+                .debug_trace_call(
+                    tx,
+                    BlockId::hash(block.evm_block.hash()),
+                    GethDebugTracingCallOptions::new(trace_options),
+                )
+                .await
+                .context("Failed to get the call trace")
+        })
+    }
+
+    fn trace_call_substrate(
+        &self,
+        tx: TransactionRequest,
+        block: BlockPair,
+        trace_options: GethDebugTracingOptions,
+        substrate_provider: &SingleOrPool<OnlineClient<PolkadotConfig>>,
+    ) -> StaticFuture<Result<GethTrace>> {
+        let provider = substrate_provider.clone();
+
+        Box::pin(async move {
+            let substrate_block_hash = block
+                .substrate_block
+                .as_ref()
+                .context("No substrate block available for trace_call")?
+                .online_block
+                .hash();
+
+            let tx = transaction_request_to_revive_transaction(tx)?;
+            let tracer_type = geth_trace_options_to_revive_tracer_type(trace_options)?;
+            let payload = revive_metadata::apis()
+                .revive_api()
+                .trace_call(tx.into(), tracer_type.into())
+                .unvalidated();
+            let trace = provider
+                .runtime_api()
+                .at(substrate_block_hash)
+                .call(payload)
+                .await
+                .context("Failed to get the call trace")?
+                .map_err(|err| anyhow!("Failed to get the call trace: {err:?}"))?
+                .0;
+
+            revive_trace_to_geth_trace(trace)
+        })
+    }
+
     fn trace_transaction_evm(
         &self,
         tx_hash: TxHash,
@@ -423,13 +520,10 @@ impl NodeConnector {
             let parent_hash = substrate_block_information.runtime_block.header.parent_hash;
             let block = substrate_block_information.runtime_block.clone();
 
-            let trace_options = serde_json::to_value(trace_options)
-                .expect("qed; alloy geth tracing options serialize to JSON");
-            let trace_options = serde_json::from_value::<TracerConfig>(trace_options)
-                .context("Failed to convert geth tracing options into revive tracer config")?;
+            let tracer_type = geth_trace_options_to_revive_tracer_type(trace_options)?;
             let payload = revive_metadata::apis()
                 .revive_api()
-                .trace_tx(block.into(), extrinsic_index, trace_options.config.into())
+                .trace_tx(block.into(), extrinsic_index, tracer_type.into())
                 .unvalidated();
             let trace = provider
                 .runtime_api()
@@ -440,10 +534,7 @@ impl NodeConnector {
                 .context("Failed to get the transaction trace")?
                 .0;
 
-            let trace_json =
-                serde_json::to_value(trace).expect("qed; pallet-revive trace serializes to JSON");
-            serde_json::from_value::<GethTrace>(trace_json)
-                .context("Failed to deserialize revive trace into geth trace")
+            revive_trace_to_geth_trace(trace)
         })
     }
 
@@ -489,18 +580,24 @@ impl NodeConnector {
             };
             let payload = revive_metadata::apis()
                 .revive_api()
-                .balance(address.0.0.into())
+                .balance(pallet_revive::H160(address.0.0).into())
                 .unvalidated();
             let balance = runtime_api
                 .call(payload)
                 .await
                 .context("Failed to get the balance")?;
-            Ok(U256::from_limbs_slice(&balance.0))
+            Ok(U256::from_limbs_slice(&balance.0.0))
         })
     }
 
     pub fn block(&self, number: u64) -> StaticFuture<BlockPair> {
         self.blocks_by_number.get(number)
+    }
+
+    /// Returns the finalized block that contains `tx_hash`.
+    pub fn transaction_block_pair(&self, tx_hash: TxHash) -> StaticFuture<BlockPair> {
+        let inclusion_future = self.indexed_transactions.get(tx_hash);
+        Box::pin(async move { inclusion_future.await.block_pair })
     }
 
     pub fn latest_finalized_block(&self) -> StaticFuture<Result<BlockPair>> {
@@ -550,7 +647,7 @@ impl NodeConnector {
         eth_provider_urls: NodeUrlCollection<'_>,
         config: NodeConnectorConfiguration,
         wallet: Arc<EthereumWallet>,
-        nonce_manager: CachedNonceManager,
+        nonce_filler: DelayedNonceFiller,
     ) -> StaticFuture<Result<SingleOrPool<AlloyProvider>>> {
         match eth_provider_urls {
             NodeUrlCollection { ipc: Some(url), .. }
@@ -558,7 +655,7 @@ impl NodeConnector {
                 ipc: None,
                 ws: None,
                 http: Some(url),
-            } => new_alloy_provider(url, config, wallet.clone(), nonce_manager)
+            } => new_alloy_provider(url, config, wallet.clone(), nonce_filler)
                 .map_ok(SingleOrPool::Single)
                 .boxed() as StaticFuture<_>,
             NodeUrlCollection {
@@ -566,7 +663,7 @@ impl NodeConnector {
                 ws: Some(url),
                 ..
             } => try_join_all((0..10).map(move |_| {
-                new_alloy_provider(url.as_ref(), config, wallet.clone(), nonce_manager.clone())
+                new_alloy_provider(url.as_ref(), config, wallet.clone(), nonce_filler.clone())
             }))
             .map_ok(Pool::new_unchecked)
             .map_ok(SingleOrPool::Pool)
@@ -581,9 +678,17 @@ impl NodeConnector {
         }
     }
 
+    #[allow(clippy::type_complexity)]
     fn substrate_providers_future(
         substrate_provider_urls: Option<NodeUrlCollection<'_>>,
-    ) -> Option<StaticFuture<Result<SingleOrPool<OnlineClient<PolkadotConfig>>>>> {
+    ) -> Option<
+        StaticFuture<
+            Result<(
+                SingleOrPool<OnlineClient<PolkadotConfig>>,
+                SingleOrPool<SubxtRpcClient>,
+            )>,
+        >,
+    > {
         match substrate_provider_urls? {
             NodeUrlCollection { ipc: Some(url), .. }
             | NodeUrlCollection {
@@ -594,7 +699,9 @@ impl NodeConnector {
                 let url = url.to_string();
                 Some(
                     new_substrate_client(url)
-                        .map_ok(SingleOrPool::Single)
+                        .map_ok(|(online, rpc)| {
+                            (SingleOrPool::Single(online), SingleOrPool::Single(rpc))
+                        })
                         .boxed() as StaticFuture<_>,
                 )
             }
@@ -606,8 +713,13 @@ impl NodeConnector {
                 let url = url.to_string();
                 Some(
                     try_join_all((0..10).map(move |_| new_substrate_client(url.clone())))
-                        .map_ok(Pool::new_unchecked)
-                        .map_ok(SingleOrPool::Pool)
+                        .map_ok(|pairs| {
+                            let (online, rpc): (Vec<_>, Vec<_>) = pairs.into_iter().unzip();
+                            (
+                                SingleOrPool::Pool(Pool::new_unchecked(online)),
+                                SingleOrPool::Pool(Pool::new_unchecked(rpc)),
+                            )
+                        })
                         .boxed() as StaticFuture<_>,
                 )
             }
@@ -786,17 +898,23 @@ impl NodeConnector {
                     .context("Failed to decode the extrinsic into an opaque extrinsic")
             })
             .collect::<Result<Vec<_>>>()?;
-        let eth_transactions = extrinsics
-            .find::<EthTransact>()
-            .map(|extrinsic| {
+        let eth_transactions = futures::stream::iter(extrinsics.find::<EthTransact>())
+            .then(|extrinsic| async move {
                 let extrinsic = extrinsic.context("Failed to decode the eth_transact extrinsic")?;
                 let extrinsic_index = extrinsic.details.index() as _;
-                Ok(EthTransactionExtrinsic {
+                anyhow::Result::<_, anyhow::Error>::Ok(EthTransactionExtrinsic {
                     payload: extrinsic.value.payload,
                     extrinsic_index,
+                    events: extrinsic
+                        .details
+                        .events()
+                        .await
+                        .context("Failed to get extrinsic events")?,
                 })
             })
-            .collect::<Result<Vec<_>>>()?;
+            .try_collect::<Vec<_>>()
+            .await
+            .context("Failed to get the eth extrinsics")?;
         let consumed_weight = Self::consumed_block_weight(online_block.as_ref())
             .await
             .context("Failed to resolve consumed block weight")?;
@@ -959,13 +1077,211 @@ impl NodeConnector {
             }
         });
     }
+
+    fn start_receipt_provider(
+        mut rx: BroadcastReceiver<BlockPair>,
+        provider: SingleOrPool<AlloyProvider>,
+        substrate_provider: Option<SingleOrPool<OnlineClient<PolkadotConfig>>>,
+        tx_hash_to_receipt_mapping: AsyncHashMap<TxHash, Arc<TransactionReceipt>>,
+        block_hash_to_receipt_mapping: AsyncHashMap<BlockHash, Vec<Arc<TransactionReceipt>>>,
+    ) {
+        let task = async move {
+            while let Ok(block) = rx.recv().await {
+                let block_hash = block.evm_block.hash();
+                let block_receipts = match substrate_provider {
+                    Some(ref provider) => Self::construct_block_receipts(block, provider.clone())
+                        .await
+                        .context("Failed to get substrate block receipts")?,
+                    None => provider
+                        .get_block_receipts(block.evm_block.hash().into())
+                        .await
+                        .context("Failed to get the block receipts")?
+                        .context("Failed to get the block receipts")?,
+                };
+                let block_receipts = block_receipts.into_iter().map(Arc::new).collect::<Vec<_>>();
+                block_hash_to_receipt_mapping
+                    .insert(block_hash, block_receipts.clone())
+                    .await;
+                tx_hash_to_receipt_mapping
+                    .insert_batch(
+                        block_receipts
+                            .into_iter()
+                            .map(|receipt| (receipt.transaction_hash, receipt)),
+                    )
+                    .await;
+            }
+            anyhow::Result::<(), anyhow::Error>::Ok(())
+        };
+        spawn(task);
+    }
+
+    fn construct_block_receipts(
+        block: BlockPair,
+        provider: SingleOrPool<OnlineClient<PolkadotConfig>>,
+    ) -> StaticFuture<Result<Vec<TransactionReceipt>>> {
+        Box::pin(async move {
+            let substrate_block = block
+                .substrate_block
+                .as_ref()
+                .expect("qed; must be a substrate block")
+                .clone();
+
+            let payload = revive_metadata::apis()
+                .revive_api()
+                .eth_receipt_data()
+                .unvalidated();
+            let receipt_gas_data = provider
+                .runtime_api()
+                .at(substrate_block.online_block.hash())
+                .call(payload)
+                .await
+                .context("Failed to get the receipt information")?;
+
+            if receipt_gas_data.len() != substrate_block.eth_transactions.len() {
+                bail!(
+                    "Receipt data length does not match the number of ethereum transactions in the \
+                    block"
+                );
+            }
+
+            let mut receipts = Vec::with_capacity(receipt_gas_data.len());
+            let mut cumulative_gas_used = 0u64;
+            let mut log_count = 0usize;
+            for (tx_index, (extrinsic, receipt_gas_info)) in substrate_block
+                .eth_transactions
+                .iter()
+                .zip(receipt_gas_data.iter())
+                .enumerate()
+            {
+                let receipt = Self::construct_single_receipt(
+                    &block,
+                    extrinsic,
+                    receipt_gas_info,
+                    log_count,
+                    cumulative_gas_used,
+                    tx_index,
+                )
+                .context("Failed to construct the receipt")?;
+                log_count += receipt.logs().len();
+                cumulative_gas_used += receipt.gas_used;
+                receipts.push(receipt)
+            }
+            Ok(receipts)
+        })
+    }
+
+    fn construct_single_receipt(
+        block: &BlockPair,
+        extrinsic: &EthTransactionExtrinsic,
+        receipt_gas_info: &pallet_revive::ReceiptGasInfo,
+        log_count: usize,
+        cumulative_gas_used: u64,
+        index: usize,
+    ) -> Result<TransactionReceipt> {
+        let tx_hash = keccak256(&extrinsic.payload);
+        let logs = extrinsic
+            .events
+            .find::<revive_metadata::revive::events::ContractEmitted>()
+            .map(|event| -> anyhow::Result<_, anyhow::Error> {
+                let event = event.context("Failed to decode the contract-emitted event")?;
+                Ok(alloy::primitives::Log {
+                    address: event.contract.0.0.into(),
+                    data: alloy::primitives::LogData::new_unchecked(
+                        event
+                            .topics
+                            .into_iter()
+                            .map(|topic| topic.0.0.into())
+                            .collect(),
+                        event.data.into(),
+                    ),
+                })
+            })
+            .collect::<Result<Vec<_>>>()
+            .context("Failed to get the logs")?;
+        let logs = alloy::rpc::types::Log::collect_for_receipt(
+            log_count,
+            alloy::consensus::transaction::TransactionMeta {
+                tx_hash,
+                index: index as _,
+                block_hash: block.evm_block.hash(),
+                block_number: block.evm_block.number(),
+                base_fee: block.evm_block.header.base_fee_per_gas(),
+                excess_blob_gas: block.evm_block.header.excess_blob_gas(),
+                timestamp: block.evm_block.header.timestamp,
+            },
+            logs,
+        );
+        let is_success = extrinsic
+            .events
+            .find::<revive_metadata::revive::events::EthExtrinsicRevert>()
+            .next()
+            .transpose()
+            .context("Failed to decode ethereum extrinsic revert event")?
+            .is_none();
+
+        let envelope = alloy::consensus::TxEnvelope::decode_2718(&mut extrinsic.payload.as_slice())
+            .context("Failed to decode the tx payload")?;
+        let transaction_type = envelope.tx_type();
+        let sender = envelope
+            .recover_signer()
+            .context("Failed to recover the address of the signer")?;
+        let (receiver, sender_nonce) = match envelope {
+            alloy::consensus::EthereumTxEnvelope::Legacy(tx) => (tx.tx().to, tx.tx().nonce),
+            alloy::consensus::EthereumTxEnvelope::Eip2930(tx) => (tx.tx().to, tx.tx().nonce),
+            alloy::consensus::EthereumTxEnvelope::Eip1559(tx) => (tx.tx().to, tx.tx().nonce),
+            alloy::consensus::EthereumTxEnvelope::Eip4844(tx) => match tx.tx() {
+                TxEip4844Variant::TxEip4844(tx) => {
+                    (alloy::primitives::TxKind::Call(tx.to), tx.nonce)
+                }
+                TxEip4844Variant::TxEip4844WithSidecar(tx) => {
+                    (alloy::primitives::TxKind::Call(tx.tx.to), tx.tx.nonce)
+                }
+            },
+            alloy::consensus::EthereumTxEnvelope::Eip7702(tx) => {
+                (alloy::primitives::TxKind::Call(tx.tx().to), tx.tx().nonce)
+            }
+        };
+        let created_contract_address = match receiver {
+            alloy::primitives::TxKind::Create => Some(sender.create(sender_nonce)),
+            alloy::primitives::TxKind::Call(..) => None,
+        };
+
+        let gas_used = u64::try_from(receipt_gas_info.gas_used)
+            .map_err(|err| anyhow!("Failed to convert number into u64: {err}"))?;
+        let cumulative_gas_used = cumulative_gas_used.saturating_add(gas_used);
+
+        Ok(TransactionReceipt {
+            inner: ReceiptEnvelope::from_typed(
+                transaction_type,
+                Receipt {
+                    status: alloy::consensus::Eip658Value::Eip658(is_success),
+                    cumulative_gas_used,
+                    logs,
+                },
+            ),
+            transaction_hash: tx_hash,
+            transaction_index: Some(index as _),
+            block_hash: block.evm_block.hash().into(),
+            block_number: block.evm_block.number().into(),
+            gas_used,
+            effective_gas_price: receipt_gas_info
+                .effective_gas_price
+                .try_into()
+                .map_err(|err| anyhow!("Failed to convert number: {err}"))?,
+            blob_gas_used: None,
+            blob_gas_price: None,
+            from: sender,
+            to: receiver.into(),
+            contract_address: created_contract_address,
+        })
+    }
 }
 
 pub fn new_alloy_provider(
     url: impl ToString,
     config: NodeConnectorConfiguration,
     wallet: Arc<EthereumWallet>,
-    nonce_manager: CachedNonceManager,
+    nonce_filler: DelayedNonceFiller,
 ) -> StaticFuture<Result<AlloyProvider>> {
     let url = url.to_string();
 
@@ -988,9 +1304,9 @@ pub fn new_alloy_provider(
         Ok(ProviderBuilder::new()
             .disable_recommended_fillers()
             .network::<Ethereum>()
-            .filler(handle_gas_filler_config(&config))
+            .filler(GasFiller)
             .fetch_chain_id()
-            .with_nonce_management(nonce_manager)
+            .filler(nonce_filler)
             .wallet(wallet)
             .connect_client(client))
     })
@@ -1084,21 +1400,6 @@ fn handle_retry_config(
     }
 }
 
-fn handle_gas_filler_config(config: &NodeConnectorConfiguration) -> FallbackGasFiller {
-    let config = config
-        .eth_provider_configuration
-        .as_ref()
-        .and_then(|config| config.gas_filler_configuration.as_ref());
-    match config {
-        Some(GasFillerConfiguration::DisableTracingFallback) | None => {
-            FallbackGasFiller::new().with_fallback_mechanism_disabled()
-        }
-        Some(GasFillerConfiguration::EnableTracingFallback) => {
-            FallbackGasFiller::new().with_fallback_mechanism_enabled()
-        }
-    }
-}
-
 #[derive(Clone)]
 pub struct BlockPair {
     pub observation_time: SystemTime,
@@ -1125,6 +1426,7 @@ struct UnresolvedBlockPair {
 pub struct EthTransactionExtrinsic {
     pub payload: Vec<u8>,
     pub extrinsic_index: usize,
+    pub events: subxt::blocks::ExtrinsicEvents<PolkadotConfig>,
 }
 
 #[derive(Clone)]
@@ -1132,4 +1434,30 @@ pub struct IndexedTransactionInformation {
     pub transaction_index: usize,
     pub extrinsic_index: Option<usize>,
     pub block_pair: BlockPair,
+}
+
+fn geth_trace_options_to_revive_tracer_type(
+    trace_options: GethDebugTracingOptions,
+) -> Result<TracerType> {
+    let trace_options = serde_json::to_value(trace_options)
+        .expect("qed; alloy geth tracing options serialize to JSON");
+    let trace_options = serde_json::from_value::<TracerConfig>(trace_options)
+        .context("Failed to convert geth tracing options into revive tracer config")?;
+    Ok(trace_options.config)
+}
+
+fn transaction_request_to_revive_transaction(
+    tx: TransactionRequest,
+) -> Result<pallet_revive::evm::GenericTransaction> {
+    let tx_json =
+        serde_json::to_value(tx).expect("qed; alloy transaction request serializes to JSON");
+    serde_json::from_value::<pallet_revive::evm::GenericTransaction>(tx_json)
+        .context("Failed to convert alloy transaction request into revive transaction")
+}
+
+fn revive_trace_to_geth_trace(trace: pallet_revive::evm::Trace) -> Result<GethTrace> {
+    let trace_json =
+        serde_json::to_value(trace).expect("qed; pallet-revive trace serializes to JSON");
+    serde_json::from_value::<GethTrace>(trace_json)
+        .context("Failed to deserialize revive trace into geth trace")
 }

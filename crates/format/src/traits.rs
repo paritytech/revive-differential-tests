@@ -15,6 +15,9 @@ pub struct ResolutionContext<'a> {
     /// When provided the variables in here will be used for performing resolutions.
     variables: Option<&'a HashMap<String, U256>>,
 
+    /// When provided resolution will use this exact block instead of querying latest.
+    pinned_block: Option<&'a BlockPair>,
+
     /// When provided resolution will use this block instead of the latest block.
     pinned_block_number: Option<&'a BlockNumber>,
 
@@ -48,6 +51,11 @@ impl<'a> ResolutionContext<'a> {
         variables: impl Into<Option<&'a HashMap<String, U256>>>,
     ) -> Self {
         self.variables = variables.into();
+        self
+    }
+
+    pub fn with_pinned_block(mut self, pinned_block: impl Into<Option<&'a BlockPair>>) -> Self {
+        self.pinned_block = pinned_block.into();
         self
     }
 
@@ -102,6 +110,10 @@ impl<'a> ResolutionContext<'a> {
     pub fn variable(&self, name: impl AsRef<str>) -> Option<&U256> {
         self.variables
             .and_then(|variables| variables.get(name.as_ref()))
+    }
+
+    pub fn pinned_block(&self) -> Option<&'a BlockPair> {
+        self.pinned_block
     }
 
     pub fn pinned_block_number(&self) -> Option<&'a BlockNumber> {

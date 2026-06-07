@@ -4,7 +4,7 @@
 use crate::internal_prelude::*;
 
 revive_dt_proc_macros::define_runner_event! {
-    /// An event type that's sent by the test runners/drivers to the report aggregator.
+    /// An event type that's sent by the test runners/interpreters to the report aggregator.
     pub(crate) enum RunnerEvent {
         // Events on the base Reporter — no specifier auto-filled.
         Reporter => {
@@ -72,7 +72,7 @@ revive_dt_proc_macros::define_runner_event! {
             },
             /// An event emitted by the runners when a test case has succeeded.
             TestSucceeded {
-                /// The number of steps of the case that were executed by the driver.
+                /// The number of steps of the case that were executed by the interpreter.
                 steps_executed: usize,
             },
             /// An event emitted by the runners when a test case has failed.

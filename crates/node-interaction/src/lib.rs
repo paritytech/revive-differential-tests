@@ -29,41 +29,41 @@ pub(crate) mod internal_prelude {
     pub use std::sync::{Arc, LazyLock, Mutex as StdMutex, OnceLock, atomic::AtomicUsize};
     pub use std::time::{Duration, SystemTime};
 
-    pub use alloy::consensus::BlockHeader;
-    pub use alloy::eips::{BlockNumberOrTag, Encodable2718};
+    pub use alloy::consensus::{
+        BlockHeader, Receipt, ReceiptEnvelope, TxEip4844Variant, transaction::SignerRecoverable,
+    };
+    pub use alloy::eips::{BlockId, Decodable2718, Encodable2718};
     pub use alloy::network::{
         AnyNetwork, BlockResponse, Ethereum, EthereumWallet, Network, TransactionBuilder,
     };
-    pub use alloy::primitives::{Address, TxHash, U256, address, keccak256};
+    pub use alloy::primitives::{Address, BlockHash, TxHash, U256, address, keccak256};
     pub use alloy::providers::{
         Identity, Provider, ProviderBuilder, RootProvider, SendableTx,
         ext::DebugApi,
         fillers::{
-            CachedNonceManager, ChainIdFiller, FillProvider, GasFillable, GasFiller, JoinFill,
-            NonceFiller, TxFiller, WalletFiller,
+            ChainIdFiller, FillProvider, FillerControlFlow, GasFiller, JoinFill, TxFiller,
+            WalletFiller,
         },
     };
     pub use alloy::rpc::client::{BuiltInConnectionString, RpcClient};
     pub use alloy::rpc::json_rpc::{
         Id, RequestPacket, Response, ResponsePacket, SerializedRequest,
     };
-    pub use alloy::rpc::types::trace::geth::{
-        GethDebugBuiltInTracerType, GethDebugTracerType, GethDebugTracingCallOptions,
-    };
+    pub use alloy::rpc::types::trace::geth::GethDebugTracingCallOptions;
     pub use alloy::rpc::types::trace::geth::{GethDebugTracingOptions, GethTrace};
     pub use alloy::rpc::types::{Block as EvmBlock, TransactionReceipt, TransactionRequest};
     pub use alloy::transports::{
-        BoxFuture, BoxTransport, RpcError, Transport, TransportConnect, TransportError,
-        TransportErrorKind, TransportFut, TransportResult,
+        BoxFuture, BoxTransport, Transport, TransportConnect, TransportError, TransportErrorKind,
+        TransportFut, TransportResult,
     };
     pub use anyhow::{Context as _, Error, Result, anyhow, bail};
     pub use dashmap::DashMap;
     pub use futures::future::try_join_all;
-    pub use futures::{FutureExt, StreamExt, TryFutureExt};
+    pub use futures::{FutureExt, StreamExt, TryFutureExt, TryStreamExt};
     pub use pallet_revive::{
         EthTransactError, H256, Weight,
         codec::{Decode, Encode},
-        evm::TracerConfig,
+        evm::{TracerConfig, TracerType},
     };
     pub use revive_common::EVMVersion;
     pub use revive_dt_common::futures::{
@@ -83,7 +83,9 @@ pub(crate) mod internal_prelude {
         },
         blocks::Block as SubxtBlock,
         dynamic,
-        ext::subxt_rpcs::{Error as RpcsError, utils::validate_url_is_secure},
+        ext::subxt_rpcs::{
+            Error as RpcsError, methods::LegacyRpcMethods, utils::validate_url_is_secure,
+        },
         tx::Payload,
     };
     pub use tokio::sync::Mutex;
@@ -124,6 +126,26 @@ pub(crate) mod internal_prelude {
     substitute_type(
         path = "pallet_revive::evm::api::rpc_types_gen::Block",
         with = "::subxt::utils::Static<pallet_revive::evm::Block>"
+    ),
+    substitute_type(
+        path = "pallet_revive::evm::api::rpc_types_gen::GenericTransaction",
+        with = "::subxt::utils::Static<::pallet_revive::evm::GenericTransaction>"
+    ),
+    substitute_type(
+        path = "primitive_types::H160",
+        with = "::subxt::utils::Static<::pallet_revive::H160>"
+    ),
+    substitute_type(
+        path = "primitive_types::H256",
+        with = "::subxt::utils::Static<::pallet_revive::H256>"
+    ),
+    substitute_type(
+        path = "primitive_types::U256",
+        with = "::subxt::utils::Static<::pallet_revive::U256>"
+    ),
+    substitute_type(
+        path = "pallet_revive::evm::block_hash::ReceiptGasInfo",
+        with = "::subxt::utils::Static<::pallet_revive::evm::ReceiptGasInfo>"
     ),
     substitute_type(
         path = "sp_weights::weight_v2::Weight",

@@ -393,24 +393,8 @@ fn new_polkadot_omni_node(
     }))
 }
 
-fn node_configuration(context: &Context) -> NodeConnectorConfiguration {
-    if let Context::Benchmark(..) = context {
-        NodeConnectorConfiguration {
-            eth_provider_configuration: Some(EthProviderConfiguration {
-                gas_filler_configuration: Some(GasFillerConfiguration::DisableTracingFallback),
-                ..Default::default()
-            }),
-            ..Default::default()
-        }
-    } else {
-        NodeConnectorConfiguration {
-            eth_provider_configuration: Some(EthProviderConfiguration {
-                gas_filler_configuration: Some(GasFillerConfiguration::EnableTracingFallback),
-                ..Default::default()
-            }),
-            ..Default::default()
-        }
-    }
+fn node_configuration(_: &Context) -> NodeConnectorConfiguration {
+    NodeConnectorConfiguration::default()
 }
 
 fn new_solc_compiler(

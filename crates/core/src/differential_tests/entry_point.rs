@@ -2,7 +2,7 @@
 
 use crate::internal_prelude::*;
 
-use crate::differential_tests::Driver;
+use crate::interpreter::{Interpreter, InterpreterContext};
 
 /// The number of test steps that were executed.
 type StepsExecuted = usize;
@@ -26,10 +26,48 @@ impl CorpusDefinitionProcessor for TestDefinitionProcessor {
         cached_compiler: &'a CachedCompiler<'a>,
         state: Self::State,
     ) -> anyhow::Result<Self::ProcessResult> {
-        Driver::new_root(definition, state.private_key_allocator, cached_compiler)
-            .await?
-            .execute_all()
-            .await
+        let interpreters = futures::future::try_join_all(definition.platforms.iter().map(
+            |(identifier, information)| {
+                let private_key_allocator = state.private_key_allocator.clone();
+                async move {
+                    let steps = definition
+                        .case
+                        .steps_iterator()
+                        .enumerate()
+                        .map(|(step_idx, step)| -> (StepPath, Step) {
+                            (StepPath::new(vec![StepIdx::new(step_idx)]), step)
+                        })
+                        .collect::<Vec<_>>()
+                        .into_iter();
+                    Interpreter::for_tests(
+                        InterpreterContext {
+                            platform_information: information,
+                            test_definition: definition,
+                            private_key_allocator,
+                            cached_compiler,
+                        },
+                        steps,
+                    )
+                    .await
+                    .context(format!("Failed to create interpreter for {identifier}"))
+                }
+            },
+        ))
+        .await
+        .context("Failed to create the interpreters for the various platforms")?;
+
+        let outcomes = futures::future::try_join_all(
+            interpreters
+                .into_iter()
+                .map(|interpreter| interpreter.execute_all()),
+        )
+        .await
+        .context("Failed to execute all of the steps on the interpreter")?;
+
+        Ok(outcomes
+            .first()
+            .map(|outcome| outcome.steps_executed)
+            .unwrap_or_default())
     }
 
     fn on_success(
@@ -150,7 +188,7 @@ pub async fn handle_differential_tests(context: Test, reporter: Reporter) -> any
     .await;
     info!(len = test_definitions.len(), "Created test definitions");
 
-    // Creating everything else required for the driver to run.
+    // Creating everything else required for the interpreter to run.
     let cached_compiler = CachedCompiler::new(
         context
             .working_directory

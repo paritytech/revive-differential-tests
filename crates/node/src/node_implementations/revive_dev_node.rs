@@ -130,7 +130,7 @@ impl NodeConfiguration for ReviveDevNode {
     fn configurations(&self) -> NodeConnectorConfiguration {
         NodeConnectorConfiguration {
             behaviors: Some(NodeConnectorBehaviors {
-                submission_behavior: Some(SubmissionBehavior::UseDefaultForPlatform),
+                submission_behavior: Some(SubmissionBehavior::UseSubstrateRpcAndAwaitValidation),
             }),
             ..Default::default()
         }

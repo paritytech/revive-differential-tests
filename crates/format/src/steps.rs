@@ -117,14 +117,14 @@ pub struct StorageEmptyAssertionStep {
 }
 
 /// This represents a repetition step which is a special step type that allows for a sequence of
-/// steps to be repeated (on different drivers) a certain number of times.
+/// steps to be repeated (on different interpreters) a certain number of times.
 #[derive(Clone, Debug, Default, Serialize, Deserialize, Eq, PartialEq, JsonSchema)]
 pub struct RepeatStep {
     /// An optional comment on the repetition step.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub comment: Option<String>,
 
-    /// This parameter controls if the driver performing the execution should await for the the
+    /// This parameter controls if the interpreter performing the execution should await for the the
     /// transactions within the repeat step to be included before moving on to the next transaction.
     /// By default, this is set to false and it isn't a required parameter to be provided.
     #[serde(default)]
@@ -135,15 +135,15 @@ pub struct RepeatStep {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub capture_index: Option<String>,
 
-    /// This parameter controls if the primary driver should consolidate the execution state of the
-    /// drivers that it spawned after running all of them. There are certain cases where this may be
+    /// This parameter controls if the primary interpreter should consolidate the execution state of the
+    /// interpreters that it spawned after running all of them. There are certain cases where this may be
     /// useful such as in cases where the repeat step is being used more as a for loop rather than
     /// anything else.
     #[serde(default)]
     pub consolidate_state: bool,
 
     /// This parameter controls if the watcher should be started after the warm-up phase of this
-    /// repeat step completes. When set to `true`, the driver will send the watcher start event
+    /// repeat step completes. When set to `true`, the interpreter will send the watcher start event
     /// after the first (warm-up) iteration finishes. This should be set on the repeat step that
     /// represents the actual benchmark workload so that blocks produced during setup steps
     /// (e.g., contract deployments) are excluded from the benchmark metrics.
@@ -496,33 +496,6 @@ impl FunctionCallStep {
         }
     }
 
-    /// Parse this input into a legacy transaction.
-    pub async fn as_transaction(
-        &self,
-        context: ResolutionContext<'_>,
-    ) -> anyhow::Result<TransactionRequest> {
-        let input_data = self
-            .encoded_input(context)
-            .await
-            .context("Failed to encode input bytes for transaction request")?;
-        let caller = self.caller.resolve_address(context).await?;
-        let transaction_request = TransactionRequest::default().from(caller).value(
-            self.value
-                .map(|value| value.into_inner())
-                .unwrap_or_default(),
-        );
-        match self.method {
-            Method::Deployer => Ok(transaction_request.with_deploy_code(input_data)),
-            _ => Ok(transaction_request
-                .to(context
-                    .deployed_contract_address(&self.instance)
-                    .await
-                    .context("Failed to get the contract address")
-                    .copied()?)
-                .input(input_data.into())),
-        }
-    }
-
     pub async fn find_all_contract_instances(
         &self,
         context: ResolutionContext<'_>,
@@ -789,23 +762,29 @@ fn required_node_connector<'a>(
 
 async fn resolve_latest_block(context: ResolutionContext<'_>) -> anyhow::Result<BlockPair> {
     let node_connector = required_node_connector(context)?;
-    match context.pinned_block_number() {
-        Some(block_number) => Ok(node_connector.block(*block_number).await),
-        None => node_connector
-            .latest_finalized_block()
-            .await
-            .context("Failed to query latest finalized block"),
+    match context.pinned_block() {
+        Some(block) => Ok(block.clone()),
+        None => match context.pinned_block_number() {
+            Some(block_number) => Ok(node_connector.block(*block_number).await),
+            None => node_connector
+                .latest_finalized_block()
+                .await
+                .context("Failed to query latest finalized block"),
+        },
     }
 }
 
 async fn resolve_current_block_number(context: ResolutionContext<'_>) -> anyhow::Result<u64> {
-    match context.pinned_block_number() {
-        Some(block_number) => Ok(*block_number),
-        None => required_node_connector(context)?
-            .latest_finalized_block()
-            .await
-            .context("Failed to query latest finalized block")
-            .map(|block| block.evm_block.number()),
+    match context.pinned_block() {
+        Some(block) => Ok(block.evm_block.number()),
+        None => match context.pinned_block_number() {
+            Some(block_number) => Ok(*block_number),
+            None => required_node_connector(context)?
+                .latest_finalized_block()
+                .await
+                .context("Failed to query latest finalized block")
+                .map(|block| block.evm_block.number()),
+        },
     }
 }
 
@@ -893,15 +872,22 @@ impl<T: AsRef<str>> CalldataToken<T> {
                         .context("Failed to query last block number while resolving $BLOCK_HASH")?;
                     let desired_block_number = current_block_number.saturating_sub(offset);
 
-                    Ok(U256::from_be_bytes(
-                        required_node_connector(context)?
-                            .block(desired_block_number)
-                            .await
-                            .evm_block
-                            .header
-                            .hash
-                            .0,
-                    ))
+                    if let Some(block) = context
+                        .pinned_block()
+                        .filter(|block| block.evm_block.number() == desired_block_number)
+                    {
+                        Ok(U256::from_be_bytes(block.evm_block.header.hash.0))
+                    } else {
+                        Ok(U256::from_be_bytes(
+                            required_node_connector(context)?
+                                .block(desired_block_number)
+                                .await
+                                .evm_block
+                                .header
+                                .hash
+                                .0,
+                        ))
+                    }
                 } else if item == Self::BLOCK_NUMBER_VARIABLE {
                     let current_block_number =
                         resolve_current_block_number(context).await.context(

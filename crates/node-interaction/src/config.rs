@@ -72,7 +72,6 @@ pub enum PreSubmissionHook {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 pub struct EthProviderConfiguration {
-    pub gas_filler_configuration: Option<GasFillerConfiguration>,
     pub retry_configuration: Option<RetryConfiguration>,
     pub batching_configuration: Option<BatchingConfiguration>,
     pub concurrency_configuration: Option<ProviderConcurrencyConfiguration>,
@@ -82,9 +81,6 @@ pub struct EthProviderConfiguration {
 impl EthProviderConfiguration {
     pub fn resolve(self, other: Self) -> Self {
         Self {
-            gas_filler_configuration: self
-                .gas_filler_configuration
-                .or(other.gas_filler_configuration),
             retry_configuration: self.retry_configuration.or(other.retry_configuration),
             batching_configuration: self.batching_configuration.or(other.batching_configuration),
             concurrency_configuration: self
@@ -95,12 +91,6 @@ impl EthProviderConfiguration {
                 .or(other.global_concurrency_configuration),
         }
     }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum GasFillerConfiguration {
-    DisableTracingFallback,
-    EnableTracingFallback,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]

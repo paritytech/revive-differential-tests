@@ -5,7 +5,7 @@ use pallet_revive::Weight;
 /// and MUST NOT be re-used between workloads since it holds important internal state for a given
 /// workload and is not designed for reuse.
 pub struct Watcher {
-    /// The receive side of the channel that all of the drivers and various other parts of the code
+    /// The receive side of the channel that all of the interpreters and various other parts of the code
     /// send events to the watcher on.
     rx: UnboundedReceiver<WatcherEvent>,
 

@@ -35,7 +35,6 @@ pub(crate) mod internal_prelude {
     pub use alloy::primitives::map::HashSet;
     pub use alloy::primitives::utils::parse_units;
     pub use alloy::primitives::{Address, BlockNumber, Bytes, FixedBytes, TxHash, U256};
-    pub use alloy::rpc::types::TransactionRequest;
     pub use anyhow::Context as _;
     pub use futures::{FutureExt, StreamExt, TryFutureExt, TryStreamExt, stream};
     pub use indexmap::IndexMap;

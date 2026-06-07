@@ -62,9 +62,15 @@ where
     .await
 }
 
+/// Builds a substrate client, returning both the high-level [`OnlineClient`]
+/// (used for reading state, building extrinsics, etc.) and the underlying
+/// [`SubxtRpcClient`] that shares the *same* connection. The raw RPC client is
+/// needed to submit transactions via the raw `author_submitExtrinsic` method
+/// (fire-and-forget), since subxt's high-level `submit`/`submit_and_watch` both
+/// open a status subscription which is fragile under connection disruption.
 pub fn new_substrate_client(
     url: impl Into<String>,
-) -> StaticFuture<Result<OnlineClient<PolkadotConfig>>> {
+) -> StaticFuture<Result<(OnlineClient<PolkadotConfig>, SubxtRpcClient)>> {
     let url = url.into();
     Box::pin(async move {
         validate_url_is_secure(&url).context("The substrate RPC URL is insecure")?;
@@ -73,8 +79,9 @@ pub fn new_substrate_client(
             .await
             .context("Failed to build the reconnecting substrate RPC client")?;
         let rpc_client = SubxtRpcClient::new(RetryingRpcClient::new(inner));
-        OnlineClient::<PolkadotConfig>::from_rpc_client(rpc_client)
+        let online_client = OnlineClient::<PolkadotConfig>::from_rpc_client(rpc_client.clone())
             .await
-            .context("Failed to construct the substrate online client")
+            .context("Failed to construct the substrate online client")?;
+        Ok((online_client, rpc_client))
     })
 }

@@ -2,7 +2,7 @@
 
 use crate::internal_prelude::*;
 
-use crate::differential_benchmarks::Driver;
+use crate::interpreter::{Interpreter, InterpreterContext};
 
 /// Handles the differential testing executing it according to the information defined in the
 /// context
@@ -135,24 +135,28 @@ pub async fn handle_differential_benchmarks(
                     .reporter
                     .execution_specific_reporter(0usize, platform_identifier),
             );
-            let driver = Driver::new(
-                platform_information,
-                test_definition,
+            let steps = test_definition
+                .case
+                .steps_iterator_for_benchmarks(context.benchmark_run.default_repetition_count)
+                .enumerate()
+                .map(|(step_idx, step)| -> (StepPath, Step) {
+                    (StepPath::new(vec![StepIdx::new(step_idx)]), step)
+                })
+                .collect::<Vec<_>>()
+                .into_iter();
+            let interpreter = Interpreter::for_benchmarks(
+                InterpreterContext {
+                    platform_information,
+                    test_definition,
+                    private_key_allocator,
+                    cached_compiler: cached_compiler.as_ref(),
+                },
                 context.benchmark_run.repetition_count_override,
-                private_key_allocator,
-                cached_compiler.as_ref(),
                 watcher_tx.clone(),
-                false,
-                test_definition
-                    .case
-                    .steps_iterator_for_benchmarks(context.benchmark_run.default_repetition_count)
-                    .enumerate()
-                    .map(|(step_idx, step)| -> (StepPath, Step) {
-                        (StepPath::new(vec![StepIdx::new(step_idx)]), step)
-                    }),
+                steps,
             )
             .await
-            .context("Failed to create the benchmarks driver")?;
+            .context("Failed to create the benchmarks interpreter")?;
 
             // Running the auxiliary tasks
             let watcher_task = tokio::spawn(watcher.run().instrument(info_span!(
@@ -161,8 +165,8 @@ pub async fn handle_differential_benchmarks(
                 case_name = %test_definition.case.name.clone().unwrap_or_default()
             )));
 
-            // Running the driver.
-            let driver_rtn = driver
+            // Running the interpreter.
+            let interpreter_rtn = interpreter
                 .execute_all()
                 .instrument(info_span!(
                     "Executing Benchmarks",
@@ -170,12 +174,15 @@ pub async fn handle_differential_benchmarks(
                     case_name = %test_definition.case.name.clone().unwrap_or_default()
                 ))
                 .inspect(|_| {
-                    info!("All transactions submitted - driver completed execution");
+                    info!("All transactions submitted - interpreter completed execution");
                 })
                 .await
-                .context("Failed to run the driver and executor")
-                .inspect(|(steps_executed, _)| {
-                    info!(steps_executed, "Workload Execution Succeeded")
+                .context("Failed to run the interpreter and executor")
+                .inspect(|outcome| {
+                    info!(
+                        steps_executed = outcome.steps_executed,
+                        "Workload Execution Succeeded"
+                    )
                 })
                 .inspect_err(|err| error!(?err, "Workload Execution Failed"));
 
@@ -188,15 +195,15 @@ pub async fn handle_differential_benchmarks(
 
             info!(
                 keep_alive_on_failures = context.shutdown.keep_alive_on_failures,
-                driver_rtn = driver_rtn.is_err(),
+                interpreter_rtn = interpreter_rtn.is_err(),
                 watcher_rtn = watcher_rtn.is_err(),
             );
 
             if context.shutdown.keep_alive_on_failures
-                && (driver_rtn.is_err() || watcher_rtn.is_err())
+                && (interpreter_rtn.is_err() || watcher_rtn.is_err())
             {
                 error!(
-                    driver_rtn = ?driver_rtn.err(),
+                    interpreter_rtn = ?interpreter_rtn.err(),
                     watcher_rtn = ?watcher_rtn.err(),
                     "One of the critical tasks failed, keeping the tool alive to investigate"
                 );
@@ -205,7 +212,7 @@ pub async fn handle_differential_benchmarks(
                 }
             }
 
-            let _ = driver_rtn.context("Driver failed")?;
+            let _ = interpreter_rtn.context("Interpreter failed")?;
             watcher_rtn.context("Watcher failed")?;
         }
     }

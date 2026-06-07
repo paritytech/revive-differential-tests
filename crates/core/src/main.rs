@@ -2,6 +2,7 @@ mod compilations;
 mod differential_benchmarks;
 mod differential_tests;
 mod helpers;
+mod interpreter;
 
 #[allow(unused_imports)]
 mod internal_prelude {
@@ -29,16 +30,16 @@ mod internal_prelude {
     pub use alloy::hex::{self, ToHexExt};
     pub use alloy::json_abi::JsonAbi;
     pub use alloy::network::{Ethereum, TransactionBuilder};
-    pub use alloy::primitives::{Address, B256, BlockNumber, TxHash, U256, address};
+    pub use alloy::primitives::{Address, B256, BlockNumber, Log, TxHash, U256, address};
     pub use alloy::providers::{DynProvider, PendingTransactionBuilder, Provider};
     pub use alloy::rpc::types::trace::geth::{
-        CallFrame, GethDebugBuiltInTracerType, GethDebugTracerConfig, GethDebugTracerType,
-        GethDebugTracingOptions,
+        CallFrame, CallLogFrame, GethDebugBuiltInTracerType, GethDebugTracerConfig,
+        GethDebugTracerType, GethDebugTracingOptions,
     };
     pub use alloy::rpc::types::{TransactionReceipt, TransactionRequest};
     pub use ansi_term::{ANSIStrings, Color};
     pub use anyhow::Context as _;
-    pub use anyhow::{Error, Result, bail};
+    pub use anyhow::{Error, Result, anyhow, bail};
     pub use clap::Parser;
     pub use futures::future::{Either, try_join, try_join_all, try_join3};
     pub use futures::{FutureExt, Stream, StreamExt, TryFutureExt, TryStreamExt, stream};
