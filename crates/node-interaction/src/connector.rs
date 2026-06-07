@@ -27,6 +27,7 @@ pub struct NodeConnector {
     indexed_transactions: AsyncHashMap<TxHash, IndexedTransactionInformation>,
     submission_locks: DashMap<Address, Arc<Mutex<()>>>,
     tx_hash_to_receipt_mapping: AsyncHashMap<TxHash, Arc<TransactionReceipt>>,
+    block_hashes_to_receipt_mapping: AsyncHashMap<BlockHash, Vec<Arc<TransactionReceipt>>>,
     /* Auxiliary */
     node: Box<dyn NodeConfiguration + Send + Sync>,
 }
@@ -86,13 +87,13 @@ impl NodeConnector {
                 finalized_blocks_broadcast_tx.subscribe(),
             );
             let tx_hash_to_receipt_mapping = AsyncHashMap::new();
-            let block_hash_to_receipt_mapping = AsyncHashMap::new();
+            let block_hashes_to_receipt_mapping = AsyncHashMap::new();
             Self::start_receipt_provider(
                 finalized_blocks_broadcast_tx.subscribe(),
                 eth_providers.clone(),
                 substrate_providers.clone(),
                 tx_hash_to_receipt_mapping.clone(),
-                block_hash_to_receipt_mapping,
+                block_hashes_to_receipt_mapping.clone(),
             );
 
             Ok(Self {
@@ -106,6 +107,7 @@ impl NodeConnector {
                 indexed_transactions,
                 submission_locks: DashMap::new(),
                 tx_hash_to_receipt_mapping,
+                block_hashes_to_receipt_mapping,
                 node: Box::new(node),
             })
         })
@@ -311,8 +313,6 @@ impl NodeConnector {
         })
     }
 
-    // TODO: Do we want the connector to cache the receipts in memory too as the blocks become
-    // available in order to eliminate any issues with the eth-rpc?
     pub fn get_receipt(&self, tx_hash: TxHash) -> StaticFuture<Result<Arc<TransactionReceipt>>> {
         Self::get_receipt_internal(
             self.eth_providers.clone(),
@@ -321,6 +321,13 @@ impl NodeConnector {
             self.tx_hash_to_receipt_mapping.clone(),
             tx_hash,
         )
+    }
+
+    pub fn get_block_receipts(
+        &self,
+        block_hash: BlockHash,
+    ) -> StaticFuture<Vec<Arc<TransactionReceipt>>> {
+        self.block_hashes_to_receipt_mapping.get(block_hash)
     }
 
     fn get_receipt_internal(

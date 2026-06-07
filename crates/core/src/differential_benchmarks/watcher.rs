@@ -168,12 +168,25 @@ impl Watcher {
             .context("One of the watcher tasks failed")?;
             let observed_blocks = observed_blocks.context("Error observing the blocks")?;
 
-            let receipts = stream::iter(tx_information.keys().copied())
-                .map(|tx_hash| connector.get_receipt(tx_hash))
+            let block_hashes = observed_blocks
+                .iter()
+                .map(|block| block.block.evm_block.hash())
+                .collect::<Vec<_>>();
+            let receipts = stream::iter(block_hashes)
+                .map(|block_hash| {
+                    info!(?block_hash, "Getting block receipts");
+                    connector
+                        .get_block_receipts(block_hash)
+                        .inspect(move |_| info!(?block_hash, "Got the block receipts"))
+                        .map(stream::iter)
+                })
                 .buffered(100)
-                .try_collect::<Vec<_>>()
+                .flatten()
+                .collect::<Vec<_>>()
                 .await
-                .context("Failed to get the receipt of some transactions")?;
+                .into_iter()
+                .filter(|receipt| tx_information.contains_key(&receipt.transaction_hash))
+                .collect::<Vec<_>>();
             let failing_receipt_count = receipts
                 .iter()
                 .filter(|receipt| !receipt.status())
