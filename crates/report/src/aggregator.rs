@@ -132,7 +132,7 @@ impl ReportAggregator {
                 .working_directory
                 .as_path()
                 .join(file_name);
-            let file = OpenOptions::new()
+            let writer = OpenOptions::new()
                 .create(true)
                 .write(true)
                 .truncate(true)
@@ -143,8 +143,9 @@ impl ReportAggregator {
                         "Failed to open report file for writing: {}",
                         file_path.display()
                     )
-                })?;
-            serde_json::to_writer_pretty(&file, &self.report).with_context(|| {
+                })
+                .map(BufWriter::new)?;
+            serde_json::to_writer_pretty(writer, &self.report).with_context(|| {
                 format!("Failed to serialize report JSON to {}", file_path.display())
             })?;
             tracing::info!(file_path = %file_path.display(), "Report has been written");

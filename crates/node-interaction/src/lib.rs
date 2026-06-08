@@ -21,6 +21,8 @@ use anyhow::{Context as _, Result};
 
 use futures::future::Either;
 use futures::{Stream, StreamExt, stream};
+use pallet_revive::codec::Decode;
+use pallet_revive::evm::Block as EthBlock;
 use revive_common::EVMVersion;
 use revive_dt_common::futures::{FrameworkFuture, FrameworkStream};
 
@@ -34,7 +36,15 @@ use tokio::task::AbortHandle;
 use tokio::time::interval;
 use tracing::{debug, error, warn};
 
-#[subxt::subxt(runtime_metadata_path = "../../assets/revive_metadata.scale")]
+#[subxt::subxt(
+    runtime_metadata_path = "../../assets/revive_metadata.scale",
+    derive_for_all_types = "::subxt::ext::codec::Encode, ::subxt::ext::codec::Decode",
+    attributes_for_all_types = "#[codec(crate = ::subxt::ext::codec)]",
+    attributes_for_type(
+        path = "pallet_revive::evm::api::debug_rpc_types::CallTrace",
+        attributes = "#[codec(dumb_trait_bound)]"
+    )
+)]
 pub mod revive_metadata {}
 
 /// An interface for all interactions with Ethereum compatible nodes.
@@ -84,11 +94,28 @@ pub trait NodeApi {
         Box::pin(async move {
             let tx_hash = submission_future.await?;
             let provider = provider.await.context("Failed to get the provider")?;
-            provider
+            let receipt = provider
                 .get_transaction_receipt(tx_hash)
                 .await
                 .context("Failed to get the transaction receipt")?
-                .context("Failed to get the transaction receipt")
+                .context("Failed to get the transaction receipt")?;
+            let receipt_block_number = receipt
+                .block_number
+                .context("A receipt must have a block number")?;
+            tokio::time::timeout(Duration::from_secs(120), async move {
+                while provider
+                    .get_block_number()
+                    .await
+                    .context("Failed to get the block number")?
+                    < receipt_block_number
+                {
+                    tokio::time::sleep(Duration::from_millis(200)).await
+                }
+                Result::<(), anyhow::Error>::Ok(())
+            })
+            .await
+            .context("Waited 120 seconds for the rpc block to be updated but it wasn't")??;
+            Ok(receipt)
         })
     }
 
@@ -176,7 +203,6 @@ pub trait NodeApi {
 
         let future = if let Some(substrate_provider) = substrate_provider {
             Either::Left(subscribe_to_full_blocks_information_substrate(
-                provider,
                 substrate_provider,
             ))
         } else {
@@ -203,7 +229,7 @@ pub trait NodeApi {
     /// blocks.
     fn subscribe_to_transaction_inclusions(
         &self,
-    ) -> FrameworkFuture<Result<FrameworkStream<TxHash>>> {
+    ) -> FrameworkFuture<Result<FrameworkStream<(u64, TxHash)>>> {
         let provider = self.subscriptions_provider();
         let substrate_provider = self.substrate_provider();
 
@@ -287,11 +313,9 @@ fn subscribe_to_full_blocks_information_ethereum(
 
 #[allow(clippy::type_complexity)]
 fn subscribe_to_full_blocks_information_substrate(
-    provider: FrameworkFuture<Result<DynProvider>>,
     substrate_provider: FrameworkFuture<Result<OnlineClient<PolkadotConfig>>>,
 ) -> FrameworkFuture<Result<FrameworkStream<MinedBlockInformation>>> {
     Box::pin(async move {
-        let provider = provider.await.context("Failed to get provider")?;
         let substrate_provider = substrate_provider.await.context("Failed to get provider")?;
 
         // This is a map of the hash of the any substrate blocks to the time at which they were
@@ -362,7 +386,6 @@ fn subscribe_to_full_blocks_information_substrate(
             .context("Failed to subscribe to the finalized blocks")?
             .filter_map(|block| futures::future::ready(block.ok()))
             .map(move |substrate_block| {
-                let provider = provider.clone();
                 let substrate_provider = substrate_provider.clone();
                 let observed_best_blocks = observed_any_blocks.clone();
 
@@ -388,19 +411,29 @@ fn subscribe_to_full_blocks_information_substrate(
                         "Observed a new finalized block"
                     );
 
-                    // Obtain the equivalent block to this block from the revive-eth-rpc. We do some
-                    // polling logic here in order to ensure that if the rpc is yet to catch up we
-                    // can still service the request.
+                    // Obtain the equivalent block to this block via the eth_block runtime API. We
+                    // do some polling logic here in order to ensure that if the node is yet to
+                    // catch up we can still service the request.
                     let revive_block = {
                         let mut interval = tokio::time::interval(Duration::from_millis(250));
                         loop {
                             interval.tick().await;
-                            let result = provider
-                                .get_block_by_number(alloy::eips::BlockNumberOrTag::Number(
-                                    substrate_block.number() as _,
-                                ))
-                                .await;
-                            if let Ok(Some(block)) = result {
+                            let result = async {
+                                let encoded_block = substrate_provider
+                                    .runtime_api()
+                                    .at(substrate_block.reference())
+                                    .call_raw("ReviveApi_eth_block", None)
+                                    .await
+                                    .context("Failed to call the eth_block runtime API")?;
+                                let eth_block = EthBlock::decode(&mut encoded_block.as_slice())
+                                    .context("Failed to decode the eth_block runtime API result")?;
+                                let serialized = serde_json::to_value(eth_block)
+                                    .context("Failed to serialize the runtime API block")?;
+                                serde_json::from_value::<alloy::rpc::types::Block>(serialized)
+                                    .context("Failed to deserialize into the alloy block type")
+                            }
+                            .await;
+                            if let Ok(block) = result {
                                 break block;
                             }
                         }
@@ -500,7 +533,7 @@ where
 
 fn subscribe_to_transaction_inclusions_ethereum(
     provider: FrameworkFuture<Result<DynProvider>>,
-) -> FrameworkFuture<Result<FrameworkStream<TxHash>>> {
+) -> FrameworkFuture<Result<FrameworkStream<(u64, TxHash)>>> {
     Box::pin(async move {
         let stream = provider
             .await
@@ -510,14 +543,22 @@ fn subscribe_to_transaction_inclusions_ethereum(
             .await
             .context("Failed to subscribe to blocks")?
             .filter_map(|block| ready(block.ok()))
-            .flat_map(|block| stream::iter(block.into_hashes_vec()));
+            .flat_map(|block| {
+                let block_number = block.number();
+                stream::iter(
+                    block
+                        .into_hashes_vec()
+                        .into_iter()
+                        .map(move |transaction_hash| (block_number, transaction_hash)),
+                )
+            });
         Ok(Box::pin(stream) as _)
     })
 }
 
 fn subscribe_to_transaction_inclusions_substrate(
     provider: FrameworkFuture<Result<OnlineClient<PolkadotConfig>>>,
-) -> FrameworkFuture<Result<FrameworkStream<TxHash>>> {
+) -> FrameworkFuture<Result<FrameworkStream<(u64, TxHash)>>> {
     Box::pin(async move {
         let stream = provider
             .await
@@ -527,14 +568,21 @@ fn subscribe_to_transaction_inclusions_substrate(
             .await
             .context("Failed to subscribe to blocks")?
             .filter_map(|block| ready(block.ok()))
-            .then(|block| async move { block.extrinsics().await })
-            .filter_map(|extrinsics| ready(extrinsics.ok()))
-            .flat_map(move |extrinsics| {
+            .then(|block| async move {
+                let block_number = block.number();
+                block
+                    .extrinsics()
+                    .await
+                    .map(|extrinsics| (block_number, extrinsics))
+            })
+            .filter_map(|result| ready(result.ok()))
+            .flat_map(move |(block_number, extrinsics)| {
+                let block_number = u64::from(block_number);
                 stream::iter(
                     extrinsics
                         .find::<revive_metadata::revive::calls::types::EthTransact>()
                         .filter_map(|ext| ext.ok())
-                        .map(|ext| keccak256(&ext.value.payload))
+                        .map(move |ext| (block_number, keccak256(&ext.value.payload)))
                         .collect::<Vec<_>>(),
                 )
             });

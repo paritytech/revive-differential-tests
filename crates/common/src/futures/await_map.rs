@@ -52,6 +52,34 @@ where
         })
     }
 
+    pub fn batch_insert(
+        &self,
+        iter: impl IntoIterator<Item = (K, V)> + Send + Sync + 'static,
+    ) -> FrameworkFuture<()> {
+        let inner_map = self.inner.clone();
+        Box::pin(async move {
+            let mut mutex_guard = inner_map.lock().await;
+
+            for (key, value) in iter.into_iter() {
+                let entry = mutex_guard
+                    .entry(key)
+                    .or_insert_with(|| Slot::Empty(Arc::new(Notify::new())));
+
+                let notify = if let Slot::Empty(notify) = entry {
+                    Some(notify.clone())
+                } else {
+                    None
+                };
+
+                *entry = Slot::Value(value);
+
+                if let Some(notify) = notify {
+                    notify.notify_waiters();
+                }
+            }
+        })
+    }
+
     pub fn get(&self, k: K) -> FrameworkFuture<V> {
         let inner_map = self.inner.clone();
         Box::pin(async move {

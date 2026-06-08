@@ -37,7 +37,7 @@ pub(crate) mod internal_prelude {
 
     pub use alloy::{
         consensus::BlockHeader,
-        eips::BlockNumberOrTag,
+        eips::{BlockNumberOrTag, Encodable2718},
         genesis::{Genesis, GenesisAccount},
         network::{
             AnyNetwork, BlockResponse, Ethereum, EthereumWallet, Network, NetworkWallet,
@@ -68,6 +68,7 @@ pub(crate) mod internal_prelude {
         },
     };
     pub use anyhow::{Context as _, Result, bail};
+    pub use futures::FutureExt;
     pub use futures::StreamExt;
     pub use serde::{Deserialize, Deserializer, Serialize, Serializer};
     pub use serde_json::{self, Value, json};
@@ -75,7 +76,7 @@ pub(crate) mod internal_prelude {
     pub use serde_yaml_ng;
     pub use sp_core::crypto::Ss58Codec;
     pub use sp_runtime::AccountId32;
-    pub use subxt::{OnlineClient, PolkadotConfig};
+    pub use subxt::{OnlineClient, PolkadotConfig, tx::TxStatus};
     pub use tokio::sync::{OnceCell, Semaphore};
     pub use tokio::task::AbortHandle;
     pub use tokio::time::{interval, sleep, timeout};

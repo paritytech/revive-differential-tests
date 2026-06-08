@@ -67,7 +67,7 @@ mod internal_prelude {
 
     pub use crate::compilations::handle_compilations;
     pub use crate::differential_benchmarks::{
-        InclusionWatcher, Watcher, WatcherEvent, handle_differential_benchmarks,
+        InclusionWatcher, TransactionFinder, Watcher, WatcherEvent, handle_differential_benchmarks,
     };
     pub use crate::differential_tests::handle_differential_tests;
     pub use crate::helpers::{
@@ -75,6 +75,8 @@ mod internal_prelude {
         TestCaseIgnoreResolvedConfiguration, TestDefinition, TestPlatformInformation,
         create_compilation_definitions_stream, create_test_definitions_stream, process_corpus,
     };
+    pub use pallet_revive::codec::{Decode, Encode};
+    pub use pallet_revive::evm::Block as EvmBlock;
 }
 
 use crate::internal_prelude::*;

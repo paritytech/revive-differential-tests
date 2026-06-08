@@ -85,6 +85,8 @@ runs:
       run: |
         set -euo pipefail
 
+        rust_version="$(rustc --version 2>/dev/null || echo unknown)"
+
         request_hash="$(
           {
             printf 'repository=%s\n' "$REPOSITORY"
@@ -93,6 +95,7 @@ runs:
             printf 'no_default_features=%s\n' "$NO_DEFAULT_FEATURES"
             printf 'runner_os=%s\n' "$RUNNER_OS"
             printf 'runner_arch=%s\n' "$RUNNER_ARCH"
+            printf 'rust_version=%s\n' "$rust_version"
             printf 'features<<EOF\n%s\nEOF\n' "$FEATURES"
             printf 'packages<<EOF\n%s\nEOF\n' "$PACKAGES"
             printf 'env<<EOF\n%s\nEOF\n' "$REQUEST_ENV"
