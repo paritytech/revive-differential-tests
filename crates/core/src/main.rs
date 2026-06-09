@@ -39,11 +39,11 @@ mod internal_prelude {
     pub use alloy::rpc::types::{TransactionReceipt, TransactionRequest};
     pub use ansi_term::{ANSIStrings, Color};
     pub use anyhow::Context as _;
-    pub use anyhow::{Error, Result, anyhow, bail};
+    pub use anyhow::{Error, Result, anyhow, bail, ensure};
     pub use clap::Parser;
     pub use futures::future::{Either, try_join, try_join_all, try_join3};
     pub use futures::{FutureExt, Stream, StreamExt, TryFutureExt, TryStreamExt, stream};
-    pub use indexmap::{IndexMap, indexmap};
+    pub use indexmap::{IndexMap, IndexSet, indexmap};
     pub use regex::Regex;
     pub use schemars::schema_for;
     pub use semver::{Version, VersionReq};

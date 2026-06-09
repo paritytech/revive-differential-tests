@@ -24,19 +24,18 @@ pub(crate) mod internal_prelude {
     pub use std::collections::{BTreeMap, HashMap};
     pub use std::fmt::Display;
     pub use std::fs::File;
-    pub use std::ops::Deref;
     pub use std::path::{Path, PathBuf};
     pub use std::str::FromStr;
     pub use std::sync::Arc;
 
     pub use alloy::hex::ToHexExt;
-    pub use alloy::json_abi::{Function, JsonAbi};
     pub use alloy::network::{Network, TransactionBuilder};
     pub use alloy::primitives::map::HashSet;
     pub use alloy::primitives::utils::parse_units;
-    pub use alloy::primitives::{Address, BlockNumber, Bytes, FixedBytes, TxHash, U256};
+    pub use alloy::primitives::{Address, Bytes, FixedBytes, TxHash, U256};
     pub use anyhow::Context as _;
-    pub use futures::{FutureExt, StreamExt, TryFutureExt, TryStreamExt, stream};
+    pub use derive_more::{Deref, Display, From, FromStr};
+    pub use futures::{FutureExt, StreamExt, TryFutureExt, TryStreamExt};
     pub use indexmap::IndexMap;
     pub use itertools::Itertools;
     pub use schemars::JsonSchema;

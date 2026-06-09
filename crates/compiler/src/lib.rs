@@ -136,11 +136,6 @@ impl Compiler {
         self
     }
 
-    pub fn with_evm_version(mut self, version: impl Into<Option<EVMVersion>>) -> Self {
-        self.input.evm_version = version.into();
-        self
-    }
-
     pub fn with_allow_path(mut self, path: impl AsRef<Path>) -> Self {
         self.input.allow_paths.push(path.as_ref().into());
         self
@@ -170,14 +165,6 @@ impl Compiler {
             .entry(path.as_ref().to_path_buf())
             .or_default()
             .insert(name.as_ref().into(), address);
-        self
-    }
-
-    pub fn with_revert_string_handling(
-        mut self,
-        revert_string_handling: impl Into<Option<RevertString>>,
-    ) -> Self {
-        self.input.revert_string_handling = revert_string_handling.into();
         self
     }
 

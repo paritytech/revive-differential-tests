@@ -42,6 +42,8 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 subxt = { workspace = true }
 console-subscriber = { workspace = true, optional = true }
+derive_more = { workspace = true }
+dashmap = { workspace = true }
 
 [features]
 tokio-debug = ["dep:console-subscriber", "tokio/tracing"]

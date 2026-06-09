@@ -2,7 +2,7 @@
 
 use crate::internal_prelude::*;
 
-use crate::interpreter::{Interpreter, InterpreterContext};
+use crate::interpreter::Interpreter;
 
 /// Handles the differential testing executing it according to the information defined in the
 /// context
@@ -145,18 +145,16 @@ pub async fn handle_differential_benchmarks(
                 .collect::<Vec<_>>()
                 .into_iter();
             let interpreter = Interpreter::for_benchmarks(
-                InterpreterContext {
-                    platform_information,
-                    test_definition,
-                    private_key_allocator,
-                    cached_compiler: cached_compiler.as_ref(),
-                },
-                context.benchmark_run.repetition_count_override,
-                watcher_tx.clone(),
+                platform_information,
+                test_definition,
+                private_key_allocator,
+                watcher_tx,
+                cached_compiler.as_ref(),
                 steps,
             )
             .await
-            .context("Failed to create the benchmarks interpreter")?;
+            .context("Failed to create the benchmarks interpreter")?
+            .with_repetition_count_override(context.benchmark_run.repetition_count_override);
 
             // Running the auxiliary tasks
             let watcher_task = tokio::spawn(watcher.run().instrument(info_span!(
@@ -167,7 +165,7 @@ pub async fn handle_differential_benchmarks(
 
             // Running the interpreter.
             let interpreter_rtn = interpreter
-                .execute_all()
+                .run_to_completion()
                 .instrument(info_span!(
                     "Executing Benchmarks",
                     %platform_identifier,
@@ -178,18 +176,8 @@ pub async fn handle_differential_benchmarks(
                 })
                 .await
                 .context("Failed to run the interpreter and executor")
-                .inspect(|outcome| {
-                    info!(
-                        steps_executed = outcome.steps_executed,
-                        "Workload Execution Succeeded"
-                    )
-                })
+                .inspect(|_| info!("Workload Execution Succeeded"))
                 .inspect_err(|err| error!(?err, "Workload Execution Failed"));
-
-            // Stopping auxiliary tasks.
-            watcher_tx
-                .send(WatcherEvent::AllTransactionsSubmitted)
-                .unwrap();
 
             let watcher_rtn = watcher_task.await.context("Watcher failed").flatten();
 
@@ -212,7 +200,7 @@ pub async fn handle_differential_benchmarks(
                 }
             }
 
-            let _ = interpreter_rtn.context("Interpreter failed")?;
+            interpreter_rtn.context("Interpreter failed")?;
             watcher_rtn.context("Watcher failed")?;
         }
     }

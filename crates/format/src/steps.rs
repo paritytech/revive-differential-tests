@@ -300,9 +300,10 @@ pub enum Calldata {
 define_wrapper_type! {
     /// This represents an item in the [`Calldata::Compound`] variant. Each item will be resolved
     /// according to the resolution rules of the tool.
-    #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, JsonSchema)]
+    #[rustfmt::skip]
+    #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, JsonSchema, Display)]
     #[serde(transparent)]
-    pub struct CalldataItem(String) impl Display;
+    pub struct CalldataItem(String);
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
@@ -364,7 +365,7 @@ pub struct VariableAssignments {
 }
 
 /// An address type that might either be an address literal or a resolvable address.
-#[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq, JsonSchema)]
+#[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq, JsonSchema, Display)]
 #[schemars(with = "String")]
 #[serde(untagged)]
 pub enum StepAddress {
@@ -378,15 +379,6 @@ impl Default for StepAddress {
     }
 }
 
-impl Display for StepAddress {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            StepAddress::Address(address) => Display::fmt(address, f),
-            StepAddress::ResolvableAddress(address) => Display::fmt(address, f),
-        }
-    }
-}
-
 impl StepAddress {
     pub fn as_address(&self) -> Option<&Address> {
         match self {
@@ -395,14 +387,10 @@ impl StepAddress {
         }
     }
 
-    pub fn as_resolvable_address(&self) -> Option<&str> {
-        match self {
-            StepAddress::ResolvableAddress(address) => Some(address),
-            StepAddress::Address(..) => None,
-        }
-    }
-
-    pub async fn resolve_address(&self, context: ResolutionContext<'_>) -> anyhow::Result<Address> {
+    pub async fn resolve_address<R: LazyResolverApi>(
+        &self,
+        context: &mut ResolutionContext<'_, R>,
+    ) -> anyhow::Result<Address> {
         match self {
             StepAddress::Address(address) => Ok(*address),
             StepAddress::ResolvableAddress(address) => Ok(Address::from_slice(
@@ -430,87 +418,6 @@ impl FunctionCallStep {
     fn default_instance() -> ContractInstanceOrReference<'static> {
         ContractInstance::new("Test").into()
     }
-
-    pub async fn encoded_input(&self, context: ResolutionContext<'_>) -> anyhow::Result<Bytes> {
-        match self.method {
-            Method::Deployer | Method::Fallback => {
-                let calldata = self
-                    .calldata
-                    .calldata(context)
-                    .await
-                    .context("Failed to produce calldata for deployer/fallback method")?;
-
-                Ok(calldata.into())
-            }
-            Method::FunctionName(ref function_name) => {
-                let Some(abi) = context.deployed_contract_abi(&self.instance).await else {
-                    anyhow::bail!("ABI for instance '{:?}' not found", self.instance);
-                };
-
-                // We follow the same logic that's implemented in the matter-labs-tester where they resolve
-                // the function name into a function selector and they assume that he function doesn't have
-                // any existing overloads.
-                // Overloads are handled by providing the full function signature in the "function
-                // name".
-                // https://github.com/matter-labs/era-compiler-tester/blob/1dfa7d07cba0734ca97e24704f12dd57f6990c2c/compiler_tester/src/test/case/input/mod.rs#L158-L190
-                let selector = if function_name.contains('(') && function_name.contains(')') {
-                    Function::parse(function_name)
-                        .context(
-                            "Failed to parse the provided function name into a function signature",
-                        )?
-                        .selector()
-                } else {
-                    abi.functions()
-                        .find(|function| function.signature().starts_with(function_name))
-                        .ok_or_else(|| {
-                            anyhow::anyhow!(
-                                "Function with name {:?} not found in ABI for the instance {:?}",
-                                function_name,
-                                &self.instance
-                            )
-                        })
-                        .with_context(|| {
-                            format!(
-                                "Failed to resolve function selector for {:?} on instance {:?}",
-                                function_name, &self.instance
-                            )
-                        })?
-                        .selector()
-                };
-
-                // Allocating a vector that we will be using for the calldata. The vector size will be:
-                // 4 bytes for the function selector.
-                // function.inputs.len() * 32 bytes for the arguments (each argument is a U256).
-                //
-                // We're using indices in the following code in order to avoid the need for us to allocate
-                // a new buffer for each one of the resolved arguments.
-                let mut calldata = Vec::<u8>::with_capacity(4 + self.calldata.size_requirement());
-                calldata.extend(selector.0);
-                self.calldata
-                    .calldata_into_slice(&mut calldata, context)
-                    .await
-                    .context("Failed to append encoded argument to calldata buffer")?;
-
-                Ok(calldata.into())
-            }
-        }
-    }
-
-    pub async fn find_all_contract_instances(
-        &self,
-        context: ResolutionContext<'_>,
-    ) -> Vec<ContractInstance> {
-        let mut vec = Vec::new();
-        vec.push(self.instance.clone());
-        self.calldata
-            .find_all_contract_instances_or_references(&mut vec);
-
-        stream::iter(vec)
-            .then(|instance_or_reference| context.contract_instance(instance_or_reference))
-            .filter_map(futures::future::ready)
-            .collect::<Vec<_>>()
-            .await
-    }
 }
 
 impl ExpectedOutput {
@@ -520,11 +427,6 @@ impl ExpectedOutput {
 
     pub fn with_success(mut self) -> Self {
         self.exception = false;
-        self
-    }
-
-    pub fn with_failure(mut self) -> Self {
-        self.exception = true;
         self
     }
 
@@ -541,10 +443,6 @@ impl Default for Calldata {
 }
 
 impl Calldata {
-    pub fn new_single(item: impl Into<Bytes>) -> Self {
-        Self::Single(item.into())
-    }
-
     pub fn new_compound(items: impl IntoIterator<Item = impl AsRef<str>>) -> Self {
         Self::Compound(
             items
@@ -555,50 +453,33 @@ impl Calldata {
         )
     }
 
-    pub fn find_all_contract_instances_or_references(
+    pub async fn calldata<R: LazyResolverApi>(
         &self,
-        vec: &mut Vec<ContractInstanceOrReference<'static>>,
-    ) {
-        if let Calldata::Compound(compound) = self {
-            for item in compound {
-                if let Some(instance_or_reference) =
-                    item.strip_suffix(CalldataToken::<()>::ADDRESS_VARIABLE_SUFFIX)
-                {
-                    vec.push(instance_or_reference.to_owned().into())
-                }
-            }
-        }
-    }
-
-    pub async fn calldata(&self, context: ResolutionContext<'_>) -> anyhow::Result<Vec<u8>> {
+        context: &mut ResolutionContext<'_, R>,
+    ) -> anyhow::Result<Vec<u8>> {
         let mut buffer = Vec::<u8>::with_capacity(self.size_requirement());
         self.calldata_into_slice(&mut buffer, context).await?;
         Ok(buffer)
     }
 
-    pub async fn calldata_into_slice(
+    pub async fn calldata_into_slice<R: LazyResolverApi>(
         &self,
         buffer: &mut Vec<u8>,
-        context: ResolutionContext<'_>,
+        context: &mut ResolutionContext<'_, R>,
     ) -> anyhow::Result<()> {
         match self {
             Calldata::Single(bytes) => {
                 buffer.extend_from_slice(bytes);
             }
             Calldata::Compound(items) => {
-                let resolved = stream::iter(items.iter().enumerate())
-                    .map(|(arg_idx, arg)| async move {
-                        arg.resolve(context)
-                            .instrument(info_span!("Resolving argument", %arg, arg_idx))
-                            .map_ok(|value| value.to_be_bytes::<32>())
-                            .await
-                    })
-                    .buffered(0xFF)
-                    .try_collect::<Vec<_>>()
-                    .await
-                    .context("Failed to resolve one or more calldata arguments")?;
-
-                buffer.extend(resolved.into_iter().flatten());
+                for (arg_idx, arg) in items.iter().enumerate() {
+                    let resolved = arg
+                        .resolve(context)
+                        .instrument(info_span!("Resolving argument", %arg, arg_idx))
+                        .map_ok(|value| value.to_be_bytes::<32>())
+                        .await?;
+                    buffer.extend(resolved);
+                }
             }
         };
         Ok(())
@@ -611,43 +492,40 @@ impl Calldata {
         }
     }
 
-    /// Checks if this [`Calldata`] is equivalent to the passed calldata bytes.
-    pub async fn is_equivalent(
+    pub async fn is_equivalent<R: LazyResolverApi>(
         &self,
         other: &[u8],
-        context: ResolutionContext<'_>,
+        context: &mut ResolutionContext<'_, R>,
     ) -> anyhow::Result<bool> {
         match self {
             Calldata::Single(calldata) => Ok(calldata == other),
             Calldata::Compound(items) => {
-                stream::iter(items.iter().zip(other.chunks(32)))
-                    .map(|(this, other)| async move {
-                        // The MatterLabs format supports wildcards and therefore we also need to
-                        // support them.
-                        if this.as_ref() == "*" {
-                            return Ok::<_, anyhow::Error>(true);
-                        }
+                for (expected, actual) in items.iter().zip(other.chunks(32)) {
+                    if expected.as_ref() == "*" {
+                        continue;
+                    }
 
-                        let other = if other.len() < 32 {
-                            let mut vec = other.to_vec();
-                            vec.resize(32, 0);
-                            std::borrow::Cow::Owned(vec)
-                        } else {
-                            std::borrow::Cow::Borrowed(other)
-                        };
+                    let actual = if actual.len() < 32 {
+                        let mut vec = actual.to_vec();
+                        vec.resize(32, 0);
+                        std::borrow::Cow::Owned(vec)
+                    } else {
+                        std::borrow::Cow::Borrowed(actual)
+                    };
 
-                        let this = this
-                            .resolve(context)
-                            .await
-                            .context("Failed to resolve calldata item during equivalence check")?;
-                        let other = U256::from_be_slice(&other);
-
-                        Ok(this == other)
-                    })
-                    .buffered(0xFF)
-                    .all(|v| async move { v.is_ok_and(|v| v) })
-                    .map(Ok)
-                    .await
+                    let expected = expected
+                        .resolve(context)
+                        .await
+                        .context("Resolution failed")?;
+                    let actual = U256::from_be_slice(&actual);
+                    anyhow::ensure!(
+                        expected == actual,
+                        "Two parts of the equivalence check aren't equivalent. Expected = {}, actual = {}",
+                        expected,
+                        actual
+                    )
+                }
+                Ok(true)
             }
         }
     }
@@ -655,11 +533,14 @@ impl Calldata {
 
 impl CalldataItem {
     #[instrument(level = "info", skip_all, err(Debug))]
-    async fn resolve(&self, context: ResolutionContext<'_>) -> anyhow::Result<U256> {
+    async fn resolve<R: LazyResolverApi>(
+        &self,
+        context: &mut ResolutionContext<'_, R>,
+    ) -> anyhow::Result<U256> {
         let mut stack = Vec::<CalldataToken<U256>>::new();
 
-        for token in self.calldata_tokens().map(|token| token.resolve(context)) {
-            let token = token.await?;
+        for token in self.calldata_tokens() {
+            let token = token.resolve(context).await?;
             let new_token = match token {
                 CalldataToken::Item(_) => token,
                 CalldataToken::Operation(operation) => {
@@ -752,39 +633,36 @@ impl<T> CalldataToken<T> {
     }
 }
 
-fn required_node_connector<'a>(
-    context: ResolutionContext<'a>,
-) -> anyhow::Result<&'a NodeConnector> {
+fn required_node_connector<'a, R: LazyResolverApi>(
+    context: &mut ResolutionContext<'a, R>,
+) -> anyhow::Result<Arc<NodeConnector>> {
     context
         .node_connector()
         .context("No node connector provided")
 }
 
-async fn resolve_latest_block(context: ResolutionContext<'_>) -> anyhow::Result<BlockPair> {
-    let node_connector = required_node_connector(context)?;
+async fn resolve_latest_block<R: LazyResolverApi>(
+    context: &mut ResolutionContext<'_, R>,
+) -> anyhow::Result<BlockPair> {
     match context.pinned_block() {
         Some(block) => Ok(block.clone()),
-        None => match context.pinned_block_number() {
-            Some(block_number) => Ok(node_connector.block(*block_number).await),
-            None => node_connector
-                .latest_finalized_block()
-                .await
-                .context("Failed to query latest finalized block"),
-        },
+        None => required_node_connector(context)?
+            .latest_finalized_block()
+            .await
+            .context("Failed to query latest finalized block"),
     }
 }
 
-async fn resolve_current_block_number(context: ResolutionContext<'_>) -> anyhow::Result<u64> {
+async fn resolve_current_block_number<R: LazyResolverApi>(
+    context: &mut ResolutionContext<'_, R>,
+) -> anyhow::Result<u64> {
     match context.pinned_block() {
         Some(block) => Ok(block.evm_block.number()),
-        None => match context.pinned_block_number() {
-            Some(block_number) => Ok(*block_number),
-            None => required_node_connector(context)?
-                .latest_finalized_block()
-                .await
-                .context("Failed to query latest finalized block")
-                .map(|block| block.evm_block.number()),
-        },
+        None => required_node_connector(context)?
+            .latest_finalized_block()
+            .await
+            .context("Failed to query latest finalized block")
+            .map(|block| block.evm_block.number()),
     }
 }
 
@@ -797,21 +675,23 @@ impl<T: AsRef<str>> CalldataToken<T> {
     /// This piece of code is taken from the matter-labs-tester repository which is licensed under
     /// MIT or Apache. The original source code can be found here:
     /// https://github.com/matter-labs/era-compiler-tester/blob/0ed598a27f6eceee7008deab3ff2311075a2ec69/compiler_tester/src/test/case/input/value.rs#L43-L146
-    pub async fn resolve(
+    pub async fn resolve<R: LazyResolverApi>(
         self,
-        context: ResolutionContext<'_>,
+        context: &mut ResolutionContext<'_, R>,
     ) -> anyhow::Result<CalldataToken<U256>> {
         match self {
             Self::Item(item) => {
                 let item = item.as_ref();
                 let value = if let Some(instance) = item.strip_suffix(Self::ADDRESS_VARIABLE_SUFFIX)
                 {
+                    let contract_ref = ContractInstanceOrReference::from(instance.to_owned());
                     context
-                        .deployed_contract_address(ContractInstance::new(instance))
+                        .get_contract_address(&contract_ref)
                         .await
                         .ok_or_else(|| anyhow::anyhow!("Instance `{}` not found", instance))
-                        .map(AsRef::as_ref)
-                        .map(U256::from_be_slice)
+                        .and_then(|address| {
+                            address.map(|address| U256::from_be_slice(address.as_ref()))
+                        })
                 } else if let Some(value) = item.strip_prefix(Self::NEGATIVE_VALUE_PREFIX) {
                     let value = U256::from_str_radix(value, 10).map_err(|error| {
                         anyhow::anyhow!("Invalid decimal literal after `-`: {}", error)
@@ -902,9 +782,10 @@ impl<T: AsRef<str>> CalldataToken<T> {
                     Ok(U256::from_be_slice(Address::random().as_ref()))
                 } else if let Some(variable_name) = item.strip_prefix(Self::VARIABLE_PREFIX) {
                     context
-                        .variable(variable_name)
+                        .get_variable(variable_name)
+                        .await
                         .context("Variable lookup failed")
-                        .copied()
+                        .and_then(|value| value)
                 } else {
                     U256::from_str_radix(item, 10)
                         .map_err(|error| anyhow::anyhow!("Invalid decimal literal: {}", error))
@@ -962,26 +843,6 @@ impl GasOverrides {
         Default::default()
     }
 
-    pub fn with_gas_limit(mut self, value: impl Into<Option<u64>>) -> Self {
-        self.gas_limit = value.into();
-        self
-    }
-
-    pub fn with_gas_price(mut self, value: impl Into<Option<u128>>) -> Self {
-        self.gas_price = value.into();
-        self
-    }
-
-    pub fn with_max_fee_per_gas(mut self, value: impl Into<Option<u128>>) -> Self {
-        self.max_fee_per_gas = value.into();
-        self
-    }
-
-    pub fn with_max_priority_fee_per_gas(mut self, value: impl Into<Option<u128>>) -> Self {
-        self.max_priority_fee_per_gas = value.into();
-        self
-    }
-
     pub fn apply_to<N: Network>(&self, transaction_request: &mut N::TransactionRequest) {
         if let Some(gas_limit) = self.gas_limit {
             transaction_request.set_gas_limit(gas_limit);
@@ -1007,10 +868,75 @@ mod tests {
     use std::collections::HashMap;
 
     use super::*;
-    use crate::metadata::ContractIdent;
+
+    #[derive(Default)]
+    struct MockResolver {
+        contract_addresses: HashMap<ContractInstance, Address>,
+        variables: HashMap<String, U256>,
+    }
+
+    impl MockResolver {
+        fn context(&mut self) -> ResolutionContext<'_, Self> {
+            ResolutionContext {
+                metadata: None,
+                pinned_block: None,
+                transaction_hash: None,
+                node_connector: None,
+                api: Some(self),
+            }
+        }
+
+        fn with_contract(mut self, instance: ContractInstance, address: Address) -> Self {
+            self.contract_addresses.insert(instance, address);
+            self
+        }
+
+        fn with_variable(mut self, variable: impl Into<String>, value: U256) -> Self {
+            self.variables.insert(variable.into(), value);
+            self
+        }
+    }
+
+    impl LazyResolverApi for MockResolver {
+        async fn get_contract_address(
+            &mut self,
+            contract_ref: &ContractInstanceOrReference<'_>,
+        ) -> anyhow::Result<Address> {
+            match contract_ref {
+                ContractInstanceOrReference::Instance(instance) => self
+                    .contract_addresses
+                    .get(instance.as_ref())
+                    .copied()
+                    .ok_or_else(|| anyhow::anyhow!("Instance `{}` not found", instance)),
+                ContractInstanceOrReference::Reference(reference) => {
+                    anyhow::bail!("Reference `{}` not supported by mock resolver", reference)
+                }
+            }
+        }
+
+        async fn get_variable(
+            &mut self,
+            variable: impl AsRef<str>,
+        ) -> Option<anyhow::Result<U256>> {
+            self.variables.get(variable.as_ref()).copied().map(Ok)
+        }
+    }
+
+    async fn calldata_with_selector(
+        calldata: &Calldata,
+        selector: [u8; 4],
+        resolver: &mut MockResolver,
+    ) -> anyhow::Result<Vec<u8>> {
+        let mut encoded = Vec::<u8>::with_capacity(4 + calldata.size_requirement());
+        encoded.extend(selector);
+        let mut context = resolver.context();
+        encoded.extend(calldata.calldata(&mut context).await?);
+        Ok(encoded)
+    }
 
     #[tokio::test]
     async fn test_encoded_input_uint256() {
+        // Arrange
         let raw_metadata = r#"
             [
                 {
@@ -1032,30 +958,25 @@ mod tests {
             .selector()
             .0;
 
-        let input = FunctionCallStep {
-            instance: ContractInstance::new("Contract").into(),
-            method: Method::FunctionName("store".to_owned()),
-            calldata: Calldata::new_compound(["42"]),
-            ..Default::default()
-        };
+        let calldata = Calldata::new_compound(["42"]);
+        let mut resolver = MockResolver::default();
 
-        let mut contracts = HashMap::new();
-        contracts.insert(
-            ContractInstance::new("Contract"),
-            Arc::new((ContractIdent::new("Contract"), Address::ZERO, parsed_abi)),
-        );
+        // Act
+        let encoded = calldata_with_selector(&calldata, selector, &mut resolver)
+            .await
+            .unwrap();
 
-        let context = ResolutionContext::default().with_deployed_contracts(&contracts);
-        let encoded = input.encoded_input(context).await.unwrap();
-        assert!(encoded.0.starts_with(&selector));
+        // Assert
+        assert!(encoded.starts_with(&selector));
 
         type T = (u64,);
-        let decoded: T = T::abi_decode(&encoded.0[4..]).unwrap();
+        let decoded: T = T::abi_decode(&encoded[4..]).unwrap();
         assert_eq!(decoded.0, 42);
     }
 
     #[tokio::test]
     async fn test_encoded_input_address_with_signature() {
+        // Arrange
         let raw_abi = r#"[
         {
             "inputs": [{"name": "recipient", "type": "address"}],
@@ -1075,25 +996,22 @@ mod tests {
             .selector()
             .0;
 
-        let input: FunctionCallStep = FunctionCallStep {
-            instance: "Contract".to_owned().into(),
-            method: Method::FunctionName("send(address)".to_owned()),
-            calldata: Calldata::new_compound(["0x1000000000000000000000000000000000000001"]),
-            ..Default::default()
-        };
-
-        let mut contracts = HashMap::new();
-        contracts.insert(
+        let calldata = Calldata::new_compound(["Contract.address"]);
+        let mut resolver = MockResolver::default().with_contract(
             ContractInstance::new("Contract"),
-            Arc::new((ContractIdent::new("Contract"), Address::ZERO, parsed_abi)),
+            address!("0x1000000000000000000000000000000000000001"),
         );
 
-        let context = ResolutionContext::default().with_deployed_contracts(&contracts);
-        let encoded = input.encoded_input(context).await.unwrap();
-        assert!(encoded.0.starts_with(&selector));
+        // Act
+        let encoded = calldata_with_selector(&calldata, selector, &mut resolver)
+            .await
+            .unwrap();
+
+        // Assert
+        assert!(encoded.starts_with(&selector));
 
         type T = (alloy::primitives::Address,);
-        let decoded: T = T::abi_decode(&encoded.0[4..]).unwrap();
+        let decoded: T = T::abi_decode(&encoded[4..]).unwrap();
         assert_eq!(
             decoded.0,
             address!("0x1000000000000000000000000000000000000001")
@@ -1102,6 +1020,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_encoded_input_address() {
+        // Arrange
         let raw_abi = r#"[
         {
             "inputs": [{"name": "recipient", "type": "address"}],
@@ -1121,25 +1040,19 @@ mod tests {
             .selector()
             .0;
 
-        let input: FunctionCallStep = FunctionCallStep {
-            instance: ContractInstance::new("Contract").into(),
-            method: Method::FunctionName("send".to_owned()),
-            calldata: Calldata::new_compound(["0x1000000000000000000000000000000000000001"]),
-            ..Default::default()
-        };
+        let calldata = Calldata::new_compound(["0x1000000000000000000000000000000000000001"]);
+        let mut resolver = MockResolver::default();
 
-        let mut contracts = HashMap::new();
-        contracts.insert(
-            ContractInstance::new("Contract"),
-            Arc::new((ContractIdent::new("Contract"), Address::ZERO, parsed_abi)),
-        );
+        // Act
+        let encoded = calldata_with_selector(&calldata, selector, &mut resolver)
+            .await
+            .unwrap();
 
-        let context = ResolutionContext::default().with_deployed_contracts(&contracts);
-        let encoded = input.encoded_input(context).await.unwrap();
-        assert!(encoded.0.starts_with(&selector));
+        // Assert
+        assert!(encoded.starts_with(&selector));
 
         type T = (alloy::primitives::Address,);
-        let decoded: T = T::abi_decode(&encoded.0[4..]).unwrap();
+        let decoded: T = T::abi_decode(&encoded[4..]).unwrap();
         assert_eq!(
             decoded.0,
             address!("0x1000000000000000000000000000000000000001")
@@ -1148,19 +1061,20 @@ mod tests {
 
     async fn resolve_calldata_item(
         input: &str,
-        deployed_contracts: &HashMap<ContractInstance, Arc<(ContractIdent, Address, JsonAbi)>>,
+        resolver: &mut MockResolver,
     ) -> anyhow::Result<U256> {
-        let context = ResolutionContext::default().with_deployed_contracts(deployed_contracts);
-        CalldataItem::new(input).resolve(context).await
+        let mut context = resolver.context();
+        CalldataItem::new(input).resolve(&mut context).await
     }
 
     #[tokio::test]
     async fn simple_addition_can_be_resolved() {
         // Arrange
         let input = "2 4 +";
+        let mut resolver = MockResolver::default();
 
         // Act
-        let resolved = resolve_calldata_item(input, &Default::default()).await;
+        let resolved = resolve_calldata_item(input, &mut resolver).await;
 
         // Assert
         let resolved = resolved.expect("Failed to resolve argument");
@@ -1171,9 +1085,10 @@ mod tests {
     async fn simple_subtraction_can_be_resolved() {
         // Arrange
         let input = "4 2 -";
+        let mut resolver = MockResolver::default();
 
         // Act
-        let resolved = resolve_calldata_item(input, &Default::default()).await;
+        let resolved = resolve_calldata_item(input, &mut resolver).await;
 
         // Assert
         let resolved = resolved.expect("Failed to resolve argument");
@@ -1184,9 +1099,10 @@ mod tests {
     async fn simple_multiplication_can_be_resolved() {
         // Arrange
         let input = "4 2 *";
+        let mut resolver = MockResolver::default();
 
         // Act
-        let resolved = resolve_calldata_item(input, &Default::default()).await;
+        let resolved = resolve_calldata_item(input, &mut resolver).await;
 
         // Assert
         let resolved = resolved.expect("Failed to resolve argument");
@@ -1197,9 +1113,10 @@ mod tests {
     async fn simple_division_can_be_resolved() {
         // Arrange
         let input = "4 2 /";
+        let mut resolver = MockResolver::default();
 
         // Act
-        let resolved = resolve_calldata_item(input, &Default::default()).await;
+        let resolved = resolve_calldata_item(input, &mut resolver).await;
 
         // Assert
         let resolved = resolved.expect("Failed to resolve argument");
@@ -1210,9 +1127,10 @@ mod tests {
     async fn arithmetic_errors_are_not_panics() {
         // Arrange
         let input = "4 0 /";
+        let mut resolver = MockResolver::default();
 
         // Act
-        let resolved = resolve_calldata_item(input, &Default::default()).await;
+        let resolved = resolve_calldata_item(input, &mut resolver).await;
 
         // Assert
         assert!(resolved.is_err())
@@ -1222,11 +1140,10 @@ mod tests {
     async fn arithmetic_with_resolution_works() {
         // Arrange
         let input = "$VARIABLE:BLOCK_NUMBER 10 +";
-        let variables = HashMap::from([("BLOCK_NUMBER".to_owned(), U256::from(10))]);
-        let context = ResolutionContext::default().with_variables(&variables);
+        let mut resolver = MockResolver::default().with_variable("BLOCK_NUMBER", U256::from(10));
 
         // Act
-        let resolved = CalldataItem::new(input).resolve(context).await;
+        let resolved = resolve_calldata_item(input, &mut resolver).await;
 
         // Assert
         let resolved = resolved.expect("Failed to resolve argument");
@@ -1237,9 +1154,10 @@ mod tests {
     async fn incorrect_number_of_arguments_errors() {
         // Arrange
         let input = "1 10 + +";
+        let mut resolver = MockResolver::default();
 
         // Act
-        let resolved = resolve_calldata_item(input, &Default::default()).await;
+        let resolved = resolve_calldata_item(input, &mut resolver).await;
 
         // Assert
         assert!(resolved.is_err())

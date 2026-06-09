@@ -2,10 +2,7 @@
 
 use crate::internal_prelude::*;
 
-use crate::interpreter::{Interpreter, InterpreterContext};
-
-/// The number of test steps that were executed.
-type StepsExecuted = usize;
+use crate::interpreter::Interpreter;
 
 /// State for test definition processing.
 #[derive(Clone)]
@@ -18,7 +15,7 @@ struct TestDefinitionProcessor;
 
 impl CorpusDefinitionProcessor for TestDefinitionProcessor {
     type Definition<'a> = TestDefinition<'a>;
-    type ProcessResult = StepsExecuted;
+    type ProcessResult = ();
     type State = TestDefinitionProcessorState;
 
     async fn process_definition<'a>(
@@ -40,12 +37,10 @@ impl CorpusDefinitionProcessor for TestDefinitionProcessor {
                         .collect::<Vec<_>>()
                         .into_iter();
                     Interpreter::for_tests(
-                        InterpreterContext {
-                            platform_information: information,
-                            test_definition: definition,
-                            private_key_allocator,
-                            cached_compiler,
-                        },
+                        information,
+                        definition,
+                        private_key_allocator,
+                        cached_compiler,
                         steps,
                     )
                     .await
@@ -56,27 +51,19 @@ impl CorpusDefinitionProcessor for TestDefinitionProcessor {
         .await
         .context("Failed to create the interpreters for the various platforms")?;
 
-        let outcomes = futures::future::try_join_all(
+        futures::future::try_join_all(
             interpreters
                 .into_iter()
-                .map(|interpreter| interpreter.execute_all()),
+                .map(|interpreter| interpreter.run_to_completion()),
         )
         .await
         .context("Failed to execute all of the steps on the interpreter")?;
 
-        Ok(outcomes
-            .first()
-            .map(|outcome| outcome.steps_executed)
-            .unwrap_or_default())
+        Ok(())
     }
 
-    fn on_success(
-        definition: &Self::Definition<'_>,
-        steps_executed: StepsExecuted,
-    ) -> anyhow::Result<()> {
-        definition
-            .reporter
-            .report_test_succeeded_event(steps_executed)?;
+    fn on_success(definition: &Self::Definition<'_>, _: ()) -> anyhow::Result<()> {
+        definition.reporter.report_test_succeeded_event(0usize)?;
         Ok(())
     }
 

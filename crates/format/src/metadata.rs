@@ -4,7 +4,7 @@ pub const METADATA_FILE_EXTENSION: &str = "json";
 pub const SOLIDITY_CASE_FILE_EXTENSION: &str = "sol";
 pub const SOLIDITY_CASE_COMMENT_MARKER: &str = "//!";
 
-#[derive(Debug, Default, Deserialize, Clone, Eq, PartialEq)]
+#[derive(Debug, Default, Deserialize, Clone, Eq, PartialEq, Deref)]
 pub struct MetadataFile {
     /// The path of the metadata file. This will either be a JSON or solidity file.
     pub metadata_file_path: PathBuf,
@@ -14,6 +14,7 @@ pub struct MetadataFile {
     pub corpus_file_path: PathBuf,
 
     /// The metadata contained within the file.
+    #[deref]
     pub content: Metadata,
 }
 
@@ -26,14 +27,6 @@ impl MetadataFile {
                 .strip_prefix(&self.corpus_file_path)
                 .unwrap()
         }
-    }
-}
-
-impl Deref for MetadataFile {
-    type Target = Metadata;
-
-    fn deref(&self) -> &Self::Target {
-        &self.content
     }
 }
 
@@ -274,22 +267,20 @@ define_wrapper_type!(
     /// Represents a contract instance found a metadata file.
     ///
     /// Typically, this is used as the key to the "contracts" field of metadata files.
-    #[derive(
-        Clone, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, JsonSchema
-    )]
+    #[rustfmt::skip]
+    #[derive(Clone, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, JsonSchema, Display)]
     #[serde(transparent)]
-    pub struct ContractInstance(String) impl Display;
+    pub struct ContractInstance(String);
 );
 
 define_wrapper_type!(
     /// Represents a contract identifier found a metadata file.
     ///
     /// A contract identifier is the name of the contract in the source code.
-    #[derive(
-        Clone, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, JsonSchema
-    )]
+    #[rustfmt::skip]
+    #[derive(Clone, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, JsonSchema, Display)]
     #[serde(transparent)]
-    pub struct ContractIdent(String) impl Display;
+    pub struct ContractIdent(String);
 );
 
 /// Represents an identifier used for contracts.
@@ -392,46 +383,6 @@ pub struct EvmVersionRequirement {
 }
 
 impl EvmVersionRequirement {
-    pub fn new_greater_than_or_equals(version: EVMVersion) -> Self {
-        Self {
-            ordering: Ordering::Greater,
-            or_equal: true,
-            evm_version: version,
-        }
-    }
-
-    pub fn new_greater_than(version: EVMVersion) -> Self {
-        Self {
-            ordering: Ordering::Greater,
-            or_equal: false,
-            evm_version: version,
-        }
-    }
-
-    pub fn new_equals(version: EVMVersion) -> Self {
-        Self {
-            ordering: Ordering::Equal,
-            or_equal: false,
-            evm_version: version,
-        }
-    }
-
-    pub fn new_less_than(version: EVMVersion) -> Self {
-        Self {
-            ordering: Ordering::Less,
-            or_equal: false,
-            evm_version: version,
-        }
-    }
-
-    pub fn new_less_than_or_equals(version: EVMVersion) -> Self {
-        Self {
-            ordering: Ordering::Less,
-            or_equal: true,
-            evm_version: version,
-        }
-    }
-
     pub fn matches(&self, other: &EVMVersion) -> bool {
         let ordering = other.cmp(&self.evm_version);
         ordering == self.ordering || (self.or_equal && matches!(ordering, Ordering::Equal))
@@ -608,15 +559,13 @@ impl From<ContractInstanceReference> for String {
 
 /// Either a [`ContractInstanceReference`] or a [`ContractInstance`].
 ///
-/// Either a [`ContractInstanceReference`] or a [`ContractInstance`].
-///
 /// Deserialized as untagged: strings matching `$INSTANCE:{index}` are parsed as a reference,
 /// everything else is treated as a contract instance name.
 ///
 /// The lifetime parameter `'a` allows the enum to borrow its inner values rather than requiring
 /// owned data.
 #[derive(
-    Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, JsonSchema,
+    Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, JsonSchema, From,
 )]
 #[serde(untagged)]
 pub enum ContractInstanceOrReference<'a> {

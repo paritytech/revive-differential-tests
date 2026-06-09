@@ -24,6 +24,7 @@ serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 itertools = { workspace = true }
 indexmap = { workspace = true, features = ["serde"] }
+derive_more = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true }

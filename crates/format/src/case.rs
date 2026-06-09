@@ -54,31 +54,13 @@ pub struct Case {
 
 impl Case {
     pub fn steps_iterator(&self) -> impl Iterator<Item = Step> {
-        let steps_len = self.steps.len();
-        self.steps
-            .clone()
-            .into_iter()
-            .enumerate()
-            .map(move |(idx, mut step)| {
-                let Step::FunctionCall(ref mut input) = step else {
-                    return step;
-                };
-
-                if idx + 1 == steps_len {
-                    if input.expected.is_none() {
-                        input.expected = self.expected.clone();
-                    }
-
-                    // TODO: What does it mean for us to have an `expected` field on the case itself
-                    // but the final input also has an expected field that doesn't match the one on
-                    // the case? What are we supposed to do with that final expected field on the
-                    // case?
-
-                    step
-                } else {
-                    step
-                }
-            })
+        let mut steps = self.steps.clone();
+        if let Some(Step::FunctionCall(step)) = steps.last_mut()
+            && step.expected.is_none()
+        {
+            step.expected = self.expected.clone();
+        }
+        steps.into_iter()
     }
 
     pub fn steps_iterator_for_benchmarks(
@@ -115,11 +97,11 @@ impl Case {
             .iter()
             .filter_map(|step| match step {
                 Step::FunctionCall(input) => input.caller.as_address().copied(),
-                Step::BalanceAssertion(..) => None,
-                Step::StorageEmptyAssertion(..) => None,
-                Step::Repeat(..) => None,
-                Step::AllocateAccount(..) => None,
                 Step::Transfer(step) => step.from.as_address().copied(),
+                Step::BalanceAssertion(..)
+                | Step::StorageEmptyAssertion(..)
+                | Step::Repeat(..)
+                | Step::AllocateAccount(..) => None,
             })
             .next()
             .unwrap_or(FunctionCallStep::default_caller_address())
@@ -150,7 +132,8 @@ impl Case {
 
 define_wrapper_type!(
     /// A wrapper type for the index of test cases found in metadata file.
-    #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+    #[rustfmt::skip]
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, Display, FromStr)]
     #[serde(transparent)]
-    pub struct CaseIdx(usize) impl Display, FromStr;
+    pub struct CaseIdx(usize);
 );

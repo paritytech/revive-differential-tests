@@ -115,9 +115,4 @@ where
             }
         })
     }
-
-    pub fn contains_key_value(&self, k: K) -> StaticFuture<bool> {
-        let inner_map = self.inner.clone();
-        Box::pin(async move { matches!(inner_map.lock().await.get(&k), Some(Slot::Value(..))) })
-    }
 }

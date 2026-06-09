@@ -1,25 +1,3 @@
-#[macro_export]
-macro_rules! impl_for_wrapper {
-    (Display, $ident: ident) => {
-        #[automatically_derived]
-        impl std::fmt::Display for $ident {
-            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                std::fmt::Display::fmt(&self.0, f)
-            }
-        }
-    };
-    (FromStr, $ident: ident) => {
-        #[automatically_derived]
-        impl std::str::FromStr for $ident {
-            type Err = anyhow::Error;
-
-            fn from_str(s: &str) -> anyhow::Result<Self> {
-                s.parse().map(Self).map_err(Into::into)
-            }
-        }
-    };
-}
-
 /// Defines wrappers around types.
 ///
 /// For example, the macro invocation seen below:
@@ -126,15 +104,9 @@ macro_rules! define_wrapper_type {
                 value.0
             }
         }
-
-        $(
-            $(
-                $crate::macros::impl_for_wrapper!($trait_ident, $ident);
-            )*
-        )?
     };
 }
 
 /// Technically not needed but this allows for the macro to be found in the `macros` module of the
 /// crate in addition to being found in the root of the crate.
-pub use {define_wrapper_type, impl_for_wrapper};
+pub use define_wrapper_type;
