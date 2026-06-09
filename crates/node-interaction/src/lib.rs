@@ -90,7 +90,7 @@ pub(crate) mod internal_prelude {
     };
     pub use tokio::sync::Mutex;
     pub use tokio::task::AbortHandle;
-    pub use tokio::time::{interval, sleep, timeout};
+    pub use tokio::time::{MissedTickBehavior, interval, sleep, timeout};
     pub use tokio::{
         spawn,
         sync::{
@@ -99,6 +99,7 @@ pub(crate) mod internal_prelude {
                 Receiver as BroadcastReceiver, Sender as BroadcastSender,
                 channel as broadcast_channel,
             },
+            watch::{Receiver as WatchReceiver, Sender as WatchSender, channel as watch_channel},
         },
     };
     pub use tokio_stream::wrappers::BroadcastStream;

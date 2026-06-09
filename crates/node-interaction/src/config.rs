@@ -14,6 +14,7 @@ macro_rules! resolve {
 pub struct NodeConnectorConfiguration {
     pub hooks: Option<NodeConnectorHooks>,
     pub behaviors: Option<NodeConnectorBehaviors>,
+    pub substrate_provider_configuration: Option<SubstrateProviderConfiguration>,
     pub eth_provider_configuration: Option<EthProviderConfiguration>,
 }
 
@@ -22,6 +23,10 @@ impl NodeConnectorConfiguration {
         Self {
             hooks: resolve!(self.hooks, other.hooks),
             behaviors: resolve!(self.behaviors, other.behaviors),
+            substrate_provider_configuration: resolve!(
+                self.substrate_provider_configuration,
+                other.substrate_provider_configuration
+            ),
             eth_provider_configuration: resolve!(
                 self.eth_provider_configuration,
                 other.eth_provider_configuration
@@ -68,6 +73,21 @@ impl NodeConnectorHooks {
 pub enum PreSubmissionHook {
     Disabled,
     MaxGasPrice,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+pub struct SubstrateProviderConfiguration {
+    pub submission_concurrency_configuration: Option<ProviderConcurrencyConfiguration>,
+}
+
+impl SubstrateProviderConfiguration {
+    pub fn resolve(self, other: Self) -> Self {
+        Self {
+            submission_concurrency_configuration: self
+                .submission_concurrency_configuration
+                .or(other.submission_concurrency_configuration),
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]

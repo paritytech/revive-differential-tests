@@ -227,6 +227,20 @@ impl NodeConfiguration for ZombienetNode {
         self.id
     }
 
+    fn configurations(&self) -> NodeConnectorConfiguration {
+        NodeConnectorConfiguration {
+            hooks: Some(NodeConnectorHooks {
+                pre_submission_hook: Some(PreSubmissionHook::MaxGasPrice),
+            }),
+            substrate_provider_configuration: Some(SubstrateProviderConfiguration {
+                submission_concurrency_configuration: Some(
+                    ProviderConcurrencyConfiguration::SemaphoreBasedLimiter { permits: 500 },
+                ),
+            }),
+            ..Default::default()
+        }
+    }
+
     fn evm_version(&self) -> EVMVersion {
         EVMVersion::Cancun
     }

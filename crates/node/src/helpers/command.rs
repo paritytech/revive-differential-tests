@@ -4,7 +4,6 @@ pub trait CommandExt {
     fn run_and_get_output(&mut self) -> Result<CommandOutput>;
 }
 
-// TODO(async): Need to refactor this with the async refactoring.
 impl CommandExt for Command {
     fn run_and_get_output(&mut self) -> Result<CommandOutput> {
         let output = self

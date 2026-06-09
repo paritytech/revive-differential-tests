@@ -25,9 +25,12 @@ pub struct NodeConnector {
     finalized_block_broadcast: BroadcastSender<BlockPair>,
     blocks_by_number: AsyncHashMap<u64, BlockPair>,
     indexed_transactions: AsyncHashMap<TxHash, IndexedTransactionInformation>,
-    submission_locks: DashMap<Address, Arc<Mutex<()>>>,
     tx_hash_to_receipt_mapping: AsyncHashMap<TxHash, Arc<TransactionReceipt>>,
     block_hashes_to_receipt_mapping: AsyncHashMap<BlockHash, Vec<Arc<TransactionReceipt>>>,
+    eth_rpc_latest_block_number_tx: WatchSender<u64>,
+    /* Locks & Gates */
+    submission_locks: DashMap<Address, Arc<Mutex<()>>>,
+    substrate_submission_semaphore: Option<Arc<Semaphore>>,
     /* Auxiliary */
     node: Box<dyn NodeConfiguration + Send + Sync>,
 }
@@ -39,6 +42,17 @@ impl NodeConnector {
         config: NodeConnectorConfiguration,
     ) -> StaticFuture<Result<Self>> {
         let config = config.resolve(node.configurations());
+
+        let substrate_submission_semaphore = config
+            .substrate_provider_configuration
+            .as_ref()
+            .and_then(|config| config.submission_concurrency_configuration.as_ref())
+            .and_then(|config| match config {
+                ProviderConcurrencyConfiguration::Disabled => None,
+                ProviderConcurrencyConfiguration::SemaphoreBasedLimiter { permits } => {
+                    Some(Arc::new(Semaphore::new(*permits)))
+                }
+            });
 
         let eth_provider_urls = node.eth_provider_url();
         let substrate_rpc_urls = node.substrate_provider_url();
@@ -96,6 +110,11 @@ impl NodeConnector {
                 block_hashes_to_receipt_mapping.clone(),
             );
 
+            let eth_rpc_latest_block_number_tx =
+                Self::start_eth_rpc_latest_block_number(eth_providers.clone())
+                    .await
+                    .context("Failed to start the eth-rpc latest block number poller")?;
+
             Ok(Self {
                 eth_providers,
                 substrate_providers,
@@ -108,6 +127,8 @@ impl NodeConnector {
                 submission_locks: DashMap::new(),
                 tx_hash_to_receipt_mapping,
                 block_hashes_to_receipt_mapping,
+                eth_rpc_latest_block_number_tx,
+                substrate_submission_semaphore,
                 node: Box::new(node),
             })
         })
@@ -135,14 +156,14 @@ impl NodeConnector {
         &self,
         tx: TransactionRequest,
     ) -> StaticFuture<Result<Arc<TransactionReceipt>>> {
-        let provider = self.eth_providers.clone();
         let substrate_provider = self.substrate_providers.clone();
         let indexed_transactions = self.indexed_transactions.clone();
         let tx_hash_to_receipt_mapping = self.tx_hash_to_receipt_mapping.clone();
+        let eth_rpc_latest_block_number_rx = self.eth_rpc_latest_block_number_tx.subscribe();
         self.send_transaction(tx)
             .and_then(move |tx_hash| {
                 Self::get_receipt_internal(
-                    provider,
+                    eth_rpc_latest_block_number_rx,
                     substrate_provider,
                     indexed_transactions,
                     tx_hash_to_receipt_mapping,
@@ -218,11 +239,22 @@ impl NodeConnector {
         let submission_mutex = tx
             .from
             .map(|addr| self.submission_locks.entry(addr).or_default().clone());
+        let submission_semaphore = self.substrate_submission_semaphore.clone();
         Box::pin(async move {
             let _guard = match submission_mutex {
                 Some(mutex) => Some(mutex.lock_owned().await),
                 None => None,
             };
+            let _permit = match submission_semaphore {
+                Some(semaphore) => Some(
+                    semaphore
+                        .acquire_owned()
+                        .await
+                        .context("Failed to acquire permit"),
+                ),
+                None => None,
+            };
+
             let signed_transaction = provider
                 .fill(tx)
                 .await
@@ -264,11 +296,21 @@ impl NodeConnector {
         let submission_mutex = tx
             .from
             .map(|addr| self.submission_locks.entry(addr).or_default().clone());
+        let submission_semaphore = self.substrate_submission_semaphore.clone();
         let indexed_transactions = self.indexed_transactions.clone();
 
         Box::pin(async move {
             let _guard = match submission_mutex {
                 Some(mutex) => Some(mutex.lock_owned().await),
+                None => None,
+            };
+            let _permit = match submission_semaphore {
+                Some(semaphore) => Some(
+                    semaphore
+                        .acquire_owned()
+                        .await
+                        .context("Failed to acquire permit"),
+                ),
                 None => None,
             };
 
@@ -315,7 +357,7 @@ impl NodeConnector {
 
     pub fn get_receipt(&self, tx_hash: TxHash) -> StaticFuture<Result<Arc<TransactionReceipt>>> {
         Self::get_receipt_internal(
-            self.eth_providers.clone(),
+            self.eth_rpc_latest_block_number_tx.subscribe(),
             self.substrate_providers.clone(),
             self.indexed_transactions.clone(),
             self.tx_hash_to_receipt_mapping.clone(),
@@ -331,7 +373,7 @@ impl NodeConnector {
     }
 
     fn get_receipt_internal(
-        provider: SingleOrPool<AlloyProvider>,
+        mut eth_rpc_latest_block_number_rx: WatchReceiver<u64>,
         substrate_provider: Option<SingleOrPool<OnlineClient<PolkadotConfig>>>,
         indexed_transactions: AsyncHashMap<TxHash, IndexedTransactionInformation>,
         tx_hash_to_receipt_mapping: AsyncHashMap<TxHash, Arc<TransactionReceipt>>,
@@ -341,20 +383,15 @@ impl NodeConnector {
             let block = indexed_transactions.get(tx_hash).await;
 
             if substrate_provider.is_some() {
-                timeout(Duration::from_secs(5 * 60), async {
-                    while provider
-                        .get_block_number()
-                        .await
-                        .context("Failed to get block number")?
-                        < block.block_pair.evm_block.number()
-                    {
-                        sleep(Duration::from_millis(200)).await
-                    }
-                    Result::<(), Error>::Ok(())
-                })
+                let target_block_number = block.block_pair.evm_block.number();
+                timeout(
+                    Duration::from_secs(5 * 60),
+                    eth_rpc_latest_block_number_rx
+                        .wait_for(|block_number| *block_number >= target_block_number),
+                )
                 .await
-                .context("Failed to wait for eth-rpc block to advance")?
-                .context("Failed to wait for eth-rpc block to advance")?
+                .context("Timed out waiting for the eth-rpc block to advance")?
+                .context("Failed to wait for eth-rpc block to advance")?;
             }
 
             Ok(tx_hash_to_receipt_mapping.get(tx_hash).await)
@@ -1319,6 +1356,38 @@ impl NodeConnector {
             to: receiver.into(),
             contract_address: created_contract_address,
         })
+    }
+
+    async fn start_eth_rpc_latest_block_number(
+        provider: SingleOrPool<AlloyProvider>,
+    ) -> Result<WatchSender<u64>> {
+        let initial_block_number = provider
+            .get_block_number()
+            .await
+            .context("Failed to get the initial block number from the eth-rpc")?;
+        let (tx, _) = watch_channel(initial_block_number);
+        tokio::spawn({
+            let tx = tx.clone();
+            async move {
+                let mut interval = interval(Duration::from_millis(500));
+                interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
+
+                loop {
+                    interval.tick().await;
+                    let Ok(block_number) = provider.get_block_number().await else {
+                        warn!("Failed to get block number from the eth-rpc");
+                        continue;
+                    };
+
+                    tx.send_if_modified(|last_observed| {
+                        let changed = *last_observed != block_number;
+                        *last_observed = block_number;
+                        changed
+                    });
+                }
+            }
+        });
+        Ok(tx)
     }
 }
 

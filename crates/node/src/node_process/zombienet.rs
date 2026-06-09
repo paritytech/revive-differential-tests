@@ -75,8 +75,6 @@ impl ZombienetProcess {
 #[derive(Debug)]
 struct RunningZombienet {
     network: ZombienetNetwork<LocalFileSystem>,
-    // TODO(async): This is needed for now since we need to keep the runtime which zombienet was
-    // spawned on alive until it's killed but we should remove this once we do the async rework.
     runtime: Runtime,
 }
 

@@ -1,6 +1,5 @@
 use crate::internal_prelude::*;
 
-// TODO(async): Replace with async equivalent code once nodes are all async.
 #[derive(Debug)]
 pub struct NodeProcess {
     child: Child,
