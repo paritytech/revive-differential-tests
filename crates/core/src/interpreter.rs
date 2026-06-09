@@ -310,6 +310,9 @@ impl<'a> Interpreter<'a> {
     }
 
     pub async fn run_to_completion(self) -> Result<()> {
+        self.handle_gas_warm_up()
+            .await
+            .context("Failed to handle gas warm up run")?;
         let this = self.internal_run_to_completion().await?;
         if let Some(watcher) = this.watcher_tx {
             watcher
@@ -325,12 +328,60 @@ impl<'a> Interpreter<'a> {
         Ok(())
     }
 
+    async fn handle_gas_warm_up(&self) -> Result<()> {
+        if self.gas_cache.is_none() {
+            return Ok(());
+        }
+
+        fn edit_step_receipt_behavior<'a>(iter: impl IntoIterator<Item = &'a mut Step>) {
+            for step in iter.into_iter() {
+                if let Step::Repeat(step) = step {
+                    step.await_transaction_inclusion = true;
+                    edit_step_receipt_behavior(step.steps.iter_mut());
+                }
+            }
+        }
+        let mut steps = self.steps.clone().collect::<Vec<_>>();
+        edit_step_receipt_behavior(steps.iter_mut().map(|v| &mut v.1));
+
+        let fork = Self {
+            // Reserved for special warm up interpreter
+            id: usize::MAX,
+            platform_information: self.platform_information,
+            test_definition: self.test_definition,
+            connector: self.connector.clone(),
+            // Forked allocator so that we don't consume any of the keys we had allocated and run
+            // out of them earlier than we anticipated.
+            private_key_allocator: Arc::new(Mutex::new(
+                self.private_key_allocator.lock().await.fork(),
+            )),
+            watcher_tx: None,
+            // Explicit count override of 1 so that we run the entire workload as a flat sequence of
+            // instructions.
+            repetition_count_override: Some(1),
+            step_state: None,
+            variables: self.variables.clone(),
+            deployed_contracts: self.deployed_contracts.clone(),
+            compiled_contracts: self.compiled_contracts.clone(),
+            gas_cache: self.gas_cache.clone(),
+            steps: steps.into_iter(),
+            tasks: vec![],
+            await_receipts: true,
+            run_assertions: false,
+        };
+        fork.internal_run_to_completion()
+            .await
+            .context("Failed to run the warm up fork to completion")?;
+
+        Ok(())
+    }
+
     #[instrument(
         name = "Executing Step",
         level = "debug",
         skip_all,
         fields(
-            int_id = self.id,
+            int_id = %format_args!("{:#x}", self.id),
             step_path = tracing::field::Empty,
         )
     )]
@@ -435,8 +486,8 @@ impl<'a> Interpreter<'a> {
                     .into()
                 }
                 Step::Repeat(step) => {
-                    if step.start_watcher
-                        && let Some(ref watcher) = self.watcher_tx
+                    if let Some(ref watcher) = self.watcher_tx
+                        && step.start_watcher
                     {
                         let current_block = self.connector.latest_finalized_block().await?;
                         watcher
@@ -509,7 +560,10 @@ impl<'a> Interpreter<'a> {
         else {
             panic!("This is a bug: step execution without step state")
         };
-        debug!(len = forks.len(), "Running forks");
+        if !forks.is_empty() {
+            debug!(len = forks.len(), "Running forks");
+        }
+
         let forks = try_join_all(
             forks
                 .drain(..)
@@ -575,8 +629,10 @@ impl<'a> InterpreterApi for Interpreter<'a> {
                         .clone()
                 });
         if let Some(gas_cache_cell) = gas_cache_cell {
+            debug!("Going through cache path for gas");
             let value = gas_cache_cell
                 .get_or_try_init(|| async {
+                    debug!("Gas estimate is a cache miss");
                     self.connector
                         .estimate_gas(tx.clone())
                         .await

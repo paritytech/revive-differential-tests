@@ -18,8 +18,6 @@ anyhow = { workspace = true }
 futures = { workspace = true }
 pallet-revive = { workspace = true }
 serde_json = { workspace = true }
-schemars = { workspace = true }
-serde = { workspace = true }
 sp-runtime = { workspace = true }
 subxt = { workspace = true }
 tokio = { workspace = true }

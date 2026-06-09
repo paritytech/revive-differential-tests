@@ -8561,7 +8561,6 @@ dependencies = [
  "serde",
  "strum 0.27.2",
  "tokio",
- "tracing",
 ]
 
 [[package]]
@@ -8666,20 +8665,15 @@ dependencies = [
  "anyhow",
  "futures",
  "revive-common",
- "revive-dt-common",
  "revive-dt-config",
  "revive-dt-node-interaction",
- "serde",
  "serde_json",
- "serde_with",
- "serde_yaml_ng",
  "sp-core 38.1.0",
  "sp-runtime 43.0.0",
  "subxt 0.43.1",
  "temp-dir",
  "tokio",
  "toml 0.8.23",
- "tower 0.5.3",
  "tracing",
  "zombienet-sdk",
 ]
@@ -8695,8 +8689,6 @@ dependencies = [
  "pallet-revive",
  "revive-common",
  "revive-dt-common",
- "schemars 1.2.0",
- "serde",
  "serde_json",
  "sp-runtime 43.0.0",
  "subxt 0.43.1",
@@ -10202,19 +10194,6 @@ name = "serde_yaml"
 version = "0.9.34+deprecated"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6a8b1a1a2ebf674015cc02edccce75287f1a0130d394307b36743c2f5d504b47"
-dependencies = [
- "indexmap 2.13.0",
- "itoa",
- "ryu",
- "serde",
- "unsafe-libyaml",
-]
-
-[[package]]
-name = "serde_yaml_ng"
-version = "0.10.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7b4db627b98b36d4203a7b458cf3573730f2bb591b28871d916dfa9efabfd41f"
 dependencies = [
  "indexmap 2.13.0",
  "itoa",

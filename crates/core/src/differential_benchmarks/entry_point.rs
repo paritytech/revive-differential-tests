@@ -156,52 +156,35 @@ pub async fn handle_differential_benchmarks(
             .context("Failed to create the benchmarks interpreter")?
             .with_repetition_count_override(context.benchmark_run.repetition_count_override);
 
-            // Running the auxiliary tasks
             let watcher_task = tokio::spawn(watcher.run().instrument(info_span!(
                 "Running Watcher",
                 %platform_identifier,
                 case_name = %test_definition.case.name.clone().unwrap_or_default()
-            )));
-
-            // Running the interpreter.
-            let interpreter_rtn = interpreter
+            )))
+            .map(|rtn| rtn.context("Watcher failed").flatten());
+            let interpreter_task = interpreter
                 .run_to_completion()
                 .instrument(info_span!(
                     "Executing Benchmarks",
                     %platform_identifier,
                     case_name = %test_definition.case.name.clone().unwrap_or_default()
                 ))
-                .inspect(|_| {
-                    info!("All transactions submitted - interpreter completed execution");
-                })
+                .inspect_ok(|_| info!("Workload Execution Succeeded"))
+                .inspect_err(|err| error!(?err, "Workload Execution Failed"))
+                .map(|rtn| rtn.context("Failed to run the interpreter and executor"));
+
+            let rtn = try_join(interpreter_task, watcher_task)
                 .await
-                .context("Failed to run the interpreter and executor")
-                .inspect(|_| info!("Workload Execution Succeeded"))
-                .inspect_err(|err| error!(?err, "Workload Execution Failed"));
+                .context("Failure in benchmarks");
 
-            let watcher_rtn = watcher_task.await.context("Watcher failed").flatten();
-
-            info!(
-                keep_alive_on_failures = context.shutdown.keep_alive_on_failures,
-                interpreter_rtn = interpreter_rtn.is_err(),
-                watcher_rtn = watcher_rtn.is_err(),
-            );
-
-            if context.shutdown.keep_alive_on_failures
-                && (interpreter_rtn.is_err() || watcher_rtn.is_err())
-            {
-                error!(
-                    interpreter_rtn = ?interpreter_rtn.err(),
-                    watcher_rtn = ?watcher_rtn.err(),
-                    "One of the critical tasks failed, keeping the tool alive to investigate"
-                );
+            if context.shutdown.keep_alive_on_failures && rtn.is_err() {
+                error!("One of the critical tasks failed, keeping the tool alive to investigate");
                 loop {
                     std::thread::sleep(Duration::from_secs(3600));
                 }
             }
 
-            interpreter_rtn.context("Interpreter failed")?;
-            watcher_rtn.context("Watcher failed")?;
+            rtn.context("Benchmark run failed")?;
         }
     }
 
