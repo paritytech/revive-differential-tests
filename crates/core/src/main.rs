@@ -16,8 +16,8 @@ mod internal_prelude {
     pub use revive_dt_report::prelude::*;
 
     pub use std::borrow::Cow;
-    pub use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
-    pub use std::future::Future;
+    pub use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
+    pub use std::future::{Future, ready};
     pub use std::io::{BufWriter, Write, stderr};
     pub use std::ops::ControlFlow;
     pub use std::path::{Path, PathBuf};
@@ -28,9 +28,9 @@ mod internal_prelude {
 
     pub use alloy::consensus::EMPTY_ROOT_HASH;
     pub use alloy::hex::{self, ToHexExt};
-    pub use alloy::json_abi::JsonAbi;
+    pub use alloy::json_abi::{Function, JsonAbi};
     pub use alloy::network::{Ethereum, TransactionBuilder};
-    pub use alloy::primitives::{Address, B256, BlockNumber, Log, TxHash, U256, address};
+    pub use alloy::primitives::{Address, B256, BlockNumber, Bytes, Log, TxHash, U256, address};
     pub use alloy::providers::{DynProvider, PendingTransactionBuilder, Provider};
     pub use alloy::rpc::types::trace::geth::{
         CallFrame, CallLogFrame, GethDebugBuiltInTracerType, GethDebugTracerConfig,
@@ -41,7 +41,8 @@ mod internal_prelude {
     pub use anyhow::Context as _;
     pub use anyhow::{Error, Result, anyhow, bail, ensure};
     pub use clap::Parser;
-    pub use futures::future::{Either, try_join, try_join_all, try_join3};
+    pub use dashmap::DashMap;
+    pub use futures::future::{Either, join_all, try_join, try_join_all, try_join3};
     pub use futures::{FutureExt, Stream, StreamExt, TryFutureExt, TryStreamExt, stream};
     pub use indexmap::{IndexMap, IndexSet, indexmap};
     pub use regex::Regex;
@@ -57,11 +58,12 @@ mod internal_prelude {
     pub use tokio::sync::broadcast;
     pub use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
     pub use tokio::sync::{Mutex, Notify, OnceCell, RwLock, Semaphore};
+    pub use tokio::task::JoinHandle;
     pub use tokio::time::{interval, timeout};
     pub use tracing::level_filters::LevelFilter;
     pub use tracing::{
         Instrument, Span, debug, debug_span, error, field::display, info, info_span, instrument,
-        warn,
+        trace, warn,
     };
     pub use tracing_appender::non_blocking::WorkerGuard;
     pub use tracing_subscriber::EnvFilter;

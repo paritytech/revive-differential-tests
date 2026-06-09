@@ -1,16 +1,15 @@
-use std::{collections::VecDeque, future::ready};
-
-use alloy::{json_abi::Function, primitives::Bytes};
-use dashmap::DashMap;
-use futures::future::join_all;
-use tokio::task::JoinHandle;
-
 use crate::internal_prelude::*;
 
 type StepsIterator = std::vec::IntoIter<(StepPath, Step)>;
 
+fn next_interpreter_id() -> usize {
+    static INTERPRETER_COUNT: AtomicUsize = AtomicUsize::new(0);
+    INTERPRETER_COUNT.fetch_add(1, Ordering::Relaxed)
+}
+
 #[allow(clippy::type_complexity)]
 pub struct Interpreter<'a> {
+    id: usize,
     platform_information: &'a TestPlatformInformation<'a>,
     test_definition: &'a TestDefinition<'a>,
     connector: Arc<NodeConnector>,
@@ -46,6 +45,7 @@ impl<'a> Interpreter<'a> {
         steps: StepsIterator,
     ) -> Result<Self> {
         Self {
+            id: next_interpreter_id(),
             connector: platform_information.connector.clone(),
             platform_information,
             test_definition,
@@ -63,6 +63,7 @@ impl<'a> Interpreter<'a> {
             run_assertions: Default::default(),
         }
         .initialize(cached_compiler)
+        .inspect(|_| info!("Interpreter is created and ready"))
         .await
     }
 
@@ -315,13 +316,28 @@ impl<'a> Interpreter<'a> {
                 .send(WatcherEvent::AllTransactionsSubmitted)
                 .expect("fatal: watcher available but its channel is closed");
         }
-        info!("Awaiting all of the side effect tasks to complete");
+        info!(
+            len = this.tasks.len(),
+            "Awaiting all of the side effect tasks to complete"
+        );
         join_all(this.tasks).await;
+        info!("Execution completed");
         Ok(())
     }
 
+    #[instrument(
+        name = "Executing Step",
+        level = "debug",
+        skip_all,
+        fields(
+            int_id = self.id,
+            step_path = tracing::field::Empty,
+        )
+    )]
     async fn internal_run_to_completion(mut self) -> Result<Self> {
         while let Some((step_path, step)) = self.steps.next() {
+            Span::current().record("step_path", tracing::field::display(&step_path));
+            debug!("Starting step execution");
             assert!(
                 self.step_state.is_none(),
                 "This is a bug, the step state must be none before executing a step"
@@ -466,6 +482,7 @@ impl<'a> Interpreter<'a> {
                 "This is a bug, the step state must be some after executing a step"
             );
             self.step_state = None;
+            debug!("Finished step execution");
         }
         Ok(self)
     }
@@ -473,6 +490,7 @@ impl<'a> Interpreter<'a> {
     async fn executable_step_loop(&mut self, step: AnyExecutableStep) -> Result<()> {
         let mut steps = std::iter::once(step).collect::<VecDeque<_>>();
         while let Some(step) = steps.pop_front() {
+            trace!(steps = steps.len(), "Executing step");
             let outcome = step.execute(self).await.context("Step execution failed")?;
             steps.extend(outcome.next_steps);
             self.handle_forks()
@@ -491,6 +509,7 @@ impl<'a> Interpreter<'a> {
         else {
             panic!("This is a bug: step execution without step state")
         };
+        debug!(len = forks.len(), "Running forks");
         let forks = try_join_all(
             forks
                 .drain(..)
@@ -956,6 +975,7 @@ impl<'a> InterpreterApi for Interpreter<'a> {
         let forks = (0..count)
             .map(|i| {
                 let fork = Self {
+                    id: next_interpreter_id(),
                     platform_information: self.platform_information,
                     test_definition: self.test_definition,
                     connector: self.connector.clone(),
@@ -1058,7 +1078,10 @@ impl<'a> LazyResolverApi for Interpreter<'a> {
     }
 
     async fn get_variable(&mut self, variable: impl AsRef<str>) -> Option<anyhow::Result<U256>> {
-        let variable = self.variables.get(variable.as_ref())?;
+        let variable = variable
+            .as_ref()
+            .strip_prefix("$VARIABLE:")
+            .and_then(|variable| self.variables.get(variable))?;
         Some(variable.get_owned_error().await.copied())
     }
 }

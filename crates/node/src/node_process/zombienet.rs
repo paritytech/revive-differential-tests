@@ -56,18 +56,12 @@ impl ZombienetProcess {
             }
             bail!("Zombienet subscription closed before we observed finalized blocks")
         };
-        let wait_result = self
-            .running
+        self.running
             .as_ref()
             .context("Zombienet process is not running")?
             .runtime
-            .block_on(tokio::time::timeout(block_production_timeout, task));
-        wait_result
-            .with_context(|| {
-                format!(
-                    "Timed out waiting {block_production_timeout:?} for zombienet to produce blocks"
-                )
-            })?
+            .block_on(async move { tokio::time::timeout(block_production_timeout, task).await })
+            .context("Timed out while waiting for zombienet to produce its first block(s)")?
             .context("Zombienet startup failed while watching for blocks")?;
 
         Ok(self)
