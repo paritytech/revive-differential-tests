@@ -783,54 +783,92 @@ impl NodeConnector {
         provider: SingleOrPool<OnlineClient<PolkadotConfig>>,
         tx: BroadcastSender<UnresolvedBlockPair>,
     ) -> StaticFuture<Result<()>> {
-        Box::pin(async move {
-            loop {
+        let block_observation_times =
+            Arc::<RwLock<HashMap<H256, SystemTime>>>::new(Default::default());
+
+        let block_observer = {
+            let provider = provider.clone();
+            let block_observation_times = block_observation_times.clone();
+            Box::pin(async move {
                 let mut subscription = provider
                     .blocks()
-                    .subscribe_finalized()
+                    .subscribe_all()
                     .await
-                    .context("Failed to subscribe to finalized substrate blocks")?;
-
-                while let Some(substrate_block) = subscription.next().await {
-                    let substrate_block = match substrate_block {
-                        Ok(substrate_block) => substrate_block,
-                        Err(err) => {
-                            warn!(
-                                ?err,
-                                "Finalized substrate block subscription failed; resubscribing"
-                            );
-                            break;
-                        }
-                    };
-                    let runtime_api = substrate_block
-                        .runtime_api()
+                    .context("Failed to subscribe to all blocks")?;
+                while let Some(Ok(block)) = subscription.next().await {
+                    let time = SystemTime::now();
+                    block_observation_times
+                        .write()
                         .await
-                        .context("Failed to get the runtime API")?;
-
-                    let payload = revive_metadata::apis()
-                        .revive_api()
-                        .eth_block()
-                        .unvalidated();
-                    let eth_block = runtime_api
-                        .call(payload)
-                        .await
-                        .context("Failed to call the eth_block runtime API")?;
-                    let eth_block_json = serde_json::to_value(eth_block.0)
-                        .expect("qed; pallet-revive eth block serializes to JSON");
-                    let evm_block = serde_json::from_value::<EvmBlock>(eth_block_json)
-                        .expect("qed; pallet-revive and alloy block JSON formats are identical");
-
-                    let block_pair = UnresolvedBlockPair {
-                        observation_time: SystemTime::now(),
-                        evm_block: Arc::new(evm_block),
-                        substrate_block: Some(Arc::new(substrate_block)),
-                    };
-                    let _ = tx.send(block_pair);
+                        .insert(block.hash(), time);
                 }
+                Err::<(), anyhow::Error>(anyhow!("Block subscription ended pre-maturely"))
+            })
+        };
 
-                warn!("Finalized substrate block subscription ended; resubscribing");
-            }
-        })
+        let block_broadcaster = {
+            let provider = provider.clone();
+            let block_observation_time = block_observation_times.clone();
+            Box::pin(async move {
+                loop {
+                    let mut subscription = provider
+                        .blocks()
+                        .subscribe_finalized()
+                        .await
+                        .context("Failed to subscribe to finalized substrate blocks")?;
+
+                    while let Some(substrate_block) = subscription.next().await {
+                        let substrate_block = match substrate_block {
+                            Ok(substrate_block) => substrate_block,
+                            Err(err) => {
+                                warn!(
+                                    ?err,
+                                    "Finalized substrate block subscription failed; resubscribing"
+                                );
+                                break;
+                            }
+                        };
+                        let runtime_api = substrate_block
+                            .runtime_api()
+                            .await
+                            .context("Failed to get the runtime API")?;
+
+                        let payload = revive_metadata::apis()
+                            .revive_api()
+                            .eth_block()
+                            .unvalidated();
+                        let eth_block = runtime_api
+                            .call(payload)
+                            .await
+                            .context("Failed to call the eth_block runtime API")?;
+                        let eth_block_json = serde_json::to_value(eth_block.0)
+                            .expect("qed; pallet-revive eth block serializes to JSON");
+                        let evm_block = serde_json::from_value::<EvmBlock>(eth_block_json).expect(
+                            "qed; pallet-revive and alloy block JSON formats are identical",
+                        );
+
+                        let block_pair = UnresolvedBlockPair {
+                            observation_time: block_observation_time
+                                .read()
+                                .await
+                                .get(&substrate_block.hash())
+                                .copied()
+                                .unwrap_or(SystemTime::now()),
+                            evm_block: Arc::new(evm_block),
+                            substrate_block: Some(Arc::new(substrate_block)),
+                        };
+                        let _ = tx.send(block_pair);
+                    }
+
+                    warn!("Finalized substrate block subscription ended; resubscribing");
+                }
+                #[allow(unreachable_code)]
+                Err::<(), anyhow::Error>(anyhow!("Block subscription ended pre-maturely"))
+            })
+        };
+        futures::future::try_join(block_observer, block_broadcaster)
+            .map_ok(|_| ())
+            .boxed()
     }
 
     fn start_resolved_finalized_blocks_broadcaster(

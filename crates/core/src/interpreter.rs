@@ -958,7 +958,7 @@ impl<'a> InterpreterApi for Interpreter<'a> {
         let capture_index = capture_index
             .map(|capture_index| {
                 capture_index
-                    .strip_prefix("$VARIABLE")
+                    .strip_prefix("$VARIABLE:")
                     .map(ToOwned::to_owned)
                     .context("Provided capture index is not a valid variable")
             })
@@ -1078,10 +1078,12 @@ impl<'a> LazyResolverApi for Interpreter<'a> {
     }
 
     async fn get_variable(&mut self, variable: impl AsRef<str>) -> Option<anyhow::Result<U256>> {
-        let variable = variable
-            .as_ref()
-            .strip_prefix("$VARIABLE:")
-            .and_then(|variable| self.variables.get(variable))?;
+        trace!(
+            requested = variable.as_ref(),
+            available = ?self.variables.keys().collect::<Vec<_>>(),
+            "Requested a variable"
+        );
+        let variable = self.variables.get(variable.as_ref())?;
         Some(variable.get_owned_error().await.copied())
     }
 }
@@ -1237,7 +1239,7 @@ impl ExecutableStep for AllocateAccountExecutableStep {
     async fn execute(self, api: &mut impl InterpreterApi) -> Result<ExecutionOutput> {
         let variable_name = self
             .variable_name
-            .strip_prefix("$VARIABLE")
+            .strip_prefix("$VARIABLE:")
             .context("Variables must start with $VARIABLE")?;
         let account = api.allocate_account().await.map(|account| {
             account
