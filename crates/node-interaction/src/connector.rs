@@ -13,7 +13,7 @@ type OnlineSubxtBlock = SubxtBlock<PolkadotConfig, OnlineClient<PolkadotConfig>>
 
 pub struct NodeConnector {
     eth_providers: SingleOrPool<AlloyProvider>,
-    substrate_providers: Option<SingleOrPool<OnlineClient<PolkadotConfig>>>,
+    substrate_providers: Option<SubstrateProviders>,
     /// The raw substrate RPC client(s), sharing connections with
     /// `substrate_providers`. Used to submit transactions via the raw
     /// `author_submitExtrinsic` method (fire-and-forget, no status
@@ -71,7 +71,10 @@ impl NodeConnector {
                     let (online_providers, rpc_clients) = substrate_providers_future
                         .await
                         .context("Failed to get the substrate providers")?;
-                    (Some(online_providers), Some(rpc_clients))
+                    (
+                        Some(SubstrateProviders::new(online_providers)),
+                        Some(rpc_clients),
+                    )
                 }
                 None => (None, None),
             };
@@ -197,7 +200,7 @@ impl NodeConnector {
             (
                 SubmissionBehavior::UseDefaultForPlatform | SubmissionBehavior::UseSubstrateRpc,
                 Some(substrate_provider),
-            ) => self.send_transaction_substrate(tx, substrate_provider.clone()),
+            ) => self.send_transaction_substrate(tx, substrate_provider.provider_pool().clone()),
             (SubmissionBehavior::UseSubstrateRpcAndAwaitValidation, Some(substrate_provider)) => {
                 let submission_rpc = self
                     .submission_rpc
@@ -205,7 +208,7 @@ impl NodeConnector {
                     .expect("submission rpc is built alongside the substrate providers");
                 self.send_transaction_and_await_validation_substrate(
                     tx,
-                    substrate_provider.clone(),
+                    substrate_provider.provider_pool().clone(),
                     submission_rpc,
                 )
             }
@@ -374,7 +377,7 @@ impl NodeConnector {
 
     fn get_receipt_internal(
         mut eth_rpc_latest_block_number_rx: WatchReceiver<u64>,
-        substrate_provider: Option<SingleOrPool<OnlineClient<PolkadotConfig>>>,
+        substrate_provider: Option<SubstrateProviders>,
         indexed_transactions: AsyncHashMap<TxHash, IndexedTransactionInformation>,
         tx_hash_to_receipt_mapping: AsyncHashMap<TxHash, Arc<TransactionReceipt>>,
         tx_hash: TxHash,
@@ -405,7 +408,7 @@ impl NodeConnector {
         let provider = self.substrate_providers.clone();
         let provider = provider
             .context("Code upload operations are only supported on substrate based chains")?;
-        let metadata = provider.metadata();
+        let metadata = provider.provider_pool().metadata();
         let upload_call = dynamic::tx(
             "Revive",
             "upload_code",
@@ -423,15 +426,92 @@ impl NodeConnector {
             .input(encoded_payload.into()))
     }
 
-    // TODO: Add a different path to take when we want to do this through subxt since we know that
-    // it's supported there.
     pub fn estimate_gas(&self, tx: TransactionRequest) -> StaticFuture<Result<u64>> {
+        match self.substrate_providers.as_ref() {
+            Some(substrate_provider)
+                if substrate_provider.available_estimation_methods().has_any() =>
+            {
+                self.estimate_gas_substrate(tx, substrate_provider)
+            }
+            Some(substrate_provider) => {
+                warn!(
+                    ?substrate_provider.available_estimation_methods,
+                    "No ReviveApi gas estimation method is available; falling back to eth-rpc"
+                );
+                self.estimate_gas_evm(tx)
+            }
+            None => self.estimate_gas_evm(tx),
+        }
+    }
+
+    fn estimate_gas_evm(&self, tx: TransactionRequest) -> StaticFuture<Result<u64>> {
         self.eth_providers
             .clone()
             .estimate_gas(tx)
             .into_future()
             .map(|res| res.context("Failed to get the gas estimate"))
             .boxed()
+    }
+
+    fn estimate_gas_substrate(
+        &self,
+        tx: TransactionRequest,
+        substrate_provider: &SubstrateProviders,
+    ) -> StaticFuture<Result<u64>> {
+        let provider = substrate_provider.provider_pool().clone();
+        let available_methods = substrate_provider.available_estimation_methods();
+
+        Box::pin(async move {
+            let runtime_api = provider
+                .runtime_api()
+                .at_latest()
+                .await
+                .context("Failed to get the runtime API at the latest finalized block")?;
+            let tx = transaction_request_to_revive_transaction(tx)?;
+
+            if available_methods.estimate_gas {
+                let payload = revive_metadata::apis()
+                    .revive_api()
+                    .eth_estimate_gas(tx.into(), pallet_revive::DryRunConfig::default().into())
+                    .unvalidated();
+                let gas = runtime_api
+                    .call(payload)
+                    .await
+                    .context("Failed to call ReviveApi_eth_estimate_gas")?
+                    .map_err(|err| anyhow!("ReviveApi_eth_estimate_gas failed: {:?}", err.0))?
+                    .0;
+                Ok(gas.try_into().expect("qed; gas in revive must fit in u64"))
+            } else if available_methods.eth_transact_with_config {
+                let payload = revive_metadata::apis()
+                    .revive_api()
+                    .eth_transact_with_config(
+                        tx.into(),
+                        pallet_revive::DryRunConfig::default().into(),
+                    )
+                    .unvalidated();
+                let gas = runtime_api
+                    .call(payload)
+                    .await
+                    .context("Failed to call ReviveApi_eth_transact_with_config")?
+                    .map_err(|err| {
+                        anyhow!("ReviveApi_eth_transact_with_config failed: {:?}", err.0)
+                    })?
+                    .eth_gas;
+                Ok(gas.try_into().expect("qed; gas in revive must fit in u64"))
+            } else {
+                let payload = revive_metadata::apis()
+                    .revive_api()
+                    .eth_transact(tx.into())
+                    .unvalidated();
+                let gas = runtime_api
+                    .call(payload)
+                    .await
+                    .context("Failed to call ReviveApi_eth_transact")?
+                    .map_err(|err| anyhow!("ReviveApi_eth_transact failed: {:?}", err.0))?
+                    .eth_gas;
+                Ok(gas.try_into().expect("qed; gas in revive must fit in u64"))
+            }
+        })
     }
 
     pub fn subscribe_to_finalized_blocks(&self) -> StaticStream<BlockPair> {
@@ -492,9 +572,9 @@ impl NodeConnector {
         tx: TransactionRequest,
         block: BlockPair,
         trace_options: GethDebugTracingOptions,
-        substrate_provider: &SingleOrPool<OnlineClient<PolkadotConfig>>,
+        substrate_provider: &SubstrateProviders,
     ) -> StaticFuture<Result<GethTrace>> {
-        let provider = substrate_provider.clone();
+        let provider = substrate_provider.provider_pool().clone();
 
         Box::pin(async move {
             let substrate_block_hash = block
@@ -544,9 +624,9 @@ impl NodeConnector {
         &self,
         tx_hash: TxHash,
         trace_options: GethDebugTracingOptions,
-        substrate_provider: &SingleOrPool<OnlineClient<PolkadotConfig>>,
+        substrate_provider: &SubstrateProviders,
     ) -> StaticFuture<Result<GethTrace>> {
-        let provider = substrate_provider.clone();
+        let provider = substrate_provider.provider_pool().clone();
         let inclusion_future = self.indexed_transactions.get(tx_hash);
 
         Box::pin(async move {
@@ -603,9 +683,9 @@ impl NodeConnector {
     fn balance_of_substrate(
         &self,
         address: Address,
-        provider: &SingleOrPool<OnlineClient<PolkadotConfig>>,
+        substrate_provider: &SubstrateProviders,
     ) -> StaticFuture<Result<U256>> {
-        let provider = provider.clone();
+        let provider = substrate_provider.provider_pool().clone();
         let latest_block = self.latest_finalized_block.clone();
 
         Box::pin(async move {
@@ -670,6 +750,7 @@ impl NodeConnector {
             let provider = provider.context("No substrate provider available")?;
             let encoded_args = payload.encode();
             let encoded_result = provider
+                .provider_pool()
                 .runtime_api()
                 .at(H256(block_hash))
                 .call_raw(
@@ -781,13 +862,14 @@ impl NodeConnector {
 
     fn start_unresolved_finalized_blocks_broadcaster(
         provider: SingleOrPool<AlloyProvider>,
-        substrate_provider: Option<SingleOrPool<OnlineClient<PolkadotConfig>>>,
+        substrate_provider: Option<SubstrateProviders>,
     ) -> BroadcastSender<UnresolvedBlockPair> {
         let (tx, _) = broadcast_channel::<UnresolvedBlockPair>(2048);
         let task = match substrate_provider {
-            Some(provider) => {
-                Self::start_unresolved_finalized_blocks_broadcaster_substrate(provider, tx.clone())
-            }
+            Some(provider) => Self::start_unresolved_finalized_blocks_broadcaster_substrate(
+                provider.provider_pool().clone(),
+                tx.clone(),
+            ),
             None => Self::start_unresolved_finalized_blocks_broadcaster_evm(provider, tx.clone()),
         };
         spawn(task);
@@ -910,14 +992,14 @@ impl NodeConnector {
 
     fn start_resolved_finalized_blocks_broadcaster(
         mut rx: BroadcastReceiver<UnresolvedBlockPair>,
-        substrate_provider: Option<SingleOrPool<OnlineClient<PolkadotConfig>>>,
+        substrate_provider: Option<SubstrateProviders>,
     ) -> BroadcastSender<BlockPair> {
         let (tx, _) = broadcast_channel::<BlockPair>(2048);
         let task_tx = tx.clone();
         spawn(async move {
             let limits = match substrate_provider.as_ref() {
                 Some(substrate_provider) => {
-                    match Self::substrate_block_limits(substrate_provider) {
+                    match Self::substrate_block_limits(substrate_provider.provider_pool()) {
                         Ok(limits) => Some(limits),
                         Err(err) => {
                             error!(?err, "Failed to resolve substrate block limits");
@@ -1163,7 +1245,7 @@ impl NodeConnector {
     fn start_receipt_provider(
         mut rx: BroadcastReceiver<BlockPair>,
         provider: SingleOrPool<AlloyProvider>,
-        substrate_provider: Option<SingleOrPool<OnlineClient<PolkadotConfig>>>,
+        substrate_provider: Option<SubstrateProviders>,
         tx_hash_to_receipt_mapping: AsyncHashMap<TxHash, Arc<TransactionReceipt>>,
         block_hash_to_receipt_mapping: AsyncHashMap<BlockHash, Vec<Arc<TransactionReceipt>>>,
     ) {
@@ -1171,9 +1253,11 @@ impl NodeConnector {
             while let Ok(block) = rx.recv().await {
                 let block_hash = block.evm_block.hash();
                 let block_receipts = match substrate_provider {
-                    Some(ref provider) => Self::construct_block_receipts(block, provider.clone())
-                        .await
-                        .context("Failed to get substrate block receipts")?,
+                    Some(ref provider) => {
+                        Self::construct_block_receipts(block, provider.provider_pool().clone())
+                            .await
+                            .context("Failed to get substrate block receipts")?
+                    }
                     None => provider
                         .get_block_receipts(block.evm_block.hash().into())
                         .await
@@ -1388,6 +1472,59 @@ impl NodeConnector {
             }
         });
         Ok(tx)
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+struct AvailableEstimationMethods {
+    estimate_gas: bool,
+    eth_transact_with_config: bool,
+    eth_transact: bool,
+}
+
+impl AvailableEstimationMethods {
+    fn from_provider_pool(provider_pool: &SingleOrPool<OnlineClient<PolkadotConfig>>) -> Self {
+        let metadata = provider_pool.metadata();
+        let Some(revive_api) = metadata.runtime_api_trait_by_name("ReviveApi") else {
+            return Self::default();
+        };
+
+        Self {
+            estimate_gas: revive_api.method_by_name("eth_estimate_gas").is_some(),
+            eth_transact_with_config: revive_api
+                .method_by_name("eth_transact_with_config")
+                .is_some(),
+            eth_transact: revive_api.method_by_name("eth_transact").is_some(),
+        }
+    }
+
+    fn has_any(self) -> bool {
+        self.estimate_gas || self.eth_transact_with_config || self.eth_transact
+    }
+}
+
+#[derive(Clone, Debug)]
+struct SubstrateProviders {
+    provider_pool: SingleOrPool<OnlineClient<PolkadotConfig>>,
+    available_estimation_methods: AvailableEstimationMethods,
+}
+
+impl SubstrateProviders {
+    fn new(provider_pool: SingleOrPool<OnlineClient<PolkadotConfig>>) -> Self {
+        let available_estimation_methods =
+            AvailableEstimationMethods::from_provider_pool(&provider_pool);
+        Self {
+            provider_pool,
+            available_estimation_methods,
+        }
+    }
+
+    fn provider_pool(&self) -> &SingleOrPool<OnlineClient<PolkadotConfig>> {
+        &self.provider_pool
+    }
+
+    fn available_estimation_methods(&self) -> AvailableEstimationMethods {
+        self.available_estimation_methods
     }
 }
 

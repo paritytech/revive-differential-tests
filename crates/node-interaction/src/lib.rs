@@ -133,6 +133,18 @@ pub(crate) mod internal_prelude {
         with = "::subxt::utils::Static<::pallet_revive::evm::GenericTransaction>"
     ),
     substitute_type(
+        path = "pallet_revive::evm::api::rpc_types::DryRunConfig<M>",
+        with = "::subxt::utils::Static<::pallet_revive::evm::DryRunConfig<M>>"
+    ),
+    substitute_type(
+        path = "pallet_revive::primitives::EthTransactInfo<B>",
+        with = "::subxt::utils::Static<::pallet_revive::EthTransactInfo<B>>"
+    ),
+    substitute_type(
+        path = "pallet_revive::primitives::EthTransactError",
+        with = "::subxt::utils::Static<::pallet_revive::EthTransactError>"
+    ),
+    substitute_type(
         path = "primitive_types::H160",
         with = "::subxt::utils::Static<::pallet_revive::H160>"
     ),
