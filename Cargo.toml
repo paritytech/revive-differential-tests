@@ -110,4 +110,12 @@ inherits = "release"
 codegen-units = 1
 lto = true
 
+[profile.profiling]
+inherits = "release"
+codegen-units = 1
+debug = "full"
+lto = true
+split-debuginfo = "packed"
+strip = "none"
+
 [workspace.lints.clippy]
