@@ -1,4 +1,5 @@
 use alloy::consensus::{Transaction, transaction::SignerRecoverable};
+use futures::stream::FuturesUnordered;
 
 use crate::internal_prelude::*;
 
@@ -256,9 +257,10 @@ impl<'a> Interpreter<'a> {
                     }
                     Ok(receipt)
                 });
-            try_join_all(code_upload_tasks)
-                .await
-                .context("Some code upload transactions failed")?;
+            let mut code_upload_tasks = code_upload_tasks.collect::<FuturesUnordered<_>>();
+            while let Some(receipt) = code_upload_tasks.next().await {
+                receipt.context("Some code upload transactions failed")?;
+            }
         }
 
         Ok(self)
@@ -566,14 +568,12 @@ impl<'a> Interpreter<'a> {
             debug!(len = forks.len(), "Running forks");
         }
 
-        let forks = try_join_all(
-            forks
-                .drain(..)
-                .map(|fork| fork.internal_run_to_completion()),
-        )
-        .await
-        .context("Some interpreter fork failed")?;
-        for fork in forks {
+        let mut fork_tasks = forks
+            .drain(..)
+            .map(|fork| fork.internal_run_to_completion())
+            .collect::<FuturesUnordered<_>>();
+        while let Some(fork) = fork_tasks.next().await {
+            let fork = fork.context("Some interpreter fork failed")?;
             self.tasks.extend(fork.tasks);
 
             if merge_forked_interpreters {

@@ -16,11 +16,6 @@ type OnlineSubxtBlock = SubxtBlock<PolkadotConfig, OnlineClient<PolkadotConfig>>
 pub struct NodeConnector {
     eth_providers: SingleOrPool<AlloyProvider>,
     substrate_providers: Option<SubstrateProviders>,
-    /// The raw substrate RPC client(s), sharing connections with
-    /// `substrate_providers`. Used to submit transactions via the raw
-    /// `author_submitExtrinsic` method (fire-and-forget, no status
-    /// subscription).
-    submission_rpc: Option<SingleOrPool<SubxtRpcClient>>,
     config: NodeConnectorConfiguration,
     /* State */
     latest_block: Arc<RwLock<Option<BlockPair>>>,
@@ -69,17 +64,14 @@ impl NodeConnector {
             let eth_providers = eth_providers_future
                 .await
                 .context("Failed to get the eth providers")?;
-            let (substrate_providers, submission_rpc) = match substrate_providers_future {
+            let substrate_providers = match substrate_providers_future {
                 Some(substrate_providers_future) => {
                     let (online_providers, rpc_clients) = substrate_providers_future
                         .await
                         .context("Failed to get the substrate providers")?;
-                    (
-                        Some(SubstrateProviders::new(online_providers)),
-                        Some(rpc_clients),
-                    )
+                    Some(SubstrateProviders::new(online_providers, rpc_clients))
                 }
-                None => (None, None),
+                None => None,
             };
 
             let unresolved_blocks_broadcast_tx = Self::start_unresolved_blocks_broadcaster(
@@ -121,7 +113,6 @@ impl NodeConnector {
             Ok(Self {
                 eth_providers,
                 substrate_providers,
-                submission_rpc,
                 config,
                 latest_block,
                 block_broadcast: blocks_broadcast_tx,
@@ -210,15 +201,7 @@ impl NodeConnector {
                 Some(substrate_provider),
             ) => self.send_transaction_substrate(tx, substrate_provider.clone()),
             (SubmissionBehavior::UseSubstrateRpcAndAwaitValidation, Some(substrate_provider)) => {
-                let submission_rpc = self
-                    .submission_rpc
-                    .clone()
-                    .expect("submission rpc is built alongside the substrate providers");
-                self.send_transaction_and_await_validation_substrate(
-                    tx,
-                    substrate_provider.clone(),
-                    submission_rpc,
-                )
+                self.send_transaction_and_await_validation_substrate(tx, substrate_provider.clone())
             }
             (
                 SubmissionBehavior::UseSubstrateRpc
@@ -293,7 +276,6 @@ impl NodeConnector {
         &self,
         tx: TransactionRequest,
         substrate_provider: SubstrateProviders,
-        submission_rpc: SingleOrPool<SubxtRpcClient>,
     ) -> StaticFuture<Result<TxHash>> {
         let submission_mutex = tx
             .from
@@ -333,7 +315,9 @@ impl NodeConnector {
                 "Create a substrate transaction, but didn't yet submit it"
             );
 
-            let submitter = LegacyRpcMethods::<PolkadotConfig>::new(submission_rpc.item().clone());
+            let submitter = LegacyRpcMethods::<PolkadotConfig>::new(
+                substrate_provider.submission_rpc().item().clone(),
+            );
             match submitter
                 .author_submit_extrinsic(substrate_transaction.encoded())
                 .await
@@ -503,13 +487,25 @@ impl NodeConnector {
     ) -> StaticFuture<Result<u64>> {
         let provider = substrate_provider.clone();
         let available_methods = substrate_provider.available_estimation_methods();
+        let latest_block = self.latest_block.clone();
 
         Box::pin(async move {
-            let runtime_api = provider
-                .runtime_api()
-                .at_latest()
-                .await
-                .context("Failed to get the runtime API at the latest finalized block")?;
+            let runtime_api = match latest_block.read().await.as_ref() {
+                Some(latest_block) => {
+                    let block_hash = latest_block
+                        .substrate_block
+                        .as_ref()
+                        .expect("qed; this is substrate connector")
+                        .online_block
+                        .hash();
+                    provider.runtime_api().at(block_hash)
+                }
+                None => provider
+                    .runtime_api()
+                    .at_latest()
+                    .await
+                    .context("Failed to get the runtime API at the latest finalized block")?,
+            };
             let tx = transaction_request_to_revive_transaction(tx)?;
 
             if available_methods.estimate_gas {
@@ -1566,21 +1562,30 @@ impl AvailableEstimationMethods {
 #[derive(Clone, Debug)]
 struct SubstrateProviders {
     provider_pool: SingleOrPool<OnlineClient<PolkadotConfig>>,
+    submission_rpc: SingleOrPool<SubxtRpcClient>,
     available_estimation_methods: AvailableEstimationMethods,
 }
 
 impl SubstrateProviders {
-    fn new(provider_pool: SingleOrPool<OnlineClient<PolkadotConfig>>) -> Self {
+    fn new(
+        provider_pool: SingleOrPool<OnlineClient<PolkadotConfig>>,
+        submission_rpc: SingleOrPool<SubxtRpcClient>,
+    ) -> Self {
         let available_estimation_methods =
             AvailableEstimationMethods::from_provider_pool(&provider_pool);
         Self {
             provider_pool,
+            submission_rpc,
             available_estimation_methods,
         }
     }
 
     fn available_estimation_methods(&self) -> AvailableEstimationMethods {
         self.available_estimation_methods
+    }
+
+    fn submission_rpc(&self) -> &SingleOrPool<SubxtRpcClient> {
+        &self.submission_rpc
     }
 }
 
