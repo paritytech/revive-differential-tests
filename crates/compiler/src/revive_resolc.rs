@@ -373,7 +373,11 @@ impl ResolcRuntimeTarget {
         match self {
             Self::Native => {
                 let mut command = AsyncCommand::new(resolc_path);
-                command.arg("--solc").arg(solc_path).arg("--standard-json");
+                command
+                    .arg("--solc")
+                    .arg(solc_path)
+                    .arg("--standard-json")
+                    .env("RAYON_NUM_THREADS", "1");
 
                 if let Some(base_path) = base_path {
                     command.arg("--base-path").arg(base_path);
