@@ -30,7 +30,8 @@ pub(crate) mod internal_prelude {
     pub use std::time::{Duration, SystemTime};
 
     pub use alloy::consensus::{
-        BlockHeader, Receipt, ReceiptEnvelope, TxEip4844Variant, transaction::SignerRecoverable,
+        BlockHeader, Receipt, ReceiptEnvelope, Transaction, TxEip4844Variant,
+        transaction::SignerRecoverable,
     };
     pub use alloy::eips::{BlockId, Decodable2718, Encodable2718};
     pub use alloy::network::{
@@ -45,7 +46,7 @@ pub(crate) mod internal_prelude {
             WalletFiller,
         },
     };
-    pub use alloy::rpc::client::{BuiltInConnectionString, RpcClient};
+    pub use alloy::rpc::client::{BuiltInConnectionString, ClientBuilder};
     pub use alloy::rpc::json_rpc::{
         Id, RequestPacket, Response, ResponsePacket, SerializedRequest,
     };

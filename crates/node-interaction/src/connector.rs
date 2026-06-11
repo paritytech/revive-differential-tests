@@ -454,7 +454,7 @@ impl NodeConnector {
         let provider = self.substrate_providers.clone();
         let provider = provider
             .context("Code upload operations are only supported on substrate based chains")?;
-        let metadata = provider.provider_pool().metadata();
+        let metadata = provider.metadata();
         let upload_call = dynamic::tx(
             "Revive",
             "upload_code",
@@ -504,7 +504,7 @@ impl NodeConnector {
         tx: TransactionRequest,
         substrate_provider: &SubstrateProviders,
     ) -> StaticFuture<Result<u64>> {
-        let provider = substrate_provider.provider_pool().clone();
+        let provider = substrate_provider.clone();
         let available_methods = substrate_provider.available_estimation_methods();
 
         Box::pin(async move {
@@ -618,9 +618,9 @@ impl NodeConnector {
         tx: TransactionRequest,
         block: BlockPair,
         trace_options: GethDebugTracingOptions,
-        substrate_provider: &SubstrateProviders,
+        substrate_provider: &SingleOrPool<OnlineClient<PolkadotConfig>>,
     ) -> StaticFuture<Result<GethTrace>> {
-        let provider = substrate_provider.provider_pool().clone();
+        let provider = substrate_provider.clone();
 
         Box::pin(async move {
             let substrate_block_hash = block
@@ -670,9 +670,9 @@ impl NodeConnector {
         &self,
         tx_hash: TxHash,
         trace_options: GethDebugTracingOptions,
-        substrate_provider: &SubstrateProviders,
+        substrate_provider: &SingleOrPool<OnlineClient<PolkadotConfig>>,
     ) -> StaticFuture<Result<GethTrace>> {
-        let provider = substrate_provider.provider_pool().clone();
+        let provider = substrate_provider.clone();
         let inclusion_future = self.indexed_transactions.get(tx_hash);
 
         Box::pin(async move {
@@ -729,9 +729,9 @@ impl NodeConnector {
     fn balance_of_substrate(
         &self,
         address: Address,
-        substrate_provider: &SubstrateProviders,
+        provider: &SingleOrPool<OnlineClient<PolkadotConfig>>,
     ) -> StaticFuture<Result<U256>> {
-        let provider = substrate_provider.provider_pool().clone();
+        let provider = provider.clone();
         let latest_block = self.latest_finalized_block.clone();
 
         Box::pin(async move {
@@ -796,7 +796,6 @@ impl NodeConnector {
             let provider = provider.context("No substrate provider available")?;
             let encoded_args = payload.encode();
             let encoded_result = provider
-                .provider_pool()
                 .runtime_api()
                 .at(H256(block_hash))
                 .call_raw(
@@ -912,10 +911,9 @@ impl NodeConnector {
     ) -> BroadcastSender<UnresolvedBlockPair> {
         let (tx, _) = broadcast_channel::<UnresolvedBlockPair>(2048);
         let task = match substrate_provider {
-            Some(provider) => Self::start_unresolved_finalized_blocks_broadcaster_substrate(
-                provider.provider_pool().clone(),
-                tx.clone(),
-            ),
+            Some(provider) => {
+                Self::start_unresolved_finalized_blocks_broadcaster_substrate(provider, tx.clone())
+            }
             None => Self::start_unresolved_finalized_blocks_broadcaster_evm(provider, tx.clone()),
         };
         spawn(task);
@@ -927,58 +925,63 @@ impl NodeConnector {
         tx: BroadcastSender<UnresolvedBlockPair>,
     ) -> StaticFuture<Result<()>> {
         Box::pin(async move {
-            let mut subscription = provider
-                .subscribe_full_blocks()
-                .hashes()
-                .into_stream()
-                .await?;
-            while let Some(Ok(block)) = subscription.next().await {
-                let block_pair = UnresolvedBlockPair {
-                    observation_time: SystemTime::now(),
-                    evm_block: Arc::new(block),
-                    substrate_block: None,
-                };
-                let _ = tx.send(block_pair);
+            loop {
+                let mut subscription = provider
+                    .subscribe_full_blocks()
+                    .hashes()
+                    .into_stream()
+                    .await?;
+                while let Some(Ok(block)) = subscription.next().await {
+                    let block_pair = UnresolvedBlockPair {
+                        observation_time: SystemTime::now(),
+                        evm_block: Arc::new(block),
+                        substrate_block: None,
+                    };
+                    let _ = tx.send(block_pair);
+                }
+
+                warn!("EVM block subscription ended; resubscribing");
             }
-            bail!("Block subscription ended prematurely")
         })
     }
 
     fn start_unresolved_finalized_blocks_broadcaster_substrate(
-        provider: SingleOrPool<OnlineClient<PolkadotConfig>>,
+        provider: SubstrateProviders,
         tx: BroadcastSender<UnresolvedBlockPair>,
     ) -> StaticFuture<Result<()>> {
         let block_observation_times =
             Arc::<RwLock<HashMap<H256, SystemTime>>>::new(Default::default());
 
-        let block_observer = {
+        let block_observer: StaticFuture<Result<()>> = {
             let provider = provider.clone();
             let block_observation_times = block_observation_times.clone();
             Box::pin(async move {
-                let mut subscription = provider
-                    .blocks()
-                    .subscribe_all()
-                    .await
-                    .context("Failed to subscribe to all blocks")?;
-                while let Some(Ok(block)) = subscription.next().await {
-                    let time = SystemTime::now();
-                    block_observation_times
-                        .write()
+                loop {
+                    let mut subscription = provider
+                        .blocks()
+                        .subscribe_all()
                         .await
-                        .insert(block.hash(), time);
+                        .context("Failed to subscribe to all blocks")?;
+                    while let Some(Ok(block)) = subscription.next().await {
+                        let time = SystemTime::now();
+                        block_observation_times
+                            .write()
+                            .await
+                            .insert(block.hash(), time);
+                    }
+                    warn!("Substrate block observation subscription ended; resubscribing");
                 }
-                Err::<(), anyhow::Error>(anyhow!("Block subscription ended pre-maturely"))
             })
         };
 
-        let block_broadcaster = {
+        let block_broadcaster: StaticFuture<Result<()>> = {
             let provider = provider.clone();
             let block_observation_time = block_observation_times.clone();
             Box::pin(async move {
                 loop {
                     let mut subscription = provider
                         .blocks()
-                        .subscribe_finalized()
+                        .subscribe_best()
                         .await
                         .context("Failed to subscribe to finalized substrate blocks")?;
 
@@ -1027,8 +1030,6 @@ impl NodeConnector {
 
                     warn!("Finalized substrate block subscription ended; resubscribing");
                 }
-                #[allow(unreachable_code)]
-                Err::<(), anyhow::Error>(anyhow!("Block subscription ended pre-maturely"))
             })
         };
         futures::future::try_join(block_observer, block_broadcaster)
@@ -1045,7 +1046,7 @@ impl NodeConnector {
         spawn(async move {
             let limits = match substrate_provider.as_ref() {
                 Some(substrate_provider) => {
-                    match Self::substrate_block_limits(substrate_provider.provider_pool()) {
+                    match Self::substrate_block_limits(substrate_provider) {
                         Ok(limits) => Some(limits),
                         Err(err) => {
                             error!(?err, "Failed to resolve substrate block limits");
@@ -1299,11 +1300,9 @@ impl NodeConnector {
             while let Ok(block) = rx.recv().await {
                 let block_hash = block.evm_block.hash();
                 let block_receipts = match substrate_provider {
-                    Some(ref provider) => {
-                        Self::construct_block_receipts(block, provider.provider_pool().clone())
-                            .await
-                            .context("Failed to get substrate block receipts")?
-                    }
+                    Some(ref provider) => Self::construct_block_receipts(block, provider.clone())
+                        .await
+                        .context("Failed to get substrate block receipts")?,
                     None => provider
                         .get_block_receipts(block.evm_block.hash().into())
                         .await
@@ -1329,7 +1328,7 @@ impl NodeConnector {
 
     fn construct_block_receipts(
         block: BlockPair,
-        provider: SingleOrPool<OnlineClient<PolkadotConfig>>,
+        provider: SubstrateProviders,
     ) -> StaticFuture<Result<Vec<TransactionReceipt>>> {
         Box::pin(async move {
             let substrate_block = block
@@ -1565,12 +1564,22 @@ impl SubstrateProviders {
         }
     }
 
-    fn provider_pool(&self) -> &SingleOrPool<OnlineClient<PolkadotConfig>> {
-        &self.provider_pool
-    }
-
     fn available_estimation_methods(&self) -> AvailableEstimationMethods {
         self.available_estimation_methods
+    }
+}
+
+impl Deref for SubstrateProviders {
+    type Target = SingleOrPool<OnlineClient<PolkadotConfig>>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.provider_pool
+    }
+}
+
+impl std::ops::DerefMut for SubstrateProviders {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.provider_pool
     }
 }
 
