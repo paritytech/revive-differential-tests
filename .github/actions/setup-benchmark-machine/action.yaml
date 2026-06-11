@@ -25,7 +25,7 @@ runs:
         set -euo pipefail
 
         os_version="$(. /etc/os-release && echo "${PRETTY_NAME:-${NAME:-unknown}}")"
-        core_count="$(lscpu --parse=CPU | grep -vc '^#')"
+        core_count="$(lscpu --parse=SOCKET,CORE | awk -F, '!/^#/ { cores[$1 "," $2] = 1 } END { print length(cores) }')"
         echo "🖥️ OS version: $os_version"
         echo "🖥️ CPU cores: $core_count"
 

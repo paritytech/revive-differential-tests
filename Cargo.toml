@@ -92,7 +92,7 @@ revive-solc-json-interface = { version = "0.5.0" }
 revive-common = { version = "0.3.0" }
 revive-differential = { version = "0.3.0" }
 
-zombienet-sdk = { version = "0.4.11" }
+zombienet-sdk = { git = "https://github.com/paritytech/zombienet-sdk", rev = "31bc331c73fc6624b6ec23ff42a2ea224f214303" }
 pallet-revive = { version = "0.11.3", default-features = true }
 
 [profile.bench]
