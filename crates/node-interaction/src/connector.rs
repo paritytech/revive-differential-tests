@@ -1,3 +1,5 @@
+use alloy::consensus::TxEnvelope;
+
 use crate::internal_prelude::*;
 
 type AlloyProvider = FillProvider<
@@ -27,6 +29,7 @@ pub struct NodeConnector {
     indexed_transactions: AsyncHashMap<TxHash, IndexedTransactionInformation>,
     tx_hash_to_receipt_mapping: AsyncHashMap<TxHash, Arc<TransactionReceipt>>,
     block_hashes_to_receipt_mapping: AsyncHashMap<BlockHash, Vec<Arc<TransactionReceipt>>>,
+    filled_transactions: Arc<DashMap<TxHash, TxEnvelope>>,
     eth_rpc_latest_block_number_tx: WatchSender<u64>,
     /* Locks & Gates */
     submission_locks: DashMap<Address, Arc<Mutex<()>>>,
@@ -130,6 +133,7 @@ impl NodeConnector {
                 submission_locks: DashMap::new(),
                 tx_hash_to_receipt_mapping,
                 block_hashes_to_receipt_mapping,
+                filled_transactions: Arc::new(DashMap::new()),
                 eth_rpc_latest_block_number_tx,
                 substrate_submission_semaphore,
                 node: Box::new(node),
@@ -176,6 +180,13 @@ impl NodeConnector {
             .boxed()
     }
 
+    pub fn get_transaction(&self, tx_hash: TxHash) -> Result<TxEnvelope> {
+        self.filled_transactions
+            .get(&tx_hash)
+            .map(|entry| entry.value().clone())
+            .context("No filled transaction is stored for the given hash")
+    }
+
     pub fn send_transaction(&self, mut tx: TransactionRequest) -> StaticFuture<Result<TxHash>> {
         let config = self
             .config
@@ -200,7 +211,7 @@ impl NodeConnector {
             (
                 SubmissionBehavior::UseDefaultForPlatform | SubmissionBehavior::UseSubstrateRpc,
                 Some(substrate_provider),
-            ) => self.send_transaction_substrate(tx, substrate_provider.provider_pool().clone()),
+            ) => self.send_transaction_substrate(tx, substrate_provider.clone()),
             (SubmissionBehavior::UseSubstrateRpcAndAwaitValidation, Some(substrate_provider)) => {
                 let submission_rpc = self
                     .submission_rpc
@@ -208,7 +219,7 @@ impl NodeConnector {
                     .expect("submission rpc is built alongside the substrate providers");
                 self.send_transaction_and_await_validation_substrate(
                     tx,
-                    substrate_provider.provider_pool().clone(),
+                    substrate_provider.clone(),
                     submission_rpc,
                 )
             }
@@ -224,9 +235,9 @@ impl NodeConnector {
 
     fn send_transaction_evm(&self, tx: TransactionRequest) -> StaticFuture<Result<TxHash>> {
         let provider = self.eth_providers.clone();
-        Box::pin(async move {
+        self.send_transaction_internal(tx, |tx| async move {
             provider
-                .send_transaction(tx)
+                .send_tx_envelope(tx)
                 .await
                 .context("Failed to send transaction through the provider")
                 .map(|builder| *builder.tx_hash())
@@ -236,14 +247,13 @@ impl NodeConnector {
     fn send_transaction_substrate(
         &self,
         tx: TransactionRequest,
-        substrate_provider: SingleOrPool<OnlineClient<PolkadotConfig>>,
+        substrate_provider: SubstrateProviders,
     ) -> StaticFuture<Result<TxHash>> {
-        let provider = self.eth_providers.clone();
         let submission_mutex = tx
             .from
             .map(|addr| self.submission_locks.entry(addr).or_default().clone());
         let submission_semaphore = self.substrate_submission_semaphore.clone();
-        Box::pin(async move {
+        self.send_transaction_internal(tx, |tx| async move {
             let _guard = match submission_mutex {
                 Some(mutex) => Some(mutex.lock_owned().await),
                 None => None,
@@ -258,15 +268,8 @@ impl NodeConnector {
                 None => None,
             };
 
-            let signed_transaction = provider
-                .fill(tx)
-                .await
-                .context("Failed to fill transaction")?
-                .try_into_envelope()
-                .context("Failed to construct envelope from filled transaction")?;
-            let ethereum_tx_hash = signed_transaction.tx_hash();
-            let payload = signed_transaction.encoded_2718();
-
+            let ethereum_tx_hash = *tx.tx_hash();
+            let payload = tx.encoded_2718();
             let call = revive_metadata::tx()
                 .revive()
                 .eth_transact(payload.to_vec())
@@ -285,24 +288,22 @@ impl NodeConnector {
                 "Submitting a substrate transaction"
             );
 
-            Ok(*ethereum_tx_hash)
+            Ok(ethereum_tx_hash)
         })
     }
 
     fn send_transaction_and_await_validation_substrate(
         &self,
         tx: TransactionRequest,
-        substrate_provider: SingleOrPool<OnlineClient<PolkadotConfig>>,
+        substrate_provider: SubstrateProviders,
         submission_rpc: SingleOrPool<SubxtRpcClient>,
     ) -> StaticFuture<Result<TxHash>> {
-        let provider = self.eth_providers.clone();
         let submission_mutex = tx
             .from
             .map(|addr| self.submission_locks.entry(addr).or_default().clone());
         let submission_semaphore = self.substrate_submission_semaphore.clone();
         let indexed_transactions = self.indexed_transactions.clone();
-
-        Box::pin(async move {
+        self.send_transaction_internal(tx, |tx| async move {
             let _guard = match submission_mutex {
                 Some(mutex) => Some(mutex.lock_owned().await),
                 None => None,
@@ -317,15 +318,8 @@ impl NodeConnector {
                 None => None,
             };
 
-            let signed_transaction = provider
-                .fill(tx)
-                .await
-                .context("Failed to fill transaction")?
-                .try_into_envelope()
-                .context("Failed to construct envelope from filled transaction")?;
-            let ethereum_tx_hash = signed_transaction.tx_hash();
-            let payload = signed_transaction.encoded_2718();
-
+            let ethereum_tx_hash = *tx.tx_hash();
+            let payload = tx.encoded_2718();
             let call = revive_metadata::tx()
                 .revive()
                 .eth_transact(payload.to_vec())
@@ -336,25 +330,77 @@ impl NodeConnector {
                 .context("Failed to create substrate transaction")?;
             let substrate_tx_hash = substrate_transaction.hash();
 
-            info!(
+            debug!(
                 evm_hash = %ethereum_tx_hash,
                 substrate_hash = ?substrate_tx_hash,
                 "Create a substrate transaction, but didn't yet submit it"
             );
 
-            const ALREADY_IMPORTED_CODE: i32 = 1013;
             let submitter = LegacyRpcMethods::<PolkadotConfig>::new(submission_rpc.item().clone());
             match submitter
                 .author_submit_extrinsic(substrate_transaction.encoded())
                 .await
             {
                 Ok(_) => {}
-                Err(RpcsError::User(user)) if user.code == ALREADY_IMPORTED_CODE => {}
+                // Ignore already submitted errors
+                Err(RpcsError::User(user)) if user.code == 1013 => {
+                    warn!("Encountered an 'Already Submitted' error; continuing")
+                }
                 Err(error) => return Err(error).context("Failed to submit transaction"),
             }
-            let _ = indexed_transactions.get(*ethereum_tx_hash).await;
+            // Await validation & inclusion
+            let _ = indexed_transactions.get(ethereum_tx_hash).await;
 
-            Ok(*ethereum_tx_hash)
+            Ok(ethereum_tx_hash)
+        })
+    }
+
+    fn send_transaction_internal<Func, Fut>(
+        &self,
+        tx: TransactionRequest,
+        submission_future: Func,
+    ) -> StaticFuture<Result<TxHash>>
+    where
+        Func: FnOnce(TxEnvelope) -> Fut + Send + 'static,
+        Fut: Future<Output = Result<TxHash>> + Send + 'static,
+    {
+        self.prepare_transaction(tx)
+            .map(|result| result.context("Transaction preparation failed"))
+            .and_then(|envelope| {
+                submission_future(envelope)
+                    .map(|result| result.context("Transaction submission failed"))
+            })
+            .boxed()
+    }
+
+    fn prepare_transaction(&self, mut tx: TransactionRequest) -> StaticFuture<Result<TxEnvelope>> {
+        let config = self
+            .config
+            .hooks
+            .as_ref()
+            .and_then(|config| config.pre_submission_hook.as_ref());
+        match config {
+            Some(PreSubmissionHook::MaxGasPrice) => tx.set_gas_price(u128::MAX),
+            Some(PreSubmissionHook::Disabled) | None => {}
+        };
+
+        let gas_estimate = self.estimate_gas(tx.clone());
+
+        let provider = self.eth_providers.clone();
+        let transactions_map = self.filled_transactions.clone();
+        Box::pin(async move {
+            let gas_estimate = gas_estimate
+                .await
+                .context("Failed to get the gas estimate of the transaction")?;
+            tx.set_gas_limit(gas_estimate * 120 / 100);
+            let filled_transaction = provider
+                .fill(tx)
+                .await
+                .context("Transaction filling failed")?
+                .try_into_envelope()
+                .expect("qed; filled transactions must be envelopes");
+            transactions_map.insert(*filled_transaction.tx_hash(), filled_transaction.clone());
+            Ok(filled_transaction)
         })
     }
 
