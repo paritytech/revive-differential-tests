@@ -1,5 +1,7 @@
 //! The main entry point into differential testing.
 
+use futures::stream::FuturesUnordered;
+
 use crate::internal_prelude::*;
 
 use crate::interpreter::Interpreter;
@@ -23,7 +25,7 @@ impl CorpusDefinitionProcessor for TestDefinitionProcessor {
         cached_compiler: &'a CachedCompiler<'a>,
         state: Self::State,
     ) -> anyhow::Result<Self::ProcessResult> {
-        let interpreters = futures::future::try_join_all(definition.platforms.iter().map(
+        let mut interpreters = futures::future::try_join_all(definition.platforms.iter().map(
             |(identifier, information)| {
                 let private_key_allocator = state.private_key_allocator.clone();
                 async move {
@@ -49,15 +51,14 @@ impl CorpusDefinitionProcessor for TestDefinitionProcessor {
             },
         ))
         .await
-        .context("Failed to create the interpreters for the various platforms")?;
+        .context("Failed to create the interpreters for the various platforms")?
+        .into_iter()
+        .map(|interpreter| interpreter.run_to_completion())
+        .collect::<FuturesUnordered<_>>();
 
-        futures::future::try_join_all(
-            interpreters
-                .into_iter()
-                .map(|interpreter| interpreter.run_to_completion()),
-        )
-        .await
-        .context("Failed to execute all of the steps on the interpreter")?;
+        while let Some(result) = interpreters.next().await {
+            result?;
+        }
 
         Ok(())
     }
