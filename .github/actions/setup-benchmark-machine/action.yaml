@@ -19,6 +19,16 @@ inputs:
 runs:
   using: composite
   steps:
+    - name: Print System Specs
+      shell: bash
+      run: |
+        set -euo pipefail
+
+        os_version="$(. /etc/os-release && echo "${PRETTY_NAME:-${NAME:-unknown}}")"
+        core_count="$(nproc)"
+        echo "🖥️ OS version: $os_version"
+        echo "🖥️ CPU cores: $core_count"
+
     - name: Setup the Rust Toolchain
       uses: actions-rust-lang/setup-rust-toolchain@v1
       with:
