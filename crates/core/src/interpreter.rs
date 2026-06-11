@@ -700,6 +700,17 @@ impl<'a> InterpreterApi for Interpreter<'a> {
         })
     }
 
+    async fn resolve_variable_name(&mut self, raw_name: &str) -> Result<String> {
+        if raw_name.contains("$VARIABLE:") {
+            let mut context = self.default_resolution_context();
+            CalldataToken::<&str>::resolve_variable_name_template(raw_name, &mut context)
+                .await
+                .context("Failed to resolve variable name template")
+        } else {
+            Ok(raw_name.to_owned())
+        }
+    }
+
     async fn run_assertion(&mut self, assertion: ExecutableAssertion) -> Result<()> {
         if !self.run_assertions {
             return Ok(());
@@ -1200,6 +1211,8 @@ trait InterpreterApi {
 
     async fn allocate_account(&mut self) -> LazyFutureValue<'static, Result<Address>>;
 
+    async fn resolve_variable_name(&mut self, raw_name: &str) -> Result<String>;
+
     async fn run_assertion(&mut self, assertion: ExecutableAssertion) -> Result<()>;
 
     async fn contract_instance_of_ref(
@@ -1343,6 +1356,10 @@ impl ExecutableStep for AllocateAccountExecutableStep {
             .variable_name
             .strip_prefix("$VARIABLE:")
             .context("Variables must start with $VARIABLE")?;
+        let variable_name = api
+            .resolve_variable_name(variable_name)
+            .await
+            .context("Failed to resolve allocate_account variable name")?;
         let account = api.allocate_account().await.map(|account| {
             account
                 .as_ref()
@@ -1350,7 +1367,7 @@ impl ExecutableStep for AllocateAccountExecutableStep {
                 .map_err(|err| anyhow!("Failed to allocate a new account: {err}"))
         });
         api.execution_side_effect(ExecutionSideEffect::AssignVariable {
-            key: variable_name.to_string(),
+            key: variable_name,
             value: account,
         })
         .await
@@ -1507,35 +1524,66 @@ impl ExecutableStep for ExpectedSuccessTransactionExecutableStep {
         }
 
         let trace = api.trace_transaction(tx_hash);
-        for (index, variable) in self
-            .variable_assignment
-            .into_iter()
-            .flat_map(|var_assignment| var_assignment.return_data)
-            .enumerate()
-        {
-            let start = index * 32;
-            let end = start + 32;
+        if let Some(assignment) = self.variable_assignment {
+            for (index, raw_name) in assignment.names().iter().enumerate() {
+                let key = api
+                    .resolve_variable_name(raw_name)
+                    .await
+                    .context("Failed to resolve variable assignment name")?;
 
-            let variable_value = trace.map(move |trace| {
-                trace
-                    .as_ref()
-                    .map_err(|err| anyhow!("Failed to get trace: {err}"))
-                    .and_then(|trace| {
-                        trace
-                            .output
-                            .clone()
-                            .unwrap_or_default()
-                            .get(start..end)
-                            .map(U256::from_be_slice)
-                            .context("Requested variable assignment isn't within range of output")
-                    })
-            });
-            api.execution_side_effect(ExecutionSideEffect::AssignVariable {
-                key: variable,
-                value: variable_value,
-            })
-            .await
-            .context("Interpreter failed to handle side-effect")?;
+                let value = match &assignment {
+                    VariableAssignments::ReturnData { .. } => {
+                        let start = index * 32;
+                        let end = start + 32;
+                        trace.map(move |trace| {
+                            trace
+                                .as_ref()
+                                .map_err(|err| anyhow!("Failed to get trace: {err}"))
+                                .and_then(|trace| {
+                                    trace
+                                        .output
+                                        .clone()
+                                        .unwrap_or_default()
+                                        .get(start..end)
+                                        .map(U256::from_be_slice)
+                                        .context(
+                                            "Requested variable assignment isn't within range \
+                                             of output",
+                                        )
+                                })
+                        })
+                    }
+                    VariableAssignments::EventTopics { topics, .. } => {
+                        let topic = topics.get(index).with_context(|| {
+                            format!("No event topic provided for variable at index {index}")
+                        })?;
+                        let log_index = topic.log_index;
+                        let topic_index = topic.topic_index;
+                        receipt.map(move |receipt| {
+                            receipt
+                                .as_ref()
+                                .map_err(|err| anyhow!("Failed to get receipt: {err}"))
+                                .and_then(|receipt| {
+                                    let log = receipt.logs().get(log_index).with_context(|| {
+                                        format!("Log index {log_index} out of range in receipt")
+                                    })?;
+                                    let topic_value =
+                                        log.topics().get(topic_index).with_context(|| {
+                                            format!(
+                                                "Topic index {topic_index} out of range in log \
+                                                 {log_index}"
+                                            )
+                                        })?;
+                                    Ok(U256::from_be_slice(topic_value.as_slice()))
+                                })
+                        })
+                    }
+                };
+
+                api.execution_side_effect(ExecutionSideEffect::AssignVariable { key, value })
+                    .await
+                    .context("Interpreter failed to handle side-effect")?;
+            }
         }
 
         api.run_assertion(

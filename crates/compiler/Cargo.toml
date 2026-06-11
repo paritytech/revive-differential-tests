@@ -19,9 +19,11 @@ alloy = { workspace = true }
 anyhow = { workspace = true }
 dashmap = { workspace = true }
 foundry-compilers-artifacts = { workspace = true }
+hex = { workspace = true }
 semver = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+sha2 = { workspace = true }
 tracing = { workspace = true }
 tokio = { workspace = true }
 

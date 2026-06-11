@@ -40,7 +40,7 @@ impl RetryLayer {
 impl Default for RetryLayer {
     fn default() -> Self {
         Self {
-            polling_duration: Duration::from_secs(90),
+            polling_duration: Duration::from_secs(10 * 60),
             initial_backoff: Duration::from_millis(500),
             max_backoff: Duration::from_secs(10),
         }

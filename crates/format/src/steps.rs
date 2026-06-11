@@ -356,12 +356,65 @@ define_wrapper_type!(
     pub struct EtherValue(U256) impl Display;
 );
 
-#[derive(Clone, Debug, Default, Serialize, Deserialize, Eq, PartialEq, JsonSchema)]
-pub struct VariableAssignments {
-    /// A vector of the variable names to assign to the return data.
-    ///
-    /// Example: `UniswapV3PoolAddress`
-    pub return_data: Vec<String>,
+#[derive(Clone, Debug, Serialize, Eq, PartialEq, JsonSchema)]
+#[serde(tag = "source")]
+pub enum VariableAssignments {
+    #[serde(rename = "return_data")]
+    ReturnData { names: Vec<String> },
+    #[serde(rename = "event_topics")]
+    EventTopics {
+        names: Vec<String>,
+        topics: Vec<EventTopic>,
+    },
+}
+
+impl VariableAssignments {
+    pub fn names(&self) -> &[String] {
+        match self {
+            Self::ReturnData { names } | Self::EventTopics { names, .. } => names,
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for VariableAssignments {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum Repr {
+            Tagged(Tagged),
+            Legacy { return_data: Vec<String> },
+        }
+
+        #[derive(Deserialize)]
+        #[serde(tag = "source")]
+        enum Tagged {
+            #[serde(rename = "return_data")]
+            ReturnData { names: Vec<String> },
+            #[serde(rename = "event_topics")]
+            EventTopics {
+                names: Vec<String>,
+                topics: Vec<EventTopic>,
+            },
+        }
+
+        Ok(match Repr::deserialize(deserializer)? {
+            Repr::Tagged(Tagged::ReturnData { names }) | Repr::Legacy { return_data: names } => {
+                Self::ReturnData { names }
+            }
+            Repr::Tagged(Tagged::EventTopics { names, topics }) => {
+                Self::EventTopics { names, topics }
+            }
+        })
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq, JsonSchema)]
+pub struct EventTopic {
+    pub log_index: usize,
+    pub topic_index: usize,
 }
 
 /// An address type that might either be an address literal or a resolvable address.
@@ -781,10 +834,15 @@ impl<T: AsRef<str>> CalldataToken<T> {
                 } else if item == Self::RANDOM_ADDRESS_VARIABLE {
                     Ok(U256::from_be_slice(Address::random().as_ref()))
                 } else if let Some(variable_name) = item.strip_prefix(Self::VARIABLE_PREFIX) {
+                    let variable_name = if variable_name.contains(Self::VARIABLE_PREFIX) {
+                        Self::resolve_variable_name_template(variable_name, context).await?
+                    } else {
+                        variable_name.to_owned()
+                    };
                     context
-                        .get_variable(variable_name)
+                        .get_variable(&variable_name)
                         .await
-                        .context("Variable lookup failed")
+                        .with_context(|| format!("Variable `{variable_name}` not found"))
                         .and_then(|value| value)
                 } else {
                     U256::from_str_radix(item, 10)
@@ -794,6 +852,41 @@ impl<T: AsRef<str>> CalldataToken<T> {
             }
             Self::Operation(operation) => Ok(CalldataToken::Operation(operation)),
         }
+    }
+
+    pub async fn resolve_variable_name_template<R: LazyResolverApi>(
+        template: &str,
+        context: &mut ResolutionContext<'_, R>,
+    ) -> anyhow::Result<String> {
+        let mut result = String::with_capacity(template.len());
+        let mut remaining = template;
+        while let Some(idx) = remaining.find(Self::VARIABLE_PREFIX) {
+            result.push_str(&remaining[..idx]);
+            let after_prefix = &remaining[idx + Self::VARIABLE_PREFIX.len()..];
+            let name_end = after_prefix
+                .char_indices()
+                .find(|(_, character)| !character.is_ascii_alphanumeric())
+                .map(|(index, _)| index)
+                .unwrap_or(after_prefix.len());
+            if name_end == 0 {
+                anyhow::bail!(
+                    "Empty inner variable name in template `{template}`: `$VARIABLE:` must be \
+                     followed by an ASCII alphanumeric identifier"
+                );
+            }
+            let inner_name = &after_prefix[..name_end];
+            let inner_value = context
+                .get_variable(inner_name)
+                .await
+                .with_context(|| {
+                    format!("Inner variable `{inner_name}` in template `{template}` not found")
+                })
+                .and_then(|value| value)?;
+            result.push_str(&inner_value.to_string());
+            remaining = &after_prefix[name_end..];
+        }
+        result.push_str(remaining);
+        Ok(result)
     }
 }
 
@@ -1065,6 +1158,146 @@ mod tests {
     ) -> anyhow::Result<U256> {
         let mut context = resolver.context();
         CalldataItem::new(input).resolve(&mut context).await
+    }
+
+    #[tokio::test]
+    async fn plain_variable_reference_resolves_directly() {
+        // Arrange
+        let mut resolver = MockResolver::default().with_variable("CREATOR_3", U256::from(42));
+
+        // Act
+        let resolved = resolve_calldata_item("$VARIABLE:CREATOR_3", &mut resolver).await;
+
+        // Assert
+        assert_eq!(resolved.expect("resolve failed"), U256::from(42));
+    }
+
+    #[tokio::test]
+    async fn variable_name_template_composes_inner_reference() {
+        // Arrange
+        let mut resolver = MockResolver::default()
+            .with_variable("I", U256::from(3))
+            .with_variable("CREATOR_3", U256::from(999));
+
+        // Act
+        let resolved = resolve_calldata_item("$VARIABLE:CREATOR_$VARIABLE:I", &mut resolver).await;
+
+        // Assert
+        assert_eq!(resolved.expect("resolve failed"), U256::from(999));
+    }
+
+    #[tokio::test]
+    async fn variable_name_template_supports_multiple_inner_references() {
+        // Arrange
+        let mut resolver = MockResolver::default()
+            .with_variable("I", U256::from(2))
+            .with_variable("J", U256::from(5))
+            .with_variable("A_2_B_5_C", U256::from(0xC0DE));
+
+        // Act
+        let resolved =
+            resolve_calldata_item("$VARIABLE:A_$VARIABLE:I_B_$VARIABLE:J_C", &mut resolver).await;
+
+        // Assert
+        assert_eq!(resolved.expect("resolve failed"), U256::from(0xC0DE));
+    }
+
+    #[tokio::test]
+    async fn variable_name_template_errors_when_inner_missing() {
+        // Arrange
+        let mut resolver = MockResolver::default();
+
+        // Act
+        let resolved = resolve_calldata_item("$VARIABLE:CREATOR_$VARIABLE:I", &mut resolver).await;
+
+        // Assert
+        let message = format!("{:#}", resolved.expect_err("should fail when inner var missing"));
+        assert!(message.contains("`I`"), "error should mention inner name: {message}");
+    }
+
+    #[tokio::test]
+    async fn variable_name_template_errors_when_resolved_outer_missing() {
+        // Arrange
+        let mut resolver = MockResolver::default().with_variable("I", U256::from(7));
+
+        // Act
+        let resolved = resolve_calldata_item("$VARIABLE:CREATOR_$VARIABLE:I", &mut resolver).await;
+
+        // Assert
+        let message =
+            format!("{:#}", resolved.expect_err("should fail when composed name missing"));
+        assert!(message.contains("CREATOR_7"), "error should include composed name: {message}");
+    }
+
+    #[tokio::test]
+    async fn variable_name_template_errors_on_empty_inner_name() {
+        // Arrange
+        let mut resolver = MockResolver::default().with_variable("CREATOR_", U256::from(1));
+
+        // Act
+        let resolved = resolve_calldata_item("$VARIABLE:CREATOR_$VARIABLE:", &mut resolver).await;
+
+        // Assert
+        let message = format!("{:#}", resolved.expect_err("should fail on empty inner name"));
+        assert!(message.contains("Empty inner variable name"), "{message}");
+    }
+
+    #[test]
+    fn legacy_flat_return_data_assignment_deserializes() {
+        // Arrange
+        let json = r#"{ "return_data": ["A", "B"] }"#;
+
+        // Act
+        let assignment =
+            serde_json::from_str::<VariableAssignments>(json).expect("deserialize failed");
+
+        // Assert
+        assert_eq!(
+            assignment,
+            VariableAssignments::ReturnData {
+                names: vec!["A".to_string(), "B".to_string()],
+            }
+        );
+    }
+
+    #[test]
+    fn tagged_return_data_assignment_deserializes() {
+        // Arrange
+        let json = r#"{ "source": "return_data", "names": ["A"] }"#;
+
+        // Act
+        let assignment =
+            serde_json::from_str::<VariableAssignments>(json).expect("deserialize failed");
+
+        // Assert
+        assert_eq!(
+            assignment,
+            VariableAssignments::ReturnData {
+                names: vec!["A".to_string()],
+            }
+        );
+    }
+
+    #[test]
+    fn event_topics_assignment_deserializes_with_topics() {
+        // Arrange
+        let json = r#"{ "source": "event_topics", "names": ["OFFER_ID"], "topics": [{ "log_index": 0, "topic_index": 1 }] }"#;
+
+        // Act
+        let assignment =
+            serde_json::from_str::<VariableAssignments>(json).expect("deserialize failed");
+
+        // Assert
+        assert_eq!(
+            assignment,
+            VariableAssignments::EventTopics {
+                names: vec!["OFFER_ID".to_string()],
+                topics: vec![EventTopic {
+                    log_index: 0,
+                    topic_index: 1,
+                }],
+            }
+        );
     }
 
     #[tokio::test]
