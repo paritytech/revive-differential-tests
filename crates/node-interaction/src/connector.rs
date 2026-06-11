@@ -373,7 +373,7 @@ impl NodeConnector {
             let gas_estimate = gas_estimate
                 .await
                 .context("Failed to get the gas estimate of the transaction")?;
-            tx.set_gas_limit(gas_estimate * 120 / 100);
+            tx.set_gas_limit(gas_estimate);
             let filled_transaction = provider
                 .fill(tx)
                 .await
