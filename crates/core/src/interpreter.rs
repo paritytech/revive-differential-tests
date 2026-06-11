@@ -1,3 +1,5 @@
+use alloy::consensus::{Transaction, transaction::SignerRecoverable};
+
 use crate::internal_prelude::*;
 
 type StepsIterator = std::vec::IntoIter<(StepPath, Step)>;
@@ -108,7 +110,7 @@ impl<'a> Interpreter<'a> {
         .map(|this| {
             this.with_watcher(watcher_tx)
                 .with_gas_caching(true)
-                .with_await_receipts(false)
+                .with_await_receipts(true)
                 .with_run_assertions(false)
         })
     }
@@ -914,7 +916,7 @@ impl<'a> InterpreterApi for Interpreter<'a> {
                     bytecode.as_ref().to_vec(),
                 );
                 let step_state = self.step_state.take();
-                let (_, receipt) = self
+                let (tx_hash, receipt) = self
                     .execute_transaction(tx)
                     .await
                     .context("Failed to execute deploy transaction")?;
@@ -923,6 +925,7 @@ impl<'a> InterpreterApi for Interpreter<'a> {
                 self.execution_side_effect(ExecutionSideEffect::AssignDeployedContract {
                     instance,
                     address: contract_address.clone(),
+                    transaction: tx_hash,
                 })
                 .await
                 .context("Failed to persist the address to state")?;
@@ -1094,20 +1097,62 @@ impl<'a> InterpreterApi for Interpreter<'a> {
                     );
                 }));
             }
-            ExecutionSideEffect::AssignDeployedContract { instance, address } => {
+            ExecutionSideEffect::AssignDeployedContract {
+                instance,
+                address,
+                transaction,
+            } => {
                 let (_, abi) = self
                     .compilation_artifacts_of_instance(&ContractInstanceOrReference::Instance(
                         Cow::Borrowed(&instance),
                     ))
                     .await
                     .context("Failed to get contract information")?;
+                let connector = self.connector.clone();
+                let await_receipt = self.await_receipts;
+                let addr = LazyFutureValue::new(move || {
+                    let connector = connector.clone();
+                    let address = address.clone();
+                    async move {
+                        if await_receipt {
+                            address.get_owned_error().await.copied()
+                        } else {
+                            // Optimization: if we're not awaiting receipts then do not wait for the
+                            // receipt just to get the contract address from a create transaction.
+                            // Instead, derive it from the account address and the nonce and make it
+                            // available for steps which need it.
+                            let tx = connector.get_transaction(transaction)?;
+                            let from = tx
+                                .recover_signer()
+                                .expect("qed; we signed this, it can't fail recovery");
+                            let nonce = match tx {
+                                alloy::consensus::EthereumTxEnvelope::Legacy(signed) => {
+                                    signed.tx().nonce
+                                }
+                                alloy::consensus::EthereumTxEnvelope::Eip2930(signed) => {
+                                    signed.tx().nonce
+                                }
+                                alloy::consensus::EthereumTxEnvelope::Eip1559(signed) => {
+                                    signed.tx().nonce
+                                }
+                                alloy::consensus::EthereumTxEnvelope::Eip7702(signed) => {
+                                    signed.tx().nonce
+                                }
+                                alloy::consensus::EthereumTxEnvelope::Eip4844(signed) => {
+                                    signed.tx().nonce()
+                                }
+                            };
+                            Ok(from.create(nonce))
+                        }
+                    }
+                });
                 self.deployed_contracts
-                    .insert(instance.clone(), (address.clone(), abi));
+                    .insert(instance.clone(), (addr.clone(), abi));
 
                 let reporter = self.platform_information.reporter.clone();
                 self.tasks.push(tokio::spawn(async move {
                     debug!(?instance, "Awaiting address resolution");
-                    let value = *address
+                    let value = *addr
                         .get()
                         .await
                         .as_ref()
@@ -1223,6 +1268,7 @@ enum ExecutionSideEffect {
     AssignDeployedContract {
         instance: ContractInstance,
         address: LazyFutureValue<'static, Result<Address>>,
+        transaction: TxHash,
     },
 }
 
@@ -1445,7 +1491,7 @@ struct ExpectedSuccessTransactionExecutableStep {
 impl ExecutableStep for ExpectedSuccessTransactionExecutableStep {
     async fn execute(self, api: &mut impl InterpreterApi) -> Result<ExecutionOutput> {
         let (tx_hash, receipt) = api
-            .execute_transaction(self.tx)
+            .execute_transaction(self.tx.clone())
             .await
             .context("Failed to submit transaction")?;
 
@@ -1454,6 +1500,7 @@ impl ExecutableStep for ExpectedSuccessTransactionExecutableStep {
             api.execution_side_effect(ExecutionSideEffect::AssignDeployedContract {
                 instance: deploys_contract_instance,
                 address: contract_address,
+                transaction: tx_hash,
             })
             .await
             .context("Interpreter failed to handle side-effect")?;
