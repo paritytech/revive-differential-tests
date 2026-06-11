@@ -845,9 +845,6 @@ impl Display for WorkingDirectoryPath {
 )]
 #[strum(serialize_all = "kebab-case")]
 pub enum OutputFormat {
-    /// The legacy format that was used in the past for the output.
-    Legacy,
-
     /// An output format that looks heavily resembles the output from `cargo test`.
     CargoTestLike,
 }

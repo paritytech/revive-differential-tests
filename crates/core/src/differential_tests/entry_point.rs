@@ -249,50 +249,6 @@ fn start_cli_reporting_task(
             };
 
             match output_format.output_format {
-                OutputFormat::Legacy => {
-                    let _ = writeln!(buf, "{} - {}", mode, metadata_file_path.display());
-                    for (case_idx, case_status) in case_status.into_iter() {
-                        let _ = write!(buf, "\tCase Index {case_idx:>3}: ");
-                        let _ = match case_status {
-                            TestCaseStatus::Succeeded { steps_executed } => {
-                                global_success_count += 1;
-                                writeln!(
-                                    buf,
-                                    "{}",
-                                    ANSIStrings(&[
-                                        Color::Green.bold().paint("Case Succeeded"),
-                                        Color::Green
-                                            .paint(format!(" - Steps Executed: {steps_executed}")),
-                                    ])
-                                )
-                            }
-                            TestCaseStatus::Failed { reason } => {
-                                global_failure_count += 1;
-                                writeln!(
-                                    buf,
-                                    "{}",
-                                    ANSIStrings(&[
-                                        Color::Red.bold().paint("Case Failed"),
-                                        Color::Red.paint(format!(" - Reason: {}", reason.trim())),
-                                    ])
-                                )
-                            }
-                            TestCaseStatus::Ignored { reason, .. } => {
-                                global_ignore_count += 1;
-                                writeln!(
-                                    buf,
-                                    "{}",
-                                    ANSIStrings(&[
-                                        Color::Yellow.bold().paint("Case Ignored"),
-                                        Color::Yellow
-                                            .paint(format!(" - Reason: {}", reason.trim())),
-                                    ])
-                                )
-                            }
-                        };
-                    }
-                    let _ = writeln!(buf);
-                }
                 OutputFormat::CargoTestLike => {
                     writeln!(
                         buf,
@@ -357,17 +313,6 @@ fn start_cli_reporting_task(
 
         // Summary at the end.
         match output_format.output_format {
-            OutputFormat::Legacy => {
-                writeln!(
-                    buf,
-                    "{} cases: {} cases succeeded, {} cases failed in {} seconds",
-                    global_success_count + global_failure_count + global_ignore_count,
-                    Color::Green.paint(global_success_count.to_string()),
-                    Color::Red.paint(global_failure_count.to_string()),
-                    start.elapsed().as_secs()
-                )
-                .unwrap();
-            }
             OutputFormat::CargoTestLike => {
                 writeln!(
                     buf,
