@@ -89,7 +89,7 @@ impl Watcher {
             let block_watching_task = {
                 let is_submission_completed = is_submission_completed.clone();
                 let txs_to_watch_for = txs_to_watch_for.clone();
-                let mut block_subscription = connector.subscribe_to_finalized_blocks();
+                let mut block_subscription = connector.subscribe_to_blocks();
 
                 async move {
                     let mut number_of_consecutive_blocks_with_zero_transactions = 0usize;

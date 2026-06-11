@@ -647,9 +647,9 @@ async fn resolve_latest_block<R: LazyResolverApi>(
     match context.pinned_block() {
         Some(block) => Ok(block.clone()),
         None => required_node_connector(context)?
-            .latest_finalized_block()
+            .latest_block()
             .await
-            .context("Failed to query latest finalized block"),
+            .context("Failed to query latest block"),
     }
 }
 
@@ -659,9 +659,9 @@ async fn resolve_current_block_number<R: LazyResolverApi>(
     match context.pinned_block() {
         Some(block) => Ok(block.evm_block.number()),
         None => required_node_connector(context)?
-            .latest_finalized_block()
+            .latest_block()
             .await
-            .context("Failed to query latest finalized block")
+            .context("Failed to query latest block")
             .map(|block| block.evm_block.number()),
     }
 }

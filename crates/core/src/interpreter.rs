@@ -491,7 +491,7 @@ impl<'a> Interpreter<'a> {
                     if let Some(ref watcher) = self.watcher_tx
                         && step.start_watcher
                     {
-                        let current_block = self.connector.latest_finalized_block().await?;
+                        let current_block = self.connector.latest_block().await?;
                         watcher
                             .send(WatcherEvent::StartEvent {
                                 ignore_block_before: current_block.evm_block.number(),
@@ -986,7 +986,7 @@ impl<'a> InterpreterApi for Interpreter<'a> {
             let call = call.clone();
             let connector = connector.clone();
             async move {
-                let current_block = connector.latest_finalized_block().await?;
+                let current_block = connector.latest_block().await?;
                 let trace = connector
                     .trace_call(
                         call,

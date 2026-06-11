@@ -23,8 +23,8 @@ pub struct NodeConnector {
     submission_rpc: Option<SingleOrPool<SubxtRpcClient>>,
     config: NodeConnectorConfiguration,
     /* State */
-    latest_finalized_block: Arc<RwLock<Option<BlockPair>>>,
-    finalized_block_broadcast: BroadcastSender<BlockPair>,
+    latest_block: Arc<RwLock<Option<BlockPair>>>,
+    block_broadcast: BroadcastSender<BlockPair>,
     blocks_by_number: AsyncHashMap<u64, BlockPair>,
     indexed_transactions: AsyncHashMap<TxHash, IndexedTransactionInformation>,
     tx_hash_to_receipt_mapping: AsyncHashMap<TxHash, Arc<TransactionReceipt>>,
@@ -82,35 +82,31 @@ impl NodeConnector {
                 None => (None, None),
             };
 
-            let unresolved_finalized_blocks_broadcast_tx =
-                Self::start_unresolved_finalized_blocks_broadcaster(
-                    eth_providers.clone(),
-                    substrate_providers.clone(),
-                    &config,
-                );
-            let finalized_blocks_broadcast_tx = Self::start_resolved_finalized_blocks_broadcaster(
-                unresolved_finalized_blocks_broadcast_tx.subscribe(),
+            let unresolved_blocks_broadcast_tx = Self::start_unresolved_blocks_broadcaster(
+                eth_providers.clone(),
+                substrate_providers.clone(),
+                &config,
+            );
+            let blocks_broadcast_tx = Self::start_resolved_blocks_broadcaster(
+                unresolved_blocks_broadcast_tx.subscribe(),
                 substrate_providers.clone(),
             );
             let indexed_transactions = AsyncHashMap::new();
             Self::start_transaction_indexer(
-                finalized_blocks_broadcast_tx.subscribe(),
+                blocks_broadcast_tx.subscribe(),
                 indexed_transactions.clone(),
             );
-            let latest_finalized_block = Arc::new(RwLock::new(None));
-            Self::start_latest_finalized_block_updater(
-                latest_finalized_block.clone(),
-                finalized_blocks_broadcast_tx.subscribe(),
-            );
+            let latest_block = Arc::new(RwLock::new(None));
+            Self::start_latest_block_updater(latest_block.clone(), blocks_broadcast_tx.subscribe());
             let blocks_by_number = AsyncHashMap::new();
             Self::start_block_by_number_indexer(
                 blocks_by_number.clone(),
-                finalized_blocks_broadcast_tx.subscribe(),
+                blocks_broadcast_tx.subscribe(),
             );
             let tx_hash_to_receipt_mapping = AsyncHashMap::new();
             let block_hashes_to_receipt_mapping = AsyncHashMap::new();
             Self::start_receipt_provider(
-                finalized_blocks_broadcast_tx.subscribe(),
+                blocks_broadcast_tx.subscribe(),
                 eth_providers.clone(),
                 substrate_providers.clone(),
                 tx_hash_to_receipt_mapping.clone(),
@@ -127,8 +123,8 @@ impl NodeConnector {
                 substrate_providers,
                 submission_rpc,
                 config,
-                latest_finalized_block,
-                finalized_block_broadcast: finalized_blocks_broadcast_tx,
+                latest_block,
+                block_broadcast: blocks_broadcast_tx,
                 blocks_by_number,
                 indexed_transactions,
                 submission_locks: DashMap::new(),
@@ -561,8 +557,8 @@ impl NodeConnector {
         })
     }
 
-    pub fn subscribe_to_finalized_blocks(&self) -> StaticStream<BlockPair> {
-        BroadcastStream::new(self.finalized_block_broadcast.subscribe())
+    pub fn subscribe_to_blocks(&self) -> StaticStream<BlockPair> {
+        BroadcastStream::new(self.block_broadcast.subscribe())
             .filter_map(|block| async move { block.ok() })
             .boxed()
     }
@@ -733,7 +729,7 @@ impl NodeConnector {
         provider: &SingleOrPool<OnlineClient<PolkadotConfig>>,
     ) -> StaticFuture<Result<U256>> {
         let provider = provider.clone();
-        let latest_block = self.latest_finalized_block.clone();
+        let latest_block = self.latest_block.clone();
 
         Box::pin(async move {
             let runtime_api = match latest_block.read().await.as_ref() {
@@ -765,25 +761,25 @@ impl NodeConnector {
         self.blocks_by_number.get(number)
     }
 
-    /// Returns the finalized block that contains `tx_hash`.
+    /// Returns the block that contains `tx_hash`.
     pub fn transaction_block_pair(&self, tx_hash: TxHash) -> StaticFuture<BlockPair> {
         let inclusion_future = self.indexed_transactions.get(tx_hash);
         Box::pin(async move { inclusion_future.await.block_pair })
     }
 
-    pub fn latest_finalized_block(&self) -> StaticFuture<Result<BlockPair>> {
-        let mut finalized_blocks = self.finalized_block_broadcast.subscribe();
-        let latest_block = self.latest_finalized_block.clone();
+    pub fn latest_block(&self) -> StaticFuture<Result<BlockPair>> {
+        let mut blocks = self.block_broadcast.subscribe();
+        let latest_block = self.latest_block.clone();
 
         Box::pin(async move {
             if let Some(block) = latest_block.read().await.as_ref() {
                 return Ok(block.clone());
             }
 
-            finalized_blocks
+            blocks
                 .recv()
                 .await
-                .context("Failed to receive the latest finalized block")
+                .context("Failed to receive the latest block")
         })
     }
 
@@ -906,25 +902,23 @@ impl NodeConnector {
         Box::pin(self.indexed_transactions.get(tx_hash).map(|_| ()))
     }
 
-    fn start_unresolved_finalized_blocks_broadcaster(
+    fn start_unresolved_blocks_broadcaster(
         provider: SingleOrPool<AlloyProvider>,
         substrate_provider: Option<SubstrateProviders>,
         config: &NodeConnectorConfiguration,
     ) -> BroadcastSender<UnresolvedBlockPair> {
         let (tx, _) = broadcast_channel::<UnresolvedBlockPair>(2048);
         let task = match substrate_provider {
-            Some(provider) => Self::start_unresolved_finalized_blocks_broadcaster_substrate(
-                provider,
-                tx.clone(),
-                config,
-            ),
-            None => Self::start_unresolved_finalized_blocks_broadcaster_evm(provider, tx.clone()),
+            Some(provider) => {
+                Self::start_unresolved_blocks_broadcaster_substrate(provider, tx.clone(), config)
+            }
+            None => Self::start_unresolved_blocks_broadcaster_evm(provider, tx.clone()),
         };
         spawn(task);
         tx
     }
 
-    fn start_unresolved_finalized_blocks_broadcaster_evm(
+    fn start_unresolved_blocks_broadcaster_evm(
         provider: SingleOrPool<AlloyProvider>,
         tx: BroadcastSender<UnresolvedBlockPair>,
     ) -> StaticFuture<Result<()>> {
@@ -949,7 +943,7 @@ impl NodeConnector {
         })
     }
 
-    fn start_unresolved_finalized_blocks_broadcaster_substrate(
+    fn start_unresolved_blocks_broadcaster_substrate(
         provider: SubstrateProviders,
         tx: BroadcastSender<UnresolvedBlockPair>,
         config: &NodeConnectorConfiguration,
@@ -1013,10 +1007,7 @@ impl NodeConnector {
                         let substrate_block = match substrate_block {
                             Ok(substrate_block) => substrate_block,
                             Err(err) => {
-                                warn!(
-                                    ?err,
-                                    "Finalized substrate block subscription failed; resubscribing"
-                                );
+                                warn!(?err, "Substrate block subscription failed; resubscribing");
                                 break;
                             }
                         };
@@ -1052,7 +1043,7 @@ impl NodeConnector {
                         let _ = tx.send(block_pair);
                     }
 
-                    warn!("Finalized substrate block subscription ended; resubscribing");
+                    warn!("Substrate block subscription ended; resubscribing");
                 }
             })
         };
@@ -1061,7 +1052,7 @@ impl NodeConnector {
             .boxed()
     }
 
-    fn start_resolved_finalized_blocks_broadcaster(
+    fn start_resolved_blocks_broadcaster(
         mut rx: BroadcastReceiver<UnresolvedBlockPair>,
         substrate_provider: Option<SubstrateProviders>,
     ) -> BroadcastSender<BlockPair> {
@@ -1086,7 +1077,7 @@ impl NodeConnector {
                     Ok(block) => {
                         let _ = task_tx.send(block);
                     }
-                    Err(err) => error!(?err, "Failed to resolve finalized block"),
+                    Err(err) => error!(?err, "Failed to resolve block"),
                 }
             }
         });
@@ -1290,7 +1281,7 @@ impl NodeConnector {
         });
     }
 
-    fn start_latest_finalized_block_updater(
+    fn start_latest_block_updater(
         field: Arc<RwLock<Option<BlockPair>>>,
         mut rx: BroadcastReceiver<BlockPair>,
     ) {

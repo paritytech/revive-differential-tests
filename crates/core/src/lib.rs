@@ -393,8 +393,17 @@ fn new_polkadot_omni_node(
     }))
 }
 
-fn node_configuration(_: &Context) -> NodeConnectorConfiguration {
-    NodeConnectorConfiguration::default()
+fn node_configuration(context: &Context) -> NodeConnectorConfiguration {
+    let subscription_kind = match context {
+        Context::Benchmark(_) => BlockProvisioningSubscriptionKind::FinalizedBlocks,
+        _ => BlockProvisioningSubscriptionKind::BestBlocks,
+    };
+    NodeConnectorConfiguration {
+        block_provisioning_behavior: Some(BlockProvisioningBehavior {
+            subscription_kind: Some(subscription_kind),
+        }),
+        ..Default::default()
+    }
 }
 
 fn new_solc_compiler(
