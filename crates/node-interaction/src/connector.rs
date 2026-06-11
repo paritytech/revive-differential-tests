@@ -1587,16 +1587,14 @@ pub fn new_alloy_provider(
             .parse::<BuiltInConnectionString>()
             .context("Failed to parse the RPC connection string")?;
         let is_local = connection.is_local();
-        let mut transport = connection
+        let transport = connection
             .get_transport()
             .await
             .context("Failed to construct the RPC transport")?;
 
-        transport = handle_concurrency_config(transport, &config);
-        transport = handle_global_concurrency_config(transport, &config);
-        transport = handle_batching_config(transport, &config);
-        transport = handle_retry_config(transport, &config);
-        let client = RpcClient::new(transport, is_local);
+        let client = ClientBuilder::default()
+            .layer(ConfiguredTransportLayers { config })
+            .transport(transport, is_local);
 
         Ok(ProviderBuilder::new()
             .disable_recommended_fillers()
@@ -1607,6 +1605,21 @@ pub fn new_alloy_provider(
             .wallet(wallet)
             .connect_client(client))
     })
+}
+
+struct ConfiguredTransportLayers {
+    config: NodeConnectorConfiguration,
+}
+
+impl Layer<BoxTransport> for ConfiguredTransportLayers {
+    type Service = BoxTransport;
+
+    fn layer(&self, transport: BoxTransport) -> Self::Service {
+        let transport = handle_concurrency_config(transport, &self.config);
+        let transport = handle_global_concurrency_config(transport, &self.config);
+        let transport = handle_batching_config(transport, &self.config);
+        handle_retry_config(transport, &self.config)
+    }
 }
 
 fn handle_concurrency_config(
