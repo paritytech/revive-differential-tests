@@ -27,7 +27,7 @@ pub struct NodeConnector {
     tx_hash_to_receipt_mapping: AsyncHashMap<TxHash, Arc<TransactionReceipt>>,
     block_hashes_to_receipt_mapping: AsyncHashMap<BlockHash, Vec<Arc<TransactionReceipt>>>,
     filled_transactions: Arc<DashMap<TxHash, TxEnvelope>>,
-    eth_rpc_latest_block_number_tx: WatchSender<u64>,
+    _eth_rpc_latest_block_number_tx: WatchSender<u64>,
     /* Locks & Gates */
     submission_locks: DashMap<Address, Arc<Mutex<()>>>,
     substrate_submission_semaphore: Option<Arc<Semaphore>>,
@@ -124,7 +124,7 @@ impl NodeConnector {
                 tx_hash_to_receipt_mapping,
                 block_hashes_to_receipt_mapping,
                 filled_transactions: Arc::new(DashMap::new()),
-                eth_rpc_latest_block_number_tx,
+                _eth_rpc_latest_block_number_tx: eth_rpc_latest_block_number_tx,
                 substrate_submission_semaphore,
                 node: Box::new(node),
             })
@@ -153,19 +153,10 @@ impl NodeConnector {
         &self,
         tx: TransactionRequest,
     ) -> StaticFuture<Result<Arc<TransactionReceipt>>> {
-        let substrate_provider = self.substrate_providers.clone();
-        let indexed_transactions = self.indexed_transactions.clone();
         let tx_hash_to_receipt_mapping = self.tx_hash_to_receipt_mapping.clone();
-        let eth_rpc_latest_block_number_rx = self.eth_rpc_latest_block_number_tx.subscribe();
         self.send_transaction(tx)
             .and_then(move |tx_hash| {
-                Self::get_receipt_internal(
-                    eth_rpc_latest_block_number_rx,
-                    substrate_provider,
-                    indexed_transactions,
-                    tx_hash_to_receipt_mapping,
-                    tx_hash,
-                )
+                Self::get_receipt_internal(tx_hash_to_receipt_mapping, tx_hash)
             })
             .boxed()
     }
@@ -340,9 +331,10 @@ impl NodeConnector {
                         "Finished getting the submission receipt"
                     )
                 })
-                .with_heartbeat(Duration::from_secs(30), || {
+                .with_heartbeat(Duration::from_secs(30), |duration| {
                     warn!(
                         evm_hash = %ethereum_tx_hash,
+                        duration = duration.as_millis(),
                         "Been waiting for the receipt for 30 seconds"
                     )
                 })
@@ -402,13 +394,7 @@ impl NodeConnector {
     }
 
     pub fn get_receipt(&self, tx_hash: TxHash) -> StaticFuture<Result<Arc<TransactionReceipt>>> {
-        Self::get_receipt_internal(
-            self.eth_rpc_latest_block_number_tx.subscribe(),
-            self.substrate_providers.clone(),
-            self.indexed_transactions.clone(),
-            self.tx_hash_to_receipt_mapping.clone(),
-            tx_hash,
-        )
+        Self::get_receipt_internal(self.tx_hash_to_receipt_mapping.clone(), tx_hash)
     }
 
     pub fn get_block_receipts(
@@ -419,29 +405,27 @@ impl NodeConnector {
     }
 
     fn get_receipt_internal(
-        mut eth_rpc_latest_block_number_rx: WatchReceiver<u64>,
-        substrate_provider: Option<SubstrateProviders>,
-        indexed_transactions: AsyncHashMap<TxHash, IndexedTransactionInformation>,
         tx_hash_to_receipt_mapping: AsyncHashMap<TxHash, Arc<TransactionReceipt>>,
         tx_hash: TxHash,
     ) -> StaticFuture<Result<Arc<TransactionReceipt>>> {
-        Box::pin(async move {
-            let block = indexed_transactions.get(tx_hash).await;
-
-            if substrate_provider.is_some() {
-                let target_block_number = block.block_pair.evm_block.number();
-                timeout(
-                    Duration::from_secs(5 * 60),
-                    eth_rpc_latest_block_number_rx
-                        .wait_for(|block_number| *block_number >= target_block_number),
+        tx_hash_to_receipt_mapping
+            .get(tx_hash)
+            .with_timed(move |duration| {
+                trace!(
+                    %tx_hash,
+                    duration = duration.as_millis(),
+                    "Obtained the receipt"
                 )
-                .await
-                .context("Timed out waiting for the eth-rpc block to advance")?
-                .context("Failed to wait for eth-rpc block to advance")?;
-            }
-
-            Ok(tx_hash_to_receipt_mapping.get(tx_hash).await)
-        })
+            })
+            .with_heartbeat(Duration::from_secs(30), move |duration| {
+                warn!(
+                    %tx_hash,
+                    duration = duration.as_millis(),
+                    "Waited more than 30 seconds to get the receipt"
+                )
+            })
+            .map(Ok)
+            .boxed()
     }
 
     pub fn code_upload_transaction(&self, code: impl AsRef<[u8]>) -> Result<TransactionRequest> {
