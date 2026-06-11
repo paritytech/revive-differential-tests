@@ -22,6 +22,7 @@ impl NodePool {
         }
 
         let mut nodes = Vec::with_capacity(nodes);
+        info!("Awaiting node processes to start");
         for handle in handles {
             nodes.push(
                 handle
@@ -30,6 +31,7 @@ impl NodePool {
                     .context("Failed to join node spawn thread")?
                     .context("Node failed to spawn")?,
             );
+            info!("Started a node process");
         }
 
         let node_connectors = try_join_all(nodes)
