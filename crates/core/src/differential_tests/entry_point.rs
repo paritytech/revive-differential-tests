@@ -6,13 +6,11 @@ use crate::internal_prelude::*;
 
 use crate::interpreter::Interpreter;
 
-/// State for test definition processing.
 #[derive(Clone)]
 struct TestDefinitionProcessorState {
     private_key_allocator: Arc<Mutex<PrivateKeyAllocator>>,
 }
 
-/// The definition processor for tests.
 struct TestDefinitionProcessor;
 
 impl CorpusDefinitionProcessor for TestDefinitionProcessor {
@@ -114,8 +112,6 @@ impl CorpusDefinitionProcessor for TestDefinitionProcessor {
     }
 }
 
-/// Handles the differential testing executing it according to the information defined in the
-/// context
 #[instrument(level = "info", err(Debug), skip_all)]
 pub async fn handle_differential_tests(context: Test, reporter: Reporter) -> anyhow::Result<()> {
     let reporter_clone = reporter.clone();
@@ -311,7 +307,6 @@ fn start_cli_reporting_task(
         }
         info!("Aggregator Broadcast Channel Closed");
 
-        // Summary at the end.
         match output_format.output_format {
             OutputFormat::CargoTestLike => {
                 writeln!(
