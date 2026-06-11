@@ -1,4 +1,6 @@
 use alloy::consensus::TxEnvelope;
+use revive_dt_common::futures::{HeartbeatExt, TimedExt};
+use tracing::trace;
 
 use crate::internal_prelude::*;
 
@@ -330,7 +332,21 @@ impl NodeConnector {
                 Err(error) => return Err(error).context("Failed to submit transaction"),
             }
             // Await validation & inclusion
-            let _ = indexed_transactions.get(ethereum_tx_hash).await;
+            let _ = indexed_transactions
+                .get(ethereum_tx_hash)
+                .with_timed(|duration| {
+                    trace!(
+                        duration = duration.as_millis(),
+                        "Finished getting the submission receipt"
+                    )
+                })
+                .with_heartbeat(Duration::from_secs(30), || {
+                    warn!(
+                        evm_hash = %ethereum_tx_hash,
+                        "Been waiting for the receipt for 30 seconds"
+                    )
+                })
+                .await;
 
             Ok(ethereum_tx_hash)
         })
@@ -1312,10 +1328,22 @@ impl NodeConnector {
                 let block_hash = block.evm_block.hash();
                 let block_receipts = match substrate_provider {
                     Some(ref provider) => Self::construct_block_receipts(block, provider.clone())
+                        .with_timed(|duration| {
+                            trace!(
+                                duration = duration.as_millis(),
+                                "Resolved substrate block receipts"
+                            )
+                        })
                         .await
                         .context("Failed to get substrate block receipts")?,
                     None => provider
                         .get_block_receipts(block.evm_block.hash().into())
+                        .with_timed(|duration| {
+                            trace!(
+                                duration = duration.as_millis(),
+                                "Resolved evm block receipts"
+                            )
+                        })
                         .await
                         .context("Failed to get the block receipts")?
                         .context("Failed to get the block receipts")?,

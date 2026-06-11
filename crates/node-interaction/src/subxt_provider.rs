@@ -41,7 +41,9 @@ where
     retry_future_with_exponential_backoff(10, Duration::from_millis(10), || {
         let fut = func();
         async move {
-            let result = fut.await;
+            let result = timeout(Duration::from_secs(2 * 60), fut)
+                .await
+                .expect("RPC is configured to have a 1 minute timeout and we somehow timeout after 2 minutes");
             match result {
                 Ok(value) => ControlFlow::Break(Ok(value)),
                 Err(e @ (RpcsError::Client(..) | RpcsError::DisconnectedWillReconnect(..))) => {
@@ -62,12 +64,6 @@ where
     .await
 }
 
-/// Builds a substrate client, returning both the high-level [`OnlineClient`]
-/// (used for reading state, building extrinsics, etc.) and the underlying
-/// [`SubxtRpcClient`] that shares the *same* connection. The raw RPC client is
-/// needed to submit transactions via the raw `author_submitExtrinsic` method
-/// (fire-and-forget), since subxt's high-level `submit`/`submit_and_watch` both
-/// open a status subscription which is fragile under connection disruption.
 pub fn new_substrate_client(
     url: impl Into<String>,
 ) -> StaticFuture<Result<(OnlineClient<PolkadotConfig>, SubxtRpcClient)>> {
