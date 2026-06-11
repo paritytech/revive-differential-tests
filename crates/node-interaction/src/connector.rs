@@ -86,6 +86,7 @@ impl NodeConnector {
                 Self::start_unresolved_finalized_blocks_broadcaster(
                     eth_providers.clone(),
                     substrate_providers.clone(),
+                    &config,
                 );
             let finalized_blocks_broadcast_tx = Self::start_resolved_finalized_blocks_broadcaster(
                 unresolved_finalized_blocks_broadcast_tx.subscribe(),
@@ -908,12 +909,15 @@ impl NodeConnector {
     fn start_unresolved_finalized_blocks_broadcaster(
         provider: SingleOrPool<AlloyProvider>,
         substrate_provider: Option<SubstrateProviders>,
+        config: &NodeConnectorConfiguration,
     ) -> BroadcastSender<UnresolvedBlockPair> {
         let (tx, _) = broadcast_channel::<UnresolvedBlockPair>(2048);
         let task = match substrate_provider {
-            Some(provider) => {
-                Self::start_unresolved_finalized_blocks_broadcaster_substrate(provider, tx.clone())
-            }
+            Some(provider) => Self::start_unresolved_finalized_blocks_broadcaster_substrate(
+                provider,
+                tx.clone(),
+                config,
+            ),
             None => Self::start_unresolved_finalized_blocks_broadcaster_evm(provider, tx.clone()),
         };
         spawn(task);
@@ -948,9 +952,23 @@ impl NodeConnector {
     fn start_unresolved_finalized_blocks_broadcaster_substrate(
         provider: SubstrateProviders,
         tx: BroadcastSender<UnresolvedBlockPair>,
+        config: &NodeConnectorConfiguration,
     ) -> StaticFuture<Result<()>> {
         let block_observation_times =
             Arc::<RwLock<HashMap<H256, SystemTime>>>::new(Default::default());
+
+        let config = config
+            .block_provisioning_behavior
+            .as_ref()
+            .and_then(|config| config.subscription_kind.as_ref());
+        let subscription_kind = match config {
+            Some(BlockProvisioningSubscriptionKind::BestBlocks) => {
+                BlockProvisioningSubscriptionKind::BestBlocks
+            }
+            None | Some(BlockProvisioningSubscriptionKind::FinalizedBlocks) => {
+                BlockProvisioningSubscriptionKind::FinalizedBlocks
+            }
+        };
 
         let block_observer: StaticFuture<Result<()>> = {
             let provider = provider.clone();
@@ -979,11 +997,17 @@ impl NodeConnector {
             let block_observation_time = block_observation_times.clone();
             Box::pin(async move {
                 loop {
-                    let mut subscription = provider
-                        .blocks()
-                        .subscribe_best()
+                    let subscription = match subscription_kind {
+                        BlockProvisioningSubscriptionKind::BestBlocks => {
+                            provider.blocks().subscribe_best().boxed()
+                        }
+                        BlockProvisioningSubscriptionKind::FinalizedBlocks => {
+                            provider.blocks().subscribe_finalized().boxed()
+                        }
+                    };
+                    let mut subscription = subscription
                         .await
-                        .context("Failed to subscribe to finalized substrate blocks")?;
+                        .context("Failed to subscribe to substrate blocks")?;
 
                     while let Some(substrate_block) = subscription.next().await {
                         let substrate_block = match substrate_block {

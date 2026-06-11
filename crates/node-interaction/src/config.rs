@@ -16,6 +16,7 @@ pub struct NodeConnectorConfiguration {
     pub behaviors: Option<NodeConnectorBehaviors>,
     pub substrate_provider_configuration: Option<SubstrateProviderConfiguration>,
     pub eth_provider_configuration: Option<EthProviderConfiguration>,
+    pub block_provisioning_behavior: Option<BlockProvisioningBehavior>,
 }
 
 impl NodeConnectorConfiguration {
@@ -30,6 +31,10 @@ impl NodeConnectorConfiguration {
             eth_provider_configuration: resolve!(
                 self.eth_provider_configuration,
                 other.eth_provider_configuration
+            ),
+            block_provisioning_behavior: resolve!(
+                self.block_provisioning_behavior,
+                other.block_provisioning_behavior
             ),
         }
     }
@@ -136,4 +141,23 @@ pub enum BatchingConfiguration {
 pub enum ProviderConcurrencyConfiguration {
     Disabled,
     SemaphoreBasedLimiter { permits: usize },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+pub struct BlockProvisioningBehavior {
+    pub subscription_kind: Option<BlockProvisioningSubscriptionKind>,
+}
+
+impl BlockProvisioningBehavior {
+    pub fn resolve(self, other: Self) -> Self {
+        Self {
+            subscription_kind: self.subscription_kind.or(other.subscription_kind),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum BlockProvisioningSubscriptionKind {
+    BestBlocks,
+    FinalizedBlocks,
 }
