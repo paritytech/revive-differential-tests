@@ -151,61 +151,6 @@ fn start_cli_reporting_task(
             };
 
             match output_format.output_format {
-                OutputFormat::Legacy => {
-                    let _ = write!(buf, "{}", metadata_file_path.display());
-                    for (mode, status) in compilation_status {
-                        let _ = write!(buf, "\tMode {}: ", mode);
-                        let _ = match &status {
-                            CompilationStatus::Success {
-                                is_cached,
-                                compiled_contracts_info,
-                                ..
-                            } => {
-                                global_success_count += 1;
-                                let contract_count: usize = compiled_contracts_info
-                                    .values()
-                                    .map(|contracts| contracts.len())
-                                    .sum();
-                                writeln!(
-                                    buf,
-                                    "{}",
-                                    ANSIStrings(&[
-                                        Color::Green.bold().paint("Compilation Succeeded"),
-                                        Color::Green.paint(format!(
-                                            " - Contracts compiled: {}, Cached: {}",
-                                            contract_count,
-                                            if *is_cached { "yes" } else { "no" }
-                                        )),
-                                    ])
-                                )
-                            }
-                            CompilationStatus::Failure { reason, .. } => {
-                                global_failure_count += 1;
-                                writeln!(
-                                    buf,
-                                    "{}",
-                                    ANSIStrings(&[
-                                        Color::Red.bold().paint("Compilation Failed"),
-                                        Color::Red.paint(format!(" - Reason: {}", reason.trim())),
-                                    ])
-                                )
-                            }
-                            CompilationStatus::Ignored { reason, .. } => {
-                                global_ignore_count += 1;
-                                writeln!(
-                                    buf,
-                                    "{}",
-                                    ANSIStrings(&[
-                                        Color::Yellow.bold().paint("Compilation Ignored"),
-                                        Color::Yellow
-                                            .paint(format!(" - Reason: {}", reason.trim())),
-                                    ])
-                                )
-                            }
-                        };
-                    }
-                    let _ = writeln!(buf);
-                }
                 OutputFormat::CargoTestLike => {
                     let mut success_count = 0;
                     let mut failure_count = 0;
@@ -326,20 +271,7 @@ fn start_cli_reporting_task(
         info!("Aggregator Broadcast Channel Closed");
 
         // Summary at the end.
-        let total = global_success_count + global_failure_count + global_ignore_count;
         match output_format.output_format {
-            OutputFormat::Legacy => {
-                writeln!(
-                    buf,
-                    "{} compilations: {} succeeded, {} failed, {} ignored in {} seconds",
-                    total,
-                    Color::Green.paint(global_success_count.to_string()),
-                    Color::Red.paint(global_failure_count.to_string()),
-                    Color::Yellow.paint(global_ignore_count.to_string()),
-                    start.elapsed().as_secs()
-                )
-                .unwrap();
-            }
             OutputFormat::CargoTestLike => {
                 writeln!(
                     buf,
