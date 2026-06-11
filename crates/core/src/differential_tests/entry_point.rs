@@ -29,6 +29,9 @@ impl CorpusDefinitionProcessor for TestDefinitionProcessor {
             |(identifier, information)| {
                 let private_key_allocator = state.private_key_allocator.clone();
                 async move {
+                    let platform_identifier = *identifier;
+                    let node_id = information.connector.node_id();
+
                     let steps = definition
                         .case
                         .steps_iterator()
@@ -47,13 +50,18 @@ impl CorpusDefinitionProcessor for TestDefinitionProcessor {
                     )
                     .await
                     .context(format!("Failed to create interpreter for {identifier}"))
+                    .map(|interpreter| (interpreter, platform_identifier, node_id))
                 }
             },
         ))
         .await
         .context("Failed to create the interpreters for the various platforms")?
         .into_iter()
-        .map(|interpreter| interpreter.run_to_completion())
+        .map(|(interpreter, platform_identifier, node_id)| {
+            interpreter
+                .run_to_completion()
+                .instrument(info_span!("On Platform", node_id = %node_id, %platform_identifier))
+        })
         .collect::<FuturesUnordered<_>>();
 
         while let Some(result) = interpreters.next().await {
@@ -99,9 +107,9 @@ impl CorpusDefinitionProcessor for TestDefinitionProcessor {
         info_span!(
             "Executing Test Case",
             test_id = task_id,
-            metadata_file_path = %definition.metadata_file_path.display(),
             case_idx = %definition.case_idx,
             mode = %definition.mode,
+            metadata_file_path = %definition.metadata_file_path.display(),
         )
     }
 }

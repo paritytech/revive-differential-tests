@@ -905,7 +905,7 @@ impl<'a> InterpreterApi for Interpreter<'a> {
         match address {
             Some(address) => Ok(address),
             None => {
-                info!(?contract_ref, "Performing implicit deployment");
+                debug!(?contract_ref, "Performing implicit deployment");
                 let deployer = self.test_definition.case.deployer_address();
                 let (bytecode, _) = self
                     .compilation_artifacts_of_instance(contract_ref)
