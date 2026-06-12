@@ -100,7 +100,7 @@ pub(crate) mod internal_prelude {
                 Receiver as BroadcastReceiver, Sender as BroadcastSender,
                 channel as broadcast_channel,
             },
-            watch::{Receiver as WatchReceiver, Sender as WatchSender, channel as watch_channel},
+            watch::{Sender as WatchSender, channel as watch_channel},
         },
     };
     pub use tokio_stream::wrappers::BroadcastStream;

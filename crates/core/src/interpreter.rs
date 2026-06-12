@@ -398,7 +398,7 @@ impl<'a> Interpreter<'a> {
                 "This is a bug, the step state must be none before executing a step"
             );
             self.step_state = Some(StepState {
-                step_path,
+                step_path: step_path.clone(),
                 merge_forked_interpreters: false,
                 forked_interpreters: vec![],
             });
@@ -529,8 +529,9 @@ impl<'a> Interpreter<'a> {
                 }
             };
             self.executable_step_loop(executable)
+                .instrument(info_span!("Executing step", step = %step_path))
                 .await
-                .context("Step execution failed")?;
+                .with_context(|| format!("Step {step_path} execution failed"))?;
 
             assert!(
                 self.step_state.is_some(),

@@ -378,10 +378,12 @@ impl NodeConnector {
         let provider = self.eth_providers.clone();
         let transactions_map = self.filled_transactions.clone();
         Box::pin(async move {
+            if tx.gas.is_none() {
             let gas_estimate = gas_estimate
                 .await
                 .context("Failed to get the gas estimate of the transaction")?;
             tx.set_gas_limit(gas_estimate);
+            }
             let filled_transaction = provider
                 .fill(tx)
                 .await
