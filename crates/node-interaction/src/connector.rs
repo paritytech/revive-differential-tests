@@ -962,7 +962,7 @@ impl NodeConnector {
             }
         };
 
-        let block_observer: StaticFuture<Result<()>> = {
+        spawn({
             let provider = provider.clone();
             let block_observation_times = block_observation_times.clone();
             Box::pin(async move {
@@ -981,8 +981,10 @@ impl NodeConnector {
                     }
                     warn!("Substrate block observation subscription ended; resubscribing");
                 }
+                #[allow(unreachable_code)]
+                Ok::<(), anyhow::Error>(())
             })
-        };
+        });
 
         let block_broadcaster: StaticFuture<Result<()>> = {
             let provider = provider.clone();
@@ -1045,9 +1047,7 @@ impl NodeConnector {
                 }
             })
         };
-        futures::future::try_join(block_observer, block_broadcaster)
-            .map_ok(|_| ())
-            .boxed()
+        block_broadcaster.boxed()
     }
 
     fn start_resolved_blocks_broadcaster(
