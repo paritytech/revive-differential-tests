@@ -33,7 +33,7 @@ allowed_ancestry_len = 2
 [[relaychain.genesis.runtimeGenesis.patch.configuration.config.executor_params]]
 MaxMemoryPages = 8192
 
-# 4 validators needed: num_cores=3 requires at least num_cores+1 validators
+# 3 validators needed: num_cores=3 requires at least num_cores+1 validators
 # for the relay chain to finalize blocks.
 
 [[relaychain.nodes]]
@@ -46,10 +46,6 @@ validator = true
 
 [[relaychain.nodes]]
 name = "charlie"
-validator = true
-
-[[relaychain.nodes]]
-name = "dave"
 validator = true
 
 [[parachains]]
