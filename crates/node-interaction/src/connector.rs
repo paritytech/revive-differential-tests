@@ -1,5 +1,8 @@
+use std::collections::hash_map::Entry;
+
 use alloy::consensus::TxEnvelope;
 use revive_dt_common::futures::{HeartbeatExt, TimedExt};
+use tokio::sync::{OwnedSemaphorePermit, mpsc};
 use tracing::trace;
 
 use crate::internal_prelude::*;
@@ -31,6 +34,7 @@ pub struct NodeConnector {
     /* Locks & Gates */
     submission_locks: DashMap<Address, Arc<Mutex<()>>>,
     substrate_submission_semaphore: Option<Arc<Semaphore>>,
+    mempool_limiter: Option<MempoolLimiter>,
     /* Auxiliary */
     node: Box<dyn NodeConfiguration + Send + Sync>,
 }
@@ -75,6 +79,8 @@ impl NodeConnector {
                 }
                 None => None,
             };
+
+            let mempool_limiter = substrate_providers.clone().map(Self::start_mempool_limiter);
 
             let unresolved_blocks_broadcast_tx = Self::start_unresolved_blocks_broadcaster(
                 eth_providers.clone(),
@@ -126,6 +132,7 @@ impl NodeConnector {
                 filled_transactions: Arc::new(DashMap::new()),
                 _eth_rpc_latest_block_number_tx: eth_rpc_latest_block_number_tx,
                 substrate_submission_semaphore,
+                mempool_limiter,
                 node: Box::new(node),
             })
         })
@@ -343,13 +350,33 @@ impl NodeConnector {
         Func: FnOnce(TxEnvelope) -> Fut + Send + 'static,
         Fut: Future<Output = Result<TxHash>> + Send + 'static,
     {
-        self.prepare_transaction(tx)
-            .map(|result| result.context("Transaction preparation failed"))
-            .and_then(|envelope| {
-                submission_future(envelope)
-                    .map(|result| result.context("Transaction submission failed"))
-            })
-            .boxed()
+        let mempool_limiter = self.mempool_limiter.clone();
+        let prepared_transaction = self.prepare_transaction(tx);
+        Box::pin(async move {
+            let envelope = prepared_transaction
+                .await
+                .context("Transaction preparation failed")?;
+            let mempool_permit = match mempool_limiter.as_ref() {
+                Some(mempool_limiter) => Some(
+                    mempool_limiter
+                        .semaphore
+                        .clone()
+                        .acquire_owned()
+                        .await
+                        .context("Failed to acquire the mempool permit")?,
+                ),
+                None => None,
+            };
+            let tx_hash = submission_future(envelope)
+                .await
+                .context("Transaction submission failed")?;
+            if let (Some(mempool_limiter), Some(mempool_permit)) =
+                (mempool_limiter.as_ref(), mempool_permit)
+            {
+                mempool_limiter.observe(tx_hash, mempool_permit);
+            }
+            Ok(tx_hash)
+        })
     }
 
     fn prepare_transaction(&self, mut tx: TransactionRequest) -> StaticFuture<Result<TxEnvelope>> {
@@ -357,7 +384,7 @@ impl NodeConnector {
             .config
             .hooks
             .as_ref()
-            .and_then(|config| config.pre_submission_hook.as_ref());
+            .and_then(|config| config.pre_submission_hook);
         match config {
             Some(PreSubmissionHook::MaxGasPrice) => tx.set_gas_price(u128::MAX),
             Some(PreSubmissionHook::Disabled) | None => {}
@@ -1533,6 +1560,70 @@ impl NodeConnector {
         });
         Ok(tx)
     }
+
+    fn start_mempool_limiter(provider: SubstrateProviders) -> MempoolLimiter {
+        // We get errors if the mempool for substrate nodes exceeds 100,000 transactions, and
+        // therefore we need to cap how many can be in the mempool at any point in time.
+        let semaphore = Arc::new(Semaphore::new(SUBSTRATE_MEMPOOL_LIMIT));
+        let (sender, mut receiver) = mpsc::unbounded_channel::<(TxHash, OwnedSemaphorePermit)>();
+        let state = Arc::new(RwLock::new(HashMap::<TxHash, MempoolEntry>::new()));
+
+        spawn({
+            let state = state.clone();
+            async move {
+                loop {
+                    let mut subscription = match provider.blocks().subscribe_best().await {
+                        Ok(subscription) => subscription,
+                        Err(err) => {
+                            warn!(
+                                ?err,
+                                "Failed to subscribe to best blocks for the mempool limiter"
+                            );
+                            continue;
+                        }
+                    };
+                    while let Some(Ok(block)) = subscription.next().await {
+                        let Ok(extrinsics) = block.extrinsics().await else {
+                            warn!("Failed to read best block extrinsics for the mempool limiter");
+                            continue;
+                        };
+                        let mut state = state.write().await;
+                        for extrinsic in extrinsics.find::<EthTransact>() {
+                            let Ok(extrinsic) = extrinsic else {
+                                warn!("Failed to decode an eth_transact extrinsic in the limiter");
+                                continue;
+                            };
+                            let transaction_hash = keccak256(&extrinsic.value.payload);
+                            if let Some(MempoolEntry::Awaited(permit)) =
+                                state.insert(transaction_hash, MempoolEntry::Encountered)
+                            {
+                                drop(permit);
+                            }
+                        }
+                    }
+                    warn!("Mempool limiter best block subscription ended; resubscribing");
+                }
+            }
+        });
+
+        spawn(async move {
+            while let Some((transaction_hash, permit)) = receiver.recv().await {
+                match state.write().await.entry(transaction_hash) {
+                    Entry::Vacant(entry) => {
+                        entry.insert(MempoolEntry::Awaited(permit));
+                    }
+                    Entry::Occupied(entry) => match entry.get() {
+                        MempoolEntry::Encountered => drop(permit),
+                        MempoolEntry::Awaited(_) => {
+                            unreachable!("A mempool permit was sent twice for one transaction")
+                        }
+                    },
+                }
+            }
+        });
+
+        MempoolLimiter { semaphore, sender }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -1777,6 +1868,25 @@ pub struct IndexedTransactionInformation {
     pub transaction_index: usize,
     pub extrinsic_index: Option<usize>,
     pub block_pair: BlockPair,
+}
+
+const SUBSTRATE_MEMPOOL_LIMIT: usize = 90_000;
+
+enum MempoolEntry {
+    Awaited(OwnedSemaphorePermit),
+    Encountered,
+}
+
+#[derive(Clone)]
+struct MempoolLimiter {
+    semaphore: Arc<Semaphore>,
+    sender: mpsc::UnboundedSender<(TxHash, OwnedSemaphorePermit)>,
+}
+
+impl MempoolLimiter {
+    fn observe(&self, transaction_hash: TxHash, permit: OwnedSemaphorePermit) {
+        let _ = self.sender.send((transaction_hash, permit));
+    }
 }
 
 fn geth_trace_options_to_revive_tracer_type(
