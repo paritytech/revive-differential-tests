@@ -168,17 +168,7 @@ impl NodeConnector {
             .context("No filled transaction is stored for the given hash")
     }
 
-    pub fn send_transaction(&self, mut tx: TransactionRequest) -> StaticFuture<Result<TxHash>> {
-        let config = self
-            .config
-            .hooks
-            .as_ref()
-            .and_then(|config| config.pre_submission_hook.as_ref());
-        match config {
-            Some(PreSubmissionHook::MaxGasPrice) => tx = tx.gas_price(u128::MAX),
-            Some(PreSubmissionHook::Disabled) | None => {}
-        }
-
+    pub fn send_transaction(&self, tx: TransactionRequest) -> StaticFuture<Result<TxHash>> {
         let config = self
             .config
             .behaviors

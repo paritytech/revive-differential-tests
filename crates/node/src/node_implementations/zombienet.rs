@@ -230,7 +230,7 @@ impl NodeConfiguration for ZombienetNode {
     fn configurations(&self) -> NodeConnectorConfiguration {
         NodeConnectorConfiguration {
             hooks: Some(NodeConnectorHooks {
-                pre_submission_hook: Some(PreSubmissionHook::MaxGasPrice),
+                pre_submission_hook: Some(PreSubmissionHook::Disabled),
             }),
             substrate_provider_configuration: Some(SubstrateProviderConfiguration {
                 submission_concurrency_configuration: Some(
