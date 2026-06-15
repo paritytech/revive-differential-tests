@@ -1,0 +1,320 @@
+# Exercises the relevant GH actions the same way revive does, but against this repo's
+# current working tree and the revive commit behind the latest nightly resolc, to catch
+# breaking changes before revive bumps the revive-differential-tests commit it pins.
+name: Revive Compatibility
+
+on:
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - "**/*.md"
+  pull_request:
+    branches:
+      - main
+    paths-ignore:
+      - "**/*.md"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  resolc-nightly:
+    name: Fetch nightly resolc (${{ matrix.target }})
+    runs-on: ubuntu-24.04
+    outputs:
+      revive-sha: ${{ steps.resolve.outputs.revive-sha }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # For compatibility, including only two platforms is sufficient.
+        include:
+          - platform: linux
+            target: x86_64-unknown-linux-musl
+            binary: resolc-x86_64-unknown-linux-musl
+          # Include Windows so that we also test compiling retester on Windows.
+          - platform: windows
+            target: x86_64-pc-windows-msvc
+            binary: resolc-x86_64-pc-windows-msvc.exe
+    steps:
+      - name: Resolve latest nightly resolc
+        id: resolve
+        run: |
+          LIST_URL="https://paritytech.github.io/resolc-bin/nightly/${{ matrix.platform }}/list.json"
+          JSON=$(curl -fsSL "$LIST_URL")
+          VERSION=$(jq -r '.latestRelease' <<< "$JSON")
+          ENTRY=$(jq -c --arg v "$VERSION" '.builds[] | select(.version == $v)' <<< "$JSON")
+          ARTIFACT_URL=$(jq -r '.url' <<< "$ENTRY")
+          BUILD=$(jq -r '.build' <<< "$ENTRY")
+          if [[ -z "$VERSION" || "$VERSION" == "null" || -z "$ARTIFACT_URL" || "$ARTIFACT_URL" == "null" || -z "$BUILD" || "$BUILD" == "null" ]]; then
+            echo "::error::Could not resolve the latest nightly resolc for ${{ matrix.platform }} from $LIST_URL"
+            exit 1
+          fi
+
+          REVIVE_SHA8="${BUILD#commit.}"
+          REVIVE_SHA=$(curl -fsSL "https://api.github.com/repos/paritytech/revive/commits/$REVIVE_SHA8" | jq -r '.sha')
+          if [[ -z "$REVIVE_SHA" || "$REVIVE_SHA" == "null" ]]; then
+            echo "::error::Could not expand nightly commit $REVIVE_SHA8 to a full SHA"
+            exit 1
+          fi
+
+          # URL format: .../actions/runs/<run-id>/artifacts/<artifact-id>
+          # Strip up to and including '/runs/'.
+          RUN_ID_WITH_SUFFIX="${ARTIFACT_URL#*/runs/}"
+          # Strip the trailing '/artifacts/<artifact-id>'.
+          RUN_ID="${RUN_ID_WITH_SUFFIX%%/artifacts/*}"
+          if [[ ! "$RUN_ID" =~ ^[0-9]+$ ]]; then
+            echo "::error::Could not parse a run id from artifact url '$ARTIFACT_URL'"
+            exit 1
+          fi
+
+          echo "run-id=$RUN_ID" >> "$GITHUB_OUTPUT"
+          echo "revive-sha=$REVIVE_SHA" >> "$GITHUB_OUTPUT"
+          echo "::notice::Using nightly resolc $VERSION (revive $REVIVE_SHA) for ${{ matrix.platform }}"
+
+      - name: Restore cached resolc
+        id: cache
+        uses: actions/cache@v5
+        with:
+          path: resolc-bin/${{ matrix.binary }}
+          key: resolc-${{ matrix.target }}-${{ steps.resolve.outputs.revive-sha }}
+
+      # TODO: We're currently awaiting the setup of GitHub App and secrets by devops.
+      - name: Generate token to read revive's artifacts
+        id: app-token
+        if: ${{ steps.cache.outputs.cache-hit != 'true' }}
+        uses: actions/create-github-app-token@v3
+        with:
+          app-id: ${{ secrets.REVIVE_ARTIFACTS_APP_ID }}
+          private-key: ${{ secrets.REVIVE_ARTIFACTS_APP_KEY }}
+          owner: paritytech
+          repositories: revive
+
+      - name: Download nightly resolc
+        if: ${{ steps.cache.outputs.cache-hit != 'true' }}
+        uses: actions/download-artifact@v7
+        with:
+          name: resolc-${{ matrix.target }}
+          repository: paritytech/revive
+          run-id: ${{ steps.resolve.outputs.run-id }}
+          github-token: ${{ steps.app-token.outputs.token }}
+          path: resolc-bin
+
+      - name: Verify resolc binary
+        if: ${{ steps.cache.outputs.cache-hit != 'true' }}
+        shell: bash
+        run: |
+          if [[ ! -f "resolc-bin/${{ matrix.binary }}" ]]; then
+            echo "::error::Expected '${{ matrix.binary }}' was not found in the downloaded nightly artifact."
+            ls -la resolc-bin
+            exit 1
+          fi
+
+      - name: Upload resolc
+        uses: actions/upload-artifact@v6
+        with:
+          name: resolc-${{ matrix.target }}
+          path: resolc-bin/${{ matrix.binary }}
+          retention-days: 1
+          if-no-files-found: error
+
+  resolve-config:
+    name: Resolve revive configuration
+    needs: resolc-nightly
+    runs-on: ubuntu-24.04
+    outputs:
+      modes: ${{ steps.parse.outputs.modes }}
+      solc-version: ${{ steps.parse.outputs.solc-version }}
+      polkadot-sdk-ref: ${{ steps.parse.outputs.polkadot-sdk-ref }}
+      concurrency-tasks: ${{ steps.parse.outputs.concurrency-tasks }}
+      rust-toolchain: ${{ steps.parse.outputs.rust-toolchain }}
+    steps:
+      - name: Checkout revive's CI environment
+        uses: actions/checkout@v6
+        with:
+          repository: paritytech/revive
+          ref: ${{ needs.resolc-nightly.outputs.revive-sha }}
+          path: revive
+          sparse-checkout: .github/workflows
+
+      - name: Parse revive's differential tests configuration
+        id: parse
+        run: |
+          WORKFLOW="revive/.github/workflows/differential-tests.yml"
+          MODES=$(yq '.env.MODES' "$WORKFLOW")
+          SOLC_VERSION=$(yq '.env.SOLC_VERSION' "$WORKFLOW")
+          POLKADOT_SDK_REF=$(yq '.jobs["run-e2e-tests"].env.POLKADOT_SDK_REF' "$WORKFLOW")
+
+          E2E_STEP='.jobs["run-e2e-tests"].steps[] | select((.uses // "") | test("/run-differential-tests$"))'
+          CONCURRENCY=$(yq "$E2E_STEP | .with[\"concurrency-number-of-concurrent-tasks\"]" "$WORKFLOW")
+
+          TOOLCHAIN_STEP='.jobs["run-e2e-tests"].steps[] | select((.uses // "") | test("setup-rust-toolchain"))'
+          RUST_TOOLCHAIN=$(yq "$TOOLCHAIN_STEP | .with.toolchain" "$WORKFLOW")
+
+          validate() {
+            local label="$1" value="$2"
+            if [[ -z "$value" || "$value" == "null" ]]; then
+              echo "::error::Could not parse '$label' from '$WORKFLOW'. Its structure may have changed, update this compatibility workflow."
+              exit 1
+            fi
+            echo "$label=$value" >> "$GITHUB_OUTPUT"
+          }
+
+          validate modes "$MODES"
+          validate solc-version "$SOLC_VERSION"
+          validate polkadot-sdk-ref "$POLKADOT_SDK_REF"
+          validate concurrency-tasks "$CONCURRENCY"
+          validate rust-toolchain "$RUST_TOOLCHAIN"
+
+  compile-and-export-hashes:
+    name: Compile & export hashes (${{ matrix.platform }})
+    needs: [resolve-config, resolc-nightly]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux-x86_64
+            target: x86_64-unknown-linux-musl
+            runner: ubuntu-24.04
+          - platform: windows-x86_64
+            target: x86_64-pc-windows-msvc
+            runner: windows-2022
+    runs-on: ${{ matrix.runner }}
+    steps:
+      # For some deeply nested contracts in `resolc-compiler-tests`, Windows
+      # will generate a "Filename too long" error. This step enables long paths.
+      - name: Enable Git long paths (Windows)
+        if: ${{ runner.os == 'Windows' }}
+        run: git config --system core.longpaths true
+
+      - name: Checkout revive-differential-tests
+        uses: actions/checkout@v6
+        with:
+          path: revive-differential-tests
+          submodules: recursive
+
+      - name: Download resolc
+        uses: actions/download-artifact@v7
+        with:
+          name: resolc-${{ matrix.target }}
+          path: resolc-bin
+
+      - name: Make resolc executable
+        shell: bash
+        run: chmod +x "resolc-bin/resolc-${{ matrix.target }}${{ runner.os == 'Windows' && '.exe' || '' }}"
+
+      - name: Compile contracts
+        id: compile
+        uses: ./revive-differential-tests/.github/actions/compile-contracts
+        with:
+          revive-differential-tests-path: revive-differential-tests
+          resolc-path: resolc-bin/resolc-${{ matrix.target }}${{ runner.os == 'Windows' && '.exe' || '' }}
+          solc-version: ${{ needs.resolve-config.outputs.solc-version }}
+          modes: ${{ needs.resolve-config.outputs.modes }}
+          upload-artifact-name: compilation-report-${{ matrix.platform }}
+
+      - name: Export bytecode hashes
+        uses: ./revive-differential-tests/.github/actions/export-bytecode-hashes
+        with:
+          revive-differential-tests-path: revive-differential-tests
+          report-path: ${{ steps.compile.outputs.report-path }}
+          remove-prefix: ${{ steps.compile.outputs.contracts-source-prefix }}
+          platform-label: ${{ matrix.platform }}
+          upload-artifact-name: hashes-${{ matrix.platform }}
+
+  compare-hashes:
+    name: Compare bytecode hashes
+    needs: [resolve-config, compile-and-export-hashes]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout revive-differential-tests
+        uses: actions/checkout@v6
+        with:
+          path: revive-differential-tests
+
+      - name: Compare bytecode hashes
+        uses: ./revive-differential-tests/.github/actions/compare-bytecode-hashes
+        with:
+          revive-differential-tests-path: revive-differential-tests
+          hash-artifact-names: >-
+            hashes-linux-x86_64,
+            hashes-windows-x86_64
+          modes: ${{ needs.resolve-config.outputs.modes }}
+          upload-artifact-name: hash-comparison-result
+
+  run-e2e-tests:
+    name: Run differential E2E tests
+    needs: [resolve-config, resolc-nightly]
+    runs-on: parity-large
+    timeout-minutes: 60
+    env:
+      RUSTFLAGS: "-Awarnings"
+    steps:
+      - name: Checkout revive-differential-tests
+        uses: actions/checkout@v6
+        with:
+          path: revive-differential-tests
+          submodules: recursive
+
+      - name: Checkout revive expectations file
+        uses: actions/checkout@v6
+        with:
+          repository: paritytech/revive
+          ref: ${{ needs.resolc-nightly.outputs.revive-sha }}
+          path: revive
+          sparse-checkout: .github/assets
+
+      - name: Download resolc
+        uses: actions/download-artifact@v7
+        with:
+          name: resolc-x86_64-unknown-linux-musl
+          path: resolc-bin
+
+      - name: Make resolc executable
+        run: chmod +x resolc-bin/resolc-x86_64-unknown-linux-musl
+
+      - name: Checkout Polkadot SDK
+        uses: actions/checkout@v6
+        with:
+          repository: paritytech/polkadot-sdk
+          ref: ${{ needs.resolve-config.outputs.polkadot-sdk-ref }}
+          path: polkadot-sdk
+          submodules: recursive
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential pkg-config libssl-dev protobuf-compiler llvm clang libclang-dev
+
+      - name: Download forklift
+        run: |
+          curl -fsSLo forklift https://github.com/paritytech/forklift/releases/download/0.15.0/forklift_0.15.0_linux_amd64
+          chmod +x forklift
+          sudo mv forklift /usr/local/bin/
+
+      - name: Configure forklift
+        run: |
+          mkdir -p .forklift
+          cp polkadot-sdk/.forklift/config.toml .forklift/config.toml
+
+      - name: Set up Rust toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: ${{ needs.resolve-config.outputs.rust-toolchain }}
+          target: "wasm32-unknown-unknown"
+          components: "rust-src"
+          rustflags: ""
+
+      - name: Run differential e2e tests
+        uses: ./revive-differential-tests/.github/actions/run-differential-tests
+        with:
+          revive-differential-tests-path: revive-differential-tests
+          polkadot-sdk-path: polkadot-sdk
+          cargo-command: "forklift cargo"
+          platform: revive-dev-node-polkavm-resolc
+          resolc-path: resolc-bin/resolc-x86_64-unknown-linux-musl
+          solc-version: ${{ needs.resolve-config.outputs.solc-version }}
+          expectations-file-path: revive/.github/assets/revive-dev-node-polkavm-resolc.json
+          concurrency-number-of-concurrent-tasks: ${{ needs.resolve-config.outputs.concurrency-tasks }}
