@@ -355,6 +355,8 @@ jobs:
             additional_args+=(--benchmark.repetition-count-override "$OVERRIDE_REPETITION_COUNT")
           fi
 
+          export POLKAVM_CORE_PINNING="disabled"
+
           retester benchmark \
             --log-format json \
             --test "$TEST_SPECIFIER" \
