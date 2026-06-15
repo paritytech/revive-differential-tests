@@ -42,14 +42,14 @@ jobs:
       - name: Resolve latest nightly resolc
         id: resolve
         run: |
-          LIST_URL="https://paritytech.github.io/resolc-bin/nightly/${{ matrix.platform }}/list.json"
-          JSON=$(curl -fsSL "$LIST_URL")
-          VERSION=$(jq -r '.latestRelease' <<< "$JSON")
-          ENTRY=$(jq -c --arg v "$VERSION" '.builds[] | select(.version == $v)' <<< "$JSON")
-          ARTIFACT_URL=$(jq -r '.url' <<< "$ENTRY")
-          BUILD=$(jq -r '.build' <<< "$ENTRY")
+          RELEASE_INFO_URL="https://paritytech.github.io/resolc-bin/nightly/${{ matrix.platform }}/list.json"
+          RELEASE_INFO=$(curl -fsSL "$RELEASE_INFO_URL")
+          VERSION=$(jq -r '.latestRelease' <<< "$RELEASE_INFO")
+          BUILD_INFO=$(jq -c --arg v "$VERSION" '.builds[] | select(.version == $v)' <<< "$RELEASE_INFO")
+          ARTIFACT_URL=$(jq -r '.url' <<< "$BUILD_INFO")
+          BUILD=$(jq -r '.build' <<< "$BUILD_INFO")
           if [[ -z "$VERSION" || "$VERSION" == "null" || -z "$ARTIFACT_URL" || "$ARTIFACT_URL" == "null" || -z "$BUILD" || "$BUILD" == "null" ]]; then
-            echo "::error::Could not resolve the latest nightly resolc for ${{ matrix.platform }} from $LIST_URL"
+            echo "::error::Could not resolve the latest nightly resolc for ${{ matrix.platform }} from $RELEASE_INFO_URL"
             exit 1
           fi
 
