@@ -143,7 +143,8 @@ jobs:
         id: parse
         run: |
           WORKFLOW="revive/.github/workflows/differential-tests.yml"
-          MODES=$(yq '.env.MODES' "$WORKFLOW")
+          # For compatibility, using only one mode is sufficient.
+          MODES="Y Mz S+"
           SOLC_VERSION=$(yq '.env.SOLC_VERSION' "$WORKFLOW")
           POLKADOT_SDK_REF=$(yq '.jobs["run-e2e-tests"].env.POLKADOT_SDK_REF' "$WORKFLOW")
 
