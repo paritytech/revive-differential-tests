@@ -145,10 +145,6 @@ pub async fn build_block_jobs(
 /// Execute trace jobs against a node, aggregating each watched tx to a
 /// [`TxProfile`]. Concurrency is bounded by `concurrency`. Per-block failures
 /// are logged and skipped — the function returns whatever profiles succeed.
-///
-/// The `&node` borrow is only held during synchronous future construction;
-/// each constructed future is owned and `Send + 'static`, so they can be
-/// polled concurrently without holding the reference across `.await`s.
 pub async fn execute_trace_jobs(
     node: &dyn NodeApi,
     jobs: Vec<PerBlockTraceJob>,
@@ -224,7 +220,6 @@ pub fn aggregate_to_summary(
     let sampled_tx_count = profiles.len();
     let failed_count = profiles.iter().filter(|p| p.failed).count();
 
-    // Sum per-opcode metrics across all sampled txs.
     let mut by_op: HashMap<String, (u64, u128, u128)> = HashMap::new();
     for profile in &profiles {
         for opcode in &profile.opcodes {
@@ -236,7 +231,6 @@ pub fn aggregate_to_summary(
         }
     }
 
-    // Sort descending by ref_time, then by op_key for stability.
     let mut sorted: Vec<(String, u64, u128, u128)> = by_op
         .into_iter()
         .map(|(k, (c, rt, ps))| (k, c, rt, ps))
