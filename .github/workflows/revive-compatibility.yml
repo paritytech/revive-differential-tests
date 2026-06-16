@@ -81,7 +81,6 @@ jobs:
           path: resolc-bin/${{ matrix.binary }}
           key: resolc-${{ matrix.target }}-${{ steps.resolve.outputs.revive-sha }}
 
-      # TODO: We're currently awaiting the setup of GitHub App and secrets by devops.
       - name: Generate token to read revive's artifacts
         id: app-token
         if: ${{ steps.cache.outputs.cache-hit != 'true' }}
