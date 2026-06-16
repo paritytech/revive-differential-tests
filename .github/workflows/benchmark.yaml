@@ -48,7 +48,7 @@ on:
         description: The Asset Hub network configuration to benchmark against
         required: true
         type: choice
-        default: polkadot
+        default: westend
         options:
           - polkadot
           - westend
