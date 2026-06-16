@@ -65,7 +65,7 @@ on:
         required: true
         default: info,alloy=off
       profile-watched-txs:
-        description: Enable per-opcode profiling of sampled watched txs
+        description: Enable per-opcode profiling of sampled watched txs. Requires `network == westend`.
         required: true
         type: boolean
         default: false
@@ -95,12 +95,35 @@ permissions:
 
 jobs:
   # ============================================================================================
+  # Validate Inputs: Fail fast on incompatible toggle combinations before any heavy build kicks off
+  # ============================================================================================
+
+  validate-inputs:
+    name: Validate Workflow Inputs
+    runs-on: ubuntu-latest
+    steps:
+      - name: Profiling requires the westend network
+        env:
+          PROFILE_ENABLED: ${{ inputs.profile-watched-txs }}
+          NETWORK: ${{ inputs.network }}
+        run: |
+          if [ "$PROFILE_ENABLED" = "true" ] && [ "$NETWORK" != "westend" ]; then
+            echo "::error::profile-watched-txs requires network=westend." \
+                 "The --cfg revive_debug gate that flips is_execution_tracing_enabled() on" \
+                 "at runtime only exists on asset-hub-westend-runtime;" \
+                 "asset-hub-polkadot has no equivalent gate, so profiling silently produces" \
+                 "empty traces. Re-run with network=westend, or disable profile-watched-txs."
+            exit 1
+          fi
+
+  # ============================================================================================
   # Build Jobs: Building the binaries we need and making sure that they're cached and available
   # ============================================================================================
 
   build-retester:
     name: Build and Cache Retester Binaries
     runs-on: parity-large-persistent-new
+    needs: validate-inputs
     steps:
       - name: Checkout This Repository
         uses: actions/checkout@v4
@@ -122,6 +145,7 @@ jobs:
   build-chainspec-generator:
     name: Build and Cache Runtime's Chainspec Generator
     runs-on: parity-large-persistent-new
+    needs: validate-inputs
     steps:
       - name: Checkout This Repository
         uses: actions/checkout@v4
@@ -148,6 +172,7 @@ jobs:
   build-polkadot-sdk:
     name: Build and Cache the Polkadot SDK Dependencies
     runs-on: parity-large-persistent-new
+    needs: validate-inputs
     steps:
       - name: Checkout This Repository
         uses: actions/checkout@v4
@@ -173,6 +198,7 @@ jobs:
   build-resolc:
     name: Build and Cache Resolc Binary
     runs-on: parity-large-persistent-new
+    needs: validate-inputs
     steps:
       - name: Checkout This Repository
         uses: actions/checkout@v4
