@@ -43,7 +43,7 @@ on:
       resolc-ref:
         description: The branch, tag, or commit hash to use for the resolc repository.
         required: true
-        default: v0.6.0
+        default: v1.2.0
       network:
         description: The Asset Hub network configuration to benchmark against
         required: true
