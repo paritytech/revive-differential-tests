@@ -183,8 +183,8 @@ jobs:
             runner: windows-2022
     runs-on: ${{ matrix.runner }}
     steps:
-      # For some deeply nested contracts in `resolc-compiler-tests`, Windows
-      # will generate a "Filename too long" error. This step enables long paths.
+      # For some deeply nested contracts in `resolc-compiler-tests`, Windows will generate
+      # a "Filename too long" error during checkout. This step enables long paths.
       - name: Enable Git long paths (Windows)
         if: ${{ runner.os == 'Windows' }}
         run: git config --system core.longpaths true
@@ -192,7 +192,11 @@ jobs:
       - name: Checkout revive-differential-tests
         uses: actions/checkout@v6
         with:
-          path: revive-differential-tests
+          # This repo's long name pushes the deepest contract paths past the
+          # Windows max path length, which solc hits when compiling a contract.
+          # (The step above enabling Git long paths only fixes checkout.)
+          # (revive's CI stays under the limit due to its shorter repo name.)
+          path: rdt
           submodules: recursive
 
       - name: Download resolc
@@ -207,18 +211,18 @@ jobs:
 
       - name: Compile contracts
         id: compile
-        uses: ./revive-differential-tests/.github/actions/compile-contracts
+        uses: ./rdt/.github/actions/compile-contracts
         with:
-          revive-differential-tests-path: revive-differential-tests
+          revive-differential-tests-path: rdt
           resolc-path: resolc-bin/resolc-${{ matrix.target }}${{ runner.os == 'Windows' && '.exe' || '' }}
           solc-version: ${{ needs.resolve-config.outputs.solc-version }}
           modes: ${{ needs.resolve-config.outputs.modes }}
           upload-artifact-name: compilation-report-${{ matrix.platform }}
 
       - name: Export bytecode hashes
-        uses: ./revive-differential-tests/.github/actions/export-bytecode-hashes
+        uses: ./rdt/.github/actions/export-bytecode-hashes
         with:
-          revive-differential-tests-path: revive-differential-tests
+          revive-differential-tests-path: rdt
           report-path: ${{ steps.compile.outputs.report-path }}
           remove-prefix: ${{ steps.compile.outputs.contracts-source-prefix }}
           platform-label: ${{ matrix.platform }}
