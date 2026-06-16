@@ -42,7 +42,7 @@ pub(crate) mod internal_prelude {
         Identity, Provider, ProviderBuilder, RootProvider,
         ext::DebugApi,
         fillers::{
-            CachedNonceManager, ChainIdFiller, FillProvider, GasFiller, JoinFill, NonceFiller,
+            ChainIdFiller, FillProvider, GasFiller, JoinFill, NonceFiller, NonceManager,
             WalletFiller,
         },
     };

@@ -11,7 +11,7 @@ type AlloyProvider = FillProvider<
     JoinFill<
         JoinFill<
             JoinFill<JoinFill<Identity, GasFiller>, ChainIdFiller>,
-            NonceFiller<CachedNonceManager>,
+            NonceFiller<CachedZeroedNonceManager>,
         >,
         WalletFiller<Arc<EthereumWallet>>,
     >,
@@ -63,7 +63,7 @@ impl NodeConnector {
 
         let eth_provider_urls = node.eth_provider_url();
         let substrate_rpc_urls = node.substrate_provider_url();
-        let nonce_filler = NonceFiller::<CachedNonceManager>::default();
+        let nonce_filler = NonceFiller::<CachedZeroedNonceManager>::default();
 
         let eth_providers_future =
             Self::eth_providers_future(eth_provider_urls, config, wallet, nonce_filler);
@@ -851,7 +851,7 @@ impl NodeConnector {
         eth_provider_urls: NodeUrlCollection<'_>,
         config: NodeConnectorConfiguration,
         wallet: Arc<EthereumWallet>,
-        nonce_filler: NonceFiller<CachedNonceManager>,
+        nonce_filler: NonceFiller<CachedZeroedNonceManager>,
     ) -> StaticFuture<Result<SingleOrPool<AlloyProvider>>> {
         match eth_provider_urls {
             NodeUrlCollection { ipc: Some(url), .. }
@@ -1720,11 +1720,48 @@ impl std::ops::DerefMut for SubstrateProviders {
     }
 }
 
+#[derive(Clone, Debug, Default)]
+pub struct CachedZeroedNonceManager {
+    nonces: Arc<DashMap<Address, Arc<Mutex<u64>>>>,
+}
+
+impl NonceManager for CachedZeroedNonceManager {
+    fn get_next_nonce<'a, 'b, 'c, P, N>(
+        &'a self,
+        _: &'b P,
+        address: Address,
+    ) -> BoxFuture<'c, TransportResult<u64>>
+    where
+        P: Provider<N> + 'c,
+        N: Network + 'c,
+        'a: 'c,
+        'b: 'c,
+        Self: 'c,
+    {
+        let nonces = self.nonces.clone();
+        Box::pin(async move {
+            match nonces.entry(address) {
+                dashmap::Entry::Occupied(entry) => {
+                    let nonce = entry.get().clone();
+                    drop(entry);
+                    let mut nonce = nonce.lock().await;
+                    *nonce += 1;
+                    Ok(*nonce)
+                }
+                dashmap::Entry::Vacant(entry) => {
+                    entry.insert(Arc::new(Mutex::new(0)));
+                    Ok(0)
+                }
+            }
+        })
+    }
+}
+
 pub fn new_alloy_provider(
     url: impl ToString,
     config: NodeConnectorConfiguration,
     wallet: Arc<EthereumWallet>,
-    nonce_filler: NonceFiller<CachedNonceManager>,
+    nonce_filler: NonceFiller<CachedZeroedNonceManager>,
 ) -> StaticFuture<Result<AlloyProvider>> {
     let url = url.to_string();
 
