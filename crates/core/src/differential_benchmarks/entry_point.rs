@@ -3,6 +3,9 @@
 use crate::internal_prelude::*;
 
 use crate::differential_benchmarks::Driver;
+use crate::differential_benchmarks::{
+    SamplingMode, aggregate_to_summary, build_block_jobs, execute_trace_jobs, sample_watched_txs,
+};
 
 /// Handles the differential testing executing it according to the information defined in the
 /// context
@@ -147,6 +150,9 @@ pub async fn handle_differential_benchmarks(
             };
             let transaction_finder =
                 TransactionFinder::new(provider.clone(), substrate_provider.clone());
+            // Cheap Arc-clone — kept so we can resolve sampled tx hashes to
+            // their substrate blocks after the driver consumes the original.
+            let transaction_finder_for_profiler = transaction_finder.clone();
             let (watcher, watcher_tx) = Watcher::new(
                 platform_information
                     .node
@@ -245,8 +251,69 @@ pub async fn handle_differential_benchmarks(
             }
 
             let _ = driver_rtn.context("Driver failed")?;
-            watcher_rtn.context("Watcher failed")?;
+            let watcher_outcome = watcher_rtn.context("Watcher failed")?;
             inclusion_rtn.context("Inclusion watcher failed")?;
+
+            if context.benchmark_run.profile_watched_txs {
+                let mode = if context.benchmark_run.profile_all {
+                    SamplingMode::All
+                } else {
+                    SamplingMode::Sample(context.benchmark_run.profile_samples_per_step_path)
+                };
+                let sampled_hashes = sample_watched_txs(
+                    &watcher_outcome.transaction_registration_information,
+                    mode,
+                );
+                let samples: Vec<(TxHash, StepPath)> = sampled_hashes
+                    .into_iter()
+                    .filter_map(|h| {
+                        watcher_outcome
+                            .transaction_registration_information
+                            .get(&h)
+                            .map(|(sp, _)| (h, sp.clone()))
+                    })
+                    .collect();
+                let watched_tx_count =
+                    watcher_outcome.transaction_registration_information.len();
+                let sampled_count = samples.len();
+
+                let jobs = build_block_jobs(&transaction_finder_for_profiler, samples)
+                    .await
+                    .context("Failed to build profiler trace jobs")?;
+                let block_count = jobs.len() as u32;
+
+                let profiles = execute_trace_jobs(
+                    platform_information.node,
+                    jobs,
+                    context.benchmark_run.profile_step_limit,
+                    context.benchmark_run.profile_concurrency,
+                )
+                .await;
+
+                let top_opcode = profiles
+                    .iter()
+                    .flat_map(|p| p.opcodes.first())
+                    .max_by_key(|op| op.total_ref_time)
+                    .map(|op| op.op_key.as_string())
+                    .unwrap_or_else(|| "<none>".to_string());
+
+                info!(
+                    %platform_identifier,
+                    watched_tx_count,
+                    sampled_count,
+                    block_count,
+                    profile_count = profiles.len(),
+                    top_opcode = %top_opcode,
+                    "Profiler: workload complete"
+                );
+
+                let summary = aggregate_to_summary(profiles, block_count);
+                test_definition
+                    .reporter
+                    .execution_specific_reporter(0usize, platform_identifier)
+                    .report_opcode_profile_completed_event(summary)
+                    .context("Failed to send opcode_profile_completed event to reporter")?;
+            }
         }
     }
 

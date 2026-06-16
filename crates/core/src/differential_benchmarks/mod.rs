@@ -3,6 +3,7 @@ mod entry_point;
 mod execution_state;
 mod inclusion_watcher;
 mod transaction_finder;
+mod tx_profiler;
 mod watcher;
 
 pub use driver::*;
@@ -10,4 +11,5 @@ pub use entry_point::*;
 pub use execution_state::*;
 pub use inclusion_watcher::*;
 pub use transaction_finder::*;
+pub use tx_profiler::*;
 pub use watcher::*;

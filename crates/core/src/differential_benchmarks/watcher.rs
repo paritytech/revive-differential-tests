@@ -138,7 +138,7 @@ impl Watcher {
     /// Finally, the watcher reports all observed block information, per-block transaction counts,
     /// and per-transaction metadata (submission time, block inclusion time) to the reporter.
     #[allow(irrefutable_let_patterns)]
-    pub fn run(mut self) -> FrameworkFuture<Result<()>> {
+    pub fn run(mut self) -> FrameworkFuture<Result<WatcherOutcome>> {
         Box::pin(async move {
             // We start by waiting for the `StartEvent` which informs us of the first block that we want
             // to watch for. Any event that we receive before this `StartEvent` is ignored as the driver
@@ -498,9 +498,20 @@ impl Watcher {
                 let _ = self.reporter.report_block_mined_event(block);
             }
 
-            Ok(())
+            Ok(WatcherOutcome {
+                transaction_registration_information,
+            })
         })
     }
+}
+
+/// What a successful [`Watcher::run`] yields: the registration map collected
+/// from `WatcherEvent::SubmittedTransaction`s, in submission order. The opcode
+/// profiler consumes this for per-step-path sampling.
+#[derive(Debug)]
+pub struct WatcherOutcome {
+    pub transaction_registration_information:
+        IndexMap<TxHash, (StepPath, std::time::SystemTime)>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
