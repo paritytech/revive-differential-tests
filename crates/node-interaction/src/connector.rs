@@ -9,7 +9,10 @@ use crate::internal_prelude::*;
 
 type AlloyProvider = FillProvider<
     JoinFill<
-        JoinFill<JoinFill<JoinFill<Identity, GasFiller>, ChainIdFiller>, DelayedNonceFiller>,
+        JoinFill<
+            JoinFill<JoinFill<Identity, GasFiller>, ChainIdFiller>,
+            NonceFiller<CachedNonceManager>,
+        >,
         WalletFiller<Arc<EthereumWallet>>,
     >,
     RootProvider,
@@ -60,7 +63,7 @@ impl NodeConnector {
 
         let eth_provider_urls = node.eth_provider_url();
         let substrate_rpc_urls = node.substrate_provider_url();
-        let nonce_filler = DelayedNonceFiller::default();
+        let nonce_filler = NonceFiller::<CachedNonceManager>::default();
 
         let eth_providers_future =
             Self::eth_providers_future(eth_provider_urls, config, wallet, nonce_filler);
@@ -829,7 +832,7 @@ impl NodeConnector {
         eth_provider_urls: NodeUrlCollection<'_>,
         config: NodeConnectorConfiguration,
         wallet: Arc<EthereumWallet>,
-        nonce_filler: DelayedNonceFiller,
+        nonce_filler: NonceFiller<CachedNonceManager>,
     ) -> StaticFuture<Result<SingleOrPool<AlloyProvider>>> {
         match eth_provider_urls {
             NodeUrlCollection { ipc: Some(url), .. }
@@ -1702,7 +1705,7 @@ pub fn new_alloy_provider(
     url: impl ToString,
     config: NodeConnectorConfiguration,
     wallet: Arc<EthereumWallet>,
-    nonce_filler: DelayedNonceFiller,
+    nonce_filler: NonceFiller<CachedNonceManager>,
 ) -> StaticFuture<Result<AlloyProvider>> {
     let url = url.to_string();
 

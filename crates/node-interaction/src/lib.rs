@@ -39,10 +39,10 @@ pub(crate) mod internal_prelude {
     };
     pub use alloy::primitives::{Address, BlockHash, TxHash, U256, address, keccak256};
     pub use alloy::providers::{
-        Identity, Provider, ProviderBuilder, RootProvider, SendableTx,
+        Identity, Provider, ProviderBuilder, RootProvider,
         ext::DebugApi,
         fillers::{
-            ChainIdFiller, FillProvider, FillerControlFlow, GasFiller, JoinFill, TxFiller,
+            CachedNonceManager, ChainIdFiller, FillProvider, GasFiller, JoinFill, NonceFiller,
             WalletFiller,
         },
     };
