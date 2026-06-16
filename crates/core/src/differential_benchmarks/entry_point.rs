@@ -260,10 +260,8 @@ pub async fn handle_differential_benchmarks(
                 } else {
                     SamplingMode::Sample(context.benchmark_run.profile_samples_per_step_path)
                 };
-                let sampled_hashes = sample_watched_txs(
-                    &watcher_outcome.transaction_registration_information,
-                    mode,
-                );
+                let sampled_hashes =
+                    sample_watched_txs(&watcher_outcome.transaction_registration_information, mode);
                 let samples: Vec<(TxHash, StepPath)> = sampled_hashes
                     .into_iter()
                     .filter_map(|h| {
@@ -273,8 +271,7 @@ pub async fn handle_differential_benchmarks(
                             .map(|(sp, _)| (h, sp.clone()))
                     })
                     .collect();
-                let watched_tx_count =
-                    watcher_outcome.transaction_registration_information.len();
+                let watched_tx_count = watcher_outcome.transaction_registration_information.len();
                 let sampled_count = samples.len();
 
                 let jobs = build_block_jobs(&transaction_finder_for_profiler, samples)

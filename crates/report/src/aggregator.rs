@@ -519,7 +519,8 @@ impl ReportAggregator {
     }
 
     fn handle_opcode_profile_completed(&mut self, event: OpcodeProfileCompletedEvent) {
-        self.execution_information(&event.execution_specifier).opcode_profile = Some(event.summary);
+        self.execution_information(&event.execution_specifier)
+            .opcode_profile = Some(event.summary);
     }
 
     fn test_case_report(&mut self, specifier: &TestSpecifier) -> &mut ExecutionReport {

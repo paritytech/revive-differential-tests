@@ -36,10 +36,21 @@ pub struct OpcodeEntry {
 }
 
 pub const CATEGORY_ORDER: &[&str] = &[
-    "Storage", "Calls", "Returns", "Memory", "Stack",
-    "Arithmetic & Logic", "Control flow", "Context",
-    "Calldata / Returndata", "Code", "Logs", "Crypto",
-    "Immutables", "VM overhead", "Other",
+    "Storage",
+    "Calls",
+    "Returns",
+    "Memory",
+    "Stack",
+    "Arithmetic & Logic",
+    "Control flow",
+    "Context",
+    "Calldata / Returndata",
+    "Code",
+    "Logs",
+    "Crypto",
+    "Immutables",
+    "VM overhead",
+    "Other",
 ];
 
 /// Unknown names fall into `"Other"` — surfaces in the UI so a new opcode
@@ -47,17 +58,16 @@ pub const CATEGORY_ORDER: &[&str] = &[
 fn categorize(name: &str) -> &'static str {
     match name {
         "STOP" | "RETURN" | "REVERT" | "INVALID" | "SELFDESTRUCT" => "Returns",
-        "ADD" | "MUL" | "SUB" | "DIV" | "SDIV" | "MOD" | "SMOD" | "ADDMOD"
-        | "MULMOD" | "EXP" | "SIGNEXTEND" | "LT" | "GT" | "SLT" | "SGT" | "EQ"
-        | "ISZERO" | "AND" | "OR" | "XOR" | "NOT" | "BYTE" | "SHL" | "SHR"
-        | "SAR" => "Arithmetic & Logic",
+        "ADD" | "MUL" | "SUB" | "DIV" | "SDIV" | "MOD" | "SMOD" | "ADDMOD" | "MULMOD" | "EXP"
+        | "SIGNEXTEND" | "LT" | "GT" | "SLT" | "SGT" | "EQ" | "ISZERO" | "AND" | "OR" | "XOR"
+        | "NOT" | "BYTE" | "SHL" | "SHR" | "SAR" => "Arithmetic & Logic",
         "KECCAK256" => "Crypto",
-        "ADDRESS" | "BALANCE" | "ORIGIN" | "CALLER" | "CALLVALUE" | "GASPRICE"
-        | "BLOCKHASH" | "COINBASE" | "TIMESTAMP" | "NUMBER" | "DIFFICULTY"
-        | "GASLIMIT" | "CHAINID" | "SELFBALANCE" | "BASEFEE" | "BLOBHASH"
-        | "BLOBBASEFEE" => "Context",
-        "CALLDATALOAD" | "CALLDATASIZE" | "CALLDATACOPY" | "RETURNDATASIZE"
-        | "RETURNDATACOPY" => "Calldata / Returndata",
+        "ADDRESS" | "BALANCE" | "ORIGIN" | "CALLER" | "CALLVALUE" | "GASPRICE" | "BLOCKHASH"
+        | "COINBASE" | "TIMESTAMP" | "NUMBER" | "DIFFICULTY" | "GASLIMIT" | "CHAINID"
+        | "SELFBALANCE" | "BASEFEE" | "BLOBHASH" | "BLOBBASEFEE" => "Context",
+        "CALLDATALOAD" | "CALLDATASIZE" | "CALLDATACOPY" | "RETURNDATASIZE" | "RETURNDATACOPY" => {
+            "Calldata / Returndata"
+        }
         "CODESIZE" | "CODECOPY" | "EXTCODESIZE" | "EXTCODECOPY" | "EXTCODEHASH" => "Code",
         "POP" => "Stack",
         "MLOAD" | "MSTORE" | "MSTORE8" | "MSIZE" | "MCOPY" => "Memory",
@@ -70,11 +80,11 @@ fn categorize(name: &str) -> &'static str {
         "set_storage" | "set_storage_or_clear" | "get_storage" | "get_storage_or_zero" => "Storage",
         "call" | "call_evm" | "delegate_call" | "delegate_call_evm" | "instantiate" => "Calls",
         "seal_return" | "terminate" | "consume_all_gas" => "Returns",
-        "caller" | "origin" | "address" | "balance" | "balance_of" | "chain_id"
-        | "gas_limit" | "value_transferred" | "gas_price" | "base_fee" | "now"
-        | "block_number" | "block_hash" | "block_author" => "Context",
-        "call_data_size" | "call_data_copy" | "call_data_load"
-        | "return_data_size" | "return_data_copy" => "Calldata / Returndata",
+        "caller" | "origin" | "address" | "balance" | "balance_of" | "chain_id" | "gas_limit"
+        | "value_transferred" | "gas_price" | "base_fee" | "now" | "block_number"
+        | "block_hash" | "block_author" => "Context",
+        "call_data_size" | "call_data_copy" | "call_data_load" | "return_data_size"
+        | "return_data_copy" => "Calldata / Returndata",
         "code_hash" | "code_size" => "Code",
         "deposit_event" => "Logs",
         "hash_keccak_256" | "ecdsa_to_eth_address" | "sr25519_verify" => "Crypto",
@@ -91,7 +101,13 @@ impl OpcodeCatalog {
             .filter_map(|byte| {
                 let name = revm_bytecode::opcode::OpCode::name_by_op(byte);
                 (name != "Unknown").then(|| {
-                    (byte, OpcodeEntry { name: name.to_string(), category: categorize(name) })
+                    (
+                        byte,
+                        OpcodeEntry {
+                            name: name.to_string(),
+                            category: categorize(name),
+                        },
+                    )
                 })
             })
             .collect();
@@ -103,12 +119,26 @@ impl OpcodeCatalog {
                 args: Vec::new(),
                 returned: None,
             };
-            let Ok(value) = serde_json::to_value(&kind) else { break };
-            let Some(name) = value.get("op").and_then(|v| v.as_str()) else { break };
-            pvm.insert(byte, OpcodeEntry { name: name.to_string(), category: categorize(name) });
+            let Ok(value) = serde_json::to_value(&kind) else {
+                break;
+            };
+            let Some(name) = value.get("op").and_then(|v| v.as_str()) else {
+                break;
+            };
+            pvm.insert(
+                byte,
+                OpcodeEntry {
+                    name: name.to_string(),
+                    category: categorize(name),
+                },
+            );
         }
 
-        Self { evm, pvm, category_order: CATEGORY_ORDER }
+        Self {
+            evm,
+            pvm,
+            category_order: CATEGORY_ORDER,
+        }
     }
 }
 
@@ -198,12 +228,14 @@ impl TxProfile {
 
         let mut opcodes: Vec<OpcodeProfile> = by_op
             .into_iter()
-            .map(|(op_key, (count, total_ref_time, total_proof_size))| OpcodeProfile {
-                op_key,
-                count,
-                total_ref_time,
-                total_proof_size,
-            })
+            .map(
+                |(op_key, (count, total_ref_time, total_proof_size))| OpcodeProfile {
+                    op_key,
+                    count,
+                    total_ref_time,
+                    total_proof_size,
+                },
+            )
             .collect();
         opcodes.sort_by(|a, b| {
             b.total_ref_time
@@ -249,7 +281,10 @@ mod tests {
         let push7 = catalog.evm.get(&0x66).expect("0x66 in EVM");
         assert_eq!(push7.name, "PUSH7");
         assert_eq!(push7.category, "Stack");
-        assert!(catalog.evm.get(&0x0c).is_none(), "0x0c is unassigned in EVM");
+        assert!(
+            catalog.evm.get(&0x0c).is_none(),
+            "0x0c is unassigned in EVM"
+        );
         // PVM names from pallet-revive's serde adapter.
         let set_storage = catalog.pvm.get(&0x01).expect("0x01 in PVM");
         assert_eq!(set_storage.name, "set_storage");
@@ -257,7 +292,10 @@ mod tests {
         let pvm_fuel = catalog.pvm.get(&0x29).expect("0x29 in PVM");
         assert_eq!(pvm_fuel.name, "pvm_fuel");
         assert_eq!(pvm_fuel.category, "VM overhead");
-        assert!(catalog.pvm.get(&0x2a).is_none(), "past end of list_trace_ops");
+        assert!(
+            catalog.pvm.get(&0x2a).is_none(),
+            "past end of list_trace_ops"
+        );
         assert!(catalog.pvm.len() >= 42);
         // Display order ends with the catch-all bucket.
         assert_eq!(catalog.category_order.last().copied(), Some("Other"));
@@ -270,7 +308,10 @@ mod tests {
     use crate::revive_metadata::runtime_types::sp_weights::weight_v2::Weight;
 
     fn weight(ref_time: u64, proof_size: u64) -> Weight {
-        Weight { ref_time, proof_size }
+        Weight {
+            ref_time,
+            proof_size,
+        }
     }
 
     fn evm_step(op: u8, ref_time: u64, proof_size: u64) -> ExecutionStep {
@@ -349,10 +390,10 @@ mod tests {
             weight(0, 0), // not relevant — we test ordering, not residual
             false,
             vec![
-                evm_step(0x01, 50, 0),   // ADD: small
-                pvm_step(0x03, 500, 0),  // big PVM syscall
-                evm_step(0x52, 200, 0),  // MSTORE: medium
-                pvm_step(0x03, 500, 0),  // same PVM syscall again → 1000 total
+                evm_step(0x01, 50, 0),  // ADD: small
+                pvm_step(0x03, 500, 0), // big PVM syscall
+                evm_step(0x52, 200, 0), // MSTORE: medium
+                pvm_step(0x03, 500, 0), // same PVM syscall again → 1000 total
             ],
         );
         let p = TxProfile::from_execution_trace(TxHash::ZERO, StepPath::new(vec![]), &t);

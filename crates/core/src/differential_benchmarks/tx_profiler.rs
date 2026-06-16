@@ -53,7 +53,9 @@ pub fn sample_watched_txs<V>(
     if let SamplingMode::All = mode {
         return transactions.keys().copied().collect();
     }
-    let SamplingMode::Sample(k) = mode else { unreachable!() };
+    let SamplingMode::Sample(k) = mode else {
+        unreachable!()
+    };
     if k == 0 || transactions.is_empty() {
         return Vec::new();
     }
@@ -165,39 +167,37 @@ pub async fn execute_trace_jobs(
         })
         .collect();
 
-    let pending = samples.into_iter().map(|(block_hash, tx_index, tx_hash, step_path)| {
-        let trace_future = node.trace_execution_tx(
-            block_hash,
-            tx_index,
-            execution_tracer_config(step_limit),
-        );
-        async move {
-            match trace_future.await {
-                Ok(Some(execution_trace)) => Some(TxProfile::from_execution_trace(
-                    tx_hash,
-                    step_path,
-                    &execution_trace,
-                )),
-                Ok(None) => {
-                    warn!(
-                        ?block_hash,
-                        tx_index,
-                        "trace_execution_tx returned None; skipping sample"
-                    );
-                    None
-                }
-                Err(err) => {
-                    warn!(
-                        ?block_hash,
-                        tx_index,
-                        ?err,
-                        "trace_execution_tx failed; skipping sample"
-                    );
-                    None
+    let pending = samples
+        .into_iter()
+        .map(|(block_hash, tx_index, tx_hash, step_path)| {
+            let trace_future =
+                node.trace_execution_tx(block_hash, tx_index, execution_tracer_config(step_limit));
+            async move {
+                match trace_future.await {
+                    Ok(Some(execution_trace)) => Some(TxProfile::from_execution_trace(
+                        tx_hash,
+                        step_path,
+                        &execution_trace,
+                    )),
+                    Ok(None) => {
+                        warn!(
+                            ?block_hash,
+                            tx_index, "trace_execution_tx returned None; skipping sample"
+                        );
+                        None
+                    }
+                    Err(err) => {
+                        warn!(
+                            ?block_hash,
+                            tx_index,
+                            ?err,
+                            "trace_execution_tx failed; skipping sample"
+                        );
+                        None
+                    }
                 }
             }
-        }
-    });
+        });
 
     stream::iter(pending)
         .buffer_unordered(concurrency)
@@ -213,10 +213,7 @@ const OPCODE_TOP_N: usize = 64;
 
 /// Aggregate a workload's `Vec<TxProfile>` into a wire-ready
 /// `OpcodeProfileSummary` for the report.
-pub fn aggregate_to_summary(
-    profiles: Vec<TxProfile>,
-    block_count: u32,
-) -> OpcodeProfileSummary {
+pub fn aggregate_to_summary(profiles: Vec<TxProfile>, block_count: u32) -> OpcodeProfileSummary {
     let sampled_tx_count = profiles.len();
     let failed_count = profiles.iter().filter(|p| p.failed).count();
 
@@ -249,10 +246,12 @@ pub fn aggregate_to_summary(
         .collect();
 
     if sorted.len() > OPCODE_TOP_N {
-        let (count, rt, ps) = sorted.iter().skip(OPCODE_TOP_N).fold(
-            (0u64, 0u128, 0u128),
-            |acc, (_, c, rt, ps)| (acc.0 + c, acc.1 + rt, acc.2 + ps),
-        );
+        let (count, rt, ps) = sorted
+            .iter()
+            .skip(OPCODE_TOP_N)
+            .fold((0u64, 0u128, 0u128), |acc, (_, c, rt, ps)| {
+                (acc.0 + c, acc.1 + rt, acc.2 + ps)
+            });
         opcodes.push(AggregatedOpcode {
             op_key: "Other".to_string(),
             sample_count: count,
@@ -304,21 +303,27 @@ fn opcode_catalog_wire() -> OpcodeCatalogWire {
     let catalog = OpcodeCatalog::current();
     let to_wire = |m: std::collections::BTreeMap<_, _>| {
         m.into_iter()
-            .map(|(byte, entry): (u8, revive_dt_node_interaction::opcode_profile::OpcodeEntry)| {
-                (
-                    byte.to_string(),
-                    OpcodeEntryWire {
-                        name: entry.name,
-                        category: entry.category.to_string(),
-                    },
-                )
-            })
+            .map(
+                |(byte, entry): (u8, revive_dt_node_interaction::opcode_profile::OpcodeEntry)| {
+                    (
+                        byte.to_string(),
+                        OpcodeEntryWire {
+                            name: entry.name,
+                            category: entry.category.to_string(),
+                        },
+                    )
+                },
+            )
             .collect()
     };
     OpcodeCatalogWire {
         evm: to_wire(catalog.evm),
         pvm: to_wire(catalog.pvm),
-        category_order: catalog.category_order.iter().map(|s| s.to_string()).collect(),
+        category_order: catalog
+            .category_order
+            .iter()
+            .map(|s| s.to_string())
+            .collect(),
     }
 }
 
@@ -373,13 +378,7 @@ mod tests {
 
     #[test]
     fn k_one_picks_first_per_group() {
-        let m = submissions(vec![
-            (1, &[0]),
-            (2, &[0]),
-            (3, &[0]),
-            (4, &[1]),
-            (5, &[1]),
-        ]);
+        let m = submissions(vec![(1, &[0]), (2, &[0]), (3, &[0]), (4, &[1]), (5, &[1])]);
         let out = sample_watched_txs(&m, SamplingMode::Sample(1));
         assert_eq!(out, vec![mk_hash(1), mk_hash(4)]);
     }
@@ -427,5 +426,4 @@ mod tests {
             ]
         );
     }
-
 }

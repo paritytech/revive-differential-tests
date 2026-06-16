@@ -510,8 +510,7 @@ impl Watcher {
 /// profiler consumes this for per-step-path sampling.
 #[derive(Debug)]
 pub struct WatcherOutcome {
-    pub transaction_registration_information:
-        IndexMap<TxHash, (StepPath, std::time::SystemTime)>,
+    pub transaction_registration_information: IndexMap<TxHash, (StepPath, std::time::SystemTime)>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]

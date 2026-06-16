@@ -152,7 +152,7 @@ pub trait NodeApi {
                 revive_metadata::runtime_types::pallet_revive::evm::api::debug_rpc_types::ExecutionTrace,
             >,
         >,
-    > {
+    >{
         use pallet_revive::codec::{Decode, Encode};
         use revive_metadata::runtime_types::pallet_revive::evm::api::debug_rpc_types::{
             Trace, TracerType,
