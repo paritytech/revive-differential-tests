@@ -247,18 +247,37 @@ impl NodeConnector {
                 .revive()
                 .eth_transact(payload.to_vec())
                 .unvalidated();
-            let substrate_hash = substrate_provider
+            let substrate_transaction = substrate_provider
                 .tx()
                 .create_unsigned(&call)
-                .context("Failed to create the unsigned transaction")?
-                .submit()
+                .context("Failed to create substrate transaction")?;
+            let substrate_hash = substrate_transaction.hash();
+
+            debug!(
+                evm_hash = %ethereum_tx_hash,
+                substrate_hash = ?substrate_hash,
+                "Create a substrate transaction, but didn't yet submit it"
+            );
+
+            let submitter = LegacyRpcMethods::<PolkadotConfig>::new(
+                substrate_provider.submission_rpc().item().clone(),
+            );
+            match submitter
+                .author_submit_extrinsic(substrate_transaction.encoded())
                 .await
-                .context("Failed to submit the transaction through subxt")?;
+            {
+                Ok(_) => {}
+                // Ignore already submitted errors
+                Err(RpcsError::User(user)) if user.code == 1013 => {
+                    warn!("Encountered an 'Already Submitted' error; continuing")
+                }
+                Err(error) => return Err(error).context("Failed to submit transaction"),
+            }
 
             info!(
                 evm_hash = %ethereum_tx_hash,
                 ?substrate_hash,
-                "Submitting a substrate transaction"
+                "Submitted a substrate transaction"
             );
 
             Ok(ethereum_tx_hash)
