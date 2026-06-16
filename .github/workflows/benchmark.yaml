@@ -64,6 +64,23 @@ on:
         description: The value to set to the `RUST_LOG` environment variable when the benchmarks run
         required: true
         default: info,alloy=off
+      profile-watched-txs:
+        description: Enable per-opcode profiling of sampled watched txs. Requires `network == westend`.
+        required: true
+        type: boolean
+        default: false
+      profile-samples-per-step-path:
+        description: Profiler — number of txs to sample per step path (K). K=3 picks first / middle / last
+        required: false
+        default: "3"
+      profile-concurrency:
+        description: Profiler — concurrent `trace_tx` RPC calls
+        required: false
+        default: "4"
+      profile-step-limit:
+        description: Profiler — per-tx tracer step cap. 0 disables the cap
+        required: false
+        default: "5000"
       override-repetition-count:
         type: number
         description: A way for the repetition count to be overridden. This is only used when we want to quickly run the CI to check if it works, please do not use it otherwise
@@ -78,12 +95,35 @@ permissions:
 
 jobs:
   # ============================================================================================
+  # Validate Inputs: Fail fast on incompatible toggle combinations before any heavy build kicks off
+  # ============================================================================================
+
+  validate-inputs:
+    name: Validate Workflow Inputs
+    runs-on: ubuntu-latest
+    steps:
+      - name: Profiling requires the westend network
+        env:
+          PROFILE_ENABLED: ${{ inputs.profile-watched-txs }}
+          NETWORK: ${{ inputs.network }}
+        run: |
+          if [ "$PROFILE_ENABLED" = "true" ] && [ "$NETWORK" != "westend" ]; then
+            echo "::error::profile-watched-txs requires network=westend." \
+                 "The --cfg revive_debug gate that flips is_execution_tracing_enabled() on" \
+                 "at runtime only exists on asset-hub-westend-runtime;" \
+                 "asset-hub-polkadot has no equivalent gate, so profiling silently produces" \
+                 "empty traces. Re-run with network=westend, or disable profile-watched-txs."
+            exit 1
+          fi
+
+  # ============================================================================================
   # Build Jobs: Building the binaries we need and making sure that they're cached and available
   # ============================================================================================
 
   build-retester:
     name: Build and Cache Retester Binaries
     runs-on: parity-large-persistent-new
+    needs: validate-inputs
     steps:
       - name: Checkout This Repository
         uses: actions/checkout@v4
@@ -105,6 +145,7 @@ jobs:
   build-chainspec-generator:
     name: Build and Cache Runtime's Chainspec Generator
     runs-on: parity-large-persistent-new
+    needs: validate-inputs
     steps:
       - name: Checkout This Repository
         uses: actions/checkout@v4
@@ -131,6 +172,7 @@ jobs:
   build-polkadot-sdk:
     name: Build and Cache the Polkadot SDK Dependencies
     runs-on: parity-large-persistent-new
+    needs: validate-inputs
     steps:
       - name: Checkout This Repository
         uses: actions/checkout@v4
@@ -150,12 +192,13 @@ jobs:
             polkadot-parachain-bin
             pallet-revive-eth-rpc
           env: |
-            ${{ inputs.use-jit && 'RUSTFLAGS=-Awarnings --cfg revive_jit' || 'RUSTFLAGS=-Awarnings' }}
-            WASM_BUILD_RUSTFLAGS=-Clink-arg=--allow-undefined
+            RUSTFLAGS=-Awarnings${{ inputs.use-jit && ' --cfg revive_jit' || '' }}${{ inputs.profile-watched-txs && ' --cfg revive_debug' || '' }}
+            WASM_BUILD_RUSTFLAGS=-Clink-arg=--allow-undefined${{ inputs.profile-watched-txs && ' --cfg revive_debug' || '' }}
 
   build-resolc:
     name: Build and Cache Resolc Binary
     runs-on: parity-large-persistent-new
+    needs: validate-inputs
     steps:
       - name: Checkout This Repository
         uses: actions/checkout@v4
@@ -291,8 +334,8 @@ jobs:
             polkadot-parachain-bin
             pallet-revive-eth-rpc
           env: |
-            ${{ inputs.use-jit && 'RUSTFLAGS=-Awarnings --cfg revive_jit' || 'RUSTFLAGS=-Awarnings' }}
-            WASM_BUILD_RUSTFLAGS=-Clink-arg=--allow-undefined
+            RUSTFLAGS=-Awarnings${{ inputs.use-jit && ' --cfg revive_jit' || '' }}${{ inputs.profile-watched-txs && ' --cfg revive_debug' || '' }}
+            WASM_BUILD_RUSTFLAGS=-Clink-arg=--allow-undefined${{ inputs.profile-watched-txs && ' --cfg revive_debug' || '' }}
       - name: Set artifact name
         id: names
         env:
@@ -348,6 +391,10 @@ jobs:
         env:
           OVERRIDE_REPETITION_COUNT: ${{ inputs.override-repetition-count }}
           TEST_SPECIFIER: ${{ matrix.test.specifier }}
+          PROFILE_ENABLED: ${{ inputs.profile-watched-txs }}
+          PROFILE_SAMPLES: ${{ inputs.profile-samples-per-step-path }}
+          PROFILE_CONCURRENCY: ${{ inputs.profile-concurrency }}
+          PROFILE_STEP_LIMIT: ${{ inputs.profile-step-limit }}
         run: |
           export TMPDIR="$PWD/workdir"
 
@@ -355,6 +402,15 @@ jobs:
 
           if [ -n "$OVERRIDE_REPETITION_COUNT" ]; then
             additional_args+=(--benchmark.repetition-count-override "$OVERRIDE_REPETITION_COUNT")
+          fi
+
+          if [ "$PROFILE_ENABLED" = "true" ]; then
+            additional_args+=(
+              --benchmark.profile-watched-txs
+              --benchmark.profile-samples-per-step-path "$PROFILE_SAMPLES"
+              --benchmark.profile-concurrency "$PROFILE_CONCURRENCY"
+              --benchmark.profile-step-limit "$PROFILE_STEP_LIMIT"
+            )
           fi
 
           retester benchmark \

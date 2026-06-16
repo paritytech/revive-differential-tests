@@ -157,6 +157,12 @@ revive_dt_proc_macros::define_runner_event! {
                 /// Information on the mined block.
                 mined_block_information: MinedBlockInformation,
             },
+            /// An event emitted when the opcode profiler has finished for this
+            /// (test_specifier, platform_identifier).
+            OpcodeProfileCompleted {
+                /// The aggregated profile data for the workload run.
+                summary: OpcodeProfileSummary,
+            },
         },
 
         // Events on PostLinkCompilationSpecificReporter —

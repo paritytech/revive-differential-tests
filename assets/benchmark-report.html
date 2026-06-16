@@ -429,7 +429,7 @@
     /* ── Summary Cards ── */
     .summary-cards {
       display: grid;
-      grid-template-columns: repeat(3, 1fr);
+      grid-template-columns: repeat(4, 1fr);
       gap: 16px;
       margin-bottom: 40px;
     }
@@ -521,6 +521,29 @@
       color: var(--color-text);
       font-weight: 700;
       font-size: 14px;
+    }
+
+    .weight-per-tx-cell {
+      display: inline-grid;
+      grid-template-columns: auto auto;
+      column-gap: 10px;
+      row-gap: 2px;
+      align-items: baseline;
+      line-height: 1.2;
+    }
+
+    .weight-per-tx-cell .weight-label {
+      font-size: 9.5px;
+      color: var(--color-text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      font-weight: 600;
+      justify-self: start;
+    }
+
+    .weight-per-tx-cell .weight-value-secondary {
+      font-size: 10.5px;
+      color: var(--color-text-muted);
     }
 
     /* ── Charts Area ── */
@@ -831,6 +854,163 @@
     .contract-table tbody td {
       padding: 9px 16px;
       vertical-align: middle;
+    }
+
+    .opcode-profile-caption {
+      font-size: 12px;
+      color: var(--color-text-muted, #6b6b6b);
+      line-height: 1.5;
+      padding: 8px 14px 12px;
+      margin-bottom: 6px;
+      border-bottom: 1px solid var(--color-border-light, #ececec);
+    }
+    .opcode-profile-caption code {
+      background: rgba(0, 0, 0, 0.04);
+      padding: 1px 5px;
+      border-radius: 3px;
+      font-size: 11px;
+    }
+
+    /* Opcode Profile section — reuses contract-card / contract-table base. */
+
+    .opcode-profile-grid {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 16px;
+    }
+
+    .opcode-profile-card .contract-card-header {
+      gap: 8px;
+    }
+
+    .opcode-profile-summary {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+      padding: 8px 16px;
+      background: var(--color-surface-alt);
+      border-bottom: 1px solid var(--color-border-light);
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--color-text-secondary);
+    }
+
+    .opcode-profile-summary b {
+      color: var(--color-text-primary);
+      font-weight: 600;
+    }
+
+    .opcode-table .opcode-name {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--color-text-primary);
+      white-space: nowrap;
+    }
+
+    .opcode-table .opcode-num {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      text-align: right;
+      color: var(--color-text-secondary);
+      white-space: nowrap;
+    }
+
+    .opcode-table .opcode-share-pct {
+      margin-left: 4px;
+      color: var(--color-text-muted);
+      font-weight: 400;
+    }
+
+    .opcode-table th[data-sort-key] {
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .opcode-table th[data-sort-key]:hover {
+      background: rgba(0, 0, 0, 0.04);
+    }
+
+    .opcode-table .sort-arrow {
+      display: inline-block;
+      width: 10px;
+      margin-left: 4px;
+      font-size: 9px;
+      color: var(--color-text-muted);
+    }
+
+    .opcode-truncated {
+      padding: 8px 16px;
+      font-family: var(--font-mono);
+      font-size: 10px;
+      color: var(--color-text-muted);
+      border-top: 1px solid var(--color-border-light);
+    }
+
+    .opcode-step-charts {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      background: var(--color-surface);
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow-sm);
+      margin-bottom: 16px;
+      overflow: hidden;
+    }
+
+    .opcode-step-chart-card {
+      padding: 12px 14px 8px;
+      border-right: 1px solid var(--color-border-light);
+    }
+
+    .opcode-step-chart-card:last-child {
+      border-right: none;
+    }
+
+    .opcode-step-chart-title {
+      font-family: var(--font-heading);
+      font-size: 10px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--color-text-muted);
+      margin-bottom: 4px;
+    }
+
+    .opcode-step-chart {
+      height: 240px;
+      width: 100%;
+    }
+
+    .opcode-cross-platform-card {
+      background: var(--color-surface);
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow-sm);
+      padding: 12px 14px 8px;
+      margin-bottom: 16px;
+    }
+
+    .opcode-cross-chart {
+      height: 320px;
+      width: 100%;
+    }
+
+    .opcode-stacked-card {
+      padding: 10px 16px 4px;
+      border-bottom: 1px solid var(--color-border-light);
+    }
+
+    .opcode-stacked-chart {
+      height: 240px;
+      width: 100%;
+    }
+
+    @media (max-width: 900px) {
+      .opcode-step-charts { grid-template-columns: 1fr; }
+      .opcode-step-chart-card { border-right: none; border-bottom: 1px solid var(--color-border-light); }
+      .opcode-step-chart-card:last-child { border-bottom: none; }
     }
 
     .contract-platform-cell {
@@ -1223,6 +1403,10 @@
       .chart-row-3 { grid-template-columns: 1fr 1fr; }
     }
 
+    @media (max-width: 1100px) {
+      .summary-cards { grid-template-columns: repeat(2, 1fr); }
+    }
+
     @media (max-width: 768px) {
       .summary-cards { grid-template-columns: 1fr; }
       .contracts-grid { grid-template-columns: 1fr; }
@@ -1294,6 +1478,7 @@
   </div>
   <div class="summary-cards hidden" id="summaryCards">
     <div class="summary-card" id="summaryTps"></div>
+    <div class="summary-card" id="summaryWeightPerTx"></div>
     <div class="summary-card" id="summaryUtil"></div>
     <div class="summary-card" id="summaryTime"></div>
   </div>
@@ -1401,6 +1586,21 @@
         </div>
       </div>
     </div>
+    <div class="chart-group hidden" id="opcodeProfileGroup">
+      <div class="chart-group-header">
+        <span class="chart-group-label">Opcode Profile</span>
+        <button class="collapsible-toggle" aria-expanded="true" aria-controls="opcodeProfileContent" aria-label="Toggle Opcode Profile section">
+          <svg class="collapsible-chevron" width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M3 5l3 3 3-3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+      </div>
+      <div class="collapsible-content" id="opcodeProfileContent">
+        <div class="opcode-profile-caption">
+          Values are sums over <code>K × steps</code> sampled txs
+          (<code>K = 3</code>, <code>steps = 13</code>).
+        </div>
+        <div class="opcode-profile-grid" id="opcodeProfileGrid"></div>
+      </div>
+    </div>
     <div class="chart-group" id="stepsGroup">
       <div class="chart-group-header">
         <span class="chart-group-label">Step Details</span>
@@ -1504,6 +1704,46 @@ const PLATFORM_COLORS = [
   '#e11d48', // rose
   '#65a30d', // lime
 ];
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Opcode resolution — populated at render time from the report's
+// `opcode_catalog`. The HTML carries no opcode metadata of its own.
+// ═══════════════════════════════════════════════════════════════════════════
+
+const OP_KEY_RE = /^(EVMOpcode|PVMSyscall):0x([0-9a-fA-F]+)$/;
+const FALLBACK_CATEGORY = 'Other';
+
+let OP_ENTRIES = { EVMOpcode: new Map(), PVMSyscall: new Map() };
+let OP_CATEGORIES = [FALLBACK_CATEGORY];
+
+function installOpcodeCatalog(catalog) {
+  const fromObj = obj =>
+    new Map(Object.entries(obj || {}).map(([k, v]) => [Number(k), v]));
+  OP_ENTRIES = {
+    EVMOpcode:  fromObj(catalog?.evm),
+    PVMSyscall: fromObj(catalog?.pvm),
+  };
+  OP_CATEGORIES = (catalog?.category_order?.length ? catalog.category_order : [FALLBACK_CATEGORY]);
+}
+
+function decodeOpKey(opKey) {
+  const m = opKey && opKey.match(OP_KEY_RE);
+  if (!m) return null;
+  const byte = parseInt(m[2], 16);
+  return { kind: m[1], byte, entry: OP_ENTRIES[m[1]].get(byte) };
+}
+
+function opKeyToName(opKey) {
+  const d = decodeOpKey(opKey);
+  if (!d) return opKey ?? '';
+  return d.entry
+    ? `${d.kind}:${d.entry.name}`
+    : `${d.kind}:0x${d.byte.toString(16).padStart(2, '0')}`;
+}
+
+function categoryFor(opKey) {
+  return decodeOpKey(opKey)?.entry?.category ?? FALLBACK_CATEGORY;
+}
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Report Title & Description
@@ -2141,6 +2381,7 @@ function renderCharts() {
   // Summary & metadata sections
   renderSummaryCards(modeData, enabledPlatforms);
   renderContractsSection(modeData, enabledPlatforms);
+  renderOpcodeProfileSection(modeData, enabledPlatforms);
   renderStepsDetails();
 
   // Throughput charts
@@ -2831,6 +3072,763 @@ function renderContractsSection(modeData, enabledPlatforms) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+// Opcode Profile Section
+// ═══════════════════════════════════════════════════════════════════════════
+
+const OPCODE_TABLE_TOP_N = 15;
+
+function fmtOpcodeRefTime(rt) {
+  if (rt == null) return '—';
+  // ref_time is picoseconds (Substrate Weight v2). Use the same scale as fmtRefTime.
+  if (rt >= 1_000_000_000) return (rt / 1_000_000_000).toFixed(2) + ' ms';
+  if (rt >= 1_000_000) return (rt / 1_000_000).toFixed(2) + ' μs';
+  if (rt >= 1_000) return (rt / 1_000).toFixed(2) + ' ns';
+  return rt + ' ps';
+}
+
+function fmtOpcodeProofSize(ps) {
+  if (ps == null) return '—';
+  if (ps >= 1024 * 1024) return (ps / (1024 * 1024)).toFixed(2) + ' MB';
+  if (ps >= 1024) return (ps / 1024).toFixed(2) + ' KB';
+  return ps + ' B';
+}
+
+/**
+ * Group tx_profiles by step_path and compute min/mean/max for ref_time +
+ * proof_size, plus the dominant opcode (by summed total_ref_time across the
+ * K samples for that step). Returns a list sorted by step_path.
+ */
+function computeStepRollups(txProfiles) {
+  const byStep = {};
+  for (const t of txProfiles || []) {
+    const sp = t.step_path;
+    if (!byStep[sp]) {
+      byStep[sp] = {
+        step_path: sp,
+        ref_times: [],
+        proof_sizes: [],
+        opcodeAcc: {},
+        failedAny: false,
+      };
+    }
+    const g = byStep[sp];
+    g.ref_times.push(Number(t.weight_consumed_ref_time || 0));
+    g.proof_sizes.push(Number(t.weight_consumed_proof_size || 0));
+    g.failedAny = g.failedAny || !!t.failed;
+    for (const op of (t.opcodes || [])) {
+      if (!g.opcodeAcc[op.op_key]) g.opcodeAcc[op.op_key] = 0;
+      g.opcodeAcc[op.op_key] += Number(op.total_ref_time || 0);
+    }
+  }
+  const minMaxMean = arr => {
+    if (arr.length === 0) return [0, 0, 0];
+    const mn = Math.min(...arr);
+    const mx = Math.max(...arr);
+    const mean = arr.reduce((a, b) => a + b, 0) / arr.length;
+    return [mn, mean, mx];
+  };
+  const rollups = Object.values(byStep).map(g => {
+    const [rtMin, rtMean, rtMax] = minMaxMean(g.ref_times);
+    const [psMin, psMean, psMax] = minMaxMean(g.proof_sizes);
+    const topOp = Object.entries(g.opcodeAcc).sort((a, b) => b[1] - a[1])[0];
+    return {
+      step_path: g.step_path,
+      K: g.ref_times.length,
+      failedAny: g.failedAny,
+      ref_time_min: rtMin,
+      ref_time_mean: rtMean,
+      ref_time_max: rtMax,
+      proof_size_min: psMin,
+      proof_size_mean: psMean,
+      proof_size_max: psMax,
+      top_op_key: topOp ? topOp[0] : null,
+    };
+  });
+  rollups.sort((a, b) =>
+    String(a.step_path).localeCompare(String(b.step_path), undefined, { numeric: true })
+  );
+  return rollups;
+}
+
+/**
+ * Render a multi-platform line-of-dots chart showing per-step mean weight on
+ * X with a translucent min-max band around the mean line, one trio of series
+ * per platform.
+ *
+ * Each platform contributes 3 ECharts series:
+ *   1. invisible `min` baseline (stack=band_<platform>)
+ *   2. (`max - min`) band, stacked on the baseline → fills [min, max] absolutely
+ *   3. visible `mean` line + dots, named after the platform (shown in legend)
+ *
+ * X axis is the union of step_paths across all platforms, naturally sorted.
+ * Missing values (a step the platform didn't sample) render as gaps via null.
+ *
+ * @param {string} chartId - DOM id of the chart container.
+ * @param {Array<{platform: string, color: string, rollups: Object[]}>}
+ *        platformRollups - per-platform precomputed rollups + the color to use.
+ * @param {'ref_time'|'proof_size'} axis - which weight dimension on Y.
+ */
+function renderMultiPlatformStepBandChart(chartId, platformRollups, axis) {
+  const chart = getOrInitChart(chartId, null);
+  const fieldMin = axis === 'ref_time' ? 'ref_time_min' : 'proof_size_min';
+  const fieldMean = axis === 'ref_time' ? 'ref_time_mean' : 'proof_size_mean';
+  const fieldMax = axis === 'ref_time' ? 'ref_time_max' : 'proof_size_max';
+  const fmtFn = axis === 'ref_time' ? fmtOpcodeRefTime : fmtOpcodeProofSize;
+
+  // Union of step paths across platforms, sorted naturally (1.2 < 1.10 < 2).
+  const stepSet = new Set();
+  for (const { rollups } of platformRollups) {
+    for (const r of rollups) stepSet.add(r.step_path);
+  }
+  const xData = [...stepSet].sort((a, b) =>
+    String(a).localeCompare(String(b), undefined, { numeric: true })
+  );
+
+  const allSeries = [];
+  for (const { platform, color, rollups } of platformRollups) {
+    const byStep = new Map(rollups.map(r => [r.step_path, r]));
+    const minArr   = xData.map(s => { const r = byStep.get(s); return r ? r[fieldMin]  : null; });
+    const deltaArr = xData.map(s => {
+      const r = byStep.get(s);
+      return r ? Math.max(0, r[fieldMax] - r[fieldMin]) : null;
+    });
+    const meanArr  = xData.map(s => { const r = byStep.get(s); return r ? r[fieldMean] : null; });
+
+    const stackId = `band_${platform}`;
+    allSeries.push(
+      // Invisible baseline at min for this platform.
+      {
+        name: `_min_${platform}`,
+        type: 'line',
+        data: minArr,
+        stack: stackId,
+        symbol: 'none',
+        lineStyle: { opacity: 0 },
+        areaStyle: { opacity: 0 },
+        silent: true,
+        tooltip: { show: false },
+        legendHoverLink: false,
+      },
+      // Band: (max - min) stacked on top → fills [min, max].
+      {
+        name: `_band_${platform}`,
+        type: 'line',
+        data: deltaArr,
+        stack: stackId,
+        symbol: 'none',
+        lineStyle: { opacity: 0 },
+        areaStyle: { color: color + '22' /* slightly lower alpha so overlaps stay readable */ },
+        silent: true,
+        tooltip: { show: false },
+        legendHoverLink: false,
+        z: 1,
+      },
+      // Visible mean line — the only series shown in the legend.
+      {
+        name: platform,
+        type: 'line',
+        data: meanArr,
+        symbol: 'circle',
+        symbolSize: 6,
+        lineStyle: { color, width: 2 },
+        itemStyle: { color, borderColor: '#fff', borderWidth: 1.5 },
+        connectNulls: false,
+        z: 2,
+      },
+    );
+  }
+
+  const platformNames = platformRollups.map(p => p.platform);
+
+  chart.setOption({
+    grid: { left: 60, right: 16, top: platformNames.length > 1 ? 36 : 14, bottom: 64, containLabel: true },
+    legend: platformNames.length > 1
+      ? {
+          type: 'plain',
+          top: 4,
+          data: platformNames,           // ← only the visible mean series; "_min_*"/"_band_*" omitted
+          textStyle: { fontSize: 10 },
+          itemWidth: 14,
+          itemHeight: 8,
+        }
+      : { show: false },
+    xAxis: {
+      type: 'category',
+      data: xData,
+      axisLabel: { rotate: 45, fontSize: 9, color: '#6b6b6b' },
+      axisTick: { alignWithLabel: true },
+      axisLine: { lineStyle: { color: '#d0d0d0' } },
+      boundaryGap: false,
+    },
+    yAxis: {
+      type: 'value',
+      name: axis,
+      nameTextStyle: { fontSize: 10, color: '#6b6b6b' },
+      axisLabel: { fontSize: 9, color: '#6b6b6b', formatter: fmtFn },
+      splitLine: { lineStyle: { color: '#f0f0f0' } },
+    },
+    tooltip: {
+      trigger: 'axis',
+      axisPointer: { type: 'line', lineStyle: { color: 'rgba(100,100,100,0.2)', type: 'dashed' } },
+      backgroundColor: 'rgba(255,255,255,0.98)',
+      borderColor: '#e3e2df',
+      borderWidth: 1,
+      textStyle: { fontSize: 11 },
+      formatter: (params) => {
+        if (!params || params.length === 0) return '';
+        const idx = params[0].dataIndex;
+        const stepPath = xData[idx];
+        let html = `<b>step ${escapeHtml(stepPath)}</b>`;
+        for (const { platform, color, rollups } of platformRollups) {
+          const r = rollups.find(x => x.step_path === stepPath);
+          if (!r) continue;
+          const topName = r.top_op_key ? opKeyToName(r.top_op_key) : '—';
+          html +=
+            `<br/><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${color};margin-right:4px"></span>` +
+            `<b>${escapeHtml(platform)}</b>` +
+            (r.failedAny ? ' <span style="color:#dc2626">(failed)</span>' : '') +
+            ` &nbsp; K=${r.K}` +
+            ` &nbsp; min=${fmtFn(r[fieldMin])}` +
+            ` &nbsp; mean=${fmtFn(r[fieldMean])}` +
+            ` &nbsp; max=${fmtFn(r[fieldMax])}` +
+            ` &nbsp; top=${escapeHtml(topName)}`;
+        }
+        return html;
+      },
+    },
+    series: allSeries,
+  });
+  setTimeout(() => chart.resize(), 0);
+}
+
+/**
+ * Group a single platform's per-tx opcode breakdowns by step_path, picking
+ * the workload-wide top-N opcodes as named series and rolling the rest into
+ * an "Other" bucket. Returns:
+ *   { topOps: [op_key, ...],
+ *     rollups: [{ step_path, byOp: { op_key → ref_time }, other: ref_time }, ...] }
+ */
+function computeStepOpcodeRollups(txProfiles, topN) {
+  // Pass 1 — workload-wide opcode totals to pick the named series.
+  const opcodeTotals = {};
+  for (const t of txProfiles || []) {
+    for (const op of (t.opcodes || [])) {
+      opcodeTotals[op.op_key] = (opcodeTotals[op.op_key] || 0) + Number(op.total_ref_time || 0);
+    }
+  }
+  const topOps = Object.entries(opcodeTotals)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, topN)
+    .map(e => e[0]);
+  const topSet = new Set(topOps);
+
+  // Pass 2 — group by step, splitting into top-N buckets vs "Other".
+  const byStep = {};
+  for (const t of txProfiles || []) {
+    const sp = t.step_path;
+    if (!byStep[sp]) byStep[sp] = { step_path: sp, byOp: {}, other: 0 };
+    const g = byStep[sp];
+    for (const op of (t.opcodes || [])) {
+      const v = Number(op.total_ref_time || 0);
+      if (topSet.has(op.op_key)) {
+        g.byOp[op.op_key] = (g.byOp[op.op_key] || 0) + v;
+      } else {
+        g.other += v;
+      }
+    }
+  }
+  const rollups = Object.values(byStep).sort((a, b) =>
+    String(a.step_path).localeCompare(String(b.step_path), undefined, { numeric: true })
+  );
+  return { topOps, rollups };
+}
+
+// Palette for opcode segments — distinct hues, repeated if needed. Last
+// entry is reserved for "Other" so it's visually neutral.
+const OPCODE_SEGMENT_COLORS = [
+  '#2563eb', '#dc2626', '#16a34a', '#d97706', '#7c3aed',
+  '#0891b2', '#e11d48', '#65a30d', '#9333ea', '#0d9488',
+];
+const OPCODE_OTHER_COLOR = '#9ca3af';
+
+/**
+ * Stacked bar per step showing the per-opcode composition of each step's
+ * ref_time for a single platform.
+ */
+function renderStepOpcodeBreakdownChart(chartId, txProfiles, topN = 8) {
+  const chart = getOrInitChart(chartId, null);
+  const { topOps, rollups } = computeStepOpcodeRollups(txProfiles, topN);
+
+  if (rollups.length === 0) {
+    chart.setOption({}, true);
+    return;
+  }
+
+  const xData = rollups.map(r => r.step_path);
+  const series = topOps.map((opKey, i) => ({
+    name: opKeyToName(opKey),
+    type: 'bar',
+    stack: 'total',
+    itemStyle: { color: OPCODE_SEGMENT_COLORS[i % OPCODE_SEGMENT_COLORS.length] },
+    data: rollups.map(r => r.byOp[opKey] || 0),
+    emphasis: { focus: 'series' },
+  }));
+  // "Other" bucket if any step had non-top-N contribution
+  const anyOther = rollups.some(r => r.other > 0);
+  if (anyOther) {
+    series.push({
+      name: 'Other',
+      type: 'bar',
+      stack: 'total',
+      itemStyle: { color: OPCODE_OTHER_COLOR },
+      data: rollups.map(r => r.other),
+      emphasis: { focus: 'series' },
+    });
+  }
+
+  chart.setOption({
+    grid: { left: 60, right: 16, top: 40, bottom: 64, containLabel: true },
+    legend: {
+      type: 'scroll',
+      top: 4,
+      textStyle: { fontSize: 9 },
+      itemWidth: 14,
+      itemHeight: 8,
+    },
+    xAxis: {
+      type: 'category',
+      data: xData,
+      axisLabel: { rotate: 45, fontSize: 9, color: '#6b6b6b' },
+      axisTick: { alignWithLabel: true },
+      axisLine: { lineStyle: { color: '#d0d0d0' } },
+    },
+    yAxis: {
+      type: 'value',
+      name: 'ref_time',
+      nameTextStyle: { fontSize: 10, color: '#6b6b6b' },
+      axisLabel: { fontSize: 9, color: '#6b6b6b', formatter: fmtOpcodeRefTime },
+      splitLine: { lineStyle: { color: '#f0f0f0' } },
+    },
+    tooltip: {
+      trigger: 'axis',
+      axisPointer: { type: 'shadow' },
+      backgroundColor: 'rgba(255,255,255,0.98)',
+      borderColor: '#e3e2df',
+      borderWidth: 1,
+      textStyle: { fontSize: 11 },
+      formatter: (params) => {
+        if (!params || params.length === 0) return '';
+        const idx = params[0].dataIndex;
+        const stepPath = xData[idx];
+        const total = params.reduce((s, p) => s + Number(p.value || 0), 0);
+        let html = `<b>step ${escapeHtml(stepPath)}</b>` +
+                   `<br/>total: ${fmtOpcodeRefTime(total)}`;
+        params.slice()
+          .sort((a, b) => Number(b.value || 0) - Number(a.value || 0))
+          .forEach(p => {
+            const v = Number(p.value || 0);
+            if (v === 0) return;
+            const pct = total > 0 ? (v / total * 100).toFixed(1) : '0';
+            html += `<br/>${p.marker} ${escapeHtml(p.seriesName)}: ${fmtOpcodeRefTime(v)} (${pct}%)`;
+          });
+        return html;
+      },
+    },
+    series,
+  });
+  setTimeout(() => chart.resize(), 0);
+}
+
+/**
+ * Cross-platform grouped bar chart by **category**. Single-VM categories
+ * (Memory/Stack/Arith/ControlFlow on EVM; VM overhead/Immutables on PVM)
+ * are folded into a `VM-exclusive` bucket so the comparison is symmetric.
+ * Categories with zero contribution from every platform are omitted.
+ */
+function renderCrossPlatformOpcodeComparison(chartId, platformsData, metric = 'ref_time', forcedLabels = null) {
+  const chart = getOrInitChart(chartId, null);
+  const field = metric === 'proof_size' ? 'total_proof_size' : 'total_ref_time';
+  const fmtFn = metric === 'proof_size' ? fmtOpcodeProofSize : fmtOpcodeRefTime;
+  const axisName = metric === 'proof_size' ? 'proof_size' : 'ref_time';
+
+  const VM_EXCLUSIVE_CATEGORIES = new Set([
+    'Memory', 'Stack', 'Arithmetic & Logic', 'Control flow',
+    'VM overhead', 'Immutables',
+  ]);
+  const VM_EXCLUSIVE_LABEL = 'VM-exclusive';
+
+  // Re-aggregate from tx_profiles (uncapped), not opcode_profile.opcodes —
+  // the latter has a top-N "Other" bucket that would pollute Other here.
+  const perPlatformCatTotal = new Map();
+  const perPlatformCatBreakdown = new Map();
+  const seenCats = new Set();
+
+  for (const { platform, txProfiles } of platformsData) {
+    const catTotals = {};
+    const catContribs = {};  // cat → { name → metric value }
+    for (const tx of (txProfiles || [])) {
+      for (const op of (tx.opcodes || [])) {
+        let cat = categoryFor(op.op_key);
+        if (VM_EXCLUSIVE_CATEGORIES.has(cat)) cat = VM_EXCLUSIVE_LABEL;
+        const v = Number(op[field] || 0);
+        catTotals[cat] = (catTotals[cat] || 0) + v;
+        seenCats.add(cat);
+        if (!catContribs[cat]) catContribs[cat] = {};
+        const name = opKeyToName(op.op_key);
+        catContribs[cat][name] = (catContribs[cat][name] || 0) + v;
+      }
+    }
+    const catParts = {};
+    for (const cat of Object.keys(catContribs)) {
+      catParts[cat] = Object.entries(catContribs[cat])
+        .map(([name, v]) => ({ name, v }))
+        .sort((a, b) => b.v - a.v);
+    }
+    perPlatformCatTotal.set(platform, catTotals);
+    perPlatformCatBreakdown.set(platform, catParts);
+  }
+
+  // `forcedLabels` keeps the ref_time and proof_size charts row-aligned
+  // so bar widths match across the pair.
+  const orderedCategories = OP_CATEGORIES
+    .filter(cat => !VM_EXCLUSIVE_CATEGORIES.has(cat))
+    .concat(VM_EXCLUSIVE_LABEL);
+  const labels = forcedLabels
+    ? forcedLabels
+    : orderedCategories.filter(cat => seenCats.has(cat) &&
+        platformsData.some(({ platform }) => (perPlatformCatTotal.get(platform)[cat] || 0) > 0)
+      );
+
+  const series = platformsData.map(({ platform, color }) => {
+    const totals = perPlatformCatTotal.get(platform);
+    return {
+      name: platform,
+      type: 'bar',
+      itemStyle: { color },
+      data: labels.map(cat => totals[cat] || 0),
+      emphasis: { focus: 'series' },
+    };
+  });
+
+  chart.setOption({
+    grid: { left: 16, right: 16, top: 40, bottom: 56, containLabel: true },
+    legend: {
+      type: 'plain',
+      top: 4,
+      data: platformsData.map(p => p.platform),
+      textStyle: { fontSize: 10 },
+      itemWidth: 14,
+      itemHeight: 8,
+    },
+    xAxis: {
+      type: 'value',
+      name: axisName,
+      nameLocation: 'middle',
+      nameGap: 28,
+      nameTextStyle: { fontSize: 10, color: '#6b6b6b' },
+      axisLabel: { fontSize: 9, color: '#6b6b6b', formatter: fmtFn },
+      splitLine: { lineStyle: { color: '#f0f0f0' } },
+    },
+    yAxis: {
+      type: 'category',
+      data: labels,
+      inverse: true,
+      axisLabel: { fontSize: 10, color: '#6b6b6b' },
+      axisTick: { alignWithLabel: true },
+      axisLine: { lineStyle: { color: '#d0d0d0' } },
+    },
+    tooltip: {
+      trigger: 'axis',
+      axisPointer: { type: 'shadow' },
+      backgroundColor: 'rgba(255,255,255,0.98)',
+      borderColor: '#e3e2df',
+      borderWidth: 1,
+      textStyle: { fontSize: 11 },
+      formatter: (params) => {
+        if (!params || params.length === 0) return '';
+        const idx = params[0].dataIndex;
+        const cat = labels[idx];
+        let html = `<b>${escapeHtml(cat)}</b>`;
+        params.forEach(p => {
+          const v = Number(p.value || 0);
+          const platform = p.seriesName;
+          if (v <= 0) {
+            html += `<br/>${p.marker} ${escapeHtml(platform)}: <i>not observed</i>`;
+            return;
+          }
+          html += `<br/>${p.marker} ${escapeHtml(platform)}: ${fmtFn(v)}`;
+          // Top-3 contributors for this (platform, category)
+          const parts = (perPlatformCatBreakdown.get(platform) || {})[cat] || [];
+          const top = parts.slice(0, 3);
+          if (top.length > 0) {
+            const tot = parts.reduce((s, x) => s + x.v, 0);
+            const lines = top.map(p2 => {
+              const pct = tot > 0 ? (p2.v / tot * 100).toFixed(0) : '0';
+              return `&nbsp;&nbsp;&nbsp;${escapeHtml(p2.name)} (${pct}%)`;
+            });
+            html += '<br/>' + lines.join('<br/>');
+          }
+        });
+        return html;
+      },
+    },
+    series,
+  });
+  setTimeout(() => chart.resize(), 0);
+}
+
+/**
+ * Hydrate one `.opcode-table-sortable` with click-to-sort. Opcode data and
+ * the active sort live on the table's data-* attributes.
+ */
+function hydrateOpcodeTable(table) {
+  const opcodes = JSON.parse(table.dataset.opcodes || '[]');
+  const totalRt = Number(table.dataset.totalRt) || 0;
+  const totalPs = Number(table.dataset.totalPs) || 0;
+  const tbody = table.querySelector('tbody');
+  const headers = table.querySelectorAll('th[data-sort-key]');
+
+  function compareBy(key, dir) {
+    return (a, b) => {
+      let av, bv;
+      if (key === 'op_key') {
+        av = opKeyToName(a.op_key);
+        bv = opKeyToName(b.op_key);
+      } else {
+        av = Number(a[key] || 0);
+        bv = Number(b[key] || 0);
+      }
+      const cmp = av < bv ? -1 : av > bv ? 1 : 0;
+      return dir === 'asc' ? cmp : -cmp;
+    };
+  }
+
+  function renderRows() {
+    const sortKey = table.dataset.sortKey;
+    const sortDir = table.dataset.sortDir;
+    const sorted = [...opcodes].sort(compareBy(sortKey, sortDir));
+
+    tbody.innerHTML = sorted.slice(0, OPCODE_TABLE_TOP_N).map(op => {
+      const name = opKeyToName(op.op_key);
+      const rt = Number(op.total_ref_time || 0);
+      const ps = Number(op.total_proof_size || 0);
+      const rtPct = totalRt > 0 ? (rt / totalRt * 100).toFixed(2) : '0.00';
+      const psPct = totalPs > 0 ? (ps / totalPs * 100).toFixed(2) : '0.00';
+      return `<tr>
+        <td class="opcode-name">${escapeHtml(name)}</td>
+        <td class="opcode-num">${Number(op.sample_count || 0).toLocaleString()}</td>
+        <td class="opcode-num">${fmtOpcodeRefTime(rt)} <span class="opcode-share-pct">(${rtPct}%)</span></td>
+        <td class="opcode-num">${fmtOpcodeProofSize(ps)} <span class="opcode-share-pct">(${psPct}%)</span></td>
+      </tr>`;
+    }).join('');
+
+    headers.forEach(h => {
+      const arrow = h.querySelector('.sort-arrow');
+      if (!arrow) return;
+      arrow.textContent = (h.dataset.sortKey === sortKey)
+        ? (sortDir === 'asc' ? '▲' : '▼')
+        : '';
+    });
+  }
+
+  headers.forEach(h => {
+    h.addEventListener('click', () => {
+      const k = h.dataset.sortKey;
+      if (table.dataset.sortKey === k) {
+        table.dataset.sortDir = table.dataset.sortDir === 'asc' ? 'desc' : 'asc';
+      } else {
+        table.dataset.sortKey = k;
+        table.dataset.sortDir = (k === 'op_key') ? 'asc' : 'desc';
+      }
+      renderRows();
+    });
+  });
+
+  renderRows();
+}
+
+function renderOpcodeProfileSection(modeData, enabledPlatforms) {
+  const group = document.getElementById('opcodeProfileGroup');
+  const grid = document.getElementById('opcodeProfileGrid');
+
+  // Dispose cached ECharts instances bound to the about-to-be-discarded
+  // DOM — otherwise the next init renders into a detached node.
+  for (const id of Object.keys(echartsInstances)) {
+    if (id.startsWith('opcode')) {
+      echartsInstances[id].dispose();
+      delete echartsInstances[id];
+    }
+  }
+
+  const platformExecution = modeData.execReport.platform_execution || {};
+  const platformsWithProfile = enabledPlatforms.filter(p => {
+    const execInfo = platformExecution[p];
+    return execInfo && execInfo.opcode_profile;
+  });
+
+  if (platformsWithProfile.length === 0) {
+    group.classList.add('hidden');
+    grid.innerHTML = '';
+    return;
+  }
+  group.classList.remove('hidden');
+
+  // Catalog is identical across platforms; install from the first that has one.
+  const firstWithCatalog = platformsWithProfile
+    .map(p => platformExecution[p].opcode_profile.opcode_catalog)
+    .find(c => c && (Object.keys(c.evm || {}).length || Object.keys(c.pvm || {}).length));
+  installOpcodeCatalog(firstWithCatalog);
+
+  // Compute per-platform rollups up front so the unified chart and the
+  // per-platform card stats see the same data.
+  const platformRollups = platformsWithProfile.map(platform => ({
+    platform,
+    color: getColor(modeData.platforms.indexOf(platform)),
+    rollups: computeStepRollups(platformExecution[platform].opcode_profile.tx_profiles),
+  }));
+  const anyRollups = platformRollups.some(p => p.rollups.length > 0);
+
+  const slugify = s => String(s).replace(/[^a-zA-Z0-9_-]/g, '_');
+  const stackedChartIds = [];   // [{platform, chartId, tx_profiles}]
+
+  const cards = platformsWithProfile.map(platform => {
+    const profile = platformExecution[platform].opcode_profile;
+    const color = getColor(modeData.platforms.indexOf(platform));
+    const total = profile.opcodes.reduce((s, o) => s + Number(o.total_ref_time || 0), 0);
+    const rollupsForPlatform = platformRollups.find(p => p.platform === platform).rollups;
+    const stackedId = `opcodeStackedByStep_${slugify(platform)}`;
+    if ((profile.tx_profiles || []).length > 0) {
+      stackedChartIds.push({ platform, chartId: stackedId, txProfiles: profile.tx_profiles });
+    }
+
+    const opcodeTotalRefTime = profile.opcodes.reduce(
+      (sum, op) => sum + Number(op.total_ref_time || 0), 0);
+    const opcodeTotalProofSize = profile.opcodes.reduce(
+      (sum, op) => sum + Number(op.total_proof_size || 0), 0);
+    const opcodesAttr = JSON.stringify(profile.opcodes).replace(/'/g, '&#39;');
+
+    const truncated = profile.opcodes.length > OPCODE_TABLE_TOP_N
+      ? `<div class="opcode-truncated">+ ${profile.opcodes.length - OPCODE_TABLE_TOP_N} more opcode${profile.opcodes.length - OPCODE_TABLE_TOP_N === 1 ? '' : 's'} (see report.json)</div>`
+      : '';
+
+    const stackedBlock = (profile.tx_profiles || []).length > 0
+      ? `<div class="opcode-stacked-card">
+          <div class="opcode-step-chart-title">Per-step ref_time by opcode (top 8 + Other)</div>
+          <div class="opcode-stacked-chart" id="${stackedId}"></div>
+        </div>`
+      : '';
+
+    return `<div class="contract-card opcode-profile-card">
+      <div class="contract-card-header">
+        <span class="contract-platform-dot" style="background:${color}"></span>
+        <span class="contract-name">${escapeHtml(platform)}</span>
+        <span class="contract-type-badge contract-type-instance">opcode profile</span>
+      </div>
+      <div class="opcode-profile-summary">
+        <span><b>${profile.sampled_tx_count}</b> sampled tx${profile.sampled_tx_count === 1 ? '' : 's'}</span>
+        <span>·</span>
+        <span><b>${profile.block_count}</b> block${profile.block_count === 1 ? '' : 's'} traced</span>
+        ${profile.failed_count > 0 ? `<span>·</span><span><b>${profile.failed_count}</b> failed</span>` : ''}
+        <span>·</span>
+        <span>Σ ref_time: <b>${fmtOpcodeRefTime(total)}</b></span>
+        <span>·</span>
+        <span><b>${rollupsForPlatform.length}</b> step${rollupsForPlatform.length === 1 ? '' : 's'}</span>
+      </div>
+      ${stackedBlock}
+      <table class="contract-table opcode-table opcode-table-sortable"
+             data-opcodes='${opcodesAttr}'
+             data-total-rt="${opcodeTotalRefTime}"
+             data-total-ps="${opcodeTotalProofSize}"
+             data-sort-key="total_ref_time"
+             data-sort-dir="desc">
+        <thead><tr>
+          <th scope="col" data-sort-key="op_key">Opcode<span class="sort-arrow"></span></th>
+          <th scope="col" class="opcode-num" data-sort-key="sample_count">Count<span class="sort-arrow"></span></th>
+          <th scope="col" class="opcode-num" data-sort-key="total_ref_time">Σ ref_time<span class="sort-arrow">▼</span></th>
+          <th scope="col" class="opcode-num" data-sort-key="total_proof_size">Σ proof_size<span class="sort-arrow"></span></th>
+        </tr></thead>
+        <tbody></tbody>
+      </table>
+      ${truncated}
+    </div>`;
+  }).join('');
+
+  const chartsHtml = anyRollups
+    ? `<div class="opcode-step-charts">
+        <div class="opcode-step-chart-card">
+          <div class="opcode-step-chart-title">Per-step ref_time (min / mean / max)${platformRollups.length > 1 ? ' — by platform' : ''}</div>
+          <div class="opcode-step-chart" id="opcodeStepRefTime"></div>
+        </div>
+        <div class="opcode-step-chart-card">
+          <div class="opcode-step-chart-title">Per-step proof_size (min / mean / max)${platformRollups.length > 1 ? ' — by platform' : ''}</div>
+          <div class="opcode-step-chart" id="opcodeStepProofSize"></div>
+        </div>
+      </div>`
+    : '';
+
+  const crossHtml = platformsWithProfile.length > 1
+    ? `<div class="opcode-cross-platform-card">
+        <div class="opcode-step-chart-title">Workload-wide ref_time by category — by platform</div>
+        <div class="opcode-cross-chart" id="opcodeCrossPlatformBars"></div>
+      </div>
+      <div class="opcode-cross-platform-card">
+        <div class="opcode-step-chart-title">Workload-wide proof_size by category — by platform</div>
+        <div class="opcode-cross-chart" id="opcodeCrossPlatformProofBars"></div>
+      </div>`
+    : '';
+
+  grid.innerHTML = chartsHtml + crossHtml + cards;
+
+  grid.querySelectorAll('.opcode-table-sortable').forEach(hydrateOpcodeTable);
+
+  if (anyRollups) {
+    const nonEmpty = platformRollups.filter(p => p.rollups.length > 0);
+    renderMultiPlatformStepBandChart('opcodeStepRefTime', nonEmpty, 'ref_time');
+    renderMultiPlatformStepBandChart('opcodeStepProofSize', nonEmpty, 'proof_size');
+  }
+
+  if (platformsWithProfile.length > 1) {
+    // Aggregate from tx_profiles (uncapped): opcode_profile.opcodes has a
+    // top-N "Other" bucket that would taint the category view.
+    const crossData = platformsWithProfile.map(platform => ({
+      platform,
+      color: getColor(modeData.platforms.indexOf(platform)),
+      txProfiles: platformExecution[platform].opcode_profile.tx_profiles,
+    }));
+    // Union of non-zero categories across both metrics — keeps the two
+    // charts row-aligned so bar widths match.
+    const VM_EXCLUSIVE_CATEGORIES = new Set([
+      'Memory', 'Stack', 'Arithmetic & Logic', 'Control flow',
+      'VM overhead', 'Immutables',
+    ]);
+    const VM_EXCLUSIVE_LABEL = 'VM-exclusive';
+    const seen = new Set();
+    for (const { txProfiles } of crossData) {
+      for (const tx of (txProfiles || [])) {
+        for (const op of (tx.opcodes || [])) {
+          let cat = categoryFor(op.op_key);
+          if (VM_EXCLUSIVE_CATEGORIES.has(cat)) cat = VM_EXCLUSIVE_LABEL;
+          const rt = Number(op.total_ref_time || 0);
+          const ps = Number(op.total_proof_size || 0);
+          if (rt > 0 || ps > 0) seen.add(cat);
+        }
+      }
+    }
+    const orderedCats = OP_CATEGORIES
+      .filter(c => !VM_EXCLUSIVE_CATEGORIES.has(c))
+      .concat(VM_EXCLUSIVE_LABEL);
+    const sharedLabels = orderedCats.filter(c => seen.has(c));
+
+    renderCrossPlatformOpcodeComparison('opcodeCrossPlatformBars', crossData, 'ref_time', sharedLabels);
+    renderCrossPlatformOpcodeComparison('opcodeCrossPlatformProofBars', crossData, 'proof_size', sharedLabels);
+  }
+
+  for (const job of stackedChartIds) {
+    renderStepOpcodeBreakdownChart(job.chartId, job.txProfiles, 8);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 // Summary Cards
 // ═══════════════════════════════════════════════════════════════════════════
 
@@ -2854,10 +3852,16 @@ function renderSummaryCards(modeData, enabledPlatforms) {
       });
     });
 
+    const totalRefTime   = blocks.reduce((s, b) => s + (b.block_ref_time   || 0), 0);
+    const totalProofSize = blocks.reduce((s, b) => s + (b.block_proof_size || 0), 0);
+    const hasWeight = blocks.some(b => b.block_ref_time != null || b.block_proof_size != null);
+
     stats[platform] = {
-      effectiveTps: totalTime > 0 ? totalTx / totalTime : null,
+      effectiveTps:   totalTime > 0 ? totalTx / totalTime : null,
       maxUtil,
-      runningTime: totalTime > 0 ? totalTime : null,
+      runningTime:    totalTime > 0 ? totalTime : null,
+      refTimePerTx:   hasWeight && totalTx > 0 ? totalRefTime   / totalTx : null,
+      proofSizePerTx: hasWeight && totalTx > 0 ? totalProofSize / totalTx : null,
     };
   });
 
@@ -2883,31 +3887,62 @@ function renderSummaryCards(modeData, enabledPlatforms) {
     if (v >= 60)   return (v / 60).toFixed(1) + 'm';
     return v.toFixed(1) + 's';
   };
+  // block_ref_time is in picoseconds (substrate weight units).
+  const fmtRefTime = ps => {
+    if (ps >= 1e9) return (ps / 1e9).toFixed(2) + ' ms';
+    if (ps >= 1e6) return (ps / 1e6).toFixed(2) + ' μs';
+    if (ps >= 1e3) return (ps / 1e3).toFixed(2) + ' ns';
+    return ps.toFixed(0) + ' ps';
+  };
+  const fmtProofSize = b => {
+    if (b >= 1024 * 1024) return (b / 1024 / 1024).toFixed(2) + ' MB';
+    if (b >= 1024)        return (b / 1024).toFixed(2) + ' KB';
+    return Math.round(b) + ' B';
+  };
+  const fmtWeight = v => {
+    if (v == null) return '—';
+    const r = v.refTime   != null ? fmtRefTime(v.refTime)     : '—';
+    const p = v.proofSize != null ? fmtProofSize(v.proofSize) : '—';
+    return `<span class="weight-per-tx-cell">
+      <span class="weight-label">ref_time</span><span>${r}</span>
+      <span class="weight-label">proof_size</span><span class="weight-value-secondary">${p}</span>
+    </span>`;
+  };
 
-  function buildCard(id, label, accentColor, getValue, bestPlatform, fmt) {
+  function buildCard(id, label, accentColor, getValue, bestPlatform, fmt, hideNull = false) {
     const el = document.getElementById(id);
     el.style.borderTopColor = accentColor;
-    const rows = enabledPlatforms.map(p => {
-      const v = getValue(p);
-      const isBest = p === bestPlatform && v != null;
-      const color = getColor(modeData.platforms.indexOf(p));
-      return `
-        <div class="summary-platform-row${isBest ? ' is-best' : ''}">
-          <span class="summary-platform-name">
-            <span class="summary-platform-dot" style="background:${color}"></span>
-            <span class="summary-platform-name-text">${escapeHtml(p)}</span>
-          </span>
-          <span class="summary-platform-value">${v != null ? fmt(v) : '\u2014'}</span>
-        </div>`;
-    }).join('');
+    const visible = hideNull
+      ? enabledPlatforms.filter(p => getValue(p) != null)
+      : enabledPlatforms;
+    const rows = visible.length === 0
+      ? '<div class="summary-platform-row"><span class="summary-platform-name"><span class="summary-platform-name-text">No data available</span></span></div>'
+      : visible.map(p => {
+          const v = getValue(p);
+          const isBest = p === bestPlatform && v != null;
+          const color = getColor(modeData.platforms.indexOf(p));
+          return `
+            <div class="summary-platform-row${isBest ? ' is-best' : ''}">
+              <span class="summary-platform-name">
+                <span class="summary-platform-dot" style="background:${color}"></span>
+                <span class="summary-platform-name-text">${escapeHtml(p)}</span>
+              </span>
+              <span class="summary-platform-value">${v != null ? fmt(v) : '\u2014'}</span>
+            </div>`;
+        }).join('');
     el.innerHTML = `
       <div class="summary-card-label" style="color:${accentColor}">${label}</div>
       <div class="summary-platform-list">${rows}</div>`;
   }
 
-  buildCard('summaryTps',  'Effective TPS',    '#6366f1', p => stats[p]?.effectiveTps, bestTps,  fmtTps);
-  buildCard('summaryUtil', 'Peak Utilization', '#10b981', p => stats[p]?.maxUtil,       bestUtil, fmtUtil);
-  buildCard('summaryTime', 'Running Time',     '#f59e0b', p => stats[p]?.runningTime,   bestTime, fmtTime);
+  buildCard('summaryTps',          'Effective TPS',    '#6366f1', p => stats[p]?.effectiveTps, bestTps,  fmtTps);
+  buildCard('summaryWeightPerTx',  'Weight / tx',      '#a855f7', p => {
+    const s = stats[p];
+    if (s == null || (s.refTimePerTx == null && s.proofSizePerTx == null)) return null;
+    return { refTime: s.refTimePerTx, proofSize: s.proofSizePerTx };
+  }, null, fmtWeight, /* hideNull */ true);
+  buildCard('summaryUtil',         'Peak Utilization', '#10b981', p => stats[p]?.maxUtil,       bestUtil, fmtUtil);
+  buildCard('summaryTime',         'Running Time',     '#f59e0b', p => stats[p]?.runningTime,   bestTime, fmtTime);
 
   document.getElementById('summaryCards').classList.remove('hidden');
 }

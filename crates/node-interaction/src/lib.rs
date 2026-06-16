@@ -1,5 +1,7 @@
 //! This crate implements all node interactions.
 
+pub mod opcode_profile;
+
 pub mod prelude {
     pub use crate::NodeApi;
     pub use crate::revive_metadata;
@@ -133,6 +135,67 @@ pub trait NodeApi {
                 .debug_trace_transaction(tx_hash, trace_options)
                 .await
                 .context("Failed to get the transaction trace")
+        })
+    }
+
+    /// Trace one extrinsic via `state_callRecorded` (not subxt's plain
+    /// `state_call`) so `ProofSizeExt` is registered and post-dispatch
+    /// reclaim works.
+    fn trace_execution_tx(
+        &self,
+        block_hash: subxt::utils::H256,
+        tx_index: u32,
+        config: revive_metadata::runtime_types::pallet_revive::evm::api::debug_rpc_types::ExecutionTracerConfig,
+    ) -> FrameworkFuture<
+        Result<
+            Option<
+                revive_metadata::runtime_types::pallet_revive::evm::api::debug_rpc_types::ExecutionTrace,
+            >,
+        >,
+    >{
+        use pallet_revive::codec::{Decode, Encode};
+        use revive_metadata::runtime_types::pallet_revive::evm::api::debug_rpc_types::{
+            Trace, TracerType,
+        };
+
+        let rpc_client_future = self.substrate_rpc_client();
+        Box::pin(async move {
+            let rpc_client = rpc_client_future
+                .context(
+                    "trace_execution_tx requires a substrate RPC client; \
+                     this node is not substrate-based",
+                )?
+                .await
+                .context("Failed to get the substrate RPC client")?;
+
+            let extra_args = (tx_index, TracerType::ExecutionTracer(Some(config))).encode();
+
+            let mut params = subxt::ext::subxt_rpcs::client::RpcParams::new();
+            params
+                .push(block_hash)
+                .context("Failed to encode block_hash for state_callRecorded")?;
+            params
+                .push("ReviveApi_trace_tx")
+                .context("Failed to encode method name for state_callRecorded")?;
+            params
+                .push(format!("0x{}", hex::encode(&extra_args)))
+                .context("Failed to encode extra_args for state_callRecorded")?;
+
+            let hex_result: String = rpc_client
+                .request("state_callRecorded", params)
+                .await
+                .context("state_callRecorded(ReviveApi_trace_tx) failed")?;
+            let result_bytes = hex::decode(hex_result.strip_prefix("0x").unwrap_or(&hex_result))
+                .context("state_callRecorded returned non-hex bytes")?;
+            let trace: Option<
+                revive_metadata::runtime_types::pallet_revive::evm::api::debug_rpc_types::Trace,
+            > = Decode::decode(&mut result_bytes.as_slice())
+                .context("Failed to SCALE-decode trace_tx response")?;
+
+            Ok(trace.and_then(|t| match t {
+                Trace::Execution(execution_trace) => Some(execution_trace),
+                Trace::Call(_) | Trace::Prestate(_) => None,
+            }))
         })
     }
 
