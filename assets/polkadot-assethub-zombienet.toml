@@ -4,7 +4,7 @@ node_spawn_timeout = 240
 
 [relaychain]
 default_command = "polkadot"
-default_args = ["-linfo", "--no-mdns"]
+default_args = ["-linfo,polkavm=debug", "--no-mdns"]
 chain = "polkadot-local"
 chain_spec_command = "chain-spec-generator {{chainName}}"
 # Override RC spec raw to allow paras to produce blocks
@@ -61,7 +61,7 @@ name = "asset-hub-collator-1"
 command = "polkadot-parachain"
 env = [{ name = "POLKAVM_CORE_PINNING", value = "disabled" }]
 args = [
-  "-lerror,sc_rpc_server=info",
+  "-lerror,sc_rpc_server=info,polkavm=debug",
   "--authoring=slot-based",
   "--rpc-methods=unsafe",
   "--rpc-cors=all",
