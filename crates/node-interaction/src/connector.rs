@@ -281,6 +281,12 @@ impl NodeConnector {
             );
             match submitter
                 .author_submit_extrinsic(substrate_transaction.encoded())
+                .with_heartbeat(Duration::from_secs(30), |duration| {
+                    warn!(
+                        duration = duration.as_millis(),
+                        "Been awaiting submissions for more than 30 seconds"
+                    )
+                })
                 .await
             {
                 Ok(_) => {}
@@ -306,7 +312,7 @@ impl NodeConnector {
                         duration = duration.as_millis(),
                         "Been waiting for the receipt for 30 seconds"
                     );
-                    if duration.as_secs() >= 5 * 60 {
+                    if duration.as_secs() >= 2 * 60 {
                         panic!("DEBUGGING PANIC; WE'VE BEEN WAITING FOR THE RECEIPT FOR MORE THAN 5 MINUTES");
                     }
                 })
@@ -1028,6 +1034,61 @@ impl NodeConnector {
             })
         });
 
+        spawn({
+            let provider = provider.clone();
+            let tx = tx.clone();
+            async move {
+                let mut block = provider
+                    .blocks()
+                    .subscribe_finalized()
+                    .await
+                    .context("Failed to subscribe to finalized blocks")?
+                    .next()
+                    .await
+                    .context("Failed to get the first block for the block back filler")??;
+                loop {
+                    let runtime_api = block
+                        .runtime_api()
+                        .await
+                        .context("Failed to get the runtime API")?;
+
+                    let payload = revive_metadata::apis()
+                        .revive_api()
+                        .eth_block()
+                        .unvalidated();
+                    let eth_block = runtime_api
+                        .call(payload)
+                        .await
+                        .context("Failed to call the eth_block runtime API")?;
+                    let eth_block_json = serde_json::to_value(eth_block.0)
+                        .expect("qed; pallet-revive eth block serializes to JSON");
+                    let evm_block = serde_json::from_value::<EvmBlock>(eth_block_json)
+                        .expect("qed; pallet-revive and alloy block JSON formats are identical");
+
+                    let block_number = block.number();
+                    let parent_hash = block.header().parent_hash;
+                    let block_pair = UnresolvedBlockPair {
+                        observation_time: SystemTime::now(),
+                        evm_block: Arc::new(evm_block),
+                        substrate_block: Some(Arc::new(block)),
+                    };
+                    let _ = tx.send(block_pair);
+                    if block_number == 0 {
+                        break;
+                    }
+
+                    block = provider
+                        .blocks()
+                        .at(parent_hash)
+                        .await
+                        .context("Failed to get the parent block")?;
+                }
+
+                tracing::info!("Block back-filler finished running");
+                Result::<(), anyhow::Error>::Ok(())
+            }
+        });
+
         let block_broadcaster: StaticFuture<Result<()>> = {
             let provider = provider.clone();
             let block_observation_time = block_observation_times.clone();
@@ -1359,8 +1420,14 @@ impl NodeConnector {
         mut rx: BroadcastReceiver<BlockPair>,
     ) {
         spawn(async move {
-            while let Ok(latest_block) = rx.recv().await {
-                *field.write().await = Some(latest_block)
+            while let Ok(block) = rx.recv().await {
+                let mut latest_block = field.write().await;
+                let set = latest_block.as_ref().is_none_or(|latest_block| {
+                    latest_block.evm_block.number() < block.evm_block.number()
+                });
+                if set {
+                    *latest_block = Some(block)
+                }
             }
         });
     }
