@@ -1184,13 +1184,13 @@ impl NodeConnector {
             block_hash: online_block.hash().0,
             consumed_weight,
             limits: limits.context("No substrate block limits available")?,
-            is_last_block_in_slot,
+            is_last_block_in_slot: is_last_block_in_slot.unwrap_or(false),
             online_block,
             eth_transactions,
         })
     }
 
-    fn is_last_block_in_slot(header: &GenericHeader<u32, BlakeTwo256>) -> bool {
+    fn is_last_block_in_slot(header: &GenericHeader<u32, BlakeTwo256>) -> Option<bool> {
         const CUMULUS_CONSENSUS_ID: [u8; 4] = *b"CMLS";
 
         let mut core_info = None;
@@ -1204,8 +1204,7 @@ impl NodeConnector {
                 continue;
             }
 
-            let decoded = CumulusPreRuntimeDigestItem::decode(&mut payload.as_slice())
-                .expect("Failed to decode the Cumulus pre-runtime digest item");
+            let decoded = CumulusPreRuntimeDigestItem::decode(&mut payload.as_slice()).ok()?;
             match decoded {
                 CumulusPreRuntimeDigestItem::CoreInfo(decoded_core_info) => {
                     core_info = Some(decoded_core_info);
@@ -1216,11 +1215,10 @@ impl NodeConnector {
             }
         }
 
-        let core_info = core_info.expect("Failed to decode the Cumulus CoreInfo digest item");
-        let block_bundle_info =
-            block_bundle_info.expect("Failed to decode the Cumulus BlockBundleInfo digest item");
+        let core_info = core_info?;
+        let block_bundle_info = block_bundle_info?;
 
-        block_bundle_info.is_last && core_info.is_last_core()
+        Some(block_bundle_info.is_last && core_info.is_last_core())
     }
 
     fn substrate_block_limits(

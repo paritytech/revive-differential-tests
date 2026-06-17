@@ -163,12 +163,6 @@ async fn compile_contracts(
     compiler: &dyn SolidityCompiler,
     reporter: &CompilationReporter<'_>,
 ) -> Result<CompilerOutput> {
-    // Puts a limit on how many compilations we can perform at any given instance which helps us
-    // with some of the errors we've been seeing with high concurrency on MacOS (we have not tried
-    // it on Linux so we don't know if these issues also persist there or not.)
-    static SPAWN_GATE: LazyLock<Semaphore> = LazyLock::new(|| Semaphore::new(1_000));
-    let _permit = SPAWN_GATE.acquire().await?;
-
     let all_sources_in_dir = FilesWithExtensionIterator::new(metadata_directory.as_ref())
         .with_allowed_extension("sol")
         .with_use_cached_fs(true)
