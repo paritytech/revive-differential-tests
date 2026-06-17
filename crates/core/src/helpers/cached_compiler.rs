@@ -163,6 +163,15 @@ async fn compile_contracts(
     compiler: &dyn SolidityCompiler,
     reporter: &CompilationReporter<'_>,
 ) -> Result<CompilerOutput> {
+    static COMPILATION_SEMAPHORE: LazyLock<Arc<Semaphore>> =
+        LazyLock::new(|| Arc::new(Semaphore::new(100)));
+
+    let _permit = COMPILATION_SEMAPHORE
+        .clone()
+        .acquire_owned()
+        .await
+        .context("Poisoned")?;
+
     let all_sources_in_dir = FilesWithExtensionIterator::new(metadata_directory.as_ref())
         .with_allowed_extension("sol")
         .with_use_cached_fs(true)
