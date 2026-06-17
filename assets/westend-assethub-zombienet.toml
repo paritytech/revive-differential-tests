@@ -5,7 +5,7 @@ node_spawn_timeout = 240
 [relaychain]
 default_command = "polkadot"
 default_args = ["-linfo", "--no-mdns"]
-chain = "westend-local"
+chain = "westend-dev"
 chain_spec_command = "polkadot build-spec --chain {{chainName}}"
 # Override RC spec raw to allow paras to produce blocks
 override_session_0 = true
@@ -24,7 +24,7 @@ num_cores = 3
 lookahead = 5
 
 [relaychain.genesis.runtimeGenesis.patch.configuration.config.async_backing_params]
-# westend-local defaults to max_candidate_depth=2, but mainnet was updated to 3
+# westend-dev defaults to max_candidate_depth=2, but mainnet was updated to 3
 # via governance to support elastic scaling.
 # Source: https://github.com/polkadot-fellows/runtimes/pull/1048
 max_candidate_depth = 3
@@ -53,7 +53,7 @@ env = [{ name = "POLKAVM_CORE_PINNING", value = "disabled" }]
 
 [[parachains]]
 id = 1000
-chain = "asset-hub-westend-local"
+chain = "asset-hub-westend-dev"
 chain_spec_command = "polkadot-parachain build-spec --chain {{chainName}}"
 cumulus_based = true
 # Assign 3 cores at genesis (RC)
