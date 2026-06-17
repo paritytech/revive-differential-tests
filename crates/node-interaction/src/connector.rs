@@ -186,12 +186,12 @@ impl NodeConnector {
                 SubmissionBehavior::UseDefaultForPlatform | SubmissionBehavior::UseSubstrateRpc,
                 Some(substrate_provider),
             ) => self.send_transaction_substrate(tx, substrate_provider.clone()),
-            (SubmissionBehavior::UseSubstrateRpcAndAwaitValidation, Some(substrate_provider)) => {
-                self.send_transaction_and_await_validation_substrate(tx, substrate_provider.clone())
+            (SubmissionBehavior::UseSubstrateRpcAndAwaitInclusion, Some(substrate_provider)) => {
+                self.send_transaction_and_await_inclusion_substrate(tx, substrate_provider.clone())
             }
             (
                 SubmissionBehavior::UseSubstrateRpc
-                | SubmissionBehavior::UseSubstrateRpcAndAwaitValidation,
+                | SubmissionBehavior::UseSubstrateRpcAndAwaitInclusion,
                 None,
             ) => Box::pin(ready(Err(anyhow!(
                 "Can not use the substrate provider on a non-substrate chain"
@@ -252,7 +252,7 @@ impl NodeConnector {
         })
     }
 
-    fn send_transaction_and_await_validation_substrate(
+    fn send_transaction_and_await_inclusion_substrate(
         &self,
         tx: TransactionRequest,
         substrate_provider: SubstrateProviders,
@@ -350,21 +350,21 @@ impl NodeConnector {
                 ),
                 None => None,
             };
-            let _account_locker_guard = match account_lock_mutex {
-                Some(mutex) => Some(
-                    mutex
-                        .lock_owned()
-                        .with_heartbeat(Duration::from_secs(30), |duration| {
-                            warn!(
-                                duration = duration.as_millis(),
-                                "Been waiting to acquire account submission Mutex for \
-                                longer than 30 seconds"
-                            )
-                        })
-                        .await,
-                ),
-                None => None,
-            };
+            // let _account_locker_guard = match account_lock_mutex {
+            //     Some(mutex) => Some(
+            //         mutex
+            //             .lock_owned()
+            //             .with_heartbeat(Duration::from_secs(30), |duration| {
+            //                 warn!(
+            //                     duration = duration.as_millis(),
+            //                     "Been waiting to acquire account submission Mutex for \
+            //                     longer than 30 seconds"
+            //                 )
+            //             })
+            //             .await,
+            //     ),
+            //     None => None,
+            // };
             let _submission_permit = match submission_limiter_semaphore {
                 Some(semaphore) => Some(
                     semaphore

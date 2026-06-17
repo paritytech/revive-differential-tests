@@ -130,7 +130,7 @@ impl NodeConfiguration for ReviveDevNode {
     fn configurations(&self) -> NodeConnectorConfiguration {
         NodeConnectorConfiguration {
             behaviors: Some(NodeConnectorBehaviors {
-                submission_behavior: Some(SubmissionBehavior::UseSubstrateRpcAndAwaitValidation),
+                submission_behavior: Some(SubmissionBehavior::UseSubstrateRpcAndAwaitInclusion),
             }),
             hooks: Some(NodeConnectorHooks {
                 pre_submission_hook: Some(PreSubmissionHook::MaxGasPrice),

@@ -58,7 +58,7 @@ pub enum SubmissionBehavior {
     UseDefaultForPlatform,
     UseEthRpc,
     UseSubstrateRpc,
-    UseSubstrateRpcAndAwaitValidation,
+    UseSubstrateRpcAndAwaitInclusion,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
