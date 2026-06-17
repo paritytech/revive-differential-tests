@@ -10,8 +10,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use base64::Engine as _;
-use base64::engine::general_purpose::STANDARD;
+use base64::{Engine as _, engine::general_purpose::STANDARD};
 use flate2::{Compression, write::GzEncoder};
 
 use anyhow::{Context as _, Error, Result, bail};

@@ -1,5 +1,4 @@
-use std::future::Future;
-use std::sync::Arc;
+use std::{future::Future, sync::Arc};
 
 use anyhow::{Context as _, Result, anyhow};
 

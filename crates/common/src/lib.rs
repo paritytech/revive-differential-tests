@@ -10,33 +10,30 @@ pub mod subscriptions;
 pub mod types;
 
 pub mod prelude {
-    pub use crate::cached_fs::*;
-    pub use crate::fs::*;
-    pub use crate::futures::*;
-    pub use crate::iterators::*;
-    pub use crate::subscriptions::*;
-    pub use crate::types::*;
+    pub use crate::{cached_fs::*, fs::*, futures::*, iterators::*, subscriptions::*, types::*};
 }
 
 pub(crate) mod internal_prelude {
     pub use crate::prelude::*;
 
-    pub use std::borrow::Cow;
-    pub use std::collections::{BTreeMap, HashMap, HashSet};
-    pub use std::fmt::Display;
-    pub use std::fs;
-    pub use std::hash::Hash;
-    pub use std::io::Error as IoError;
-    pub use std::io::Result as IoResult;
-    pub use std::path::{Path, PathBuf};
-    pub use std::str::FromStr;
-    pub use std::sync::{Arc, LazyLock};
-    pub use std::time::SystemTime;
+    pub use std::{
+        borrow::Cow,
+        collections::{BTreeMap, HashMap, HashSet},
+        fmt::Display,
+        fs,
+        hash::Hash,
+        io::{Error as IoError, Result as IoResult},
+        path::{Path, PathBuf},
+        str::FromStr,
+        sync::{Arc, LazyLock},
+        time::SystemTime,
+    };
 
-    pub use alloy::primitives::{BlockNumber, BlockTimestamp, TxHash, U256};
-    pub use alloy::signers::local::PrivateKeySigner;
-    pub use anyhow::Context as _;
-    pub use anyhow::{Result, bail};
+    pub use alloy::{
+        primitives::{BlockNumber, BlockTimestamp, TxHash, U256},
+        signers::local::PrivateKeySigner,
+    };
+    pub use anyhow::{Context as _, Result, bail};
     pub use clap::ValueEnum;
     pub use derive_more::{Display as DeriveMoreDisplay, FromStr};
     pub use moka::sync::Cache;

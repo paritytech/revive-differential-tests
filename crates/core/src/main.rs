@@ -15,68 +15,79 @@ mod internal_prelude {
     pub use revive_dt_node_interaction::prelude::*;
     pub use revive_dt_report::prelude::*;
 
-    pub use std::borrow::Cow;
-    pub use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
-    pub use std::future::{Future, ready};
-    pub use std::io::{BufWriter, Write, stderr};
-    pub use std::ops::ControlFlow;
-    pub use std::path::{Path, PathBuf};
-    pub use std::pin::Pin;
-    pub use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-    pub use std::sync::{Arc, LazyLock, Mutex as StdMutex};
-    pub use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
-
-    pub use alloy::consensus::EMPTY_ROOT_HASH;
-    pub use alloy::hex::{self, ToHexExt};
-    pub use alloy::json_abi::{Function, JsonAbi};
-    pub use alloy::network::{Ethereum, TransactionBuilder};
-    pub use alloy::primitives::{Address, B256, BlockNumber, Bytes, Log, TxHash, U256, address};
-    pub use alloy::providers::{DynProvider, PendingTransactionBuilder, Provider};
-    pub use alloy::rpc::types::trace::geth::{
-        CallFrame, CallLogFrame, GethDebugBuiltInTracerType, GethDebugTracerConfig,
-        GethDebugTracerType, GethDebugTracingOptions,
+    pub use std::{
+        borrow::Cow,
+        collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque},
+        future::{Future, ready},
+        io::{BufWriter, Write, stderr},
+        ops::ControlFlow,
+        path::{Path, PathBuf},
+        pin::Pin,
+        sync::{
+            Arc, LazyLock, Mutex as StdMutex,
+            atomic::{AtomicBool, AtomicUsize, Ordering},
+        },
+        time::{Duration, Instant, SystemTime, UNIX_EPOCH},
     };
-    pub use alloy::rpc::types::{TransactionReceipt, TransactionRequest};
+
+    pub use alloy::{
+        consensus::EMPTY_ROOT_HASH,
+        hex::{self, ToHexExt},
+        json_abi::{Function, JsonAbi},
+        network::{Ethereum, TransactionBuilder},
+        primitives::{Address, B256, BlockNumber, Bytes, Log, TxHash, U256, address},
+        providers::{DynProvider, PendingTransactionBuilder, Provider},
+        rpc::types::{
+            TransactionReceipt, TransactionRequest,
+            trace::geth::{
+                CallFrame, CallLogFrame, GethDebugBuiltInTracerType, GethDebugTracerConfig,
+                GethDebugTracerType, GethDebugTracingOptions,
+            },
+        },
+    };
     pub use ansi_term::{ANSIStrings, Color};
-    pub use anyhow::Context as _;
-    pub use anyhow::{Error, Result, anyhow, bail, ensure};
+    pub use anyhow::{Context as _, Error, Result, anyhow, bail, ensure};
     pub use clap::Parser;
     pub use dashmap::DashMap;
-    pub use futures::future::{Either, join_all, try_join, try_join_all, try_join3};
-    pub use futures::{FutureExt, Stream, StreamExt, TryFutureExt, TryStreamExt, stream};
+    pub use futures::{
+        FutureExt, Stream, StreamExt, TryFutureExt, TryStreamExt,
+        future::{Either, join_all, try_join, try_join_all, try_join3},
+        stream,
+    };
     pub use indexmap::{IndexMap, IndexSet, indexmap};
     pub use regex::Regex;
     pub use schemars::schema_for;
     pub use semver::{Version, VersionReq};
     pub use serde::{Deserialize, Serialize};
     pub use serde_json::{self, Value, json};
-    pub use subxt::backend::rpc::RpcClient;
-    pub use subxt::tx::Payload;
-    pub use subxt::utils::H256;
-    pub use subxt::{OnlineClient, PolkadotConfig};
-    pub use tokio::select;
-    pub use tokio::sync::broadcast;
-    pub use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
-    pub use tokio::sync::{Mutex, Notify, OnceCell, RwLock, Semaphore};
-    pub use tokio::task::JoinHandle;
-    pub use tokio::time::{interval, timeout};
-    pub use tracing::level_filters::LevelFilter;
+    pub use subxt::{
+        OnlineClient, PolkadotConfig, backend::rpc::RpcClient, tx::Payload, utils::H256,
+    };
+    pub use tokio::{
+        select,
+        sync::{
+            Mutex, Notify, OnceCell, RwLock, Semaphore, broadcast,
+            mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel},
+        },
+        task::JoinHandle,
+        time::{interval, timeout},
+    };
     pub use tracing::{
         Instrument, Span, debug, debug_span, error, field::display, info, info_span, instrument,
-        trace, warn,
+        level_filters::LevelFilter, trace, warn,
     };
     pub use tracing_appender::non_blocking::WorkerGuard;
     pub use tracing_subscriber::EnvFilter;
 
-    pub use crate::compilations::handle_compilations;
-    pub use crate::differential_benchmarks::{
-        Watcher, WatcherEvent, handle_differential_benchmarks,
-    };
-    pub use crate::differential_tests::handle_differential_tests;
-    pub use crate::helpers::{
-        CachedCompiler, CompilationDefinition, CorpusDefinitionProcessor, NodePool,
-        TestCaseIgnoreResolvedConfiguration, TestDefinition, TestPlatformInformation,
-        create_compilation_definitions_stream, create_test_definitions_stream, process_corpus,
+    pub use crate::{
+        compilations::handle_compilations,
+        differential_benchmarks::{Watcher, WatcherEvent, handle_differential_benchmarks},
+        differential_tests::handle_differential_tests,
+        helpers::{
+            CachedCompiler, CompilationDefinition, CorpusDefinitionProcessor, NodePool,
+            TestCaseIgnoreResolvedConfiguration, TestDefinition, TestPlatformInformation,
+            create_compilation_definitions_stream, create_test_definitions_stream, process_corpus,
+        },
     };
 }
 

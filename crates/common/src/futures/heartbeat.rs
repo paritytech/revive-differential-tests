@@ -1,5 +1,4 @@
-use std::future::Future;
-use std::time::Duration;
+use std::{future::Future, time::Duration};
 
 use tokio::time::{Instant, MissedTickBehavior, interval_at};
 

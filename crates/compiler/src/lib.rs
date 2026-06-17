@@ -11,36 +11,36 @@ pub use revive_dt_common::types::{
 };
 
 pub mod prelude {
-    pub use crate::revive_resolc::{Resolc, ResolcRuntimeTarget};
-    pub use crate::solc::{Solc, SolcRuntimeTarget};
-    pub use crate::{Compiler, CompilerInput, CompilerOutput, RevertString, SolidityCompiler};
-    pub use crate::{Mode, ModeOptimizerSetting, ModePipeline};
+    pub use crate::{
+        Compiler, CompilerInput, CompilerOutput, Mode, ModeOptimizerSetting, ModePipeline,
+        RevertString, SolidityCompiler,
+        revive_resolc::{Resolc, ResolcRuntimeTarget},
+        solc::{Solc, SolcRuntimeTarget},
+    };
 }
 
 pub(crate) mod internal_prelude {
-    pub use crate::prelude::*;
-    pub use crate::{resolve_output_source_path, sha256_file_hex};
+    pub use crate::{prelude::*, resolve_output_source_path, sha256_file_hex};
     pub use revive_dt_config::prelude::*;
 
-    pub use std::collections::{BTreeSet, HashMap};
-    pub use std::hash::Hash;
-    pub use std::path::{Path, PathBuf};
-    pub use std::process::Stdio;
-    pub use std::sync::{Arc, LazyLock};
+    pub use std::{
+        collections::{BTreeSet, HashMap},
+        hash::Hash,
+        path::{Path, PathBuf},
+        process::Stdio,
+        sync::{Arc, LazyLock},
+    };
 
-    pub use alloy::json_abi::JsonAbi;
-    pub use alloy::primitives::Address;
-    pub use anyhow::Context as _;
-    pub use anyhow::Result;
+    pub use alloy::{json_abi::JsonAbi, primitives::Address};
+    pub use anyhow::{Context as _, Result};
     pub use dashmap::DashMap;
     pub use foundry_compilers_artifacts::{
         output_selection::{
             BytecodeOutputSelection, ContractOutputSelection, EvmOutputSelection, OutputSelection,
         },
-        solc::CompilerOutput as SolcOutput,
         solc::{
-            BytecodeObject, DebuggingSettings, Libraries, Optimizer, RevertStrings, Settings,
-            SolcInput, SolcLanguage, Source, Sources,
+            BytecodeObject, CompilerOutput as SolcOutput, DebuggingSettings, Libraries, Optimizer,
+            RevertStrings, Settings, SolcInput, SolcLanguage, Source, Sources,
         },
     };
     pub use revive_solc_json_interface::{
@@ -59,10 +59,10 @@ pub(crate) mod internal_prelude {
     pub use tracing::{Span, field::display, info};
 
     pub use revive_common::EVMVersion;
-    pub use revive_dt_common::cached_fs::read_to_string;
-    pub use revive_dt_common::fs::normalize_path;
-    pub use revive_dt_common::futures::StaticFuture;
-    pub use revive_dt_common::types::VersionOrRequirement;
+    pub use revive_dt_common::{
+        cached_fs::read_to_string, fs::normalize_path, futures::StaticFuture,
+        types::VersionOrRequirement,
+    };
     pub use revive_dt_solc_binaries::download_solc;
 }
 

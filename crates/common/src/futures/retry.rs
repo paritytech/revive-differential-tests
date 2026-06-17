@@ -1,6 +1,4 @@
-use std::future::Future;
-use std::ops::ControlFlow;
-use std::time::Duration;
+use std::{future::Future, ops::ControlFlow, time::Duration};
 
 pub async fn retry_future_with_exponential_backoff<Func, Fut, T, E>(
     max_retries: usize,

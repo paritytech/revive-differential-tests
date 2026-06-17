@@ -955,9 +955,7 @@ impl GasOverrides {
 #[cfg(test)]
 mod tests {
 
-    use alloy::json_abi::JsonAbi;
-    use alloy::primitives::address;
-    use alloy::sol_types::SolValue;
+    use alloy::{json_abi::JsonAbi, primitives::address, sol_types::SolValue};
     use std::collections::HashMap;
 
     use super::*;
@@ -1211,8 +1209,14 @@ mod tests {
         let resolved = resolve_calldata_item("$VARIABLE:CREATOR_$VARIABLE:I", &mut resolver).await;
 
         // Assert
-        let message = format!("{:#}", resolved.expect_err("should fail when inner var missing"));
-        assert!(message.contains("`I`"), "error should mention inner name: {message}");
+        let message = format!(
+            "{:#}",
+            resolved.expect_err("should fail when inner var missing")
+        );
+        assert!(
+            message.contains("`I`"),
+            "error should mention inner name: {message}"
+        );
     }
 
     #[tokio::test]
@@ -1224,9 +1228,14 @@ mod tests {
         let resolved = resolve_calldata_item("$VARIABLE:CREATOR_$VARIABLE:I", &mut resolver).await;
 
         // Assert
-        let message =
-            format!("{:#}", resolved.expect_err("should fail when composed name missing"));
-        assert!(message.contains("CREATOR_7"), "error should include composed name: {message}");
+        let message = format!(
+            "{:#}",
+            resolved.expect_err("should fail when composed name missing")
+        );
+        assert!(
+            message.contains("CREATOR_7"),
+            "error should include composed name: {message}"
+        );
     }
 
     #[tokio::test]
@@ -1238,7 +1247,10 @@ mod tests {
         let resolved = resolve_calldata_item("$VARIABLE:CREATOR_$VARIABLE:", &mut resolver).await;
 
         // Assert
-        let message = format!("{:#}", resolved.expect_err("should fail on empty inner name"));
+        let message = format!(
+            "{:#}",
+            resolved.expect_err("should fail on empty inner name")
+        );
         assert!(message.contains("Empty inner variable name"), "{message}");
     }
 
