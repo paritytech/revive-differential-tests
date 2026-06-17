@@ -39,14 +39,17 @@ MaxMemoryPages = 8192
 [[relaychain.nodes]]
 name = "alice"
 validator = true
+env = [{ name = "POLKAVM_CORE_PINNING", value = "disabled" }]
 
 [[relaychain.nodes]]
 name = "bob"
 validator = true
+env = [{ name = "POLKAVM_CORE_PINNING", value = "disabled" }]
 
 [[relaychain.nodes]]
 name = "charlie"
 validator = true
+env = [{ name = "POLKAVM_CORE_PINNING", value = "disabled" }]
 
 [[parachains]]
 id = 1000
@@ -59,6 +62,7 @@ num_cores = 3
 [[parachains.collators]]
 name = "asset-hub-collator-1"
 command = "polkadot-parachain"
+env = [{ name = "POLKAVM_CORE_PINNING", value = "disabled" }]
 args = [
   "-lerror,sc_rpc_server=info,runtime::revive=debug",
   "--authoring=slot-based",
