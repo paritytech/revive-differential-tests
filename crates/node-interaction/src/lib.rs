@@ -23,7 +23,7 @@ pub(crate) mod internal_prelude {
         future::{Future, ready},
         ops::{ControlFlow, Deref},
         result::Result as StdResult,
-        sync::{Arc, LazyLock, Mutex as StdMutex, OnceLock, atomic::AtomicUsize},
+        sync::{Arc, LazyLock, Mutex as StdMutex, atomic::AtomicUsize},
         time::{Duration, SystemTime},
     };
 
@@ -47,7 +47,7 @@ pub(crate) mod internal_prelude {
         },
         rpc::{
             client::{BuiltInConnectionString, ClientBuilder},
-            json_rpc::{Id, RequestPacket, Response, ResponsePacket, SerializedRequest},
+            json_rpc::{RequestPacket, ResponsePacket},
             types::{
                 Block as EvmBlock, TransactionReceipt, TransactionRequest,
                 trace::geth::{GethDebugTracingCallOptions, GethDebugTracingOptions, GethTrace},
@@ -101,7 +101,6 @@ pub(crate) mod internal_prelude {
             mpsc,
             watch::{Sender as WatchSender, channel as watch_channel},
         },
-        task::AbortHandle,
         time::{MissedTickBehavior, interval, sleep, timeout},
     };
     pub use tokio_stream::wrappers::BroadcastStream;

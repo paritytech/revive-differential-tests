@@ -36,7 +36,7 @@ pub(crate) mod internal_prelude {
         process::{Child, Command, Stdio},
         sync::{
             Arc, LazyLock, Mutex as StdMutex,
-            atomic::{AtomicUsize, Ordering},
+            atomic::{AtomicBool, AtomicUsize, Ordering},
         },
         time::{Duration, Instant, SystemTime, UNIX_EPOCH},
     };

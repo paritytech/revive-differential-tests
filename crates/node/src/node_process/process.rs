@@ -162,7 +162,7 @@ impl<'a, 'b> NodeProcessBuilder<'a, 'b> {
                 .spawn()
                 .context("Failed to spawn process")?;
 
-            let readers = read_files.map(|f| Box::new(f) as Box<dyn Read>);
+            let readers = read_files.map(|f| Box::new(f) as Box<dyn Read + Send>);
 
             (child, readers)
         } else {
@@ -173,7 +173,7 @@ impl<'a, 'b> NodeProcessBuilder<'a, 'b> {
                 .spawn()
                 .context("Failed to spawn process")?;
 
-            let readers = StdoutStdErr::<Box<dyn Read>> {
+            let readers = StdoutStdErr::<Box<dyn Read + Send>> {
                 stdout: Box::new(child.stdout.take().expect("qed; piped above")),
                 stderr: Box::new(child.stderr.take().expect("qed; piped above")),
             };
@@ -182,22 +182,66 @@ impl<'a, 'b> NodeProcessBuilder<'a, 'b> {
         };
 
         if let Some(wait_for_startup_sentinel) = self.wait_for_startup_sentinel_information {
-            let mut readers = readers.map(BufReader::new).map(BufReader::lines);
+            let (tx, rx) = std::sync::mpsc::channel::<Result<()>>();
+            let shutdown = Arc::new(AtomicBool::new(false));
+            let threads = readers.map(|file| {
+                let tx = tx.clone();
+                let shutdown = Arc::clone(&shutdown);
+                let wait_for_startup_sentinel = wait_for_startup_sentinel.to_owned();
+                std::thread::spawn(move || {
+                    let reader = BufReader::new(file);
+                    let mut lines = reader.lines();
 
-            // TODO(async): We need to honor the timeout which we can easily do once we refactor
-            // this to be async through tokio's timeout capabilities.
-            'check: loop {
-                let next_lines = readers.map_ref_mut(|lines| lines.next().and_then(Result::ok));
-                for line in [next_lines.stdout, next_lines.stderr].into_iter().flatten() {
-                    match wait_for_startup_sentinel.check(line) {
-                        ControlFlow::Continue(_) => {}
-                        ControlFlow::Break(Ok(())) => break 'check,
-                        ControlFlow::Break(err @ Err(..)) => {
-                            err.context("Failed to startup process")?;
+                    let start = Instant::now();
+                    let rtn = loop {
+                        if shutdown.load(Ordering::Relaxed) {
+                            break Ok(());
                         }
-                    }
-                }
-            }
+                        match lines.next() {
+                            Some(Ok(line)) => match wait_for_startup_sentinel.check(line) {
+                                ControlFlow::Continue(_) => {}
+                                ControlFlow::Break(Ok(())) => break Ok(()),
+                                ControlFlow::Break(Err(err)) => {
+                                    tracing::error!(?err, "Failed to start process");
+                                    break Err(err)
+                                        .context("Process startup encountered an error string");
+                                }
+                            },
+                            Some(Err(err)) => {
+                                tracing::warn!(
+                                    ?err,
+                                    "Encountered an error while reading process file"
+                                );
+                            }
+                            None => {}
+                        };
+                        if start.elapsed() >= wait_for_startup_sentinel.timeout {
+                            break Err(anyhow::anyhow!(
+                                "Timed out while waiting for process to start"
+                            ));
+                        } else {
+                            std::thread::sleep(Duration::from_millis(500));
+                        }
+                    };
+                    let _ = tx.send(rtn);
+                })
+            });
+
+            drop(tx);
+
+            let result = rx.recv().unwrap_or_else(|_| {
+                Err(anyhow::anyhow!(
+                    "Reader threads ended without reporting startup status"
+                ))
+            });
+
+            shutdown.store(true, Ordering::Relaxed);
+
+            let StdoutStdErr { stdout, stderr } = threads;
+            let _ = stdout.join();
+            let _ = stderr.join();
+
+            result.context("Process failed to start")?;
         }
 
         Ok(NodeProcess::new(child))
@@ -249,6 +293,20 @@ impl<'a, 'b> WaitForStartupSentinel<'a, 'b> {
             ControlFlow::Continue(())
         }
     }
+
+    fn to_owned(&self) -> WaitForStartupSentinel<'static, 'static> {
+        WaitForStartupSentinel {
+            timeout: self.timeout,
+            successful_startup_if_encountered: Cow::Owned(
+                self.successful_startup_if_encountered.as_ref().to_owned(),
+            ),
+            failed_startup_if_encountered: self.failed_startup_if_encountered.as_ref().map(
+                |failed_startup_if_encountered| {
+                    Cow::Owned(failed_startup_if_encountered.as_ref().to_owned())
+                },
+            ),
+        }
+    }
 }
 
 struct StdoutStdErr<T> {
@@ -268,13 +326,6 @@ impl<T> StdoutStdErr<T> {
         StdoutStdErr {
             stdout: func(self.stdout),
             stderr: func(self.stderr),
-        }
-    }
-
-    pub fn map_ref_mut<O>(&mut self, mut func: impl FnMut(&mut T) -> O) -> StdoutStdErr<O> {
-        StdoutStdErr {
-            stdout: func(&mut self.stdout),
-            stderr: func(&mut self.stderr),
         }
     }
 }
