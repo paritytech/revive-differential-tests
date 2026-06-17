@@ -31,6 +31,7 @@ pub struct Interpreter<'a> {
     /* Configuration */
     await_receipts: bool,
     run_assertions: bool,
+    run_reporter: bool,
 }
 
 struct StepState<'a> {
@@ -64,6 +65,7 @@ impl<'a> Interpreter<'a> {
             tasks: Default::default(),
             await_receipts: Default::default(),
             run_assertions: Default::default(),
+            run_reporter: true,
         }
         .initialize(cached_compiler)
         .inspect(|_| info!("Interpreter is created and ready"))
@@ -182,7 +184,7 @@ impl<'a> Interpreter<'a> {
             );
         }
 
-        if !deployed_libraries.is_empty() {
+        if !deployed_libraries.is_empty() && self.run_reporter {
             self.platform_information
                 .reporter
                 .report_libraries_deployed_event(
@@ -208,14 +210,16 @@ impl<'a> Interpreter<'a> {
                     .map(|(ident, (code, abi))| {
                         let code = alloy::hex::decode(code)
                             .context("Compiled code must be hex decodable")?;
-                        self.platform_information
-                            .reporter
-                            .report_contract_information_event(
-                                path.clone(),
-                                ident.as_str(),
-                                code.len(),
-                            )
-                            .expect("fatal: reporter configured but unreachable");
+                        if self.run_reporter {
+                            self.platform_information
+                                .reporter
+                                .report_contract_information_event(
+                                    path.clone(),
+                                    ident.as_str(),
+                                    code.len(),
+                                )
+                                .expect("fatal: reporter configured but unreachable");
+                        }
                         Ok((ident, (Arc::new(code), Arc::new(abi))))
                     })
                     .collect::<Result<HashMap<_, _>>>()?;
@@ -372,6 +376,7 @@ impl<'a> Interpreter<'a> {
             tasks: vec![],
             await_receipts: true,
             run_assertions: false,
+            run_reporter: false,
         };
         fork.internal_run_to_completion()
             .await
@@ -1062,6 +1067,7 @@ impl<'a> InterpreterApi for Interpreter<'a> {
                     run_assertions: self.run_assertions,
                     steps: steps.clone().into_iter(),
                     gas_cache: self.gas_cache.clone(),
+                    run_reporter: self.run_reporter,
                 };
                 (i, fork)
             })
@@ -1161,7 +1167,9 @@ impl<'a> InterpreterApi for Interpreter<'a> {
                 self.deployed_contracts
                     .insert(instance.clone(), (addr.clone(), abi));
 
-                let reporter = self.platform_information.reporter.clone();
+                let reporter = self
+                    .run_reporter
+                    .then_some(self.platform_information.reporter.clone());
                 self.tasks.push(tokio::spawn(async move {
                     debug!(?instance, "Awaiting address resolution");
                     let value = *addr
@@ -1170,9 +1178,11 @@ impl<'a> InterpreterApi for Interpreter<'a> {
                         .as_ref()
                         .expect("fatal: failed to get address for contract");
                     debug!(?instance, address = ?value, "Assigned instance address");
-                    reporter
-                        .report_contract_deployed_event(instance.clone(), value)
-                        .expect("fatal: reporter is configured but we can't send to it");
+                    if let Some(reporter) = reporter {
+                        reporter
+                            .report_contract_deployed_event(instance.clone(), value)
+                            .expect("fatal: reporter is configured but we can't send to it");
+                    }
                 }));
             }
         }
