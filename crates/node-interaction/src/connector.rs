@@ -215,25 +215,7 @@ impl NodeConnector {
         tx: TransactionRequest,
         substrate_provider: SubstrateProviders,
     ) -> StaticFuture<Result<TxHash>> {
-        let submission_mutex = tx
-            .from
-            .map(|addr| self.submission_locks.entry(addr).or_default().clone());
-        let submission_semaphore = self.substrate_submission_semaphore.clone();
         self.send_transaction_internal(tx, |tx| async move {
-            let _guard = match submission_mutex {
-                Some(mutex) => Some(mutex.lock_owned().await),
-                None => None,
-            };
-            let _permit = match submission_semaphore {
-                Some(semaphore) => Some(
-                    semaphore
-                        .acquire_owned()
-                        .await
-                        .context("Failed to acquire permit"),
-                ),
-                None => None,
-            };
-
             let ethereum_tx_hash = *tx.tx_hash();
             let payload = tx.encoded_2718();
             let call = revive_metadata::tx()
@@ -245,12 +227,10 @@ impl NodeConnector {
                 .create_unsigned(&call)
                 .context("Failed to create substrate transaction")?;
             let substrate_hash = substrate_transaction.hash();
+            tracing::Span::current()
+                .record("substrate_tx_hash", tracing::field::debug(substrate_hash));
 
-            debug!(
-                evm_hash = %ethereum_tx_hash,
-                substrate_hash = ?substrate_hash,
-                "Create a substrate transaction, but didn't yet submit it"
-            );
+            debug!("Substrate transaction created; submitting");
 
             let submitter = LegacyRpcMethods::<PolkadotConfig>::new(
                 substrate_provider.submission_rpc().item().clone(),
@@ -266,12 +246,7 @@ impl NodeConnector {
                 }
                 Err(error) => return Err(error).context("Failed to submit transaction"),
             }
-
-            info!(
-                evm_hash = %ethereum_tx_hash,
-                ?substrate_hash,
-                "Submitted a substrate transaction"
-            );
+            debug!("Transaction submitted");
 
             Ok(ethereum_tx_hash)
         })
@@ -282,26 +257,8 @@ impl NodeConnector {
         tx: TransactionRequest,
         substrate_provider: SubstrateProviders,
     ) -> StaticFuture<Result<TxHash>> {
-        let submission_mutex = tx
-            .from
-            .map(|addr| self.submission_locks.entry(addr).or_default().clone());
-        let submission_semaphore = self.substrate_submission_semaphore.clone();
         let indexed_transactions = self.indexed_transactions.clone();
         self.send_transaction_internal(tx, |tx| async move {
-            let _guard = match submission_mutex {
-                Some(mutex) => Some(mutex.lock_owned().await),
-                None => None,
-            };
-            let _permit = match submission_semaphore {
-                Some(semaphore) => Some(
-                    semaphore
-                        .acquire_owned()
-                        .await
-                        .context("Failed to acquire permit"),
-                ),
-                None => None,
-            };
-
             let ethereum_tx_hash = *tx.tx_hash();
             let payload = tx.encoded_2718();
             let call = revive_metadata::tx()
@@ -313,13 +270,12 @@ impl NodeConnector {
                 .create_unsigned(&call)
                 .context("Failed to create substrate transaction")?;
             let substrate_tx_hash = substrate_transaction.hash();
-
-            debug!(
-                evm_hash = %ethereum_tx_hash,
-                substrate_hash = ?substrate_tx_hash,
-                "Create a substrate transaction, but didn't yet submit it"
+            tracing::Span::current().record(
+                "substrate_tx_hash",
+                tracing::field::debug(substrate_tx_hash),
             );
 
+            debug!("Substrate transaction created; submitting");
             let submitter = LegacyRpcMethods::<PolkadotConfig>::new(
                 substrate_provider.submission_rpc().item().clone(),
             );
@@ -334,6 +290,7 @@ impl NodeConnector {
                 }
                 Err(error) => return Err(error).context("Failed to submit transaction"),
             }
+            debug!("Transaction submitted");
             // Await validation & inclusion
             let _ = indexed_transactions
                 .get(ethereum_tx_hash)
@@ -345,12 +302,16 @@ impl NodeConnector {
                 })
                 .with_heartbeat(Duration::from_secs(30), |duration| {
                     warn!(
-                        evm_hash = %ethereum_tx_hash,
+                        substrate_hash = ?substrate_tx_hash,
                         duration = duration.as_millis(),
                         "Been waiting for the receipt for 30 seconds"
-                    )
+                    );
+                    if duration.as_secs() >= 5 * 60 {
+                        panic!("DEBUGGING PANIC; WE'VE BEEN WAITING FOR THE RECEIPT FOR MORE THAN 5 MINUTES");
+                    }
                 })
                 .await;
+            debug!("Submission receipt obtained");
 
             Ok(ethereum_tx_hash)
         })
@@ -366,11 +327,18 @@ impl NodeConnector {
         Fut: Future<Output = Result<TxHash>> + Send + 'static,
     {
         let mempool_limiter = self.mempool_limiter.clone();
+        let account_lock_mutex = self
+            .substrate_providers
+            .as_ref()
+            .and(tx.from)
+            .map(|addr| self.submission_locks.entry(addr).or_default().clone());
+        let submission_limiter_semaphore = self
+            .substrate_providers
+            .as_ref()
+            .and_then(|_| self.substrate_submission_semaphore.clone());
+
         let prepared_transaction = self.prepare_transaction(tx);
         Box::pin(async move {
-            let envelope = prepared_transaction
-                .await
-                .context("Transaction preparation failed")?;
             let mempool_permit = match mempool_limiter.as_ref() {
                 Some(mempool_limiter) => Some(
                     mempool_limiter
@@ -378,11 +346,53 @@ impl NodeConnector {
                         .clone()
                         .acquire_owned()
                         .await
-                        .context("Failed to acquire the mempool permit")?,
+                        .expect("poisoned"),
                 ),
                 None => None,
             };
+            let _account_locker_guard = match account_lock_mutex {
+                Some(mutex) => Some(
+                    mutex
+                        .lock_owned()
+                        .with_heartbeat(Duration::from_secs(30), |duration| {
+                            warn!(
+                                duration = duration.as_millis(),
+                                "Been waiting to acquire account submission Mutex for \
+                                longer than 30 seconds"
+                            )
+                        })
+                        .await,
+                ),
+                None => None,
+            };
+            let _submission_permit = match submission_limiter_semaphore {
+                Some(semaphore) => Some(
+                    semaphore
+                        .acquire_owned()
+                        .with_heartbeat(Duration::from_secs(30), |duration| {
+                            warn!(
+                                duration = duration.as_millis(),
+                                "Been waiting for a submission permit for longer than 30 seconds"
+                            )
+                        })
+                        .await
+                        .expect("poisoned"),
+                ),
+                None => None,
+            };
+
+            let envelope = prepared_transaction
+                .await
+                .context("Transaction preparation failed")?;
+            let span = info_span!(
+                "Submitting transaction",
+                evm_tx_hash = %envelope.tx_hash(),
+                substrate_tx_hash = tracing::field::Empty,
+                from = %envelope.recover_signer().expect("qed; signature is correct"),
+                nonce = envelope.nonce()
+            );
             let tx_hash = submission_future(envelope)
+                .instrument(span)
                 .await
                 .context("Transaction submission failed")?;
             if let (Some(mempool_limiter), Some(mempool_permit)) =

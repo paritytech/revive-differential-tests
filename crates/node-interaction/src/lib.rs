@@ -105,7 +105,7 @@ pub(crate) mod internal_prelude {
     };
     pub use tokio_stream::wrappers::BroadcastStream;
     pub use tower::{Layer, Service};
-    pub use tracing::{Instrument, debug, debug_span, error, info, trace, warn};
+    pub use tracing::{Instrument, debug, debug_span, error, info_span, trace, warn};
 }
 
 #[subxt::subxt(
