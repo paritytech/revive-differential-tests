@@ -22,7 +22,7 @@ pub(crate) mod internal_prelude {
     pub use crate::subxt_provider::*;
 
     pub use std::borrow::Cow;
-    pub use std::collections::HashMap;
+    pub use std::collections::{HashMap, hash_map::Entry};
     pub use std::future::{Future, ready};
     pub use std::ops::{ControlFlow, Deref};
     pub use std::result::Result as StdResult;
@@ -30,7 +30,7 @@ pub(crate) mod internal_prelude {
     pub use std::time::{Duration, SystemTime};
 
     pub use alloy::consensus::{
-        BlockHeader, Receipt, ReceiptEnvelope, Transaction, TxEip4844Variant,
+        BlockHeader, Receipt, ReceiptEnvelope, Transaction, TxEip4844Variant, TxEnvelope,
         transaction::SignerRecoverable,
     };
     pub use alloy::eips::{BlockId, Decodable2718, Encodable2718};
@@ -63,17 +63,18 @@ pub(crate) mod internal_prelude {
     pub use futures::{FutureExt, StreamExt, TryFutureExt, TryStreamExt};
     pub use pallet_revive::{
         EthTransactError, H256, Weight,
-        codec::{Decode, Encode},
         evm::{TracerConfig, TracerType},
     };
+    pub use parity_scale_codec::{Compact, Decode, Encode};
     pub use revive_common::EVMVersion;
     pub use revive_dt_common::futures::{
-        AsyncHashMap, StaticFuture, StaticStream, retry_future_with_exponential_backoff,
+        AsyncHashMap, HeartbeatExt, StaticFuture, StaticStream, TimedExt,
+        retry_future_with_exponential_backoff,
     };
     pub use serde_json;
     pub use sp_runtime::{
         OpaqueExtrinsic,
-        generic::{Block as GenericBlock, Header as GenericHeader},
+        generic::{Block as GenericBlock, DigestItem, Header as GenericHeader},
         traits::BlakeTwo256,
     };
     pub use subxt::{
@@ -89,7 +90,7 @@ pub(crate) mod internal_prelude {
         },
         tx::Payload,
     };
-    pub use tokio::sync::Mutex;
+    pub use tokio::sync::{Mutex, OwnedSemaphorePermit, mpsc};
     pub use tokio::task::AbortHandle;
     pub use tokio::time::{MissedTickBehavior, interval, sleep, timeout};
     pub use tokio::{
@@ -105,7 +106,7 @@ pub(crate) mod internal_prelude {
     };
     pub use tokio_stream::wrappers::BroadcastStream;
     pub use tower::{Layer, Service};
-    pub use tracing::{Instrument, debug, debug_span, error, info, warn};
+    pub use tracing::{Instrument, debug, debug_span, error, info, trace, warn};
 }
 
 #[subxt::subxt(

@@ -271,6 +271,7 @@ impl Watcher {
                             block_hash: substrate_block.block_hash,
                             pre_dispatch_ref_time: block_pre_dispatch_weight.ref_time() as _,
                             pre_dispatch_proof_size: block_pre_dispatch_weight.proof_size() as _,
+                            is_last_block_in_slot: substrate_block.is_last_block_in_slot,
                         });
                 }
                 reporter

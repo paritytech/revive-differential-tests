@@ -8740,6 +8740,7 @@ dependencies = [
  "dashmap",
  "futures",
  "pallet-revive",
+ "parity-scale-codec",
  "revive-common",
  "revive-dt-common",
  "serde_json",

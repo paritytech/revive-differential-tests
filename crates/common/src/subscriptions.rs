@@ -55,6 +55,7 @@ pub struct SubstrateMinedBlockInformation {
     pub pre_dispatch_ref_time: u128,
     #[serde(default)]
     pub pre_dispatch_proof_size: u128,
+    pub is_last_block_in_slot: bool,
 }
 
 impl SubstrateMinedBlockInformation {

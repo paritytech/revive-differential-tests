@@ -1,10 +1,3 @@
-use std::collections::hash_map::Entry;
-
-use alloy::consensus::TxEnvelope;
-use revive_dt_common::futures::{HeartbeatExt, TimedExt};
-use tokio::sync::{OwnedSemaphorePermit, mpsc};
-use tracing::trace;
-
 use crate::internal_prelude::*;
 
 type AlloyProvider = FillProvider<
@@ -1154,6 +1147,7 @@ impl NodeConnector {
             &mut online_block.header().encode().as_slice(),
         )
         .context("Failed to decode the substrate block header into the runtime header type")?;
+        let is_last_block_in_slot = Self::is_last_block_in_slot(&header);
         let runtime_extrinsics = extrinsics
             .iter()
             .map(|extrinsic| {
@@ -1190,9 +1184,43 @@ impl NodeConnector {
             block_hash: online_block.hash().0,
             consumed_weight,
             limits: limits.context("No substrate block limits available")?,
+            is_last_block_in_slot,
             online_block,
             eth_transactions,
         })
+    }
+
+    fn is_last_block_in_slot(header: &GenericHeader<u32, BlakeTwo256>) -> bool {
+        const CUMULUS_CONSENSUS_ID: [u8; 4] = *b"CMLS";
+
+        let mut core_info = None;
+        let mut block_bundle_info = None;
+
+        for digest in header.digest.logs() {
+            let DigestItem::PreRuntime(consensus_id, payload) = digest else {
+                continue;
+            };
+            if consensus_id != &CUMULUS_CONSENSUS_ID {
+                continue;
+            }
+
+            let decoded = CumulusPreRuntimeDigestItem::decode(&mut payload.as_slice())
+                .expect("Failed to decode the Cumulus pre-runtime digest item");
+            match decoded {
+                CumulusPreRuntimeDigestItem::CoreInfo(decoded_core_info) => {
+                    core_info = Some(decoded_core_info);
+                }
+                CumulusPreRuntimeDigestItem::BlockBundleInfo(decoded_block_bundle_info) => {
+                    block_bundle_info = Some(decoded_block_bundle_info);
+                }
+            }
+        }
+
+        let core_info = core_info.expect("Failed to decode the Cumulus CoreInfo digest item");
+        let block_bundle_info =
+            block_bundle_info.expect("Failed to decode the Cumulus BlockBundleInfo digest item");
+
+        block_bundle_info.is_last && core_info.is_last_core()
     }
 
     fn substrate_block_limits(
@@ -1905,8 +1933,36 @@ pub struct SubstrateBlockInformation {
     pub block_hash: [u8; 32],
     pub consumed_weight: Weight,
     pub limits: Weight,
+    pub is_last_block_in_slot: bool,
     pub eth_transactions: Vec<EthTransactionExtrinsic>,
     online_block: Arc<OnlineSubxtBlock>,
+}
+
+#[derive(Clone, Copy, Debug, Decode, PartialEq, Eq)]
+enum CumulusPreRuntimeDigestItem {
+    #[codec(index = 1)]
+    CoreInfo(CumulusCoreInfo),
+    #[codec(index = 2)]
+    BlockBundleInfo(CumulusBlockBundleInfo),
+}
+
+#[derive(Clone, Copy, Debug, Decode, PartialEq, Eq)]
+struct CumulusCoreInfo {
+    selector: u8,
+    _claim_queue_offset: u8,
+    number_of_cores: Compact<u16>,
+}
+
+impl CumulusCoreInfo {
+    fn is_last_core(&self) -> bool {
+        u16::from(self.selector) + 1 == self.number_of_cores.0
+    }
+}
+
+#[derive(Clone, Copy, Debug, Decode, PartialEq, Eq)]
+struct CumulusBlockBundleInfo {
+    _index: u8,
+    is_last: bool,
 }
 
 #[derive(Clone)]
