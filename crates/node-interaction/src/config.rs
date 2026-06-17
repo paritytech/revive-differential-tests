@@ -98,7 +98,6 @@ impl SubstrateProviderConfiguration {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 pub struct EthProviderConfiguration {
     pub retry_configuration: Option<RetryConfiguration>,
-    pub batching_configuration: Option<BatchingConfiguration>,
     pub concurrency_configuration: Option<ProviderConcurrencyConfiguration>,
     pub global_concurrency_configuration: Option<ProviderConcurrencyConfiguration>,
 }
@@ -107,7 +106,6 @@ impl EthProviderConfiguration {
     pub fn resolve(self, other: Self) -> Self {
         Self {
             retry_configuration: self.retry_configuration.or(other.retry_configuration),
-            batching_configuration: self.batching_configuration.or(other.batching_configuration),
             concurrency_configuration: self
                 .concurrency_configuration
                 .or(other.concurrency_configuration),
@@ -125,15 +123,6 @@ pub enum RetryConfiguration {
         polling_duration: Duration,
         initial_backoff: Duration,
         max_backoff: Duration,
-    },
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum BatchingConfiguration {
-    Disabled,
-    Enabled {
-        max_batch_size: usize,
-        batching_duration: Duration,
     },
 }
 

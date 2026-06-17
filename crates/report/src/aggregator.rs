@@ -1261,6 +1261,7 @@ mod tests {
             block_hash: [0u8; 32],
             pre_dispatch_ref_time: 0,
             pre_dispatch_proof_size: 0,
+            is_last_block_in_slot: false,
         };
         let blocks = vec![
             make_block(
@@ -1403,6 +1404,7 @@ mod tests {
             block_hash: [0u8; 32],
             pre_dispatch_ref_time: 4000,
             pre_dispatch_proof_size: 2000,
+            is_last_block_in_slot: false,
         };
         let blocks = vec![make_block(
             1,

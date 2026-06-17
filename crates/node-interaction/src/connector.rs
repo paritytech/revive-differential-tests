@@ -1826,7 +1826,6 @@ impl Layer<BoxTransport> for ConfiguredTransportLayers {
     fn layer(&self, transport: BoxTransport) -> Self::Service {
         let transport = handle_concurrency_config(transport, &self.config);
         let transport = handle_global_concurrency_config(transport, &self.config);
-        let transport = handle_batching_config(transport, &self.config);
         handle_retry_config(transport, &self.config)
     }
 }
@@ -1872,27 +1871,6 @@ fn handle_global_concurrency_config(
         .or_insert_with(|| ConcurrencyLimiterLayer::new(permits))
         .clone();
     layer.layer(transport).boxed()
-}
-
-fn handle_batching_config(
-    transport: BoxTransport,
-    config: &NodeConnectorConfiguration,
-) -> BoxTransport {
-    let config = config
-        .eth_provider_configuration
-        .as_ref()
-        .and_then(|config| config.batching_configuration.as_ref());
-    match config {
-        Some(BatchingConfiguration::Disabled) | None => transport,
-        Some(BatchingConfiguration::Enabled {
-            max_batch_size,
-            batching_duration,
-        }) => BatchingLayer::new()
-            .with_max_batch_size(*max_batch_size)
-            .with_batching_duration(*batching_duration)
-            .layer(transport)
-            .as_boxed(),
-    }
 }
 
 fn handle_retry_config(
