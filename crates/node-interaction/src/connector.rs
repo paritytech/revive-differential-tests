@@ -19,14 +19,13 @@ pub struct NodeConnector {
     substrate_providers: Option<SubstrateProviders>,
     config: NodeConnectorConfiguration,
     /* State */
-    latest_block: Arc<RwLock<Option<BlockPair>>>,
+    latest_observed_block_number: Arc<RwLock<u64>>,
     block_broadcast: BroadcastSender<BlockPair>,
     blocks_by_number: AsyncHashMap<u64, BlockPair>,
     indexed_transactions: AsyncHashMap<TxHash, IndexedTransactionInformation>,
     tx_hash_to_receipt_mapping: AsyncHashMap<TxHash, Arc<TransactionReceipt>>,
     block_hashes_to_receipt_mapping: AsyncHashMap<BlockHash, Vec<Arc<TransactionReceipt>>>,
     filled_transactions: Arc<DashMap<TxHash, TxEnvelope>>,
-    _eth_rpc_latest_block_number_tx: WatchSender<u64>,
     /* Locks & Gates */
     submission_locks: DashMap<Address, Arc<Mutex<()>>>,
     substrate_submission_semaphore: Option<Arc<Semaphore>>,
@@ -78,9 +77,11 @@ impl NodeConnector {
 
             let mempool_limiter = substrate_providers.clone().map(Self::start_mempool_limiter);
 
+            let latest_observed_block_number = Arc::new(RwLock::new(0));
             let unresolved_blocks_broadcast_tx = Self::start_unresolved_blocks_broadcaster(
                 eth_providers.clone(),
                 substrate_providers.clone(),
+                latest_observed_block_number.clone(),
                 &config,
             );
             let blocks_broadcast_tx = Self::start_resolved_blocks_broadcaster(
@@ -92,8 +93,6 @@ impl NodeConnector {
                 blocks_broadcast_tx.subscribe(),
                 indexed_transactions.clone(),
             );
-            let latest_block = Arc::new(RwLock::new(None));
-            Self::start_latest_block_updater(latest_block.clone(), blocks_broadcast_tx.subscribe());
             let blocks_by_number = AsyncHashMap::new();
             Self::start_block_by_number_indexer(
                 blocks_by_number.clone(),
@@ -109,16 +108,10 @@ impl NodeConnector {
                 block_hashes_to_receipt_mapping.clone(),
             );
 
-            let eth_rpc_latest_block_number_tx =
-                Self::start_eth_rpc_latest_block_number(eth_providers.clone())
-                    .await
-                    .context("Failed to start the eth-rpc latest block number poller")?;
-
             Ok(Self {
                 eth_providers,
                 substrate_providers,
                 config,
-                latest_block,
                 block_broadcast: blocks_broadcast_tx,
                 blocks_by_number,
                 indexed_transactions,
@@ -126,10 +119,10 @@ impl NodeConnector {
                 tx_hash_to_receipt_mapping,
                 block_hashes_to_receipt_mapping,
                 filled_transactions: Arc::new(DashMap::new()),
-                _eth_rpc_latest_block_number_tx: eth_rpc_latest_block_number_tx,
                 substrate_submission_semaphore,
                 mempool_limiter,
                 node: Box::new(node),
+                latest_observed_block_number,
             })
         })
     }
@@ -537,25 +530,16 @@ impl NodeConnector {
     ) -> StaticFuture<Result<u64>> {
         let provider = substrate_provider.clone();
         let available_methods = substrate_provider.available_estimation_methods();
-        let latest_block = self.latest_block.clone();
+        let latest_block = self.latest_block();
 
         Box::pin(async move {
-            let runtime_api = match latest_block.read().await.as_ref() {
-                Some(latest_block) => {
-                    let block_hash = latest_block
-                        .substrate_block
-                        .as_ref()
-                        .expect("qed; this is substrate connector")
-                        .online_block
-                        .hash();
-                    provider.runtime_api().at(block_hash)
-                }
-                None => provider
-                    .runtime_api()
-                    .at_latest()
-                    .await
-                    .context("Failed to get the runtime API at the latest finalized block")?,
-            };
+            let runtime_api = provider.runtime_api().at(latest_block
+                .await?
+                .substrate_block
+                .as_ref()
+                .expect("qed; this is a substrate node")
+                .online_block
+                .hash());
             let tx = transaction_request_to_revive_transaction(tx)?;
 
             if available_methods.estimate_gas {
@@ -775,22 +759,16 @@ impl NodeConnector {
         provider: &SingleOrPool<OnlineClient<PolkadotConfig>>,
     ) -> StaticFuture<Result<U256>> {
         let provider = provider.clone();
-        let latest_block = self.latest_block.clone();
+        let latest_block = self.latest_block();
 
         Box::pin(async move {
-            let runtime_api = match latest_block.read().await.as_ref() {
-                Some(latest_block) => provider.runtime_api().at(latest_block
-                    .substrate_block
-                    .as_ref()
-                    .expect("qed; this is a substrate node")
-                    .online_block
-                    .hash()),
-                None => provider
-                    .runtime_api()
-                    .at_latest()
-                    .await
-                    .context("Failed to get the runtime API at the latest finalized block")?,
-            };
+            let runtime_api = provider.runtime_api().at(latest_block
+                .await?
+                .substrate_block
+                .as_ref()
+                .expect("qed; this is a substrate node")
+                .online_block
+                .hash());
             let payload = revive_metadata::apis()
                 .revive_api()
                 .balance(pallet_revive::H160(address.0.0).into())
@@ -814,19 +792,13 @@ impl NodeConnector {
     }
 
     pub fn latest_block(&self) -> StaticFuture<Result<BlockPair>> {
-        let mut blocks = self.block_broadcast.subscribe();
-        let latest_block = self.latest_block.clone();
-
-        Box::pin(async move {
-            if let Some(block) = latest_block.read().await.as_ref() {
-                return Ok(block.clone());
-            }
-
-            blocks
-                .recv()
-                .await
-                .context("Failed to receive the latest block")
-        })
+        let blocks_by_number = self.blocks_by_number.clone();
+        self.latest_observed_block_number
+            .clone()
+            .read_owned()
+            .then(move |block_number| blocks_by_number.clone().get(*block_number))
+            .map(Ok)
+            .boxed()
     }
 
     pub fn pre_dispatch_weights(
@@ -951,14 +923,22 @@ impl NodeConnector {
     fn start_unresolved_blocks_broadcaster(
         provider: SingleOrPool<AlloyProvider>,
         substrate_provider: Option<SubstrateProviders>,
+        latest_observed_block_number: Arc<RwLock<u64>>,
         config: &NodeConnectorConfiguration,
     ) -> BroadcastSender<UnresolvedBlockPair> {
         let (tx, _) = broadcast_channel::<UnresolvedBlockPair>(2048);
         let task = match substrate_provider {
-            Some(provider) => {
-                Self::start_unresolved_blocks_broadcaster_substrate(provider, tx.clone(), config)
-            }
-            None => Self::start_unresolved_blocks_broadcaster_evm(provider, tx.clone()),
+            Some(provider) => Self::start_unresolved_blocks_broadcaster_substrate(
+                provider,
+                tx.clone(),
+                latest_observed_block_number,
+                config,
+            ),
+            None => Self::start_unresolved_blocks_broadcaster_evm(
+                provider,
+                latest_observed_block_number,
+                tx.clone(),
+            ),
         };
         spawn(task);
         tx
@@ -966,6 +946,7 @@ impl NodeConnector {
 
     fn start_unresolved_blocks_broadcaster_evm(
         provider: SingleOrPool<AlloyProvider>,
+        latest_observed_block_number: Arc<RwLock<u64>>,
         tx: BroadcastSender<UnresolvedBlockPair>,
     ) -> StaticFuture<Result<()>> {
         Box::pin(async move {
@@ -981,6 +962,10 @@ impl NodeConnector {
                         evm_block: Arc::new(block),
                         substrate_block: None,
                     };
+                    let mut latest_observed_block_number =
+                        latest_observed_block_number.write().await;
+                    *latest_observed_block_number =
+                        latest_observed_block_number.max(block_pair.evm_block.number());
                     let _ = tx.send(block_pair);
                 }
 
@@ -992,6 +977,7 @@ impl NodeConnector {
     fn start_unresolved_blocks_broadcaster_substrate(
         provider: SubstrateProviders,
         tx: BroadcastSender<UnresolvedBlockPair>,
+        latest_observed_block_number: Arc<RwLock<u64>>,
         config: &NodeConnectorConfiguration,
     ) -> StaticFuture<Result<()>> {
         let block_observation_times =
@@ -1143,6 +1129,10 @@ impl NodeConnector {
                             evm_block: Arc::new(evm_block),
                             substrate_block: Some(Arc::new(substrate_block)),
                         };
+                        let mut latest_observed_block_number =
+                            latest_observed_block_number.write().await;
+                        *latest_observed_block_number =
+                            latest_observed_block_number.max(block_pair.evm_block.number());
                         let _ = tx.send(block_pair);
                     }
 
@@ -1415,23 +1405,6 @@ impl NodeConnector {
         });
     }
 
-    fn start_latest_block_updater(
-        field: Arc<RwLock<Option<BlockPair>>>,
-        mut rx: BroadcastReceiver<BlockPair>,
-    ) {
-        spawn(async move {
-            while let Ok(block) = rx.recv().await {
-                let mut latest_block = field.write().await;
-                let set = latest_block.as_ref().is_none_or(|latest_block| {
-                    latest_block.evm_block.number() < block.evm_block.number()
-                });
-                if set {
-                    *latest_block = Some(block)
-                }
-            }
-        });
-    }
-
     fn start_block_by_number_indexer(
         map: AsyncHashMap<u64, BlockPair>,
         mut rx: BroadcastReceiver<BlockPair>,
@@ -1652,38 +1625,6 @@ impl NodeConnector {
             to: receiver.into(),
             contract_address: created_contract_address,
         })
-    }
-
-    async fn start_eth_rpc_latest_block_number(
-        provider: SingleOrPool<AlloyProvider>,
-    ) -> Result<WatchSender<u64>> {
-        let initial_block_number = provider
-            .get_block_number()
-            .await
-            .context("Failed to get the initial block number from the eth-rpc")?;
-        let (tx, _) = watch_channel(initial_block_number);
-        tokio::spawn({
-            let tx = tx.clone();
-            async move {
-                let mut interval = interval(Duration::from_millis(500));
-                interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
-
-                loop {
-                    interval.tick().await;
-                    let Ok(block_number) = provider.get_block_number().await else {
-                        warn!("Failed to get block number from the eth-rpc");
-                        continue;
-                    };
-
-                    tx.send_if_modified(|last_observed| {
-                        let changed = *last_observed != block_number;
-                        *last_observed = block_number;
-                        changed
-                    });
-                }
-            }
-        });
-        Ok(tx)
     }
 
     fn start_mempool_limiter(provider: SubstrateProviders) -> MempoolLimiter {
