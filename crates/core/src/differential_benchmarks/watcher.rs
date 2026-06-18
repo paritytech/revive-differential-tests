@@ -172,12 +172,22 @@ impl Watcher {
                 .iter()
                 .map(|block| block.block.evm_block.hash())
                 .collect::<Vec<_>>();
+            let total_blocks = block_hashes.len();
+            let blocks_with_receipts = Arc::new(AtomicUsize::new(0));
             let receipts = stream::iter(block_hashes)
                 .map(|block_hash| {
                     info!(?block_hash, "Getting block receipts");
+                    let blocks_with_receipts = blocks_with_receipts.clone();
                     connector
                         .get_block_receipts(block_hash)
-                        .inspect(move |_| info!(?block_hash, "Got the block receipts"))
+                        .inspect(move |_| {
+                            let done = blocks_with_receipts.fetch_add(1, Ordering::Relaxed) + 1;
+                            info!(
+                                ?block_hash,
+                                progress = %format_args!("{done}/{total_blocks}"),
+                                "Got the block receipts"
+                            )
+                        })
                         .map(stream::iter)
                 })
                 .buffered(100)
