@@ -213,14 +213,14 @@ impl<'a, 'b> NodeProcessBuilder<'a, 'b> {
                                     "Encountered an error while reading process file"
                                 );
                             }
-                            None => {}
+                            None => {
+                                std::thread::sleep(Duration::from_millis(500));
+                            }
                         };
                         if start.elapsed() >= wait_for_startup_sentinel.timeout {
                             break Err(anyhow::anyhow!(
                                 "Timed out while waiting for process to start"
                             ));
-                        } else {
-                            std::thread::sleep(Duration::from_millis(500));
                         }
                     };
                     let _ = tx.send(rtn);
