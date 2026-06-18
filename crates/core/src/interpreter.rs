@@ -283,7 +283,6 @@ impl<'a> Interpreter<'a> {
                 deployed_libraries,
                 self.platform_information.compiler.as_ref(),
                 self.platform_information.platform.compiler_identifier(),
-                Some(self.platform_information.platform.platform_identifier()),
                 &CompilationReporter::Execution(&self.platform_information.reporter),
             )
             .await

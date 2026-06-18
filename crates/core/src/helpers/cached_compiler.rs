@@ -39,7 +39,6 @@ impl<'a> CachedCompiler<'a> {
         deployed_libraries: Option<&HashMap<ContractInstance, (ContractIdent, Address, JsonAbi)>>,
         compiler: &dyn SolidityCompiler,
         compiler_identifier: CompilerIdentifier,
-        _platform_identifier: Option<PlatformIdentifier>,
         reporter: &CompilationReporter<'_>,
     ) -> Result<CompilerOutput> {
         let cache_key = CacheKey {

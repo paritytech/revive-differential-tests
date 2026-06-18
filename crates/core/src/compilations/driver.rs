@@ -26,7 +26,6 @@ impl<'a> Driver<'a> {
                 Some(&dummy_deployed_libraries),
                 self.compilation_definition.compiler.as_ref(),
                 self.compilation_definition.compiler_identifier,
-                None,
                 &CompilationReporter::PostLink(&self.compilation_definition.reporter),
             )
             .await
