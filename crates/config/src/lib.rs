@@ -411,15 +411,6 @@ mod context {
         /// The logging configuration to pass to the binary when it's being started.
         #[clap(default_value = "error,evm=debug,sc_rpc_server=info,runtime::revive=debug")]
         pub logging_level: String,
-
-        /// Specifies the connection string of an existing node that's not managed by the
-        /// framework.
-        ///
-        /// If this argument is specified then the framework will not spawn certain nodes itself
-        /// but rather it will opt to using the existing node's through their provided connection
-        /// strings.
-        // TODO(existing-nodes): Refactor this out since we no longer allow for it.
-        pub existing_rpc_url: Vec<String>,
     }
 
     /// A set of configuration parameters for the polkadot-omni-node.

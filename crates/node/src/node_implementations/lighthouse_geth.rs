@@ -102,7 +102,6 @@ impl LighthouseGethNode {
         Ok(())
     }
 
-    // TODO(no-genesis-export): Remove
     pub fn node_genesis(genesis: Genesis, _: &EthereumWallet) -> Genesis {
         genesis
     }

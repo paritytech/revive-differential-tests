@@ -63,7 +63,6 @@ impl GethNode {
         })
     }
 
-    // TODO(no-genesis-export): Remove this function
     pub fn node_genesis(genesis: Genesis, _: &EthereumWallet) -> Genesis {
         genesis
     }
