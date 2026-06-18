@@ -235,6 +235,7 @@ jobs:
         platform:
           - zombienet-revm-solc
           - zombienet-polkavm-resolc
+          - lighthouse-geth-evm-solc
     steps:
       - name: Checkout This Repository
         uses: actions/checkout@v4
