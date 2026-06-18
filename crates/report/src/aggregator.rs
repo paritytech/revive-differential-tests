@@ -25,9 +25,7 @@ impl ReportAggregator {
                 Context::Test(ref context) => context.report.file_name.clone(),
                 Context::Benchmark(ref context) => context.report.file_name.clone(),
                 Context::Compile(ref context) => context.report.file_name.clone(),
-                Context::ExportJsonSchema(_)
-                | Context::ExportGenesis(..)
-                | Context::ExportTestSpecifiers(..) => None,
+                Context::ExportJsonSchema(_) | Context::ExportTestSpecifiers(..) => None,
             },
             report: Report::new(context),
             remaining_cases: Default::default(),

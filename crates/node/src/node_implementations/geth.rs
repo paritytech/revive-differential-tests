@@ -1,5 +1,10 @@
 use crate::internal_prelude::*;
 
+static DEFAULT_GENESIS: LazyLock<Genesis> = LazyLock::new(|| {
+    static GENESIS: &str = include_str!("../../../../assets/dev-genesis.json");
+    serde_json::from_str(GENESIS).expect("qed; genesis is valid JSON")
+});
+
 #[derive(Debug)]
 pub struct GethNode {
     id: usize,
@@ -12,11 +17,9 @@ impl GethNode {
         context: impl HasWorkingDirectoryConfiguration
         + HasWalletConfiguration
         + HasGethConfiguration
-        + HasGenesisConfiguration
         + Clone,
     ) -> Result<Self> {
         let workdir_config = context.as_working_directory_configuration();
-        let genesis_config = context.as_genesis_configuration();
         let wallet_config = context.as_wallet_configuration();
         let geth_config = context.as_geth_configuration();
 
@@ -28,10 +31,7 @@ impl GethNode {
         let genesis_path = directories.base_directory().join("genesis.json");
 
         let wallet = wallet_config.wallet();
-        let mut genesis = genesis_config
-            .genesis()
-            .context("Failed to get genesis for geth")?
-            .clone();
+        let mut genesis = DEFAULT_GENESIS.clone();
         for signer_address in NetworkWallet::<Ethereum>::signer_addresses(&wallet) {
             genesis
                 .alloc

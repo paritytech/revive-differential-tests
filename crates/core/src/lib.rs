@@ -22,7 +22,6 @@ pub(crate) mod internal_prelude {
     pub use std::thread::{self, JoinHandle};
 
     pub use anyhow::{Context as _, Result};
-    pub use serde_json;
 }
 
 use crate::internal_prelude::*;
@@ -85,26 +84,6 @@ pub trait Platform {
         match self.compiler_identifier() {
             CompilerIdentifier::Solc => new_solc_compiler(context, version),
             CompilerIdentifier::Resolc => new_resolc_compiler(context, version),
-        }
-    }
-
-    /// Exports the genesis/chainspec for the node.
-    fn export_genesis(&self, context: Context) -> Result<serde_json::Value> {
-        match self.node_identifier() {
-            NodeIdentifier::Geth => export_geth_genesis(context),
-            NodeIdentifier::LighthouseGeth => export_lighthouse_geth_genesis(context),
-            NodeIdentifier::ReviveDevNode => export_revive_dev_node_genesis(context),
-            NodeIdentifier::Zombienet => {
-                #[cfg(unix)]
-                {
-                    export_zombienet_genesis(context)
-                }
-                #[cfg(not(unix))]
-                {
-                    anyhow::bail!("Zombienet is not supported on this platform")
-                }
-            }
-            NodeIdentifier::PolkadotOmniNode => export_polkadot_omni_node_genesis(context),
         }
     }
 
@@ -424,43 +403,4 @@ fn new_resolc_compiler(
         let compiler = Resolc::new(context, version).await;
         compiler.map(|compiler| Box::new(compiler) as _)
     })
-}
-
-fn export_geth_genesis(context: Context) -> Result<serde_json::Value> {
-    let genesis = context.as_genesis_configuration().genesis()?;
-    let wallet = context.as_wallet_configuration().wallet();
-    let node_genesis = GethNode::node_genesis(genesis.clone(), &wallet);
-    serde_json::to_value(node_genesis).context("Failed to convert node genesis to a serde_value")
-}
-
-fn export_lighthouse_geth_genesis(context: Context) -> Result<serde_json::Value> {
-    let genesis = context.as_genesis_configuration().genesis()?;
-    let wallet = context.as_wallet_configuration().wallet();
-    let node_genesis = LighthouseGethNode::node_genesis(genesis.clone(), &wallet);
-    serde_json::to_value(node_genesis).context("Failed to convert node genesis to a serde_value")
-}
-
-fn export_revive_dev_node_genesis(context: Context) -> Result<serde_json::Value> {
-    let revive_dev_node_path = context.as_revive_dev_node_configuration().path.as_path();
-    let wallet = context.as_wallet_configuration().wallet();
-    ReviveDevNode::chainspec(revive_dev_node_path, &wallet)
-}
-
-#[cfg(unix)]
-fn export_zombienet_genesis(context: Context) -> Result<serde_json::Value> {
-    let polkadot_parachain_path = context.as_polkadot_parachain_configuration().path.as_path();
-    let wallet = context.as_wallet_configuration().wallet();
-    ZombienetNode::node_genesis(polkadot_parachain_path, &wallet)
-}
-
-fn export_polkadot_omni_node_genesis(context: Context) -> Result<serde_json::Value> {
-    let config = context.as_polkadot_omnichain_node_configuration();
-    let wallet = context.as_wallet_configuration().wallet();
-    PolkadotOmnichainNode::chainspec(
-        &wallet,
-        config
-            .chain_spec_path
-            .as_ref()
-            .context("No WASM runtime path found in the polkadot-omni-node configuration")?,
-    )
 }

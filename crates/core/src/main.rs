@@ -213,15 +213,6 @@ fn main() -> anyhow::Result<()> {
 
                 Ok(())
             }),
-        Context::ExportGenesis(ref export_genesis_context) => {
-            let platform = Into::<&dyn Platform>::into(export_genesis_context.target.platform);
-            let genesis = platform.export_genesis(context)?;
-            let genesis_json = serde_json::to_string_pretty(&genesis)
-                .context("Failed to serialize the genesis to JSON")?;
-            println!("{genesis_json}");
-
-            Ok(())
-        }
         Context::ExportJsonSchema(_) => {
             let schema = schema_for!(Metadata);
             println!(
