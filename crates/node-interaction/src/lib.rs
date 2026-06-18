@@ -99,9 +99,8 @@ pub(crate) mod internal_prelude {
                 channel as broadcast_channel,
             },
             mpsc,
-            watch::{Sender as WatchSender, channel as watch_channel},
         },
-        time::{MissedTickBehavior, interval, sleep, timeout},
+        time::{sleep, timeout},
     };
     pub use tokio_stream::wrappers::BroadcastStream;
     pub use tower::{Layer, Service};
