@@ -23,6 +23,25 @@ concurrency:
 jobs:
   resolve-config:
     runs-on: ubuntu-24.04
+    # Checking that the same set of tests which fail in the polkadot-sdk repo also fail with the 
+    # latest version of retester is very hard for many different reasons. An example of it is that
+    # is a bug I fixed in a recent commit where specifying the `--base-path` to an older version of
+    # solc leads the compilation to fail. The polkadot-sdk treats these as expected failures, but
+    # the bug that was causing them has been fixed and therefore we no longer expect them to fail.
+    # 
+    # In addition to the above, divergences from the expectations in the polkadot-sdk can happen if
+    # we disable certain tests which we determine are impossible to succeed such as the tests which
+    # are failing with OOG when they're compiled without any optimizations. In that case, again, 
+    # the polkadot-sdk expectations expect that these tests are in the failure set when they no 
+    # longer are as they've been ignored.
+    # 
+    # An additional concern is that we can't just update the polkadot-sdk each time we update
+    # retester to ensure that the failure set matches as it makes the process of merging anything
+    # into retester much longer and makes it span across multiple repos just to get a simple "ignore
+    # this test PR" to be merged.
+    # 
+    # We need to discuss the best way for us to handle this and what would be a good approach to be
+    # notified of such divergences without it making the CI red.
     if: false
     outputs:
       image: ${{ steps.config.outputs.image }}
