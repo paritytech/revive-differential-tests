@@ -23,6 +23,7 @@ concurrency:
 jobs:
   resolve-config:
     runs-on: ubuntu-24.04
+    if: false
     outputs:
       image: ${{ steps.config.outputs.image }}
       resolc-version: ${{ steps.config.outputs.resolc-version }}
