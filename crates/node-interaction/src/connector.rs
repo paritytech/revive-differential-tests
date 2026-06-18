@@ -27,7 +27,6 @@ pub struct NodeConnector {
     block_hashes_to_receipt_mapping: AsyncHashMap<BlockHash, Vec<Arc<TransactionReceipt>>>,
     filled_transactions: Arc<DashMap<TxHash, TxEnvelope>>,
     /* Locks & Gates */
-    submission_locks: DashMap<Address, Arc<Mutex<()>>>,
     substrate_submission_semaphore: Option<Arc<Semaphore>>,
     mempool_limiter: Option<MempoolLimiter>,
     /* Auxiliary */
@@ -115,7 +114,6 @@ impl NodeConnector {
                 block_broadcast: blocks_broadcast_tx,
                 blocks_by_number,
                 indexed_transactions,
-                submission_locks: DashMap::new(),
                 tx_hash_to_receipt_mapping,
                 block_hashes_to_receipt_mapping,
                 filled_transactions: Arc::new(DashMap::new()),
@@ -305,9 +303,6 @@ impl NodeConnector {
                         duration = duration.as_millis(),
                         "Been waiting for the receipt for 30 seconds"
                     );
-                    if duration.as_secs() >= 2 * 60 {
-                        panic!("DEBUGGING PANIC; WE'VE BEEN WAITING FOR THE RECEIPT FOR MORE THAN 5 MINUTES");
-                    }
                 })
                 .await;
             debug!("Submission receipt obtained");
@@ -326,11 +321,6 @@ impl NodeConnector {
         Fut: Future<Output = Result<TxHash>> + Send + 'static,
     {
         let mempool_limiter = self.mempool_limiter.clone();
-        let account_lock_mutex = self
-            .substrate_providers
-            .as_ref()
-            .and(tx.from)
-            .map(|addr| self.submission_locks.entry(addr).or_default().clone());
         let submission_limiter_semaphore = self
             .substrate_providers
             .as_ref()
@@ -349,21 +339,6 @@ impl NodeConnector {
                 ),
                 None => None,
             };
-            // let _account_locker_guard = match account_lock_mutex {
-            //     Some(mutex) => Some(
-            //         mutex
-            //             .lock_owned()
-            //             .with_heartbeat(Duration::from_secs(30), |duration| {
-            //                 warn!(
-            //                     duration = duration.as_millis(),
-            //                     "Been waiting to acquire account submission Mutex for \
-            //                     longer than 30 seconds"
-            //                 )
-            //             })
-            //             .await,
-            //     ),
-            //     None => None,
-            // };
             let _submission_permit = match submission_limiter_semaphore {
                 Some(semaphore) => Some(
                     semaphore
