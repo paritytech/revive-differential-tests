@@ -229,7 +229,11 @@ impl SolidityCompiler for Solc {
                 .arg("--standard-json");
 
             if let Some(ref base_path) = base_path {
-                command.arg("--base-path").arg(base_path);
+                if this.compiler_supports_base_path() {
+                    command.arg("--base-path").arg(base_path);
+                } else {
+                    command.current_dir(base_path);
+                }
             }
             if !allow_paths.is_empty() {
                 command.arg("--allow-paths").arg(
@@ -335,5 +339,10 @@ impl Solc {
     fn compiler_supports_yul(&self) -> bool {
         const SOLC_VERSION_SUPPORTING_VIA_YUL_IR: Version = Version::new(0, 8, 13);
         SolidityCompiler::version(self) >= &SOLC_VERSION_SUPPORTING_VIA_YUL_IR
+    }
+
+    fn compiler_supports_base_path(&self) -> bool {
+        const SOLC_VERSION_SUPPORTING_BASE_PATH: Version = Version::new(0, 6, 9);
+        SolidityCompiler::version(self) >= &SOLC_VERSION_SUPPORTING_BASE_PATH
     }
 }
