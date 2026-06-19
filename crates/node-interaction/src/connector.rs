@@ -1977,7 +1977,7 @@ pub struct IndexedTransactionInformation {
     pub block_pair: BlockPair,
 }
 
-const SUBSTRATE_MEMPOOL_LIMIT: usize = 90_000;
+const SUBSTRATE_MEMPOOL_LIMIT: usize = 10_000;
 
 enum MempoolEntry {
     Awaited(OwnedSemaphorePermit),
