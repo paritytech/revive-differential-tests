@@ -10,7 +10,9 @@ macro_rules! resolve {
     };
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Default, Serialize, Deserialize,
+)]
 pub struct NodeConnectorConfiguration {
     pub hooks: Option<NodeConnectorHooks>,
     pub behaviors: Option<NodeConnectorBehaviors>,
@@ -40,7 +42,9 @@ impl NodeConnectorConfiguration {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Default, Serialize, Deserialize,
+)]
 pub struct NodeConnectorBehaviors {
     pub submission_behavior: Option<SubmissionBehavior>,
 }
@@ -53,7 +57,7 @@ impl NodeConnectorBehaviors {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub enum SubmissionBehavior {
     UseDefaultForPlatform,
     UseEthRpc,
@@ -61,7 +65,9 @@ pub enum SubmissionBehavior {
     UseSubstrateRpcAndAwaitInclusion,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Default, Serialize, Deserialize,
+)]
 pub struct NodeConnectorHooks {
     pub pre_submission_hook: Option<PreSubmissionHook>,
 }
@@ -74,13 +80,15 @@ impl NodeConnectorHooks {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub enum PreSubmissionHook {
     Disabled,
     MaxGasPrice,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Default, Serialize, Deserialize,
+)]
 pub struct SubstrateProviderConfiguration {
     pub submission_concurrency_configuration: Option<ProviderConcurrencyConfiguration>,
     pub allowed_estimation_methods: Option<AllowedEstimationMethods>,
@@ -100,7 +108,7 @@ impl SubstrateProviderConfiguration {
 }
 
 bitflags! {
-    #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
     pub struct AllowedEstimationMethods: u8 {
         const ESTIMATE_GAS = 1 << 0;
         const ETH_TRANSACT_WITH_CONFIG = 1 << 1;
@@ -108,7 +116,9 @@ bitflags! {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Default, Serialize, Deserialize,
+)]
 pub struct EthProviderConfiguration {
     pub retry_configuration: Option<RetryConfiguration>,
     pub concurrency_configuration: Option<ProviderConcurrencyConfiguration>,
@@ -129,7 +139,7 @@ impl EthProviderConfiguration {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub enum RetryConfiguration {
     Disabled,
     Enabled {
@@ -139,13 +149,15 @@ pub enum RetryConfiguration {
     },
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub enum ProviderConcurrencyConfiguration {
     Disabled,
     SemaphoreBasedLimiter { permits: usize },
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Default, Serialize, Deserialize,
+)]
 pub struct BlockProvisioningBehavior {
     pub subscription_kind: Option<BlockProvisioningSubscriptionKind>,
 }
@@ -158,7 +170,7 @@ impl BlockProvisioningBehavior {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub enum BlockProvisioningSubscriptionKind {
     BestBlocks,
     FinalizedBlocks,

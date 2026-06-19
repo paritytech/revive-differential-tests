@@ -72,6 +72,7 @@ pub(crate) mod internal_prelude {
         AsyncHashMap, HeartbeatExt, StaticFuture, StaticStream, TimedExt,
         retry_future_with_exponential_backoff,
     };
+    pub use serde::{Deserialize, Serialize};
     pub use serde_json;
     pub use sp_runtime::{
         OpaqueExtrinsic,

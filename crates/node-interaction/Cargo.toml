@@ -19,6 +19,7 @@ bitflags = { workspace = true }
 futures = { workspace = true }
 pallet-revive = { workspace = true }
 parity-scale-codec = { workspace = true }
+serde = { workspace = true }
 serde_json = { workspace = true }
 sp-runtime = { workspace = true }
 subxt = { workspace = true }
