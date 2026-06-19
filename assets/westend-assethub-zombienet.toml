@@ -64,7 +64,7 @@ name = "asset-hub-collator-1"
 command = "polkadot-parachain"
 env = [{ name = "POLKAVM_CORE_PINNING", value = "disabled" }]
 args = [
-  "-lerror,sc_rpc_server=info,runtime::revive=debug,polkavm=debug",
+  "-lerror,sc_rpc_server=info,polkavm=debug",
   "--authoring=slot-based",
   "--rpc-methods=unsafe",
   "--rpc-cors=all",
