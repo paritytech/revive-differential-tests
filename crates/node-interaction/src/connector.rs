@@ -69,7 +69,11 @@ impl NodeConnector {
                     let (online_providers, rpc_clients) = substrate_providers_future
                         .await
                         .context("Failed to get the substrate providers")?;
-                    Some(SubstrateProviders::new(online_providers, rpc_clients))
+                    Some(SubstrateProviders::new(
+                        online_providers,
+                        rpc_clients,
+                        &config,
+                    ))
                 }
                 None => None,
             };
@@ -504,8 +508,8 @@ impl NodeConnector {
         substrate_provider: &SubstrateProviders,
     ) -> StaticFuture<Result<u64>> {
         let provider = substrate_provider.clone();
-        let available_methods = substrate_provider.available_estimation_methods();
         let latest_block = self.latest_block();
+        let available_methods = substrate_provider.available_estimation_methods();
 
         Box::pin(async move {
             let runtime_api = provider.runtime_api().at(latest_block
@@ -1693,6 +1697,17 @@ impl AvailableEstimationMethods {
     fn has_any(self) -> bool {
         self.estimate_gas || self.eth_transact_with_config || self.eth_transact
     }
+
+    fn with_allowed_methods(self, allowed: AllowedEstimationMethods) -> Self {
+        Self {
+            estimate_gas: self.estimate_gas
+                && allowed.contains(AllowedEstimationMethods::ESTIMATE_GAS),
+            eth_transact_with_config: self.eth_transact_with_config
+                && allowed.contains(AllowedEstimationMethods::ETH_TRANSACT_WITH_CONFIG),
+            eth_transact: self.eth_transact
+                && allowed.contains(AllowedEstimationMethods::ETH_TRANSACT),
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -1706,9 +1721,17 @@ impl SubstrateProviders {
     fn new(
         provider_pool: SingleOrPool<OnlineClient<PolkadotConfig>>,
         submission_rpc: SingleOrPool<SubxtRpcClient>,
+        config: &NodeConnectorConfiguration,
     ) -> Self {
         let available_estimation_methods =
             AvailableEstimationMethods::from_provider_pool(&provider_pool);
+        let available_estimation_methods = config
+            .substrate_provider_configuration
+            .and_then(|config| config.allowed_estimation_methods)
+            .map(|allowed_estimation_methods| {
+                available_estimation_methods.with_allowed_methods(allowed_estimation_methods)
+            })
+            .unwrap_or(available_estimation_methods);
         Self {
             provider_pool,
             submission_rpc,

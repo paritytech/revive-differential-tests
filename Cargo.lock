@@ -8736,6 +8736,7 @@ version = "0.1.0"
 dependencies = [
  "alloy",
  "anyhow",
+ "bitflags 2.13.0",
  "dashmap",
  "futures",
  "pallet-revive",

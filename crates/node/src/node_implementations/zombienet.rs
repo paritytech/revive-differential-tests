@@ -236,6 +236,7 @@ impl NodeConfiguration for ZombienetNode {
                 submission_concurrency_configuration: Some(
                     ProviderConcurrencyConfiguration::SemaphoreBasedLimiter { permits: 50 },
                 ),
+                ..Default::default()
             }),
             ..Default::default()
         }

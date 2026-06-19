@@ -83,6 +83,7 @@ pub enum PreSubmissionHook {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 pub struct SubstrateProviderConfiguration {
     pub submission_concurrency_configuration: Option<ProviderConcurrencyConfiguration>,
+    pub allowed_estimation_methods: Option<AllowedEstimationMethods>,
 }
 
 impl SubstrateProviderConfiguration {
@@ -91,7 +92,19 @@ impl SubstrateProviderConfiguration {
             submission_concurrency_configuration: self
                 .submission_concurrency_configuration
                 .or(other.submission_concurrency_configuration),
+            allowed_estimation_methods: self
+                .allowed_estimation_methods
+                .or(other.allowed_estimation_methods),
         }
+    }
+}
+
+bitflags! {
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    pub struct AllowedEstimationMethods: u8 {
+        const ESTIMATE_GAS = 1 << 0;
+        const ETH_TRANSACT_WITH_CONFIG = 1 << 1;
+        const ETH_TRANSACT = 1 << 2;
     }
 }
 

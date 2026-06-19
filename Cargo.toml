@@ -32,6 +32,7 @@ alloy = { version = "1.4.1", features = [
 ] }
 ansi_term = "0.12.1"
 base64 = "0.22"
+bitflags = "2.13.0"
 flate2 = "1.0"
 anyhow = "1.0"
 bson = { version = "2.15.0" }

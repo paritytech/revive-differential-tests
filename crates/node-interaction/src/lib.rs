@@ -59,6 +59,7 @@ pub(crate) mod internal_prelude {
         },
     };
     pub use anyhow::{Context as _, Error, Result, anyhow, bail};
+    pub use bitflags::bitflags;
     pub use dashmap::DashMap;
     pub use futures::{FutureExt, StreamExt, TryFutureExt, TryStreamExt, future::try_join_all};
     pub use pallet_revive::{
