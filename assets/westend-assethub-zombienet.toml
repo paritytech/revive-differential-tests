@@ -31,7 +31,7 @@ max_candidate_depth = 3
 allowed_ancestry_len = 2
 
 [[relaychain.genesis.runtimeGenesis.patch.configuration.config.executor_params]]
-MaxMemoryPages = 8192
+MaxMemoryPages = 65536
 
 # 3 validators needed: num_cores=3 requires at least num_cores+1 validators
 # for the relay chain to finalize blocks.
