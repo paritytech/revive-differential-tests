@@ -320,9 +320,16 @@ fn new_geth_node(
 ) -> Result<JoinHandle<Result<StaticFuture<Result<NodeConnector>>>>> {
     Ok(thread::spawn(move || {
         let wallet = context.as_wallet_configuration().wallet();
-        let node_config = node_configuration(&context);
+        let node_configurations = node_configurations(
+            &context,
+            context
+                .as_geth_configuration()
+                .connector_configurations
+                .as_deref(),
+        )
+        .context("Failed to parse --geth.connector-configurations as a JSON node connector configuration")?;
         let node = GethNode::new(context).context("Failed to spawn geth node")?;
-        Ok(NodeConnector::new(node, wallet, node_config))
+        Ok(NodeConnector::new(node, wallet, node_configurations))
     }))
 }
 
@@ -331,9 +338,16 @@ fn new_lighthouse_geth_node(
 ) -> Result<JoinHandle<Result<StaticFuture<Result<NodeConnector>>>>> {
     Ok(thread::spawn(move || {
         let wallet = context.as_wallet_configuration().wallet();
-        let node_config = node_configuration(&context);
+        let node_configurations = node_configurations(
+            &context,
+            context
+                .as_kurtosis_configuration()
+                .connector_configurations
+                .as_deref(),
+        )
+        .context("Failed to parse --kurtosis.connector-configurations as a JSON node connector configuration")?;
         let node = LighthouseGethNode::new(context).context("Failed to spawn lighthouse node")?;
-        Ok(NodeConnector::new(node, wallet, node_config))
+        Ok(NodeConnector::new(node, wallet, node_configurations))
     }))
 }
 
@@ -342,9 +356,16 @@ fn new_revive_dev_node(
 ) -> Result<JoinHandle<Result<StaticFuture<Result<NodeConnector>>>>> {
     Ok(thread::spawn(move || {
         let wallet = context.as_wallet_configuration().wallet();
-        let node_config = node_configuration(&context);
+        let node_configurations = node_configurations(
+            &context,
+            context
+                .as_revive_dev_node_configuration()
+                .connector_configurations
+                .as_deref(),
+        )
+        .context("Failed to parse --revive-dev-node.connector-configurations as a JSON node connector configuration")?;
         let node = ReviveDevNode::new(context).context("Failed to spawn revive-dev-node")?;
-        Ok(NodeConnector::new(node, wallet, node_config))
+        Ok(NodeConnector::new(node, wallet, node_configurations))
     }))
 }
 
@@ -354,9 +375,16 @@ fn new_zombienet_node(
 ) -> Result<JoinHandle<Result<StaticFuture<Result<NodeConnector>>>>> {
     Ok(thread::spawn(move || {
         let wallet = context.as_wallet_configuration().wallet();
-        let node_config = node_configuration(&context);
+        let node_configurations = node_configurations(
+            &context,
+            context
+                .as_zombienet_configuration()
+                .connector_configurations
+                .as_deref(),
+        )
+        .context("Failed to parse --zombienet.connector-configurations as a JSON node connector configuration")?;
         let node = ZombienetNode::new(context).context("Failed to spawn zombienet")?;
-        Ok(NodeConnector::new(node, wallet, node_config))
+        Ok(NodeConnector::new(node, wallet, node_configurations))
     }))
 }
 
@@ -365,24 +393,42 @@ fn new_polkadot_omni_node(
 ) -> Result<JoinHandle<Result<StaticFuture<Result<NodeConnector>>>>> {
     Ok(thread::spawn(move || {
         let wallet = context.as_wallet_configuration().wallet();
-        let node_config = node_configuration(&context);
+        let node_configurations = node_configurations(
+            &context,
+            context
+                .as_polkadot_omnichain_node_configuration()
+                .connector_configurations
+                .as_deref(),
+        )
+        .context("Failed to parse --polkadot-omni-node.connector-configurations as a JSON node connector configuration")?;
         let node =
             PolkadotOmnichainNode::new(context).context("Failed to spawn polkadot-omni-node")?;
-        Ok(NodeConnector::new(node, wallet, node_config))
+        Ok(NodeConnector::new(node, wallet, node_configurations))
     }))
 }
 
-fn node_configuration(context: &Context) -> NodeConnectorConfiguration {
+fn node_configurations(
+    context: &Context,
+    user_config: Option<&str>,
+) -> Result<impl Iterator<Item = NodeConnectorConfiguration> + use<>> {
+    let user_config = user_config
+        .map(serde_json::from_str::<NodeConnectorConfiguration>)
+        .transpose()?;
     let subscription_kind = match context {
         Context::Benchmark(_) => BlockProvisioningSubscriptionKind::FinalizedBlocks,
-        _ => BlockProvisioningSubscriptionKind::BestBlocks,
+        Context::Test(_)
+        | Context::ExportJsonSchema(_)
+        | Context::ExportTestSpecifiers(_)
+        | Context::Compile(_) => BlockProvisioningSubscriptionKind::BestBlocks,
     };
-    NodeConnectorConfiguration {
+    let core_config = NodeConnectorConfiguration {
         block_provisioning_behavior: Some(BlockProvisioningBehavior {
             subscription_kind: Some(subscription_kind),
         }),
         ..Default::default()
-    }
+    };
+
+    Ok(user_config.into_iter().chain(std::iter::once(core_config)))
 }
 
 fn new_solc_compiler(

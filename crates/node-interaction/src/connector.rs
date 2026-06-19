@@ -34,12 +34,16 @@ pub struct NodeConnector {
 }
 
 impl NodeConnector {
-    pub fn new<N: NodeConfiguration + Send + Sync + 'static>(
-        node: N,
+    pub fn new(
+        node: impl NodeConfiguration + Send + Sync + 'static,
         wallet: Arc<EthereumWallet>,
-        config: NodeConnectorConfiguration,
+        configs: impl IntoIterator<Item = NodeConnectorConfiguration>,
     ) -> StaticFuture<Result<Self>> {
-        let config = config.resolve(node.configurations());
+        let config = configs
+            .into_iter()
+            .chain(std::iter::once(node.configurations()))
+            .reduce(NodeConnectorConfiguration::resolve)
+            .unwrap_or_default();
 
         let substrate_submission_semaphore = config
             .substrate_provider_configuration
