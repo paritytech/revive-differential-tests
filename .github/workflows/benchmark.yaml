@@ -68,6 +68,16 @@ on:
         type: number
         description: A way for the repetition count to be overridden. This is only used when we want to quickly run the CI to check if it works, please do not use it otherwise
         required: false
+      test-specifier-filters:
+        description: Optional comma or newline-separated substrings for benchmark test specifiers. Empty runs all test specifiers.
+        required: false
+        type: string
+        default: ""
+      platform-filters:
+        description: Optional comma or newline-separated substrings for benchmark platform identifiers. Empty runs all platforms.
+        required: false
+        type: string
+        default: ""
 
 env:
   CARGO_TERM_COLOR: always
@@ -176,6 +186,8 @@ jobs:
     runs-on: parity-large-t2d
     outputs:
       tests: ${{ steps.matrix.outputs.tests }}
+      platforms: ${{ steps.matrix.outputs.platforms }}
+      benchmark-count: ${{ steps.matrix.outputs.benchmark-count }}
     steps:
       - name: Checkout This Repository
         uses: actions/checkout@v4
@@ -202,10 +214,81 @@ jobs:
         id: matrix
         env:
           RUST_LOG: "off"
+          TEST_SPECIFIER_FILTERS: ${{ inputs.test-specifier-filters }}
+          PLATFORM_FILTERS: ${{ inputs.platform-filters }}
         run: |
-          TESTS=$(retester export-test-specifiers \
+          set -euo pipefail
+
+          parse_filters() {
+            jq -n -c --arg filters "$1" '
+              $filters
+              | gsub("\r\n"; "\n")
+              | gsub("\r"; "\n")
+              | split("\n")
+              | map(split(","))
+              | flatten
+              | map(gsub("^\\s+|\\s+$"; ""))
+              | map(select(length > 0))
+            '
+          }
+
+          TEST_FILTERS=$(parse_filters "$TEST_SPECIFIER_FILTERS")
+          PLATFORM_FILTERS_JSON=$(parse_filters "$PLATFORM_FILTERS")
+
+          ALL_TESTS=$(retester export-test-specifiers \
             --test ./compiler-tests/fixtures/solidity/workloads)
+          ALL_PLATFORMS='["zombienet-revm-solc","zombienet-polkavm-resolc","lighthouse-geth-evm-solc"]'
+
+          TESTS=$(jq -c --argjson filters "$TEST_FILTERS" '
+            if ($filters | length) == 0 then
+              .
+            else
+              map(select(.specifier as $specifier |
+                any($filters[]; . as $filter | $specifier | contains($filter))))
+            end
+          ' <<< "$ALL_TESTS")
+          PLATFORMS=$(jq -c --argjson filters "$PLATFORM_FILTERS_JSON" '
+            if ($filters | length) == 0 then
+              .
+            else
+              map(select(. as $platform |
+                any($filters[]; . as $filter | $platform | contains($filter))))
+            end
+          ' <<< "$ALL_PLATFORMS")
+
+          TEST_COUNT=$(jq 'length' <<< "$TESTS")
+          PLATFORM_COUNT=$(jq 'length' <<< "$PLATFORMS")
+          BENCHMARK_COUNT=$((TEST_COUNT * PLATFORM_COUNT))
+
+          echo "Selected $TEST_COUNT test specifier(s) and $PLATFORM_COUNT platform(s)."
+          echo "Benchmark matrix contains $BENCHMARK_COUNT job(s)."
+
           echo "tests=${TESTS}" >> "$GITHUB_OUTPUT"
+          echo "platforms=${PLATFORMS}" >> "$GITHUB_OUTPUT"
+          echo "benchmark-count=${BENCHMARK_COUNT}" >> "$GITHUB_OUTPUT"
+      - name: Print generated benchmark matrix
+        env:
+          TESTS: ${{ steps.matrix.outputs.tests }}
+          PLATFORMS: ${{ steps.matrix.outputs.platforms }}
+          BENCHMARK_COUNT: ${{ steps.matrix.outputs.benchmark-count }}
+        run: |
+          set -euo pipefail
+
+          TEST_COUNT=$(jq 'length' <<< "$TESTS")
+          PLATFORM_COUNT=$(jq 'length' <<< "$PLATFORMS")
+
+          echo "Generated benchmark matrix:"
+          echo "  test specifiers: $TEST_COUNT"
+          echo "  platforms: $PLATFORM_COUNT"
+          echo "  benchmark jobs: $BENCHMARK_COUNT"
+
+          echo "::group::Platforms"
+          jq . <<< "$PLATFORMS"
+          echo "::endgroup::"
+
+          echo "::group::Test specifiers"
+          jq -r '.[] | "\(.name) => \(.specifier)"' <<< "$TESTS"
+          echo "::endgroup::"
 
   # ============================================
   # Benchmark Job: Runs the Requested Benchmark
@@ -227,15 +310,13 @@ jobs:
       needs.generate-matrix.result == 'success' &&
       needs.build-chainspec-generator.result == 'success' &&
       needs.build-polkadot-sdk.result == 'success' &&
-      needs.build-resolc.result == 'success'
+      needs.build-resolc.result == 'success' &&
+      needs.generate-matrix.outputs.benchmark-count != '0'
     strategy:
       fail-fast: false
       matrix:
         test: ${{ fromJSON(needs.generate-matrix.outputs.tests) }}
-        platform:
-          - zombienet-revm-solc
-          - zombienet-polkavm-resolc
-          - lighthouse-geth-evm-solc
+        platform: ${{ fromJSON(needs.generate-matrix.outputs.platforms) }}
     steps:
       - name: Checkout This Repository
         uses: actions/checkout@v4
@@ -348,19 +429,7 @@ jobs:
         env:
           OVERRIDE_REPETITION_COUNT: ${{ inputs.override-repetition-count }}
           TEST_SPECIFIER: ${{ matrix.test.specifier }}
-          PLATFORM: ${{ matrix.platform }}
         run: |
-          # TEMPORARY (revert after benchmarks): only run create-create2,
-          # case index 0, on zombienet-revm. Specifier is
-          # ${path}::${index}::${mode}, so "::0::" pins the case index.
-          # Everything else exits 0 to keep the matrix green.
-          if [[ "$PLATFORM" != *"zombienet-revm"* ]] || \
-             [[ "$TEST_SPECIFIER" != *"create-create2"* ]] || \
-             [[ "$TEST_SPECIFIER" != *"::0::"* ]]; then
-            echo "Skipping '$PLATFORM / $TEST_SPECIFIER' — only create-create2 index 0 on zombienet-revm."
-            exit 0
-          fi
-
           export TMPDIR="$PWD/workdir"
 
           additional_args=()
@@ -401,7 +470,10 @@ jobs:
     needs:
       - generate-matrix
       - benchmark
-    if: always() && !cancelled()
+    if: >-
+      always() &&
+      !cancelled() &&
+      needs.generate-matrix.outputs.benchmark-count != '0'
     steps:
       - name: Set Report Name
         run: echo "REPORT_NAME=benchmark-$(date -u +%Y-%m-%d-%H%M%S)" >> "$GITHUB_ENV"
