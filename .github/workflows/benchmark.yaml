@@ -438,6 +438,14 @@ jobs:
             additional_args+=(--benchmark.repetition-count-override "$OVERRIDE_REPETITION_COUNT")
           fi
 
+          # JIT currently exposes an eth_estimate_gas issue where binary-search dry runs can
+          # reuse warm pricing after the first cold run, underestimating gas for workloads like
+          # erc20-transfers. Force retester to use non-binary-search estimation on zombienet JIT.
+          # TODO: remove once polkadot-sdk eth_estimate_gas keeps each search attempt cold.
+          if [[ "${{ inputs.use-jit }}" == "true" && "${{ matrix.platform }}" == zombienet-* ]]; then
+            additional_args+=(--zombienet.connector-configurations '{"substrate_provider_configuration":{"allowed_estimation_methods":"ETH_TRANSACT_WITH_CONFIG | ETH_TRANSACT"}}')
+          fi
+
           export POLKAVM_CORE_PINNING="disabled"
 
           retester benchmark \
