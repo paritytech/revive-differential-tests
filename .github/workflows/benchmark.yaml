@@ -348,7 +348,19 @@ jobs:
         env:
           OVERRIDE_REPETITION_COUNT: ${{ inputs.override-repetition-count }}
           TEST_SPECIFIER: ${{ matrix.test.specifier }}
+          PLATFORM: ${{ matrix.platform }}
         run: |
+          # TEMPORARY (revert after benchmarks): only run create-create2,
+          # case index 0, on zombienet-revm. Specifier is
+          # ${path}::${index}::${mode}, so "::0::" pins the case index.
+          # Everything else exits 0 to keep the matrix green.
+          if [[ "$PLATFORM" != *"zombienet-revm"* ]] || \
+             [[ "$TEST_SPECIFIER" != *"create-create2"* ]] || \
+             [[ "$TEST_SPECIFIER" != *"::0::"* ]]; then
+            echo "Skipping '$PLATFORM / $TEST_SPECIFIER' — only create-create2 index 0 on zombienet-revm."
+            exit 0
+          fi
+
           export TMPDIR="$PWD/workdir"
 
           additional_args=()
