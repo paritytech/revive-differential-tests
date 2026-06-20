@@ -834,7 +834,7 @@ impl<'a> InterpreterApi for Interpreter<'a> {
                     }
 
                     let expected_number_of_topics = expected.topics.len();
-                    let actual_number_of_topics = expected.topics.len();
+                    let actual_number_of_topics = actual.topics().len();
                     ensure!(
                         expected_number_of_topics == actual_number_of_topics,
                         "Number of topics is not the same for event index {}. Expected = {}, actual = {}",
