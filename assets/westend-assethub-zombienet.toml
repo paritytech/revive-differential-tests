@@ -9,6 +9,11 @@ chain = "westend-dev"
 chain_spec_command = "polkadot build-spec --chain {{chainName}}"
 # Override RC spec raw to allow paras to produce blocks
 override_session_0 = true
+# Seeds session-0 SessionExecutorParams with MaxMemoryPages(65536); the executor_params
+# patch below only takes effect from session 1 (session 0's snapshot is captured at
+# genesis before Configuration runs), so session-0 PVF validation would otherwise run on
+# the small default heap.
+raw_spec_override = "./assets/westend-session0-executor-params.json"
 
 # Scheduler and async backing params are patched to match Polkadot mainnet.
 # Confirmed via RPC calls to https://rpc.polkadot.io
