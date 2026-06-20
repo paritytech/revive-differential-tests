@@ -245,21 +245,24 @@ impl<'a> Interpreter<'a> {
                 .compiled_contracts
                 .values()
                 .flat_map(|item| item.values())
-                .map(|(code, ..)| self.connector.code_upload_transaction(code.as_slice()))
-                .collect::<Result<Vec<_>>>()
-                .context("Failed to create the code upload transactions")?
-                .into_iter()
-                .map(|transaction| transaction.from(deployer))
-                .map(|transaction| async {
-                    let receipt = self
+                .map(|(code, ..)| {
+                    let transaction = self
                         .connector
-                        .execute_transaction(transaction)
-                        .await
-                        .context("Code upload transaction failed")?;
-                    if !receipt.status() {
-                        bail!("Code upload transaction reverted: {receipt:?}");
+                        .code_upload_transaction(deployer, code.as_slice());
+                    async {
+                        let transaction = transaction
+                            .await
+                            .context("Failed to create the code upload transaction")?;
+                        let receipt = self
+                            .connector
+                            .execute_transaction(transaction)
+                            .await
+                            .context("Code upload transaction failed")?;
+                        if !receipt.status() {
+                            bail!("Code upload transaction reverted: {receipt:?}");
+                        }
+                        Ok(receipt)
                     }
-                    Ok(receipt)
                 });
             let mut code_upload_tasks = code_upload_tasks.collect::<FuturesUnordered<_>>();
             while let Some(receipt) = code_upload_tasks.next().await {

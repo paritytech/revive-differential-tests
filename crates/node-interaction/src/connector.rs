@@ -454,29 +454,49 @@ impl NodeConnector {
             .boxed()
     }
 
-    pub fn code_upload_transaction(&self, code: impl AsRef<[u8]>) -> Result<TransactionRequest> {
+    pub fn code_upload_transaction(
+        &self,
+        from: Address,
+        code: impl AsRef<[u8]>,
+    ) -> StaticFuture<Result<TransactionRequest>> {
         const RUNTIME_PALLET_ADDRESS: Address =
             address!("0x6d6f646c70792f70616464720000000000000000");
 
-        let provider = self.substrate_providers.clone();
-        let provider = provider
-            .context("Code upload operations are only supported on substrate based chains")?;
-        let metadata = provider.metadata();
-        let upload_call = dynamic::tx(
-            "Revive",
-            "upload_code",
-            vec![
-                dynamic::Value::from_bytes(code),
-                dynamic::Value::u128(u128::MAX),
-            ],
-        );
-        let encoded_payload = upload_call
-            .encode_call_data(&metadata)
-            .context("Failed to encode the upload code payload")?;
+        let prepared = self
+            .substrate_providers
+            .clone()
+            .context("Code upload operations are only supported on substrate based chains")
+            .and_then(|provider| {
+                let metadata = provider.metadata();
+                let upload_call = dynamic::tx(
+                    "Revive",
+                    "upload_code",
+                    vec![
+                        dynamic::Value::from_bytes(code),
+                        dynamic::Value::u128(u128::MAX),
+                    ],
+                );
+                let encoded_payload = upload_call
+                    .encode_call_data(&metadata)
+                    .context("Failed to encode the upload code payload")?;
+                Ok(TransactionRequest::default()
+                    .from(from)
+                    .to(RUNTIME_PALLET_ADDRESS)
+                    .input(encoded_payload.into()))
+            })
+            .map(|tx| {
+                let gas_estimate = self.estimate_gas(tx.clone());
+                (tx, gas_estimate)
+            });
 
-        Ok(TransactionRequest::default()
-            .to(RUNTIME_PALLET_ADDRESS)
-            .input(encoded_payload.into()))
+        Box::pin(async move {
+            let (tx, gas_estimate) = prepared?;
+            let gas_estimate = gas_estimate.await?;
+            // Code upload transactions can fail if we do not add padding especially with the JIT
+            // and westend. Adding padding here to remove the entire logic from the interpreter as
+            // this is the right layer of abstraction where this should sit.
+            Ok(tx.gas_limit(gas_estimate * 120 / 100))
+        })
     }
 
     pub fn estimate_gas(&self, tx: TransactionRequest) -> StaticFuture<Result<u64>> {
