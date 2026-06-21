@@ -1,10 +1,16 @@
-use std::{future::Future, sync::Arc};
+use std::{
+    fmt::Debug,
+    future::Future,
+    sync::{Arc, Mutex, PoisonError},
+};
 
 use anyhow::{Context as _, Result, anyhow};
 
+type InitFn<'a, T> = Box<dyn FnOnce() -> futures::future::BoxFuture<'a, T> + Send + 'a>;
+
 pub struct LazyFutureValue<'a, T> {
     cell: Arc<tokio::sync::OnceCell<T>>,
-    init: Arc<dyn Fn() -> futures::future::BoxFuture<'a, T> + Send + Sync + 'a>,
+    init: Arc<Mutex<Option<InitFn<'a, T>>>>,
 }
 
 impl<'a, T> Clone for LazyFutureValue<'a, T> {
@@ -22,42 +28,45 @@ where
 {
     pub fn new<Func, Fut>(init: Func) -> Self
     where
-        Func: Fn() -> Fut + Send + Sync + 'a,
+        Func: FnOnce() -> Fut + Send + 'a,
         Fut: Future<Output = T> + Send + 'a,
     {
+        let init: InitFn<'a, T> = Box::new(move || Box::pin(init()));
         Self {
             cell: Arc::new(tokio::sync::OnceCell::new()),
-            init: Arc::new(move || Box::pin(init())),
+            init: Arc::new(Mutex::new(Some(init))),
         }
     }
 
     pub async fn get(&self) -> &T {
-        self.cell.get_or_init(|| (self.init)()).await
+        self.cell
+            .get_or_init(|| {
+                let init = self
+                    .init
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .take()
+                    .expect("LazyFutureValue init is invoked exactly once");
+                init()
+            })
+            .await
     }
 
-    pub fn map<'b, N>(
-        &self,
-        callback: impl Fn(&T) -> N + Send + Sync + 'b,
-    ) -> LazyFutureValue<'b, N>
+    pub fn map<'b, N>(&self, callback: impl FnOnce(&T) -> N + Send + 'b) -> LazyFutureValue<'b, N>
     where
         'a: 'b,
         T: 'b,
         N: Send + Sync + 'b,
     {
         let parent = self.clone();
-        let callback = Arc::new(callback);
-        LazyFutureValue::new(move || {
-            let parent = parent.clone();
-            let callback = callback.clone();
-            async move { callback(parent.get().await) }
-        })
+        LazyFutureValue::new(move || async move { callback(parent.get().await) })
     }
 }
 
 impl<'a, T, E> LazyFutureValue<'a, Result<T, E>>
 where
     T: Send + Sync + 'a,
-    E: std::fmt::Debug + Send + Sync + 'a,
+    E: Debug + Send + Sync + 'a,
 {
     pub async fn get_owned_error(&self) -> Result<&T, anyhow::Error> {
         self.get()

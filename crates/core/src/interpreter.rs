@@ -672,17 +672,14 @@ impl<'a> InterpreterApi for Interpreter<'a> {
         }
 
         let connector = self.connector.clone();
-        let receipt_value = LazyFutureValue::new(move || {
-            let connector = connector.clone();
-            async move {
-                let receipt = connector.get_receipt(tx_hash).await?;
-                ensure!(
-                    receipt.status(),
-                    "Requested a receipt, but its transaction failed. Receipt = {:?}",
-                    receipt
-                );
-                Ok::<_, anyhow::Error>(receipt)
-            }
+        let receipt_value = LazyFutureValue::new(move || async move {
+            let receipt = connector.get_receipt(tx_hash).await?;
+            ensure!(
+                receipt.status(),
+                "Requested a receipt, but its transaction failed. Receipt = {:?}",
+                receipt
+            );
+            Ok::<_, anyhow::Error>(receipt)
         });
         if self.await_receipts {
             debug!("Interpreter configured to await for the receipt value");
@@ -699,12 +696,9 @@ impl<'a> InterpreterApi for Interpreter<'a> {
 
     async fn allocate_account(&mut self) -> LazyFutureValue<'static, Result<Address>> {
         let allocator = self.private_key_allocator.clone();
-        LazyFutureValue::new(move || {
-            let allocator = allocator.clone();
-            async move {
-                let mut allocator = allocator.lock().await;
-                allocator.allocate().map(|key| key.address())
-            }
+        LazyFutureValue::new(move || async move {
+            let mut allocator = allocator.lock().await;
+            allocator.allocate().map(|key| key.address())
         })
     }
 
@@ -981,18 +975,15 @@ impl<'a> InterpreterApi for Interpreter<'a> {
         tx_hash: TxHash,
     ) -> LazyFutureValue<'static, Result<CallFrame>> {
         let connector = self.connector.clone();
-        LazyFutureValue::new(move || {
-            let connector = connector.clone();
-            async move {
-                let trace = connector
-                    .trace_transaction(tx_hash, Self::call_frame_tracing_options())
-                    .await;
-                trace.map(|trace| {
-                    trace
-                        .try_into_call_frame()
-                        .expect("qed; we requested a call-frame trace")
-                })
-            }
+        LazyFutureValue::new(move || async move {
+            let trace = connector
+                .trace_transaction(tx_hash, Self::call_frame_tracing_options())
+                .await;
+            trace.map(|trace| {
+                trace
+                    .try_into_call_frame()
+                    .expect("qed; we requested a call-frame trace")
+            })
         })
     }
 
@@ -1001,23 +992,19 @@ impl<'a> InterpreterApi for Interpreter<'a> {
         call: TransactionRequest,
     ) -> LazyFutureValue<'static, Result<(BlockPair, CallFrame)>> {
         let connector = self.connector.clone();
-        LazyFutureValue::new(move || {
-            let call = call.clone();
-            let connector = connector.clone();
-            async move {
-                let current_block = connector.latest_block().await?;
-                let trace = connector
-                    .trace_call(
-                        call,
-                        current_block.clone(),
-                        Self::call_frame_tracing_options(),
-                    )
-                    .await
-                    .context("Failed to get the trace")?
-                    .try_into_call_frame()
-                    .expect("qed; we requested a call-frame trace");
-                anyhow::Result::<_, anyhow::Error>::Ok((current_block, trace))
-            }
+        LazyFutureValue::new(move || async move {
+            let current_block = connector.latest_block().await?;
+            let trace = connector
+                .trace_call(
+                    call,
+                    current_block.clone(),
+                    Self::call_frame_tracing_options(),
+                )
+                .await
+                .context("Failed to get the trace")?
+                .try_into_call_frame()
+                .expect("qed; we requested a call-frame trace");
+            anyhow::Result::<_, anyhow::Error>::Ok((current_block, trace))
         })
     }
 
@@ -1130,40 +1117,20 @@ impl<'a> InterpreterApi for Interpreter<'a> {
                     .context("Failed to get contract information")?;
                 let connector = self.connector.clone();
                 let await_receipt = self.await_receipts;
-                let addr = LazyFutureValue::new(move || {
-                    let connector = connector.clone();
-                    let address = address.clone();
-                    async move {
-                        if await_receipt {
-                            address.get_owned_error().await.copied()
-                        } else {
-                            // Optimization: if we're not awaiting receipts then do not wait for the
-                            // receipt just to get the contract address from a create transaction.
-                            // Instead, derive it from the account address and the nonce and make it
-                            // available for steps which need it.
-                            let tx = connector.get_transaction(transaction)?;
-                            let from = tx
-                                .recover_signer()
-                                .expect("qed; we signed this, it can't fail recovery");
-                            let nonce = match tx {
-                                alloy::consensus::EthereumTxEnvelope::Legacy(signed) => {
-                                    signed.tx().nonce
-                                }
-                                alloy::consensus::EthereumTxEnvelope::Eip2930(signed) => {
-                                    signed.tx().nonce
-                                }
-                                alloy::consensus::EthereumTxEnvelope::Eip1559(signed) => {
-                                    signed.tx().nonce
-                                }
-                                alloy::consensus::EthereumTxEnvelope::Eip7702(signed) => {
-                                    signed.tx().nonce
-                                }
-                                alloy::consensus::EthereumTxEnvelope::Eip4844(signed) => {
-                                    signed.tx().nonce()
-                                }
-                            };
-                            Ok(from.create(nonce))
-                        }
+                let addr = LazyFutureValue::new(move || async move {
+                    if await_receipt {
+                        address.get_owned_error().await.copied()
+                    } else {
+                        // Optimization: if we're not awaiting receipts then do not wait for the
+                        // receipt just to get the contract address from a create transaction.
+                        // Instead, derive it from the account address and the nonce and make it
+                        // available for steps which need it.
+                        let tx = connector.get_transaction(transaction)?;
+                        let from = tx
+                            .recover_signer()
+                            .expect("qed; we signed this, it can't fail recovery");
+                        let nonce = tx.nonce();
+                        Ok(from.create(nonce))
                     }
                 });
                 self.deployed_contracts
