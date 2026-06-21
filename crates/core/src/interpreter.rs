@@ -1434,25 +1434,27 @@ impl ExecutableStep for TransactionExecutableStep {
                     tx.to(address)
                 }
             }
-            Method::FunctionName(func_signature) => {
+            Method::Function(name_or_selector) => {
                 let address = api.address_of_instance(&to).await?;
                 let address = *address
                     .get_owned_error()
                     .await
                     .context("Failed to get address of instance")?;
 
-                let selector = if func_signature.contains("(") && func_signature.contains(")") {
-                    Function::parse(&func_signature)
-                        .context("Invalid function signature")?
-                        .selector()
-                } else {
-                    let (_, abi) = api.compilation_artifacts_of_instance(&to).await.expect(
-                        "qed; this is a deployed contract and we just obtained its address",
-                    );
-                    abi.functions()
-                        .find(|function| function.signature().starts_with(func_signature.as_str()))
-                        .context("No function with the required name in the ABI")?
-                        .selector()
+                let selector = match name_or_selector {
+                    NameOrSelector::Selector { selector, .. } => selector,
+                    NameOrSelector::FunctionName(function_name) => {
+                        let (_, abi) = api.compilation_artifacts_of_instance(&to).await.expect(
+                            "qed; this is a deployed contract and we just obtained its address",
+                        );
+                        abi.functions()
+                            .find(|function| {
+                                function.signature().starts_with(function_name.as_str())
+                            })
+                            .context("No function with the required name in the ABI")?
+                            .selector()
+                            .0
+                    }
                 };
 
                 let mut new_calldata = Vec::with_capacity(4 + calldata.len());
@@ -1645,7 +1647,6 @@ impl ExecutableStep for RepetitionExecutableStep {
     }
 }
 
-// region:Helpers
 fn flatten_call_frame_logs(frame: &CallFrame) -> Vec<Log> {
     if frame.error.is_some() || frame.revert_reason.is_some() {
         return vec![];
@@ -1669,4 +1670,3 @@ fn flatten_call_frame_logs(frame: &CallFrame) -> Vec<Log> {
     }
     logs
 }
-// endregion:Helpers

@@ -343,7 +343,52 @@ pub enum Method {
 
     /// Call the public function with the given name.
     #[serde(untagged)]
+    Function(NameOrSelector),
+}
+
+#[derive(Debug, JsonSchema, Clone, Eq, PartialEq)]
+#[schemars(with = "String")]
+pub enum NameOrSelector {
+    Selector {
+        function_name: String,
+        selector: [u8; 4],
+    },
     FunctionName(String),
+}
+
+impl Serialize for NameOrSelector {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let name = match self {
+            NameOrSelector::Selector { function_name, .. }
+            | NameOrSelector::FunctionName(function_name) => function_name,
+        };
+        name.serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for NameOrSelector {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let func_signature = String::deserialize(deserializer)?;
+        if func_signature.contains("(") && func_signature.contains(")") {
+            let function = alloy::json_abi::Function::parse(&func_signature).map_err(|_| {
+                serde::de::Error::custom(format!(
+                    "Failed to parse as a function signature: {func_signature}"
+                ))
+            })?;
+            Ok(Self::Selector {
+                function_name: func_signature,
+                selector: function.selector().0,
+            })
+        } else {
+            Ok(Self::FunctionName(func_signature))
+        }
+    }
 }
 
 define_wrapper_type!(
