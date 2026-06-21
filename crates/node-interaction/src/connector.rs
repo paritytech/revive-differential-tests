@@ -27,6 +27,7 @@ pub struct NodeConnector {
     block_hashes_to_receipt_mapping: AsyncHashMap<BlockHash, Vec<Arc<TransactionReceipt>>>,
     filled_transactions: Arc<DashMap<TxHash, TxEnvelope>>,
     /* Locks & Gates */
+    submission_locks: DashMap<Address, Arc<Mutex<()>>>,
     substrate_submission_semaphore: Option<Arc<Semaphore>>,
     mempool_limiter: Option<MempoolLimiter>,
     /* Auxiliary */
@@ -125,6 +126,7 @@ impl NodeConnector {
                 tx_hash_to_receipt_mapping,
                 block_hashes_to_receipt_mapping,
                 filled_transactions: Arc::new(DashMap::new()),
+                submission_locks: DashMap::new(),
                 substrate_submission_semaphore,
                 mempool_limiter,
                 node: Box::new(node),
@@ -329,6 +331,11 @@ impl NodeConnector {
         Fut: Future<Output = Result<TxHash>> + Send + 'static,
     {
         let mempool_limiter = self.mempool_limiter.clone();
+        let account_lock_mutex = self
+            .substrate_providers
+            .as_ref()
+            .and(tx.from)
+            .map(|addr| self.submission_locks.entry(addr).or_default().clone());
         let submission_limiter_semaphore = self
             .substrate_providers
             .as_ref()
@@ -344,6 +351,21 @@ impl NodeConnector {
                         .acquire_owned()
                         .await
                         .expect("poisoned"),
+                ),
+                None => None,
+            };
+            let _account_locker_guard = match account_lock_mutex {
+                Some(mutex) => Some(
+                    mutex
+                        .lock_owned()
+                        .with_heartbeat(Duration::from_secs(30), |duration| {
+                            warn!(
+                                duration = duration.as_millis(),
+                                "Been waiting to acquire account submission Mutex for \
+                                longer than 30 seconds"
+                            )
+                        })
+                        .await,
                 ),
                 None => None,
             };
