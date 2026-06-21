@@ -7,6 +7,7 @@ default_command = "polkadot"
 default_args = ["-linfo,polkavm=debug", "--no-mdns"]
 chain = "polkadot-local"
 chain_spec_command = "chain-spec-generator {{chainName}}"
+genesis.runtimeGenesis.patch.babe.epochConfig.c = [0, 1]
 # Override RC spec raw to allow paras to produce blocks
 override_session_0 = true
 

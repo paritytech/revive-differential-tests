@@ -9,6 +9,7 @@ chain = "westend-dev"
 chain_spec_command = "polkadot build-spec --chain {{chainName}}"
 # Override RC spec raw to allow paras to produce blocks
 override_session_0 = true
+genesis.runtimeGenesis.patch.babe.epochConfig.c = [0, 1]
 # Seeds session-0 SessionExecutorParams with MaxMemoryPages(65536); the executor_params
 # patch below only takes effect from session 1 (session 0's snapshot is captured at
 # genesis before Configuration runs), so session-0 PVF validation would otherwise run on
