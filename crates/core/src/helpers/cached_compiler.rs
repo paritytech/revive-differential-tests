@@ -49,6 +49,10 @@ impl<'a> CachedCompiler<'a> {
             compiler_mode: mode.clone(),
         };
 
+        let deployed_libraries = deployed_libraries.and_then(|deployed_libraries| {
+            (!deployed_libraries.is_empty()).then_some(deployed_libraries)
+        });
+
         let compilation_callback = || {
             async move {
                 compile_contracts(

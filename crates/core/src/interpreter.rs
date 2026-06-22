@@ -196,10 +196,13 @@ impl<'a> Interpreter<'a> {
                 .context("Failed to report the deployed libraries event")?;
         }
 
-        let post_link_compilation_output = self
-            .compile_contracts(cached_compiler, Some(&deployed_libraries))
-            .await
-            .context("Post link compilation failed")?;
+        let post_link_compilation_output = if deployed_libraries.is_empty() {
+            pre_link_compilation_output
+        } else {
+            self.compile_contracts(cached_compiler, Some(&deployed_libraries))
+                .await
+                .context("Post link compilation failed")?
+        };
 
         self.compiled_contracts = post_link_compilation_output
             .contracts
