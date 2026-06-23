@@ -242,9 +242,9 @@ mod context {
 
         /// The compiler mode(s) to use for all compilations.
         ///
-        /// Format: `Y[+-]? (M[0123sz])? (S[+-])? <semver>?`
+        /// Format: `(NY|Y)[+-]? (M[0123sz])? (S[+-])? <semver>?`
         ///
-        /// - `Y`: Pipeline (via Yul IR)
+        /// - `NY|Y`: Pipeline — `Y` (via Yul IR) or `NY` (via newyork IR)
         /// - `[+-]`: Optimization shorthand
         ///           - `+` (`M0`..`M3`, `Ms`, `Mz`, and solc optimizer enabled)
         ///           - `-` (`M0`..`M3`, `Ms`, `Mz`, and solc optimizer disabled)
@@ -259,6 +259,7 @@ mod context {
         /// - If omitted, expands to all combinations we'd like to test. E.g.:
         ///   - `Y M3 S+` → `Y M3 S+`
         ///   - `Y M3` → `Y M3 S+` and `Y M3 S-`
+        ///   - `NY Mz` → `NY Mz S+` and `NY Mz S-`
         ///   - `Y S+` → `Y M0 S+`, `Y M1 S+`, `Y M2 S+`, `Y M3 S+`, `Y Ms S+`, and `Y Mz S+`
         #[serde_as(as = "Vec<serde_with::DisplayFromStr>")]
         #[arg(

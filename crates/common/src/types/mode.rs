@@ -85,6 +85,8 @@ impl Mode {
 pub enum ModePipeline {
     /// Compile Solidity code via Yul IR
     ViaYulIR,
+    /// Compile Solidity via newyork IR.
+    ViaNewYorkIR,
     /// Compile Solidity direct to assembly
     ViaEVMAssembly,
 }
@@ -93,13 +95,13 @@ impl FromStr for ModePipeline {
     type Err = anyhow::Error;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            // via Yul IR
             "Y" => Ok(ModePipeline::ViaYulIR),
+            "NY" => Ok(ModePipeline::ViaNewYorkIR),
             // Don't go via Yul IR
             "E" => Ok(ModePipeline::ViaEVMAssembly),
             // Anything else that we see isn't a mode at all
             _ => Err(anyhow::anyhow!(
-                "Unsupported pipeline '{s}': expected 'Y' or 'E'"
+                "Unsupported pipeline '{s}': expected 'Y', 'NY', or 'E'"
             )),
         }
     }
@@ -109,6 +111,7 @@ impl Display for ModePipeline {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             ModePipeline::ViaYulIR => f.write_str("Y"),
+            ModePipeline::ViaNewYorkIR => f.write_str("NY"),
             ModePipeline::ViaEVMAssembly => f.write_str("E"),
         }
     }
@@ -123,7 +126,12 @@ impl ModePipeline {
     /// An iterator over the available pipelines that we'd like to test,
     /// when an explicit pipeline was not specified.
     pub fn test_cases() -> impl Iterator<Item = ModePipeline> + Clone {
-        [ModePipeline::ViaYulIR, ModePipeline::ViaEVMAssembly].into_iter()
+        [
+            ModePipeline::ViaYulIR,
+            ModePipeline::ViaNewYorkIR,
+            ModePipeline::ViaEVMAssembly,
+        ]
+        .into_iter()
     }
 }
 
@@ -264,12 +272,12 @@ impl ModeOptimizerLevel {
 /// Mode strings can take the following form (in pseudo-regex):
 ///
 /// ```text
-/// [YEILV][+-]? (M[0123sz])? (S[+-])? <semver>?
+/// (NY|[YEILV])[+-]? (M[0123sz])? (S[+-])? <semver>?
 /// ```
 ///
 /// ## Components
 ///
-/// - `[YEILV]`: Pipeline — `Y` (via Yul IR) or `E` (via EVM Assembly). `I`, `L`, `V` are
+/// - `NY|[YEILV]`: Pipeline — `Y` (via Yul IR), `NY` (via newyork IR), or `E` (via EVM Assembly). `I`, `L`, `V` are
 ///   legacy aliases.
 /// - `[+-]`: Solc optimizer shorthand — `+` (solc optimizer enabled) or `-` (solc optimizer
 ///   disabled). Expands across **all** LLVM optimizer levels (M0 through Mz).
@@ -288,6 +296,9 @@ impl ModeOptimizerLevel {
 /// | `Y+`      | `Y M0 S+`, `Y M1 S+`, `Y M2 S+`, `Y M3 S+`, `Y Ms S+`, `Y Mz S+` |
 /// | `Y-`      | `Y M0 S-`, `Y M1 S-`, `Y M2 S-`, `Y M3 S-`, `Y Ms S-`, `Y Mz S-` |
 /// | `Y`       | `Y+` ∪ `Y-` = all 12 Y modes |
+/// | `NY+`      | `NY M0 S+`, `NY M1 S+`, `NY M2 S+`, `NY M3 S+`, `NY Ms S+`, `NY Mz S+` |
+/// | `NY-`      | `NY M0 S-`, `NY M1 S-`, `NY M2 S-`, `NY M3 S-`, `NY Ms S-`, `NY Mz S-` |
+/// | `NY`       | `NY+` ∪ `NY-` = all 12 NY modes |
 /// | `E+`      | `E M0 S+`, `E M1 S+`, `E M2 S+`, `E M3 S+`, `E Ms S+`, `E Mz S+` |
 /// | `E-`      | `E M0 S-`, `E M1 S-`, `E M2 S-`, `E M3 S-`, `E Ms S-`, `E Mz S-` |
 /// | `E`       | `E+` ∪ `E-` = all 12 E modes |
@@ -319,7 +330,7 @@ impl FromStr for ParsedMode {
             Regex::new(
                 r"(?x)
                 ^
-                (?:(?P<pipeline>[YEILV])(?P<optimize_flag>[+-])?)? # Pipeline to use e.g. Y, E+, E-
+                (?:(?P<pipeline>NY|[YEILV])(?P<optimize_flag>[+-])?)? # Pipeline to use e.g. Y, NY, E+, E-
                 \s*
                 (?P<optimize_level>M[a-zA-Z0-9])?                  # Optimize level e.g. M0, Ms, Mz
                 \s*
@@ -439,7 +450,7 @@ impl ParsedMode {
     ///
     /// # Expansion rules
     ///
-    /// A mode string has four optional components: pipeline (`Y`/`E`), optimize flag
+    /// A mode string has four optional components: pipeline (`Y`/`NY`/`E`), optimize flag
     /// (`+`/`-`), LLVM optimizer level (`M0`..`M3`, `Ms`, `Mz`), and solc optimizer
     /// (`S+`/`S-`). Each omitted component expands to all of its possible values.
     ///
@@ -450,6 +461,8 @@ impl ParsedMode {
     ///
     /// - `Y+` → `Y M0 S+`, `Y M1 S+`, `Y M2 S+`, `Y M3 S+`, `Y Ms S+`, `Y Mz S+`
     /// - `Y-` → `Y M0 S-`, `Y M1 S-`, `Y M2 S-`, `Y M3 S-`, `Y Ms S-`, `Y Mz S-`
+    /// - `NY+` → `NY M0 S+`, `NY M1 S+`, `NY M2 S+`, `NY M3 S+`, `NY Ms S+`, `NY Mz S+`
+    /// - `NY-` → `NY M0 S-`, `NY M1 S-`, `NY M2 S-`, `NY M3 S-`, `NY Ms S-`, `NY Mz S-`
     /// - `E+` → `E M0 S+`, `E M1 S+`, `E M2 S+`, `E M3 S+`, `E Ms S+`, `E Mz S+`
     /// - `E-` → `E M0 S-`, `E M1 S-`, `E M2 S-`, `E M3 S-`, `E Ms S-`, `E Mz S-`
     ///
@@ -459,6 +472,7 @@ impl ParsedMode {
     /// (equivalent to the union of `+` and `-`):
     ///
     /// - `Y` → `Y+` ∪ `Y-` (12 modes)
+    /// - `NY` → `NY+` ∪ `NY-` (12 modes)
     /// - `E` → `E+` ∪ `E-` (12 modes)
     ///
     /// ## Explicit level and/or solc optimizer
@@ -547,6 +561,9 @@ mod tests {
             ("Y", "Y"),
             ("Y+", "Y+"),
             ("Y-", "Y-"),
+            ("NY", "NY"),
+            ("NY+", "NY+"),
+            ("NY-", "NY-"),
             ("E", "E"),
             ("E+", "E+"),
             ("E-", "E-"),
@@ -556,6 +573,12 @@ mod tests {
             ("Y M3", "Y M3"),
             ("Y Ms", "Y Ms"),
             ("Y Mz", "Y Mz"),
+            ("NY M0", "NY M0"),
+            ("NY M1", "NY M1"),
+            ("NY M2", "NY M2"),
+            ("NY M3", "NY M3"),
+            ("NY Ms", "NY Ms"),
+            ("NY Mz", "NY Mz"),
             ("E M0", "E M0"),
             ("E M1", "E M1"),
             ("E M2", "E M2"),
@@ -574,6 +597,18 @@ mod tests {
             ("Y Ms S-", "Y Ms S-"),
             ("Y Mz S+", "Y Mz S+"),
             ("Y Mz S-", "Y Mz S-"),
+            ("NY M0 S+", "NY M0 S+"),
+            ("NY M0 S-", "NY M0 S-"),
+            ("NY M1 S+", "NY M1 S+"),
+            ("NY M1 S-", "NY M1 S-"),
+            ("NY M2 S+", "NY M2 S+"),
+            ("NY M2 S-", "NY M2 S-"),
+            ("NY M3 S+", "NY M3 S+"),
+            ("NY M3 S-", "NY M3 S-"),
+            ("NY Ms S+", "NY Ms S+"),
+            ("NY Ms S-", "NY Ms S-"),
+            ("NY Mz S+", "NY Mz S+"),
+            ("NY Mz S-", "NY Mz S-"),
             ("E M0 S+", "E M0 S+"),
             ("E M0 S-", "E M0 S-"),
             ("E M1 S+", "E M1 S+"),
@@ -590,6 +625,7 @@ mod tests {
             ("Y 0.8.0", "Y ^0.8.0"),
             ("E+ 0.8.0", "E+ ^0.8.0"),
             ("Y M3 S+ >=0.8.0", "Y M3 S+ >=0.8.0"),
+            ("NY Mz S+ >=0.8.0", "NY Mz S+ >=0.8.0"),
             ("E Mz S- <0.7.0", "E Mz S- <0.7.0"),
             // We can parse +- _and_ M1/M2 and S+/S- but the latter ones take priority.
             ("Y+ M1 S+ 0.8.0", "Y+ M1 S+ ^0.8.0"),
@@ -612,11 +648,17 @@ mod tests {
     #[test]
     fn test_parsed_mode_to_test_modes() {
         let strings = vec![
-            ("Mz", vec!["Y Mz S+", "Y Mz S-", "E Mz S+", "E Mz S-"]),
+            (
+                "Mz",
+                vec![
+                    "Y Mz S+", "Y Mz S-", "NY Mz S+", "NY Mz S-", "E Mz S+", "E Mz S-",
+                ],
+            ),
             (
                 "S+",
                 vec![
-                    "Y M0 S+", "Y M1 S+", "Y M2 S+", "Y M3 S+", "Y Ms S+", "Y Mz S+", "E M0 S+",
+                    "Y M0 S+", "Y M1 S+", "Y M2 S+", "Y M3 S+", "Y Ms S+", "Y Mz S+", "NY M0 S+",
+                    "NY M1 S+", "NY M2 S+", "NY M3 S+", "NY Ms S+", "NY Mz S+", "E M0 S+",
                     "E M1 S+", "E M2 S+", "E M3 S+", "E Ms S+", "E Mz S+",
                 ],
             ),
@@ -625,6 +667,13 @@ mod tests {
                 vec![
                     "Y M0 S+", "Y M0 S-", "Y M1 S+", "Y M1 S-", "Y M2 S+", "Y M2 S-", "Y M3 S+",
                     "Y M3 S-", "Y Ms S+", "Y Ms S-", "Y Mz S+", "Y Mz S-",
+                ],
+            ),
+            (
+                "NY",
+                vec![
+                    "NY M0 S+", "NY M0 S-", "NY M1 S+", "NY M1 S-", "NY M2 S+", "NY M2 S-",
+                    "NY M3 S+", "NY M3 S-", "NY Ms S+", "NY Ms S-", "NY Mz S+", "NY Mz S-",
                 ],
             ),
             (
@@ -644,6 +693,18 @@ mod tests {
                 "Y-",
                 vec![
                     "Y M0 S-", "Y M1 S-", "Y M2 S-", "Y M3 S-", "Y Ms S-", "Y Mz S-",
+                ],
+            ),
+            (
+                "NY+",
+                vec![
+                    "NY M0 S+", "NY M1 S+", "NY M2 S+", "NY M3 S+", "NY Ms S+", "NY Mz S+",
+                ],
+            ),
+            (
+                "NY-",
+                vec![
+                    "NY M0 S-", "NY M1 S-", "NY M2 S-", "NY M3 S-", "NY Ms S-", "NY Mz S-",
                 ],
             ),
             (
@@ -678,6 +739,18 @@ mod tests {
                     "Y Ms S- <=0.8",
                     "Y Mz S+ <=0.8",
                     "Y Mz S- <=0.8",
+                    "NY M0 S+ <=0.8",
+                    "NY M0 S- <=0.8",
+                    "NY M1 S+ <=0.8",
+                    "NY M1 S- <=0.8",
+                    "NY M2 S+ <=0.8",
+                    "NY M2 S- <=0.8",
+                    "NY M3 S+ <=0.8",
+                    "NY M3 S- <=0.8",
+                    "NY Ms S+ <=0.8",
+                    "NY Ms S- <=0.8",
+                    "NY Mz S+ <=0.8",
+                    "NY Mz S- <=0.8",
                     "E M0 S+ <=0.8",
                     "E M0 S- <=0.8",
                     "E M1 S+ <=0.8",
@@ -695,9 +768,11 @@ mod tests {
             ("Y M3", vec!["Y M3 S+", "Y M3 S-"]),
             ("E M0", vec!["E M0 S+", "E M0 S-"]),
             ("Y M3 S+", vec!["Y M3 S+"]),
+            ("NY Mz S+", vec!["NY Mz S+"]),
             ("E M0 S-", vec!["E M0 S-"]),
             // Explicit M/S override the +/- flag.
             ("Y+ M3 S+", vec!["Y M3 S+"]),
+            ("NY+ Mz S+", vec!["NY Mz S+"]),
             ("E- M0 S-", vec!["E M0 S-"]),
         ];
 
@@ -711,6 +786,14 @@ mod tests {
                 expected_set, actual_set,
                 "Mode string '{actual}' did not expand to '{expected_set:?}': got '{actual_set:?}'"
             );
+        }
+    }
+
+    #[test]
+    fn all_modes_round_trip() {
+        assert_eq!(Mode::all().count(), 36);
+        for mode in Mode::all() {
+            assert_eq!(&Mode::from_str(&mode.to_string()).unwrap(), mode);
         }
     }
 
