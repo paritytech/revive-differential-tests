@@ -708,6 +708,18 @@ mod tests {
                 ],
             ),
             (
+                "E+",
+                vec![
+                    "E M0 S+", "E M1 S+", "E M2 S+", "E M3 S+", "E Ms S+", "E Mz S+",
+                ],
+            ),
+            (
+                "E-",
+                vec![
+                    "E M0 S-", "E M1 S-", "E M2 S-", "E M3 S-", "E Ms S-", "E Mz S-",
+                ],
+            ),
+            (
                 "Y <=0.8",
                 vec![
                     "Y M0 S+ <=0.8",
@@ -795,133 +807,5 @@ mod tests {
         for mode in Mode::all() {
             assert_eq!(&Mode::from_str(&mode.to_string()).unwrap(), mode);
         }
-    }
-
-    #[test]
-    fn y_plus_expands_to_all_optimizer_levels_with_solc_enabled() {
-        // Arrange
-        let parsed = ParsedMode::from_str("Y+").expect("Failed to parse 'Y+'");
-
-        // Act
-        let actual: HashSet<String> = parsed.to_modes().map(|m| m.to_string()).collect();
-
-        // Assert
-        let expected: HashSet<String> = [
-            "Y M0 S+", "Y M1 S+", "Y M2 S+", "Y M3 S+", "Y Ms S+", "Y Mz S+",
-        ]
-        .into_iter()
-        .map(String::from)
-        .collect();
-        assert_eq!(
-            expected, actual,
-            "'Y+' should expand to all Y optimizer levels with S+"
-        );
-    }
-
-    #[test]
-    fn y_minus_expands_to_all_optimizer_levels_with_solc_disabled() {
-        // Arrange
-        let parsed = ParsedMode::from_str("Y-").expect("Failed to parse 'Y-'");
-
-        // Act
-        let actual: HashSet<String> = parsed.to_modes().map(|m| m.to_string()).collect();
-
-        // Assert
-        let expected: HashSet<String> = [
-            "Y M0 S-", "Y M1 S-", "Y M2 S-", "Y M3 S-", "Y Ms S-", "Y Mz S-",
-        ]
-        .into_iter()
-        .map(String::from)
-        .collect();
-        assert_eq!(
-            expected, actual,
-            "'Y-' should expand to all Y optimizer levels with S-"
-        );
-    }
-
-    #[test]
-    fn e_plus_expands_to_all_optimizer_levels_with_solc_enabled() {
-        // Arrange
-        let parsed = ParsedMode::from_str("E+").expect("Failed to parse 'E+'");
-
-        // Act
-        let actual: HashSet<String> = parsed.to_modes().map(|m| m.to_string()).collect();
-
-        // Assert
-        let expected: HashSet<String> = [
-            "E M0 S+", "E M1 S+", "E M2 S+", "E M3 S+", "E Ms S+", "E Mz S+",
-        ]
-        .into_iter()
-        .map(String::from)
-        .collect();
-        assert_eq!(
-            expected, actual,
-            "'E+' should expand to all E optimizer levels with S+"
-        );
-    }
-
-    #[test]
-    fn e_minus_expands_to_all_optimizer_levels_with_solc_disabled() {
-        // Arrange
-        let parsed = ParsedMode::from_str("E-").expect("Failed to parse 'E-'");
-
-        // Act
-        let actual: HashSet<String> = parsed.to_modes().map(|m| m.to_string()).collect();
-
-        // Assert
-        let expected: HashSet<String> = [
-            "E M0 S-", "E M1 S-", "E M2 S-", "E M3 S-", "E Ms S-", "E Mz S-",
-        ]
-        .into_iter()
-        .map(String::from)
-        .collect();
-        assert_eq!(
-            expected, actual,
-            "'E-' should expand to all E optimizer levels with S-"
-        );
-    }
-
-    #[test]
-    fn y_expands_to_all_y_modes() {
-        // Arrange
-        let parsed = ParsedMode::from_str("Y").expect("Failed to parse 'Y'");
-
-        // Act
-        let actual: HashSet<String> = parsed.to_modes().map(|m| m.to_string()).collect();
-
-        // Assert
-        let expected: HashSet<String> = [
-            "Y M0 S+", "Y M0 S-", "Y M1 S+", "Y M1 S-", "Y M2 S+", "Y M2 S-", "Y M3 S+", "Y M3 S-",
-            "Y Ms S+", "Y Ms S-", "Y Mz S+", "Y Mz S-",
-        ]
-        .into_iter()
-        .map(String::from)
-        .collect();
-        assert_eq!(
-            expected, actual,
-            "'Y' should expand to all 12 Y modes (Y+ union Y-)"
-        );
-    }
-
-    #[test]
-    fn e_expands_to_all_e_modes() {
-        // Arrange
-        let parsed = ParsedMode::from_str("E").expect("Failed to parse 'E'");
-
-        // Act
-        let actual: HashSet<String> = parsed.to_modes().map(|m| m.to_string()).collect();
-
-        // Assert
-        let expected: HashSet<String> = [
-            "E M0 S+", "E M0 S-", "E M1 S+", "E M1 S-", "E M2 S+", "E M2 S-", "E M3 S+", "E M3 S-",
-            "E Ms S+", "E Ms S-", "E Mz S+", "E Mz S-",
-        ]
-        .into_iter()
-        .map(String::from)
-        .collect();
-        assert_eq!(
-            expected, actual,
-            "'E' should expand to all 12 E modes (E+ union E-)"
-        );
     }
 }
