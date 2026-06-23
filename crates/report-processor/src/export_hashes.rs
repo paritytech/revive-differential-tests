@@ -1,5 +1,7 @@
-use std::collections::{BTreeMap, HashMap};
-use std::path::{Path, PathBuf};
+use std::{
+    collections::{BTreeMap, HashMap},
+    path::{Path, PathBuf},
+};
 
 use anyhow::{Result, bail};
 use revive_dt_common::fs::normalize_path;

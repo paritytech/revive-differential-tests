@@ -30,17 +30,7 @@ impl<'a> CachedCompiler<'a> {
 
     /// Compiles or gets the compilation artifacts from the cache.
     #[allow(clippy::too_many_arguments)]
-    #[instrument(
-        level = "debug",
-        skip_all,
-        fields(
-            metadata_file_path = %metadata_file_path.display(),
-            %mode,
-            compiler = %compiler_identifier,
-            platform = ?platform_identifier,
-        ),
-        err
-    )]
+    #[instrument(level = "debug", skip_all, err)]
     pub async fn compile_contracts(
         &self,
         metadata: &'a Metadata,
@@ -49,7 +39,6 @@ impl<'a> CachedCompiler<'a> {
         deployed_libraries: Option<&HashMap<ContractInstance, (ContractIdent, Address, JsonAbi)>>,
         compiler: &dyn SolidityCompiler,
         compiler_identifier: CompilerIdentifier,
-        platform_identifier: Option<PlatformIdentifier>,
         reporter: &CompilationReporter<'_>,
     ) -> Result<CompilerOutput> {
         let cache_key = CacheKey {
@@ -91,8 +80,7 @@ impl<'a> CachedCompiler<'a> {
             // If deployed libraries have been specified then we will re-compile the contract as it
             // means that linking is required in this case.
             Some(_) => {
-                debug!("Deployed libraries defined, recompilation must take place");
-                debug!("Cache miss");
+                debug!("Cache skip");
                 compilation_callback()
                     .await
                     .context("Compilation callback for deployed libraries failed")?
@@ -101,8 +89,6 @@ impl<'a> CachedCompiler<'a> {
             // If no deployed libraries are specified then we can follow the cached flow and attempt
             // to lookup the compilation artifacts in the cache.
             None => {
-                debug!("Deployed libraries undefined, attempting to make use of cache");
-
                 // Lock this specific cache key such that we do not get inconsistent state. We want
                 // that when multiple cases come in asking for the compilation artifacts then they
                 // don't all trigger a compilation if there's a cache miss. Hence, the lock here.
@@ -126,6 +112,7 @@ impl<'a> CachedCompiler<'a> {
 
                 match self.artifacts_cache.get(&cache_key).await {
                     Some(cache_value) => {
+                        debug!("Cache hit");
                         let CompilationReporter::Execution(exec_reporter) = reporter else {
                             unreachable!();
                         };
@@ -141,6 +128,7 @@ impl<'a> CachedCompiler<'a> {
                         cache_value.compiler_output
                     }
                     None => {
+                        debug!("Cache miss");
                         let compiler_output = compilation_callback()
                             .await
                             .context("Compilation callback failed (cache miss path)")?
@@ -174,11 +162,14 @@ async fn compile_contracts(
     compiler: &dyn SolidityCompiler,
     reporter: &CompilationReporter<'_>,
 ) -> Result<CompilerOutput> {
-    // Puts a limit on how many compilations we can perform at any given instance which helps us
-    // with some of the errors we've been seeing with high concurrency on MacOS (we have not tried
-    // it on Linux so we don't know if these issues also persist there or not.)
-    static SPAWN_GATE: LazyLock<Semaphore> = LazyLock::new(|| Semaphore::new(5));
-    let _permit = SPAWN_GATE.acquire().await?;
+    static COMPILATION_SEMAPHORE: LazyLock<Arc<Semaphore>> =
+        LazyLock::new(|| Arc::new(Semaphore::new(100)));
+
+    let _permit = COMPILATION_SEMAPHORE
+        .clone()
+        .acquire_owned()
+        .await
+        .context("Poisoned")?;
 
     let all_sources_in_dir = FilesWithExtensionIterator::new(metadata_directory.as_ref())
         .with_allowed_extension("sol")
@@ -279,7 +270,7 @@ impl ArtifactsCache {
         }
     }
 
-    pub fn with_invalidated_cache(self) -> FrameworkFuture<Result<Self>> {
+    pub fn with_invalidated_cache(self) -> StaticFuture<Result<Self>> {
         Box::pin(async move {
             match cacache::clear(self.path.as_path()).await {
                 Ok(()) => Ok(self),

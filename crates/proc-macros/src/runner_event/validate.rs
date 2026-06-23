@@ -1,7 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-use super::codegen::to_snake_case;
-use super::types::RunnerEventInput;
+use super::{codegen::to_snake_case, types::RunnerEventInput};
 
 pub(crate) fn validate(input: &RunnerEventInput) -> syn::Result<()> {
     // Reject duplicate group keys.

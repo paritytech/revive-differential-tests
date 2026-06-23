@@ -1,11 +1,12 @@
 /target
 .vscode/
+.zed/
 .DS_Store
 node_modules
 /*.json
 *.sh
 
-# We do not want to commit any log files that we produce from running the code locally so this is 
+# We do not want to commit any log files that we produce from running the code locally so this is
 # added to the .gitignore file.
 *.log
 

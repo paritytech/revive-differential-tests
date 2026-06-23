@@ -89,7 +89,7 @@ pub async fn process_corpus<'a, Processor: CorpusDefinitionProcessor>(
     let fail_fast_notify = Arc::new(Notify::new());
 
     // Process all definitions concurrently.
-    let driver_task =
+    let processing_task =
         futures::future::join_all(definitions.iter().enumerate().map(|(task_id, definition)| {
             let running_task_list = running_task_list.clone();
             let semaphore = semaphore.clone();
@@ -193,16 +193,16 @@ pub async fn process_corpus<'a, Processor: CorpusDefinitionProcessor>(
 
     // Wait for completion, with optional fail-fast abort.
     if fail_fast.fail_fast {
-        tokio::pin!(driver_task);
+        tokio::pin!(processing_task);
         tokio::select! {
             biased;
             _ = fail_fast_notify.notified() => {
                 info!("Fail-fast triggered, aborting remaining tasks");
             }
-            _ = &mut driver_task => {}
+            _ = &mut processing_task => {}
         }
     } else {
-        driver_task.await;
+        processing_task.await;
     }
 
     info!("Finished processing all corpus definitions");

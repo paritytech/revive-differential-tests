@@ -1,34 +1,14 @@
-use tracing::Instrument;
-
 use crate::internal_prelude::*;
 
-/// A layer that allows for automatic retries for getting the receipt.
-///
-/// There are certain cases where getting the receipt of a committed transaction might fail. In Geth
-/// this can happen if the transaction has been committed to the ledger but has not been indexed, in
-/// the substrate and revive stack it can also happen for other reasons.
-///
-/// Therefore, just because the first attempt to get the receipt (after transaction confirmation)
-/// has failed it doesn't mean that it will continue to fail. This layer can be added to any alloy
-/// provider to allow the provider to retry getting the receipt for some period of time before it
-/// considers that a timeout. It uses exponential backoff starting from `initial_backoff` and
-/// doubling each attempt up to `max_backoff`. If by the end of the `polling_duration` it was
-/// not able to get the receipt successfully then this is considered to be a timeout.
-///
-/// Additionally, this layer allows for retries for other rpc methods such as all tracing methods.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct RetryLayer {
-    /// The amount of time to keep polling for the receipt before considering it a timeout.
     polling_duration: Duration,
-
-    /// The initial backoff interval between retries. Doubles after each failed attempt.
     initial_backoff: Duration,
-
-    /// The maximum backoff interval. The backoff will not grow beyond this value.
     max_backoff: Duration,
 }
 
 impl RetryLayer {
+    #[allow(dead_code)]
     pub fn new(
         polling_duration: Duration,
         initial_backoff: Duration,
@@ -82,16 +62,9 @@ impl<S> Layer<S> for RetryLayer {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct RetryService<S> {
-    /// The internal service.
     service: S,
-
-    /// The amount of time to keep polling for the receipt before considering it a timeout.
     polling_duration: Duration,
-
-    /// The initial backoff interval between retries. Doubles after each failed attempt.
     initial_backoff: Duration,
-
-    /// The maximum backoff interval. The backoff will not grow beyond this value.
     max_backoff: Duration,
 }
 
@@ -124,25 +97,34 @@ where
 
         Box::pin(
             async move {
-                let request = req
-                    .as_single()
-                    .ok_or_else(|| TransportErrorKind::custom_str("Retry layer doesn't support batch requests"))?;
+                let request = req.as_single().ok_or_else(|| {
+                    TransportErrorKind::custom_str("Retry layer doesn't support batch requests")
+                })?;
                 tracing::Span::current().record("request", tracing::field::debug(request));
                 let method = request.method();
-                let requires_retries =
-                    method == "eth_getTransactionReceipt" || (method.contains("debug") && method.contains("trace"));
+                let requires_retries = method == "eth_getTransactionReceipt"
+                    || (method.contains("debug") && method.contains("trace"));
 
                 if !requires_retries {
-                    debug!(%method, "Retry layer: method does not require retries, forwarding directly");
+                    debug!(
+                        %method,
+                        "Retry layer: method does not require retries, forwarding directly"
+                    );
                     return service.call(req).await;
                 }
 
-                debug!(%method, ?polling_duration, ?initial_backoff, ?max_backoff, "Retry layer: starting retry loop");
+                debug!(
+                    %method,
+                    ?polling_duration,
+                    ?initial_backoff,
+                    ?max_backoff,
+                    "Retry layer: starting retry loop"
+                );
                 let mut attempt_errors = Vec::<String>::new();
 
                 let result = timeout(polling_duration, async {
                     let mut backoff = initial_backoff;
-                    let mut attempt: u32 = 0;
+                    let mut attempt = 0_u32;
 
                     loop {
                         attempt += 1;
@@ -153,7 +135,13 @@ where
                             Ok(resp) => resp,
                             Err(err) => {
                                 let msg = format!("attempt {attempt}: transport error: {err}");
-                                debug!(%method, attempt, ?backoff, %err, "Retry layer: transport error, retrying");
+                                debug!(
+                                    %method,
+                                    attempt,
+                                    ?backoff,
+                                    %err,
+                                    "Retry layer: transport error, retrying"
+                                );
                                 attempt_errors.push(msg);
                                 sleep(backoff).await;
                                 backoff = (backoff * 2).min(max_backoff);
@@ -162,7 +150,7 @@ where
                         };
                         let response = resp.as_single().expect("Can't fail");
                         if let Some(error_response) = response.payload().as_error() {
-                            let msg = format!("attempt {attempt}: RPC error: {:?}", error_response);
+                            let msg = format!("attempt {attempt}: RPC error: {error_response:?}");
                             debug!(
                                 %method,
                                 attempt,
@@ -171,8 +159,6 @@ where
                                 "Retry layer: RPC error response, retrying"
                             );
 
-                            // There are certain errors which we can't recover
-                            // from if they do happen.
                             if error_response.message.contains("BasicBlockTooLarge") {
                                 break resp;
                             };
@@ -196,7 +182,10 @@ where
                             debug!(%method, attempt, "Retry layer: received successful response");
                             return resp;
                         } else {
-                            let msg = format!("attempt {attempt}: receipt response was null/unparseable: {response:?}");
+                            let msg = format!(
+                                "attempt {attempt}: receipt response was null/unparseable: \
+                                 {response:?}"
+                            );
                             debug!(
                                 %method,
                                 attempt,
@@ -221,14 +210,16 @@ where
                         %error_summary,
                         "Retry layer: timed out waiting for successful response"
                     );
-                    TransportErrorKind::custom_str(
-                        &format!(
-                            "Timeout when retrying {method} after {polling_duration:?}. Attempt errors:\n  {error_summary}"
-                        )
-                    )
+                    TransportErrorKind::custom_str(&format!(
+                        "Timeout when retrying {method} after {polling_duration:?}. Attempt \
+                         errors:\n  {error_summary}"
+                    ))
                 })
             }
-            .instrument(debug_span!("Handling request", request = tracing::field::Empty)),
+            .instrument(debug_span!(
+                "Handling request",
+                request = tracing::field::Empty
+            )),
         )
     }
 }

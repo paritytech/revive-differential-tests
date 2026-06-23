@@ -6,9 +6,6 @@ pub struct MinedBlockInformation {
     pub substrate_block_information: Option<SubstrateMinedBlockInformation>,
     pub tx_counts: BTreeMap<StepPath, usize>,
     pub observation_time: SystemTime,
-
-    /// The number of transactions pending in the transaction pool at the time this block was
-    /// observed. Populated by the benchmark watcher; defaults to zero when not measured.
     #[serde(default)]
     pub pending_transaction_count: usize,
 }
@@ -34,19 +31,10 @@ impl MinedBlockInformation {
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct EthereumMinedBlockInformation {
-    /// The block number.
     pub block_number: BlockNumber,
-
-    /// The block timestamp.
     pub block_timestamp: BlockTimestamp,
-
-    /// The amount of gas mined in the block.
     pub mined_gas: u128,
-
-    /// The gas limit of the block.
     pub block_gas_limit: u128,
-
-    /// The hashes of the transactions that were mined as part of the block.
     pub transaction_hashes: Vec<TxHash>,
 }
 
@@ -58,30 +46,16 @@ impl EthereumMinedBlockInformation {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct SubstrateMinedBlockInformation {
-    /// The ref time for substrate based chains.
     pub ref_time: u128,
-
-    /// The max ref time for substrate based chains.
     pub max_ref_time: u64,
-
-    /// The proof size for substrate based chains.
     pub proof_size: u128,
-
-    /// The max proof size for substrate based chains.
     pub max_proof_size: u64,
-
-    /// The block hash of the substrate block.
     pub block_hash: [u8; 32],
-
-    /// The total pre-dispatch ref time weight of all transactions in the block, obtained from the
-    /// execution tracer's `baseCallWeight` field. Defaults to zero when the tracer is unavailable.
     #[serde(default)]
     pub pre_dispatch_ref_time: u128,
-
-    /// The total pre-dispatch proof size weight of all transactions in the block, obtained from the
-    /// execution tracer's `baseCallWeight` field. Defaults to zero when the tracer is unavailable.
     #[serde(default)]
     pub pre_dispatch_proof_size: u128,
+    pub is_last_block_in_slot: bool,
 }
 
 impl SubstrateMinedBlockInformation {
@@ -95,8 +69,9 @@ impl SubstrateMinedBlockInformation {
 }
 
 define_wrapper_type!(
-    #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-    pub struct StepIdx(usize) impl Display, FromStr;
+    #[rustfmt::skip]
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, FromStr, DeriveMoreDisplay)]
+    pub struct StepIdx(usize);
 );
 
 define_wrapper_type!(
@@ -106,18 +81,6 @@ define_wrapper_type!(
 );
 
 impl StepPath {
-    pub fn from_iterator(path: impl IntoIterator<Item = impl Into<StepIdx>>) -> Self {
-        Self(path.into_iter().map(|value| value.into()).collect())
-    }
-
-    pub fn increment(&self) -> Self {
-        let mut this = self.clone();
-        if let Some(last) = this.last_mut() {
-            last.0 += 1
-        }
-        this
-    }
-
     pub fn append(&self, step_idx: impl Into<StepIdx>) -> Self {
         let mut this = self.clone();
         this.0.push(step_idx.into());
@@ -142,7 +105,8 @@ impl FromStr for StepPath {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         s.split(".")
             .map(StepIdx::from_str)
-            .collect::<anyhow::Result<Vec<_>>>()
+            .collect::<anyhow::Result<Vec<_>, _>>()
+            .context("Failed to parse step path")
             .map(Self)
     }
 }

@@ -4,13 +4,15 @@ use proc_macro2::TokenStream;
 use quote::quote;
 use syn::{Ident, ItemMod};
 
-use super::codegen_as_ref::{
-    compute_config_membership, gen_context_as_ref_impls, gen_default_statics,
-    gen_has_config_traits, gen_subcommand_as_ref_impls,
+use super::{
+    codegen_as_ref::{
+        compute_config_membership, gen_context_as_ref_impls, gen_default_statics,
+        gen_has_config_traits, gen_subcommand_as_ref_impls,
+    },
+    parse::type_ident,
+    types::{ContextArgs, ValidatedModule},
+    validate::validate,
 };
-use super::parse::type_ident;
-use super::types::{ContextArgs, ValidatedModule};
-use super::validate::validate;
 
 pub(crate) fn handler(attr: TokenStream, module: ItemMod) -> syn::Result<TokenStream> {
     let args: ContextArgs = syn::parse2(attr)?;

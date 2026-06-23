@@ -1,24 +1,21 @@
 //! The main entry point into differential testing.
 
+use futures::stream::FuturesUnordered;
+
 use crate::internal_prelude::*;
 
-use crate::differential_tests::Driver;
+use crate::interpreter::Interpreter;
 
-/// The number of test steps that were executed.
-type StepsExecuted = usize;
-
-/// State for test definition processing.
 #[derive(Clone)]
 struct TestDefinitionProcessorState {
     private_key_allocator: Arc<Mutex<PrivateKeyAllocator>>,
 }
 
-/// The definition processor for tests.
 struct TestDefinitionProcessor;
 
 impl CorpusDefinitionProcessor for TestDefinitionProcessor {
     type Definition<'a> = TestDefinition<'a>;
-    type ProcessResult = StepsExecuted;
+    type ProcessResult = ();
     type State = TestDefinitionProcessorState;
 
     async fn process_definition<'a>(
@@ -26,19 +23,56 @@ impl CorpusDefinitionProcessor for TestDefinitionProcessor {
         cached_compiler: &'a CachedCompiler<'a>,
         state: Self::State,
     ) -> anyhow::Result<Self::ProcessResult> {
-        Driver::new_root(definition, state.private_key_allocator, cached_compiler)
-            .await?
-            .execute_all()
-            .await
+        let mut interpreters = futures::future::try_join_all(definition.platforms.iter().map(
+            |(identifier, information)| {
+                let private_key_allocator = state.private_key_allocator.clone();
+                async move {
+                    let platform_identifier = *identifier;
+                    let node_id = information.connector.node_id();
+                    let platform_span =
+                        info_span!("On Platform", node_id = %node_id, %platform_identifier);
+
+                    let steps = definition
+                        .case
+                        .steps_iterator()
+                        .enumerate()
+                        .map(|(step_idx, step)| -> (StepPath, Step) {
+                            (StepPath::new(vec![StepIdx::new(step_idx)]), step)
+                        })
+                        .collect::<Vec<_>>()
+                        .into_iter();
+                    Interpreter::for_tests(
+                        information,
+                        definition,
+                        private_key_allocator,
+                        cached_compiler,
+                        steps,
+                    )
+                    .instrument(platform_span.clone())
+                    .instrument(info_span!("Initializing the interpreter"))
+                    .await
+                    .context(format!("Failed to create interpreter for {identifier}"))
+                    .map(|interpreter| (interpreter, platform_span))
+                }
+            },
+        ))
+        .await
+        .context("Failed to create the interpreters for the various platforms")?
+        .into_iter()
+        .map(|(interpreter, platform_span)| {
+            interpreter.run_to_completion().instrument(platform_span)
+        })
+        .collect::<FuturesUnordered<_>>();
+
+        while let Some(result) = interpreters.next().await {
+            result?;
+        }
+
+        Ok(())
     }
 
-    fn on_success(
-        definition: &Self::Definition<'_>,
-        steps_executed: StepsExecuted,
-    ) -> anyhow::Result<()> {
-        definition
-            .reporter
-            .report_test_succeeded_event(steps_executed)?;
+    fn on_success(definition: &Self::Definition<'_>, _: ()) -> anyhow::Result<()> {
+        definition.reporter.report_test_succeeded_event(0usize)?;
         Ok(())
     }
 
@@ -73,15 +107,13 @@ impl CorpusDefinitionProcessor for TestDefinitionProcessor {
         info_span!(
             "Executing Test Case",
             test_id = task_id,
-            metadata_file_path = %definition.metadata_file_path.display(),
             case_idx = %definition.case_idx,
             mode = %definition.mode,
+            metadata_file_path = %definition.metadata_file_path.display(),
         )
     }
 }
 
-/// Handles the differential testing executing it according to the information defined in the
-/// context
 #[instrument(level = "info", err(Debug), skip_all)]
 pub async fn handle_differential_tests(context: Test, reporter: Reporter) -> anyhow::Result<()> {
     let reporter_clone = reporter.clone();
@@ -150,7 +182,7 @@ pub async fn handle_differential_tests(context: Test, reporter: Reporter) -> any
     .await;
     info!(len = test_definitions.len(), "Created test definitions");
 
-    // Creating everything else required for the driver to run.
+    // Creating everything else required for the interpreter to run.
     let cached_compiler = CachedCompiler::new(
         context
             .working_directory
@@ -192,7 +224,7 @@ pub async fn handle_differential_tests(context: Test, reporter: Reporter) -> any
 fn start_cli_reporting_task(
     output_format: OutputFormatConfiguration,
     reporter: Reporter,
-) -> FrameworkFuture<()> {
+) -> StaticFuture<()> {
     Box::pin(async move {
         let mut aggregator_events_rx = reporter.subscribe().await.expect("Can't fail");
         drop(reporter);
@@ -215,50 +247,6 @@ fn start_cli_reporting_task(
             };
 
             match output_format.output_format {
-                OutputFormat::Legacy => {
-                    let _ = writeln!(buf, "{} - {}", mode, metadata_file_path.display());
-                    for (case_idx, case_status) in case_status.into_iter() {
-                        let _ = write!(buf, "\tCase Index {case_idx:>3}: ");
-                        let _ = match case_status {
-                            TestCaseStatus::Succeeded { steps_executed } => {
-                                global_success_count += 1;
-                                writeln!(
-                                    buf,
-                                    "{}",
-                                    ANSIStrings(&[
-                                        Color::Green.bold().paint("Case Succeeded"),
-                                        Color::Green
-                                            .paint(format!(" - Steps Executed: {steps_executed}")),
-                                    ])
-                                )
-                            }
-                            TestCaseStatus::Failed { reason } => {
-                                global_failure_count += 1;
-                                writeln!(
-                                    buf,
-                                    "{}",
-                                    ANSIStrings(&[
-                                        Color::Red.bold().paint("Case Failed"),
-                                        Color::Red.paint(format!(" - Reason: {}", reason.trim())),
-                                    ])
-                                )
-                            }
-                            TestCaseStatus::Ignored { reason, .. } => {
-                                global_ignore_count += 1;
-                                writeln!(
-                                    buf,
-                                    "{}",
-                                    ANSIStrings(&[
-                                        Color::Yellow.bold().paint("Case Ignored"),
-                                        Color::Yellow
-                                            .paint(format!(" - Reason: {}", reason.trim())),
-                                    ])
-                                )
-                            }
-                        };
-                    }
-                    let _ = writeln!(buf);
-                }
                 OutputFormat::CargoTestLike => {
                     writeln!(
                         buf,
@@ -321,19 +309,7 @@ fn start_cli_reporting_task(
         }
         info!("Aggregator Broadcast Channel Closed");
 
-        // Summary at the end.
         match output_format.output_format {
-            OutputFormat::Legacy => {
-                writeln!(
-                    buf,
-                    "{} cases: {} cases succeeded, {} cases failed in {} seconds",
-                    global_success_count + global_failure_count + global_ignore_count,
-                    Color::Green.paint(global_success_count.to_string()),
-                    Color::Red.paint(global_failure_count.to_string()),
-                    start.elapsed().as_secs()
-                )
-                .unwrap();
-            }
             OutputFormat::CargoTestLike => {
                 writeln!(
                     buf,

@@ -1,592 +1,170 @@
 //! This crate implements all node interactions.
 
+pub mod config;
+pub mod connector;
+mod pool;
+mod providers;
+mod subxt_provider;
+pub mod traits;
+
 pub mod prelude {
-    pub use crate::NodeApi;
-    pub use crate::revive_metadata;
+    pub use crate::{config::*, connector::*, revive_metadata, traits::*};
 }
 
-use std::collections::HashMap;
-use std::future::ready;
-use std::sync::Arc;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+pub(crate) mod internal_prelude {
+    pub use crate::{
+        pool::*, prelude::*, providers::*, revive_metadata::revive::calls::types::EthTransact,
+        subxt_provider::*,
+    };
 
-use alloy::primitives::{Address, StorageKey, TxHash, U256, keccak256};
-use alloy::providers::ext::DebugApi;
-use alloy::providers::{DynProvider, Provider};
-use alloy::rpc::types::trace::geth::{
-    DiffMode, GethDebugTracingOptions, GethTrace, PreStateConfig, PreStateFrame,
-};
-use alloy::rpc::types::{EIP1186AccountProofResponse, TransactionReceipt, TransactionRequest};
-use anyhow::{Context as _, Result};
+    pub use std::{
+        borrow::Cow,
+        collections::{HashMap, hash_map::Entry},
+        future::{Future, ready},
+        ops::{ControlFlow, Deref},
+        result::Result as StdResult,
+        sync::{Arc, LazyLock, Mutex as StdMutex, atomic::AtomicUsize},
+        time::{Duration, SystemTime},
+    };
 
-use futures::future::Either;
-use futures::{Stream, StreamExt, stream};
-use pallet_revive::codec::Decode;
-use pallet_revive::evm::Block as EthBlock;
-use revive_common::EVMVersion;
-use revive_dt_common::futures::{FrameworkFuture, FrameworkStream};
-
-use revive_dt_common::subscriptions::{
-    EthereumMinedBlockInformation, MinedBlockInformation, SubstrateMinedBlockInformation,
-};
-use subxt::utils::H256;
-use subxt::{OnlineClient, PolkadotConfig};
-use tokio::sync::RwLock;
-use tokio::task::AbortHandle;
-use tokio::time::interval;
-use tracing::{debug, error, warn};
+    pub use alloy::{
+        consensus::{
+            BlockHeader, Receipt, ReceiptEnvelope, Transaction, TxEip4844Variant, TxEnvelope,
+            transaction::SignerRecoverable,
+        },
+        eips::{BlockId, Decodable2718, Encodable2718},
+        network::{
+            AnyNetwork, BlockResponse, Ethereum, EthereumWallet, Network, TransactionBuilder,
+        },
+        primitives::{Address, BlockHash, TxHash, U256, address, keccak256},
+        providers::{
+            Identity, Provider, ProviderBuilder, RootProvider,
+            ext::DebugApi,
+            fillers::{
+                ChainIdFiller, FillProvider, GasFiller, JoinFill, NonceFiller, NonceManager,
+                WalletFiller,
+            },
+        },
+        rpc::{
+            client::{BuiltInConnectionString, ClientBuilder},
+            json_rpc::{RequestPacket, ResponsePacket},
+            types::{
+                Block as EvmBlock, TransactionReceipt, TransactionRequest,
+                trace::geth::{GethDebugTracingCallOptions, GethDebugTracingOptions, GethTrace},
+            },
+        },
+        transports::{
+            BoxFuture, BoxTransport, Transport, TransportConnect, TransportError,
+            TransportErrorKind, TransportFut, TransportResult,
+        },
+    };
+    pub use anyhow::{Context as _, Error, Result, anyhow, bail};
+    pub use bitflags::bitflags;
+    pub use dashmap::DashMap;
+    pub use futures::{FutureExt, StreamExt, TryFutureExt, TryStreamExt, future::try_join_all};
+    pub use pallet_revive::{
+        EthTransactError, H256, Weight,
+        evm::{TracerConfig, TracerType},
+    };
+    pub use parity_scale_codec::{Compact, Decode, Encode};
+    pub use revive_common::EVMVersion;
+    pub use revive_dt_common::futures::{
+        AsyncHashMap, HeartbeatExt, StaticFuture, StaticStream, TimedExt,
+        retry_future_with_exponential_backoff,
+    };
+    pub use serde::{Deserialize, Serialize};
+    pub use serde_json;
+    pub use sp_runtime::{
+        OpaqueExtrinsic,
+        generic::{Block as GenericBlock, DigestItem, Header as GenericHeader},
+        traits::BlakeTwo256,
+    };
+    pub use subxt::{
+        OnlineClient, PolkadotConfig,
+        backend::rpc::{
+            RawRpcFuture, RawRpcSubscription, RawValue, RpcClient as SubxtRpcClient, RpcClientT,
+            reconnecting_rpc_client,
+        },
+        blocks::Block as SubxtBlock,
+        dynamic,
+        ext::subxt_rpcs::{
+            Error as RpcsError, methods::LegacyRpcMethods, utils::validate_url_is_secure,
+        },
+        tx::Payload,
+    };
+    pub use tokio::{
+        spawn,
+        sync::{
+            Mutex, OwnedSemaphorePermit, RwLock, Semaphore,
+            broadcast::{
+                Receiver as BroadcastReceiver, Sender as BroadcastSender,
+                channel as broadcast_channel,
+            },
+            mpsc,
+        },
+        time::{sleep, timeout},
+    };
+    pub use tokio_stream::wrappers::BroadcastStream;
+    pub use tower::{Layer, Service};
+    pub use tracing::{Instrument, debug, debug_span, error, info_span, trace, warn};
+}
 
 #[subxt::subxt(
     runtime_metadata_path = "../../assets/revive_metadata.scale",
-    derive_for_all_types = "::subxt::ext::codec::Encode, ::subxt::ext::codec::Decode",
-    attributes_for_all_types = "#[codec(crate = ::subxt::ext::codec)]",
-    attributes_for_type(
-        path = "pallet_revive::evm::api::debug_rpc_types::CallTrace",
-        attributes = "#[codec(dumb_trait_bound)]"
+    substitute_type(
+        path = "sp_runtime::generic::block::Block<A, B, C, D, E>",
+        with = "::subxt::utils::Static<::sp_runtime::generic::Block<
+            ::sp_runtime::generic::Header<u32, ::sp_runtime::traits::BlakeTwo256>,
+            ::sp_runtime::OpaqueExtrinsic
+        >>"
+    ),
+    substitute_type(
+        path = "pallet_revive::evm::api::debug_rpc_types::Trace",
+        with = "::subxt::utils::Static<::pallet_revive::evm::Trace>"
+    ),
+    substitute_type(
+        path = "pallet_revive::evm::api::debug_rpc_types::TracerType",
+        with = "::subxt::utils::Static<::pallet_revive::evm::TracerType>"
+    ),
+    substitute_type(
+        path = "pallet_revive::evm::api::rpc_types_gen::Block",
+        with = "::subxt::utils::Static<pallet_revive::evm::Block>"
+    ),
+    substitute_type(
+        path = "pallet_revive::evm::api::rpc_types_gen::GenericTransaction",
+        with = "::subxt::utils::Static<::pallet_revive::evm::GenericTransaction>"
+    ),
+    substitute_type(
+        path = "pallet_revive::evm::api::rpc_types::DryRunConfig<M>",
+        with = "::subxt::utils::Static<::pallet_revive::evm::DryRunConfig<M>>"
+    ),
+    substitute_type(
+        path = "pallet_revive::primitives::EthTransactInfo<B>",
+        with = "::subxt::utils::Static<::pallet_revive::EthTransactInfo<B>>"
+    ),
+    substitute_type(
+        path = "pallet_revive::primitives::EthTransactError",
+        with = "::subxt::utils::Static<::pallet_revive::EthTransactError>"
+    ),
+    substitute_type(
+        path = "primitive_types::H160",
+        with = "::subxt::utils::Static<::pallet_revive::H160>"
+    ),
+    substitute_type(
+        path = "primitive_types::H256",
+        with = "::subxt::utils::Static<::pallet_revive::H256>"
+    ),
+    substitute_type(
+        path = "primitive_types::U256",
+        with = "::subxt::utils::Static<::pallet_revive::U256>"
+    ),
+    substitute_type(
+        path = "pallet_revive::evm::block_hash::ReceiptGasInfo",
+        with = "::subxt::utils::Static<::pallet_revive::evm::ReceiptGasInfo>"
+    ),
+    substitute_type(
+        path = "sp_weights::weight_v2::Weight",
+        with = "::subxt::utils::Static<::pallet_revive::Weight>"
     )
 )]
 pub mod revive_metadata {}
-
-/// An interface for all interactions with Ethereum compatible nodes.
-#[allow(clippy::type_complexity)]
-pub trait NodeApi {
-    fn id(&self) -> usize;
-
-    /// Returns the nodes connection string.
-    fn connection_string(&self) -> &str;
-
-    fn submit_transaction(
-        &self,
-        transaction: TransactionRequest,
-    ) -> FrameworkFuture<Result<TxHash>> {
-        let provider = self.provider();
-        Box::pin(async move {
-            provider
-                .await
-                .context("Failed to get the provider")?
-                .send_transaction(transaction)
-                .await
-                .context("Failed to submit transaction")
-                .map(|pending_transaction| *pending_transaction.tx_hash())
-        })
-    }
-
-    fn get_receipt(&self, tx_hash: TxHash) -> FrameworkFuture<Result<TransactionReceipt>> {
-        let provider = self.provider();
-        Box::pin(async move {
-            provider
-                .await
-                .context("Failed to get the provider")?
-                .get_transaction_receipt(tx_hash)
-                .await
-                .context("Failed to get the transaction receipt")?
-                .context("Failed to get the transaction receipt")
-        })
-    }
-
-    /// Execute the [TransactionRequest] and return a [TransactionReceipt].
-    fn execute_transaction(
-        &self,
-        transaction: TransactionRequest,
-    ) -> FrameworkFuture<Result<TransactionReceipt>> {
-        let submission_future = self.submit_transaction(transaction);
-        let provider = self.provider();
-        Box::pin(async move {
-            let tx_hash = submission_future.await?;
-            let provider = provider.await.context("Failed to get the provider")?;
-            let receipt = provider
-                .get_transaction_receipt(tx_hash)
-                .await
-                .context("Failed to get the transaction receipt")?
-                .context("Failed to get the transaction receipt")?;
-            let receipt_block_number = receipt
-                .block_number
-                .context("A receipt must have a block number")?;
-            tokio::time::timeout(Duration::from_secs(120), async move {
-                while provider
-                    .get_block_number()
-                    .await
-                    .context("Failed to get the block number")?
-                    < receipt_block_number
-                {
-                    tokio::time::sleep(Duration::from_millis(200)).await
-                }
-                Result::<(), anyhow::Error>::Ok(())
-            })
-            .await
-            .context("Waited 120 seconds for the rpc block to be updated but it wasn't")??;
-            Ok(receipt)
-        })
-    }
-
-    /// Trace the transaction in the [TransactionReceipt] and return a [GethTrace].
-    fn trace_transaction(
-        &self,
-        tx_hash: TxHash,
-        trace_options: GethDebugTracingOptions,
-    ) -> FrameworkFuture<Result<GethTrace>> {
-        let provider = self.provider();
-        Box::pin(async move {
-            provider
-                .await
-                .context("Failed to get the provider")?
-                .debug_trace_transaction(tx_hash, trace_options)
-                .await
-                .context("Failed to get the transaction trace")
-        })
-    }
-
-    /// Returns the state diff of the transaction hash in the [TransactionReceipt].
-    fn state_diff(&self, tx_hash: TxHash) -> FrameworkFuture<Result<DiffMode>> {
-        let provider = self.provider();
-        Box::pin(async move {
-            let trace_options = GethDebugTracingOptions::prestate_tracer(PreStateConfig {
-                diff_mode: Some(true),
-                disable_code: None,
-                disable_storage: None,
-            });
-            match provider
-                .await
-                .context("Failed to get the provider")?
-                .debug_trace_transaction(tx_hash, trace_options)
-                .await
-                .context("Failed to trace transaction for prestate diff")?
-                .try_into_pre_state_frame()
-                .context("Failed to convert trace into pre-state frame")?
-            {
-                PreStateFrame::Diff(diff) => Ok(diff),
-                _ => anyhow::bail!("expected a diff mode trace"),
-            }
-        })
-    }
-
-    /// Returns the balance of the provided [`Address`] back.
-    fn balance_of(&self, address: Address) -> FrameworkFuture<Result<U256>> {
-        let provider = self.provider();
-        Box::pin(async move {
-            provider
-                .await
-                .context("Failed to get the provider")?
-                .get_balance(address)
-                .await
-                .context("Failed to get account balance")
-        })
-    }
-
-    /// Returns the latest storage proof of the provided [`Address`]
-    fn latest_state_proof(
-        &self,
-        address: Address,
-        keys: Vec<StorageKey>,
-    ) -> FrameworkFuture<Result<EIP1186AccountProofResponse>> {
-        let provider = self.provider();
-        Box::pin(async move {
-            provider
-                .await
-                .context("Failed to get the provider")?
-                .get_proof(address, keys)
-                .latest()
-                .await
-                .context("Failed to get state proof")
-        })
-    }
-
-    /// Returns the EVM version of the node.
-    fn evm_version(&self) -> EVMVersion;
-
-    /// Returns a stream of the blocks that were mined by the node.
-    fn subscribe_to_full_blocks_information(
-        &self,
-    ) -> FrameworkFuture<Result<FrameworkStream<MinedBlockInformation>>> {
-        let provider = self.subscriptions_provider();
-        let substrate_provider = self.substrate_provider();
-
-        let future = if let Some(substrate_provider) = substrate_provider {
-            Either::Left(subscribe_to_full_blocks_information_substrate(
-                substrate_provider,
-            ))
-        } else {
-            Either::Right(subscribe_to_full_blocks_information_ethereum(provider))
-        };
-        Box::pin(future) as _
-    }
-
-    /// Subscribes to transaction hashes included in the blocks.
-    ///
-    /// The default implementation of this function uses a different strategy between the Ethereum
-    /// nodes and the Substrate based nodes.
-    ///
-    /// For Ethereum node, we subscribe to blocks and then flatten their included transaction hashes
-    /// into the stream and return them.
-    ///
-    /// For Substrate based nodes we subscribe to the best blocks, filter for the [`EthTransact`]
-    /// extrinsics included in there, compute the transaction hashes from them, and then we return
-    /// these hashes in the stream.
-    ///
-    /// The key thing in this implementation is that it makes some assumptions about how the down
-    /// stream clients will use it. It assumes that the clients do not rely on finalized blocks to
-    /// determine transaction inclusion and are fine with transactions merely being included in best
-    /// blocks.
-    fn subscribe_to_transaction_inclusions(
-        &self,
-    ) -> FrameworkFuture<Result<FrameworkStream<(u64, TxHash)>>> {
-        let provider = self.subscriptions_provider();
-        let substrate_provider = self.substrate_provider();
-
-        let future = if let Some(substrate_provider) = substrate_provider {
-            Either::Left(subscribe_to_transaction_inclusions_substrate(
-                substrate_provider,
-            ))
-        } else {
-            Either::Right(subscribe_to_transaction_inclusions_ethereum(provider))
-        };
-        Box::pin(future) as _
-    }
-
-    /// A function to run post spawning the nodes and before any transactions are run on the node.
-    fn pre_transactions(&mut self) -> FrameworkFuture<Result<()>> {
-        Box::pin(async move { Ok(()) })
-    }
-
-    /// The alloy provider connected to the node's Rpc.
-    fn provider(&self) -> FrameworkFuture<Result<DynProvider>>;
-
-    /// The alloy provider we use for all of the subscriptions through this node.
-    fn subscriptions_provider(&self) -> FrameworkFuture<Result<DynProvider>> {
-        self.provider()
-    }
-
-    /// The substrate provider used by the node. None if it's not a substrate node.
-    fn substrate_provider(&self) -> Option<FrameworkFuture<Result<OnlineClient<PolkadotConfig>>>> {
-        None
-    }
-
-    /// The low-level substrate RPC client used by the node. None if it's not a substrate node.
-    ///
-    /// This is separate from [`Self::substrate_provider`] because [`OnlineClient`] does not expose
-    /// the underlying [`subxt::backend::rpc::RpcClient`]. Callers that need to issue arbitrary RPC
-    /// requests (e.g. `author_pendingExtrinsics`) should use this method.
-    fn substrate_rpc_client(
-        &self,
-    ) -> Option<FrameworkFuture<Result<subxt::backend::rpc::RpcClient>>> {
-        None
-    }
-}
-
-fn subscribe_to_full_blocks_information_ethereum(
-    provider: FrameworkFuture<Result<DynProvider>>,
-) -> FrameworkFuture<Result<FrameworkStream<MinedBlockInformation>>> {
-    Box::pin(async move {
-        let stream: FrameworkStream<MinedBlockInformation> = Box::pin(
-            provider
-                .await
-                .context("Failed to get the provider")?
-                .subscribe_full_blocks()
-                .into_stream()
-                .await
-                .context("Failed to create the block stream")?
-                .filter_map(|block| async {
-                    let block = block.ok()?;
-                    Some(MinedBlockInformation {
-                        ethereum_block_information: EthereumMinedBlockInformation {
-                            block_number: block.number(),
-                            block_timestamp: block.header.timestamp,
-                            mined_gas: block.header.gas_used as _,
-                            block_gas_limit: block.header.gas_limit as _,
-                            transaction_hashes: block
-                                .transactions
-                                .into_hashes()
-                                .as_hashes()
-                                .expect("Must be hashes")
-                                .to_vec(),
-                        },
-                        substrate_block_information: None,
-                        tx_counts: Default::default(),
-                        observation_time: SystemTime::now(),
-                        pending_transaction_count: 0,
-                    })
-                }),
-        );
-        Ok(stream)
-    })
-}
-
-#[allow(clippy::type_complexity)]
-fn subscribe_to_full_blocks_information_substrate(
-    substrate_provider: FrameworkFuture<Result<OnlineClient<PolkadotConfig>>>,
-) -> FrameworkFuture<Result<FrameworkStream<MinedBlockInformation>>> {
-    Box::pin(async move {
-        let substrate_provider = substrate_provider.await.context("Failed to get provider")?;
-
-        // This is a map of the hash of the any substrate blocks to the time at which they were
-        // observed. We use this as the canonical way of getting the "observation time" of blocks
-        // on the chain. If we encounter a finalized block which doesn't have an associated time of
-        // observation then we take the current time as the observation time.
-        let observed_any_blocks = Arc::new(RwLock::new(HashMap::<H256, SystemTime>::new()));
-
-        // This task's main objective is to subscribe to the any blocks and to process them as fast
-        // as it can adding them to the observed any blocks map.
-        let any_block_processing_task = tokio::spawn({
-            let observed_any_blocks = observed_any_blocks.clone();
-            let substrate_provider = substrate_provider.clone();
-            async move {
-                let stream = match substrate_provider.blocks().subscribe_all().await {
-                    Ok(stream) => stream,
-                    Err(err) => {
-                        error!(?err, "Failed to subscribe to the any blocks, stopped");
-                        return;
-                    }
-                };
-                stream
-                    .for_each_concurrent(None, |block| {
-                        let block = match block {
-                            Ok(block) => block,
-                            Err(err) => {
-                                error!(?err, "Failed to get one of the blocks from the subscription");
-                                return Either::Left(ready(()));
-                            }
-                        };
-
-                        let observed_any_blocks = observed_any_blocks.clone();
-                        let observation_time = SystemTime::now();
-                        Either::Right(async move {
-                            debug!(
-                                block.number = block.number(),
-                                block.hash = ?block.hash(),
-                                block.observation_time = observation_time.duration_since(UNIX_EPOCH).unwrap().as_secs(),
-                                "Observed a new any block"
-                            );
-                            let mut write_guard = observed_any_blocks.write().await;
-                            let entry = write_guard.entry(block.hash()).or_insert(observation_time);
-                            *entry = (*entry).min(observation_time)
-                        })
-                    })
-                    .await;
-            }
-        });
-
-        // This is the main stream we return to the users. It's a stream over the finalized blocks
-        // we observe from the subscription to the substrate rpc.
-        let limits = substrate_provider
-            .constants()
-            .at(&revive_metadata::constants().system().block_weights())
-            .expect("TODO: Remove")
-            .per_class
-            .normal
-            .max_extrinsic
-            .expect("TODO: Remove");
-
-        let max_ref_time = limits.ref_time;
-        let max_proof_size = limits.proof_size;
-
-        let stream = substrate_provider
-            .blocks()
-            .subscribe_finalized()
-            .await
-            .context("Failed to subscribe to the finalized blocks")?
-            .filter_map(|block| futures::future::ready(block.ok()))
-            .map(move |substrate_block| {
-                let substrate_provider = substrate_provider.clone();
-                let observed_best_blocks = observed_any_blocks.clone();
-
-                async move {
-                    // Getting the observation time for this block from the map ob the observed best
-                    // blocks, we will add this to the mined block information later on.
-                    let observation_time = observed_best_blocks
-                        .read()
-                        .await
-                        .get(&substrate_block.hash())
-                        .copied()
-                        .unwrap_or_else(|| {
-                            warn!(
-                                block.number = substrate_block.number(),
-                                "Resorted to current time for block observation time"
-                            );
-                            SystemTime::now()
-                        });
-
-                    debug!(
-                        block.number = substrate_block.number(),
-                        block.hash = ?substrate_block.hash(),
-                        "Observed a new finalized block"
-                    );
-
-                    // Obtain the equivalent block to this block via the eth_block runtime API. We
-                    // do some polling logic here in order to ensure that if the node is yet to
-                    // catch up we can still service the request.
-                    let revive_block = {
-                        let mut interval = tokio::time::interval(Duration::from_millis(250));
-                        loop {
-                            interval.tick().await;
-                            let result = async {
-                                let encoded_block = substrate_provider
-                                    .runtime_api()
-                                    .at(substrate_block.reference())
-                                    .call_raw("ReviveApi_eth_block", None)
-                                    .await
-                                    .context("Failed to call the eth_block runtime API")?;
-                                let eth_block = EthBlock::decode(&mut encoded_block.as_slice())
-                                    .context("Failed to decode the eth_block runtime API result")?;
-                                let serialized = serde_json::to_value(eth_block)
-                                    .context("Failed to serialize the runtime API block")?;
-                                serde_json::from_value::<alloy::rpc::types::Block>(serialized)
-                                    .context("Failed to deserialize into the alloy block type")
-                            }
-                            .await;
-                            if let Ok(block) = result {
-                                break block;
-                            }
-                        }
-                    };
-
-                    // Constructing the block information.
-                    let used = {
-                        let mut interval = interval(Duration::from_secs(1));
-                        loop {
-                            interval.tick().await;
-
-                            let result = substrate_provider
-                                .storage()
-                                .at(substrate_block.reference())
-                                .fetch_or_default(
-                                    &revive_metadata::storage().system().block_weight(),
-                                )
-                                .await
-                                .inspect_err(|err| {
-                                    warn!(?err, "Failed to get the substrate block weights")
-                                });
-
-                            if let Ok(result) = result {
-                                break result;
-                            }
-                        }
-                    };
-
-                    let block_ref_time = (used.normal.ref_time as u128)
-                        + (used.operational.ref_time as u128)
-                        + (used.mandatory.ref_time as u128);
-                    let block_proof_size = (used.normal.proof_size as u128)
-                        + (used.operational.proof_size as u128)
-                        + (used.mandatory.proof_size as u128);
-
-                    MinedBlockInformation {
-                        ethereum_block_information: EthereumMinedBlockInformation {
-                            block_number: revive_block.number(),
-                            block_timestamp: revive_block.header.timestamp,
-                            mined_gas: revive_block.header.gas_used as _,
-                            block_gas_limit: revive_block.header.gas_limit as _,
-                            transaction_hashes: revive_block
-                                .transactions
-                                .into_hashes()
-                                .as_hashes()
-                                .expect("Must be hashes")
-                                .to_vec(),
-                        },
-                        substrate_block_information: Some(SubstrateMinedBlockInformation {
-                            ref_time: block_ref_time,
-                            max_ref_time,
-                            proof_size: block_proof_size,
-                            max_proof_size,
-                            block_hash: substrate_block.hash().0,
-                            pre_dispatch_ref_time: 0,
-                            pre_dispatch_proof_size: 0,
-                        }),
-                        tx_counts: Default::default(),
-                        observation_time,
-                        pending_transaction_count: 0,
-                    }
-                }
-            })
-            .buffered(20);
-
-        Ok(Box::pin(SubstrateSubscriptionStream {
-            stream: Box::pin(stream),
-            task_handle: any_block_processing_task.abort_handle(),
-        }) as _)
-    })
-}
-
-struct SubstrateSubscriptionStream<T> {
-    stream: T,
-    task_handle: AbortHandle,
-}
-
-impl<T> Drop for SubstrateSubscriptionStream<T> {
-    fn drop(&mut self) {
-        self.task_handle.abort();
-    }
-}
-
-impl<T> Stream for SubstrateSubscriptionStream<T>
-where
-    T: Stream + Unpin,
-{
-    type Item = T::Item;
-
-    fn poll_next(
-        mut self: std::pin::Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<Option<Self::Item>> {
-        std::pin::Pin::new(&mut self.stream).poll_next(cx)
-    }
-}
-
-fn subscribe_to_transaction_inclusions_ethereum(
-    provider: FrameworkFuture<Result<DynProvider>>,
-) -> FrameworkFuture<Result<FrameworkStream<(u64, TxHash)>>> {
-    Box::pin(async move {
-        let stream = provider
-            .await
-            .context("Failed to get the provider")?
-            .subscribe_full_blocks()
-            .into_stream()
-            .await
-            .context("Failed to subscribe to blocks")?
-            .filter_map(|block| ready(block.ok()))
-            .flat_map(|block| {
-                let block_number = block.number();
-                stream::iter(
-                    block
-                        .into_hashes_vec()
-                        .into_iter()
-                        .map(move |transaction_hash| (block_number, transaction_hash)),
-                )
-            });
-        Ok(Box::pin(stream) as _)
-    })
-}
-
-fn subscribe_to_transaction_inclusions_substrate(
-    provider: FrameworkFuture<Result<OnlineClient<PolkadotConfig>>>,
-) -> FrameworkFuture<Result<FrameworkStream<(u64, TxHash)>>> {
-    Box::pin(async move {
-        let stream = provider
-            .await
-            .context("Failed to get the provider")?
-            .blocks()
-            .subscribe_all()
-            .await
-            .context("Failed to subscribe to blocks")?
-            .filter_map(|block| ready(block.ok()))
-            .then(|block| async move {
-                let block_number = block.number();
-                block
-                    .extrinsics()
-                    .await
-                    .map(|extrinsics| (block_number, extrinsics))
-            })
-            .filter_map(|result| ready(result.ok()))
-            .flat_map(move |(block_number, extrinsics)| {
-                let block_number = u64::from(block_number);
-                stream::iter(
-                    extrinsics
-                        .find::<revive_metadata::revive::calls::types::EthTransact>()
-                        .filter_map(|ext| ext.ok())
-                        .map(move |ext| (block_number, keccak256(&ext.value.payload)))
-                        .collect::<Vec<_>>(),
-                )
-            });
-
-        Ok(Box::pin(stream) as _)
-    })
-}

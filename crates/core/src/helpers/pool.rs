@@ -6,7 +6,7 @@ use crate::internal_prelude::*;
 /// in a round robbin fashion.
 pub struct NodePool {
     next: AtomicUsize,
-    nodes: Vec<Box<dyn NodeApi + Send + Sync>>,
+    node_connectors: Vec<Arc<NodeConnector>>,
 }
 
 impl NodePool {
@@ -22,6 +22,7 @@ impl NodePool {
         }
 
         let mut nodes = Vec::with_capacity(nodes);
+        info!("Awaiting node processes to start");
         for handle in handles {
             nodes.push(
                 handle
@@ -30,25 +31,25 @@ impl NodePool {
                     .context("Failed to join node spawn thread")?
                     .context("Node failed to spawn")?,
             );
+            info!("Started a node process");
         }
 
-        let pre_transactions_tasks = nodes
-            .iter_mut()
-            .map(|node| node.pre_transactions())
-            .collect::<Vec<_>>();
-        futures::future::try_join_all(pre_transactions_tasks)
+        let node_connectors = try_join_all(nodes)
             .await
-            .context("Failed to run the pre-transactions task")?;
+            .context("Failed to start all of the node connectors")?
+            .into_iter()
+            .map(Arc::new)
+            .collect();
 
         Ok(Self {
-            nodes,
+            node_connectors,
             next: Default::default(),
         })
     }
 
     /// Get a handle to the next node.
-    pub fn round_robbin(&self) -> &dyn NodeApi {
-        let current = self.next.fetch_add(1, Ordering::SeqCst) % self.nodes.len();
-        self.nodes.get(current).unwrap().as_ref()
+    pub fn round_robbin(&self) -> Arc<NodeConnector> {
+        let current = self.next.fetch_add(1, Ordering::SeqCst) % self.node_connectors.len();
+        self.node_connectors[current].clone()
     }
 }

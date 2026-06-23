@@ -4,11 +4,17 @@ node_spawn_timeout = 240
 
 [relaychain]
 default_command = "polkadot"
-default_args = ["-linfo", "--no-mdns"]
-chain = "westend-local"
+default_args = ["-linfo,polkavm=debug", "--no-mdns"]
+chain = "westend-dev"
 chain_spec_command = "polkadot build-spec --chain {{chainName}}"
 # Override RC spec raw to allow paras to produce blocks
 override_session_0 = true
+genesis.runtimeGenesis.patch.babe.epochConfig.c = [0, 1]
+# Seeds session-0 SessionExecutorParams with MaxMemoryPages(65536); the executor_params
+# patch below only takes effect from session 1 (session 0's snapshot is captured at
+# genesis before Configuration runs), so session-0 PVF validation would otherwise run on
+# the small default heap.
+raw_spec_override = "./assets/westend-session0-executor-params.json"
 
 # Scheduler and async backing params are patched to match Polkadot mainnet.
 # Confirmed via RPC calls to https://rpc.polkadot.io
@@ -24,37 +30,36 @@ num_cores = 3
 lookahead = 5
 
 [relaychain.genesis.runtimeGenesis.patch.configuration.config.async_backing_params]
-# westend-local defaults to max_candidate_depth=2, but mainnet was updated to 3
+# westend-dev defaults to max_candidate_depth=2, but mainnet was updated to 3
 # via governance to support elastic scaling.
 # Source: https://github.com/polkadot-fellows/runtimes/pull/1048
 max_candidate_depth = 3
 allowed_ancestry_len = 2
 
 [[relaychain.genesis.runtimeGenesis.patch.configuration.config.executor_params]]
-MaxMemoryPages = 8192
+MaxMemoryPages = 65536
 
-# 4 validators needed: num_cores=3 requires at least num_cores+1 validators
+# 3 validators needed: num_cores=3 requires at least num_cores+1 validators
 # for the relay chain to finalize blocks.
 
 [[relaychain.nodes]]
 name = "alice"
 validator = true
+env = [{ name = "POLKAVM_CORE_PINNING", value = "disabled" }]
 
 [[relaychain.nodes]]
 name = "bob"
 validator = true
+env = [{ name = "POLKAVM_CORE_PINNING", value = "disabled" }]
 
 [[relaychain.nodes]]
 name = "charlie"
 validator = true
-
-[[relaychain.nodes]]
-name = "dave"
-validator = true
+env = [{ name = "POLKAVM_CORE_PINNING", value = "disabled" }]
 
 [[parachains]]
 id = 1000
-chain = "asset-hub-westend-local"
+chain = "asset-hub-westend-dev"
 chain_spec_command = "polkadot-parachain build-spec --chain {{chainName}}"
 cumulus_based = true
 # Assign 3 cores at genesis (RC)
@@ -63,8 +68,9 @@ num_cores = 3
 [[parachains.collators]]
 name = "asset-hub-collator-1"
 command = "polkadot-parachain"
+env = [{ name = "POLKAVM_CORE_PINNING", value = "disabled" }]
 args = [
-  "-lerror,sc_rpc_server=info",
+  "-lerror,sc_rpc_server=info,runtime::revive=debug,polkavm=debug",
   "--authoring=slot-based",
   "--rpc-methods=unsafe",
   "--rpc-cors=all",

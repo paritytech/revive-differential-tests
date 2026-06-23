@@ -1716,6 +1716,65 @@ function getBlocksForPlatform(modeData, platform) {
   return (modeData.execReport.metrics_information || {})[platform] || [];
 }
 
+function mergeBlocksByTimestamp(blocks) {
+  if (!blocks || blocks.length === 0) return [];
+
+  const groups = [];
+  for (const block of blocks) {
+    const current = groups[groups.length - 1];
+    if (current && current.timestampSeconds === block.block_timestamp_seconds) {
+      current.blocks.push(block);
+    } else {
+      groups.push({ timestampSeconds: block.block_timestamp_seconds, blocks: [block] });
+    }
+  }
+
+  const sumDefined = (groupBlocks, field) =>
+    groupBlocks.some(b => b[field] != null)
+      ? groupBlocks.reduce((acc, b) => acc + (b[field] || 0), 0)
+      : null;
+  const ratePerSecond = (total, deltaSeconds) =>
+    total != null && deltaSeconds != null && deltaSeconds > 0 ? total / deltaSeconds : null;
+  const fullnessPercent = (used, limit) =>
+    used != null && limit != null && limit > 0 ? (used * 100) / limit : null;
+
+  const merged = [];
+  let previousTimestampSeconds = null;
+  for (const group of groups) {
+    const groupBlocks = group.blocks;
+    const lastBlock = groupBlocks[groupBlocks.length - 1];
+    const deltaSeconds =
+      previousTimestampSeconds != null ? group.timestampSeconds - previousTimestampSeconds : null;
+
+    const transactionCount = groupBlocks.reduce((acc, b) => acc + (b.transaction_count || 0), 0);
+    const gasMined = sumDefined(groupBlocks, 'block_gas_mined');
+    const gasLimit = sumDefined(groupBlocks, 'block_gas_limit');
+    const refTime = sumDefined(groupBlocks, 'block_ref_time');
+    const refTimeLimit = sumDefined(groupBlocks, 'block_ref_time_limit');
+    const proofSize = sumDefined(groupBlocks, 'block_proof_size');
+    const proofSizeLimit = sumDefined(groupBlocks, 'block_proof_size_limit');
+
+    merged.push({
+      block_timestamp_seconds: group.timestampSeconds,
+      relative_block_timestamp_seconds: groupBlocks[0].relative_block_timestamp_seconds,
+      block_number: lastBlock.block_number,
+      relative_block_number: lastBlock.relative_block_number,
+      merged_block_count: groupBlocks.length,
+      transaction_count: transactionCount,
+      pending_transaction_count: lastBlock.pending_transaction_count,
+      transactions_per_second: ratePerSecond(transactionCount, deltaSeconds),
+      gas_per_second: ratePerSecond(gasMined, deltaSeconds),
+      ref_time_per_second: ratePerSecond(refTime, deltaSeconds),
+      proof_size_per_second: ratePerSecond(proofSize, deltaSeconds),
+      block_gas_fullness: fullnessPercent(gasMined, gasLimit),
+      block_ref_time_fullness: fullnessPercent(refTime, refTimeLimit),
+      block_proof_size_fullness: fullnessPercent(proofSize, proofSizeLimit),
+    });
+    previousTimestampSeconds = group.timestampSeconds;
+  }
+  return merged;
+}
+
 /**
  * Build a map of relative_block_number → { platform → MetricsInformation }
  * for all enabled platforms.
@@ -2179,11 +2238,11 @@ function renderTpsChart(modeData, enabledPlatforms) {
   modeData.platforms.forEach((platform, i) => {
     if (!enabledPlatforms.includes(platform)) return;
 
-    const blocks = getBlocksForPlatform(modeData, platform);
+    const blocks = mergeBlocksByTimestamp(getBlocksForPlatform(modeData, platform));
     const tpsBlocks = blocks.filter(b => b.transactions_per_second != null);
-    const minT = tpsBlocks.length > 0 ? tpsBlocks[0].relative_observation_time_seconds : 0;
+    const minT = tpsBlocks.length > 0 ? tpsBlocks[0].relative_block_timestamp_seconds : 0;
     const data = tpsBlocks.map(b => [
-      b.relative_observation_time_seconds - minT,
+      b.relative_block_timestamp_seconds - minT,
       b.transactions_per_second,
     ]);
 
@@ -2209,11 +2268,11 @@ function renderGpsChart(modeData, enabledPlatforms) {
   modeData.platforms.forEach((platform, i) => {
     if (!enabledPlatforms.includes(platform)) return;
 
-    const blocks = getBlocksForPlatform(modeData, platform);
+    const blocks = mergeBlocksByTimestamp(getBlocksForPlatform(modeData, platform));
     const gpsBlocks = blocks.filter(b => b.gas_per_second != null);
-    const minT = gpsBlocks.length > 0 ? gpsBlocks[0].relative_observation_time_seconds : 0;
+    const minT = gpsBlocks.length > 0 ? gpsBlocks[0].relative_block_timestamp_seconds : 0;
     const data = gpsBlocks.map(b => [
-      b.relative_observation_time_seconds - minT,
+      b.relative_block_timestamp_seconds - minT,
       b.gas_per_second,
     ]);
 
@@ -2239,12 +2298,12 @@ function renderSubstrateChart(modeData, enabledPlatforms, chartId, field, unitSu
   modeData.platforms.forEach((platform, i) => {
     if (!enabledPlatforms.includes(platform)) return;
 
-    const blocks = getBlocksForPlatform(modeData, platform);
+    const blocks = mergeBlocksByTimestamp(getBlocksForPlatform(modeData, platform));
     const filtered = blocks.filter(b => b[field] != null);
     if (filtered.length === 0) return;
-    const minT = filtered[0].relative_observation_time_seconds;
+    const minT = filtered[0].relative_block_timestamp_seconds;
     const data = filtered.map(b => [
-      b.relative_observation_time_seconds - minT,
+      b.relative_block_timestamp_seconds - minT,
       b[field],
     ]);
 
@@ -2279,12 +2338,12 @@ function renderFullnessChart(modeData, enabledPlatforms, chartId, field, noDataM
   modeData.platforms.forEach((platform, i) => {
     if (!enabledPlatforms.includes(platform)) return;
 
-    const blocks = getBlocksForPlatform(modeData, platform);
+    const blocks = mergeBlocksByTimestamp(getBlocksForPlatform(modeData, platform));
     const filtered = blocks.filter(b => b[field] != null);
     if (filtered.length === 0) return;
-    const minT = filtered[0].relative_observation_time_seconds;
+    const minT = filtered[0].relative_block_timestamp_seconds;
     const data = filtered.map(b => [
-      b.relative_observation_time_seconds - minT,
+      b.relative_block_timestamp_seconds - minT,
       b[field],
     ]);
 
@@ -2392,17 +2451,17 @@ function renderCumulativeTxChart(modeData, enabledPlatforms) {
   modeData.platforms.forEach((platform, i) => {
     if (!enabledPlatforms.includes(platform)) return;
 
-    const blocks = getBlocksForPlatform(modeData, platform);
+    const blocks = mergeBlocksByTimestamp(getBlocksForPlatform(modeData, platform));
     const sorted = [...blocks].sort((a, b) =>
-      a.relative_observation_time_seconds - b.relative_observation_time_seconds
+      a.relative_block_timestamp_seconds - b.relative_block_timestamp_seconds
     );
     if (sorted.length === 0) return;
 
-    const minT = sorted[0].relative_observation_time_seconds;
+    const minT = sorted[0].relative_block_timestamp_seconds;
     let cumulative = 0;
     const data = sorted.map(b => {
       cumulative += b.transaction_count || 0;
-      return [b.relative_observation_time_seconds - minT, cumulative];
+      return [b.relative_block_timestamp_seconds - minT, cumulative];
     });
 
     const color = getColor(i);
@@ -2440,15 +2499,15 @@ function renderPendingTxChart(modeData, enabledPlatforms) {
   modeData.platforms.forEach((platform, i) => {
     if (!enabledPlatforms.includes(platform)) return;
 
-    const blocks = getBlocksForPlatform(modeData, platform);
+    const blocks = mergeBlocksByTimestamp(getBlocksForPlatform(modeData, platform));
     const sorted = [...blocks].sort((a, b) =>
-      a.relative_observation_time_seconds - b.relative_observation_time_seconds
+      a.relative_block_timestamp_seconds - b.relative_block_timestamp_seconds
     );
     if (sorted.length === 0) return;
 
-    const minT = sorted[0].relative_observation_time_seconds;
+    const minT = sorted[0].relative_block_timestamp_seconds;
     const data = sorted.map(b => [
-      b.relative_observation_time_seconds - minT,
+      b.relative_block_timestamp_seconds - minT,
       b.pending_transaction_count || 0,
     ]);
 

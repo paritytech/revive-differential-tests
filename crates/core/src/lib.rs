@@ -4,11 +4,11 @@
 //! provides a helper utility to execute tests.
 
 pub mod prelude {
-    pub use crate::Platform;
     pub use crate::{
-        GethEvmSolcPlatform, LighthouseGethEvmSolcPlatform, PolkadotOmniNodePolkavmResolcPlatform,
-        PolkadotOmniNodeRevmSolcPlatform, ReviveDevNodePolkavmResolcPlatform,
-        ReviveDevNodeRevmSolcPlatform, ZombienetPolkavmResolcPlatform, ZombienetRevmSolcPlatform,
+        GethEvmSolcPlatform, LighthouseGethEvmSolcPlatform, Platform,
+        PolkadotOmniNodePolkavmResolcPlatform, PolkadotOmniNodeRevmSolcPlatform,
+        ReviveDevNodePolkavmResolcPlatform, ReviveDevNodeRevmSolcPlatform,
+        ZombienetPolkavmResolcPlatform, ZombienetRevmSolcPlatform,
     };
 }
 
@@ -21,10 +21,7 @@ pub(crate) mod internal_prelude {
 
     pub use std::thread::{self, JoinHandle};
 
-    pub use alloy::genesis::Genesis;
     pub use anyhow::{Context as _, Result};
-    pub use serde_json;
-    pub use tracing::info;
 }
 
 use crate::internal_prelude::*;
@@ -59,7 +56,7 @@ pub trait Platform {
     fn new_node(
         &self,
         context: Context,
-    ) -> Result<JoinHandle<Result<Box<dyn NodeApi + Send + Sync>>>> {
+    ) -> Result<JoinHandle<Result<StaticFuture<Result<NodeConnector>>>>> {
         match self.node_identifier() {
             NodeIdentifier::Geth => new_geth_node(context),
             NodeIdentifier::LighthouseGeth => new_lighthouse_geth_node(context),
@@ -83,30 +80,10 @@ pub trait Platform {
         &self,
         context: Context,
         version: Option<VersionOrRequirement>,
-    ) -> FrameworkFuture<Result<Box<dyn SolidityCompiler + Send + Sync>>> {
+    ) -> StaticFuture<Result<Box<dyn SolidityCompiler + Send + Sync>>> {
         match self.compiler_identifier() {
             CompilerIdentifier::Solc => new_solc_compiler(context, version),
             CompilerIdentifier::Resolc => new_resolc_compiler(context, version),
-        }
-    }
-
-    /// Exports the genesis/chainspec for the node.
-    fn export_genesis(&self, context: Context) -> Result<serde_json::Value> {
-        match self.node_identifier() {
-            NodeIdentifier::Geth => export_geth_genesis(context),
-            NodeIdentifier::LighthouseGeth => export_lighthouse_geth_genesis(context),
-            NodeIdentifier::ReviveDevNode => export_revive_dev_node_genesis(context),
-            NodeIdentifier::Zombienet => {
-                #[cfg(unix)]
-                {
-                    export_zombienet_genesis(context)
-                }
-                #[cfg(not(unix))]
-                {
-                    anyhow::bail!("Zombienet is not supported on this platform")
-                }
-            }
-            NodeIdentifier::PolkadotOmniNode => export_polkadot_omni_node_genesis(context),
         }
     }
 
@@ -338,88 +315,126 @@ impl From<PlatformIdentifier> for &dyn Platform {
     }
 }
 
-fn new_geth_node(context: Context) -> Result<JoinHandle<Result<Box<dyn NodeApi + Send + Sync>>>> {
-    let genesis = context.as_genesis_configuration().genesis()?.clone();
+fn new_geth_node(
+    context: Context,
+) -> Result<JoinHandle<Result<StaticFuture<Result<NodeConnector>>>>> {
     Ok(thread::spawn(move || {
-        let use_fallback_gas_filler = matches!(context, Context::Test(..));
-        let node = GethNode::new(context, use_fallback_gas_filler);
-        let node = spawn_node(node, genesis)?;
-        Ok(Box::new(node) as _)
+        let wallet = context.as_wallet_configuration().wallet();
+        let node_configurations = node_configurations(
+            &context,
+            context
+                .as_geth_configuration()
+                .connector_configurations
+                .as_deref(),
+        )
+        .context("Failed to parse --geth.connector-configurations as a JSON node connector configuration")?;
+        let node = GethNode::new(context).context("Failed to spawn geth node")?;
+        Ok(NodeConnector::new(node, wallet, node_configurations))
     }))
 }
 
 fn new_lighthouse_geth_node(
     context: Context,
-) -> Result<JoinHandle<Result<Box<dyn NodeApi + Send + Sync>>>> {
-    let genesis = context.as_genesis_configuration().genesis()?.clone();
+) -> Result<JoinHandle<Result<StaticFuture<Result<NodeConnector>>>>> {
     Ok(thread::spawn(move || {
-        let use_fallback_gas_filler = matches!(context, Context::Test(..));
-        let node = LighthouseGethNode::new(context, use_fallback_gas_filler);
-        let node = spawn_node(node, genesis)?;
-        Ok(Box::new(node) as _)
+        let wallet = context.as_wallet_configuration().wallet();
+        let node_configurations = node_configurations(
+            &context,
+            context
+                .as_kurtosis_configuration()
+                .connector_configurations
+                .as_deref(),
+        )
+        .context("Failed to parse --kurtosis.connector-configurations as a JSON node connector configuration")?;
+        let node = LighthouseGethNode::new(context).context("Failed to spawn lighthouse node")?;
+        Ok(NodeConnector::new(node, wallet, node_configurations))
     }))
 }
 
 fn new_revive_dev_node(
     context: Context,
-) -> Result<JoinHandle<Result<Box<dyn NodeApi + Send + Sync>>>> {
-    let revive_dev_node_configuration = context.as_revive_dev_node_configuration();
-    let eth_rpc_configuration = context.as_eth_rpc_configuration();
-
-    let revive_dev_node_path = revive_dev_node_configuration.path.clone();
-    let revive_dev_node_consensus = revive_dev_node_configuration.consensus.clone();
-    let eth_rpc_connection_strings = revive_dev_node_configuration.existing_rpc_url.clone();
-    let node_logging_level = revive_dev_node_configuration.logging_level.clone();
-    let eth_rpc_logging_level = eth_rpc_configuration.logging_level.clone();
-
-    let genesis = context.as_genesis_configuration().genesis()?.clone();
+) -> Result<JoinHandle<Result<StaticFuture<Result<NodeConnector>>>>> {
     Ok(thread::spawn(move || {
-        let use_fallback_gas_filler = matches!(context, Context::Test(..));
-        let node = SubstrateNode::new(
-            revive_dev_node_path,
-            SubstrateNode::REVIVE_DEV_NODE_EXPORT_CHAINSPEC_COMMAND,
-            Some(revive_dev_node_consensus),
-            context,
-            &eth_rpc_connection_strings,
-            use_fallback_gas_filler,
-            node_logging_level,
-            eth_rpc_logging_level,
-        );
-        let node = spawn_node(node, genesis)?;
-        Ok(Box::new(node) as _)
+        let wallet = context.as_wallet_configuration().wallet();
+        let node_configurations = node_configurations(
+            &context,
+            context
+                .as_revive_dev_node_configuration()
+                .connector_configurations
+                .as_deref(),
+        )
+        .context("Failed to parse --revive-dev-node.connector-configurations as a JSON node connector configuration")?;
+        let node = ReviveDevNode::new(context).context("Failed to spawn revive-dev-node")?;
+        Ok(NodeConnector::new(node, wallet, node_configurations))
     }))
 }
 
 #[cfg(unix)]
 fn new_zombienet_node(
     context: Context,
-) -> Result<JoinHandle<Result<Box<dyn NodeApi + Send + Sync>>>> {
-    let polkadot_parachain_path = context.as_polkadot_parachain_configuration().path.clone();
-    let genesis = context.as_genesis_configuration().genesis()?.clone();
+) -> Result<JoinHandle<Result<StaticFuture<Result<NodeConnector>>>>> {
     Ok(thread::spawn(move || {
-        let use_fallback_gas_filler = matches!(context, Context::Test(..));
-        let node = ZombienetNode::new(polkadot_parachain_path, context, use_fallback_gas_filler);
-        let node = spawn_node(node, genesis)?;
-        Ok(Box::new(node) as _)
+        let wallet = context.as_wallet_configuration().wallet();
+        let node_configurations = node_configurations(
+            &context,
+            context
+                .as_zombienet_configuration()
+                .connector_configurations
+                .as_deref(),
+        )
+        .context("Failed to parse --zombienet.connector-configurations as a JSON node connector configuration")?;
+        let node = ZombienetNode::new(context).context("Failed to spawn zombienet")?;
+        Ok(NodeConnector::new(node, wallet, node_configurations))
     }))
 }
 
 fn new_polkadot_omni_node(
     context: Context,
-) -> Result<JoinHandle<Result<Box<dyn NodeApi + Send + Sync>>>> {
-    let genesis = context.as_genesis_configuration().genesis()?.clone();
+) -> Result<JoinHandle<Result<StaticFuture<Result<NodeConnector>>>>> {
     Ok(thread::spawn(move || {
-        let use_fallback_gas_filler = matches!(context, Context::Test(..));
-        let node = PolkadotOmnichainNode::new(context, use_fallback_gas_filler);
-        let node = spawn_node(node, genesis)?;
-        Ok(Box::new(node) as _)
+        let wallet = context.as_wallet_configuration().wallet();
+        let node_configurations = node_configurations(
+            &context,
+            context
+                .as_polkadot_omnichain_node_configuration()
+                .connector_configurations
+                .as_deref(),
+        )
+        .context("Failed to parse --polkadot-omni-node.connector-configurations as a JSON node connector configuration")?;
+        let node =
+            PolkadotOmnichainNode::new(context).context("Failed to spawn polkadot-omni-node")?;
+        Ok(NodeConnector::new(node, wallet, node_configurations))
     }))
+}
+
+fn node_configurations(
+    context: &Context,
+    user_config: Option<&str>,
+) -> Result<impl Iterator<Item = NodeConnectorConfiguration> + use<>> {
+    let user_config = user_config
+        .map(serde_json::from_str::<NodeConnectorConfiguration>)
+        .transpose()?;
+    let subscription_kind = match context {
+        Context::Benchmark(_) => BlockProvisioningSubscriptionKind::FinalizedBlocks,
+        Context::Test(_)
+        | Context::ExportJsonSchema(_)
+        | Context::ExportTestSpecifiers(_)
+        | Context::Compile(_) => BlockProvisioningSubscriptionKind::BestBlocks,
+    };
+    let core_config = NodeConnectorConfiguration {
+        block_provisioning_behavior: Some(BlockProvisioningBehavior {
+            subscription_kind: Some(subscription_kind),
+        }),
+        ..Default::default()
+    };
+
+    Ok(user_config.into_iter().chain(std::iter::once(core_config)))
 }
 
 fn new_solc_compiler(
     context: Context,
     version: Option<VersionOrRequirement>,
-) -> FrameworkFuture<Result<Box<dyn SolidityCompiler + Send + Sync>>> {
+) -> StaticFuture<Result<Box<dyn SolidityCompiler + Send + Sync>>> {
     Box::pin(async move {
         let compiler = Solc::new_native(context, version).await;
         compiler.map(|compiler| Box::new(compiler) as _)
@@ -429,65 +444,9 @@ fn new_solc_compiler(
 fn new_resolc_compiler(
     context: Context,
     version: Option<VersionOrRequirement>,
-) -> FrameworkFuture<Result<Box<dyn SolidityCompiler + Send + Sync>>> {
+) -> StaticFuture<Result<Box<dyn SolidityCompiler + Send + Sync>>> {
     Box::pin(async move {
         let compiler = Resolc::new(context, version).await;
         compiler.map(|compiler| Box::new(compiler) as _)
     })
-}
-
-fn export_geth_genesis(context: Context) -> Result<serde_json::Value> {
-    let genesis = context.as_genesis_configuration().genesis()?;
-    let wallet = context.as_wallet_configuration().wallet();
-    let node_genesis = GethNode::node_genesis(genesis.clone(), &wallet);
-    serde_json::to_value(node_genesis).context("Failed to convert node genesis to a serde_value")
-}
-
-fn export_lighthouse_geth_genesis(context: Context) -> Result<serde_json::Value> {
-    let genesis = context.as_genesis_configuration().genesis()?;
-    let wallet = context.as_wallet_configuration().wallet();
-    let node_genesis = LighthouseGethNode::node_genesis(genesis.clone(), &wallet);
-    serde_json::to_value(node_genesis).context("Failed to convert node genesis to a serde_value")
-}
-
-fn export_revive_dev_node_genesis(context: Context) -> Result<serde_json::Value> {
-    let revive_dev_node_path = context.as_revive_dev_node_configuration().path.as_path();
-    let wallet = context.as_wallet_configuration().wallet();
-    let export_chainspec_command = SubstrateNode::REVIVE_DEV_NODE_EXPORT_CHAINSPEC_COMMAND;
-    SubstrateNode::node_genesis(revive_dev_node_path, export_chainspec_command, &wallet)
-}
-
-#[cfg(unix)]
-fn export_zombienet_genesis(context: Context) -> Result<serde_json::Value> {
-    let polkadot_parachain_path = context.as_polkadot_parachain_configuration().path.as_path();
-    let wallet = context.as_wallet_configuration().wallet();
-    ZombienetNode::node_genesis(polkadot_parachain_path, &wallet)
-}
-
-fn export_polkadot_omni_node_genesis(context: Context) -> Result<serde_json::Value> {
-    let config = context.as_polkadot_omnichain_node_configuration();
-    let wallet = context.as_wallet_configuration().wallet();
-    PolkadotOmnichainNode::node_genesis(
-        &wallet,
-        config
-            .chain_spec_path
-            .as_ref()
-            .context("No WASM runtime path found in the polkadot-omni-node configuration")?,
-    )
-}
-
-fn spawn_node<T: Node + NodeApi + Send + Sync>(mut node: T, genesis: Genesis) -> Result<T> {
-    info!(
-        id = node.id(),
-        connection_string = node.connection_string(),
-        "Spawning node"
-    );
-    node.spawn(genesis)
-        .context("Failed to spawn node process")?;
-    info!(
-        id = node.id(),
-        connection_string = node.connection_string(),
-        "Spawned node"
-    );
-    Ok(node)
 }

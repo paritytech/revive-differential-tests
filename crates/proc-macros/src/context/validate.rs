@@ -1,7 +1,9 @@
 use syn::{Attribute, Ident, Item, ItemMod, Path, spanned::Spanned};
 
-use super::parse::{TypeKind, classify_type, type_ident};
-use super::types::{Configuration, ContextArgs, Subcommand, TypeDef, ValidatedModule};
+use super::{
+    parse::{TypeKind, classify_type, type_ident},
+    types::{Configuration, ContextArgs, Subcommand, TypeDef, ValidatedModule},
+};
 
 fn is_context_attr(attr: &Attribute) -> bool {
     attr.path().is_ident("subcommand") || attr.path().is_ident("configuration")

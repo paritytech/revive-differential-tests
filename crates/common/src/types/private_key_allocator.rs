@@ -31,4 +31,11 @@ impl PrivateKeyAllocator {
         self.next_private_key += U256::ONE;
         Ok(private_key)
     }
+
+    pub fn fork(&self) -> Self {
+        Self {
+            next_private_key: self.next_private_key,
+            highest_private_key_inclusive: self.highest_private_key_inclusive,
+        }
+    }
 }

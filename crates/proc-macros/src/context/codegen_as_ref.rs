@@ -2,8 +2,10 @@ use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
 use syn::Ident;
 
-use super::parse::type_ident;
-use super::types::{ConfigMembership, Configuration, Subcommand, SubcommandConfigField};
+use super::{
+    parse::type_ident,
+    types::{ConfigMembership, Configuration, Subcommand, SubcommandConfigField},
+};
 
 /// For each configuration, determine which subcommands have it as a field and which don't.
 pub(crate) fn compute_config_membership<'a>(

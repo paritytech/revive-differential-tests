@@ -15,12 +15,19 @@ revive-dt-common = { workspace = true }
 
 alloy = { workspace = true }
 anyhow = { workspace = true }
+bitflags = { workspace = true }
 futures = { workspace = true }
 pallet-revive = { workspace = true }
+parity-scale-codec = { workspace = true }
+serde = { workspace = true }
 serde_json = { workspace = true }
+sp-runtime = { workspace = true }
 subxt = { workspace = true }
 tokio = { workspace = true }
+tokio-stream = { workspace = true }
+tower = { workspace = true }
 tracing = { workspace = true }
+dashmap = { workspace = true }
 
 [lints]
 workspace = true

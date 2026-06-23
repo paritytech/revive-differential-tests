@@ -32,6 +32,7 @@ alloy = { version = "1.4.1", features = [
 ] }
 ansi_term = "0.12.1"
 base64 = "0.22"
+bitflags = { version = "2.13.0", features = ["serde"] }
 flate2 = "1.0"
 anyhow = "1.0"
 bson = { version = "2.15.0" }
@@ -55,6 +56,7 @@ serde_json = { version = "1.0", default-features = false, features = [
     "arbitrary_precision",
     "std",
     "unbounded_depth",
+    "preserve_order",
 ] }
 serde_with = { version = "3.14.0", features = ["hex"] }
 serde_yaml_ng = { version = "0.10.0" }
@@ -63,7 +65,7 @@ sp-core = "38.0.1"
 sp-runtime = "43.0.0"
 strum = { version = "0.27.2", features = ["derive"] }
 syn = { version = "2.0.117", features = ["full"] }
-subxt = { version = "0.43.0" }
+subxt = { version = "0.43.0", features = ["reconnecting-rpc-client"] }
 temp-dir = { version = "0.1.16" }
 tempfile = "3.3"
 thiserror = "2"
@@ -73,6 +75,9 @@ tokio = { version = "1.47.0", default-features = false, features = [
     "rt-multi-thread",
     "process",
     "rt",
+] }
+tokio-stream = { version = "0.1.18", default-features = false, features = [
+    "sync",
 ] }
 tower = { version = "0.5.2", features = ["limit"] }
 uuid = { version = "1.8", features = ["v4"] }
@@ -86,14 +91,16 @@ tracing-subscriber = { version = "0.3.23", default-features = false, features = 
 console-subscriber = { version = "0.5.0" }
 indexmap = { version = "2.10.0", default-features = false }
 itertools = { version = "0.14.0" }
+derive_more = { version = "2.1.1" }
 
 # revive compiler
 revive-solc-json-interface = { version = "0.5.0" }
 revive-common = { version = "0.3.0" }
 revive-differential = { version = "0.3.0" }
 
-zombienet-sdk = { version = "0.4.11" }
+zombienet-sdk = { version = "0.4.14" }
 pallet-revive = { version = "0.18.0", default-features = true }
+parity-scale-codec = { version = "3.7.5", features = ["derive"] }
 
 [profile.bench]
 inherits = "release"
@@ -104,5 +111,13 @@ lto = true
 inherits = "release"
 codegen-units = 1
 lto = true
+
+[profile.profiling]
+inherits = "release"
+codegen-units = 1
+debug = "full"
+lto = true
+split-debuginfo = "packed"
+strip = "none"
 
 [workspace.lints.clippy]

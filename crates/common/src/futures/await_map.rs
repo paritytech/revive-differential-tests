@@ -25,7 +25,7 @@ where
         }
     }
 
-    pub fn insert(&self, key: K, value: V) -> FrameworkFuture<()> {
+    pub fn insert(&self, key: K, value: V) -> StaticFuture<()> {
         let inner_map = self.inner.clone();
         Box::pin(async move {
             // Locking the outer map.
@@ -52,10 +52,10 @@ where
         })
     }
 
-    pub fn batch_insert(
+    pub fn insert_batch(
         &self,
-        iter: impl IntoIterator<Item = (K, V)> + Send + Sync + 'static,
-    ) -> FrameworkFuture<()> {
+        iter: impl IntoIterator<Item = (K, V)> + Send + 'static,
+    ) -> StaticFuture<()> {
         let inner_map = self.inner.clone();
         Box::pin(async move {
             let mut mutex_guard = inner_map.lock().await;
@@ -72,7 +72,6 @@ where
                 };
 
                 *entry = Slot::Value(value);
-
                 if let Some(notify) = notify {
                     notify.notify_waiters();
                 }
@@ -80,7 +79,7 @@ where
         })
     }
 
-    pub fn get(&self, k: K) -> FrameworkFuture<V> {
+    pub fn get(&self, k: K) -> StaticFuture<V> {
         let inner_map = self.inner.clone();
         Box::pin(async move {
             // Locking the outer map.

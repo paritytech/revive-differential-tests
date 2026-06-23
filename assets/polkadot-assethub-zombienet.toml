@@ -4,9 +4,10 @@ node_spawn_timeout = 240
 
 [relaychain]
 default_command = "polkadot"
-default_args = ["-linfo", "--no-mdns"]
+default_args = ["-linfo,polkavm=debug", "--no-mdns"]
 chain = "polkadot-local"
 chain_spec_command = "chain-spec-generator {{chainName}}"
+genesis.runtimeGenesis.patch.babe.epochConfig.c = [0, 1]
 # Override RC spec raw to allow paras to produce blocks
 override_session_0 = true
 
@@ -30,24 +31,23 @@ lookahead = 5
 max_candidate_depth = 3
 allowed_ancestry_len = 2
 
-# 4 validators needed: num_cores=3 requires at least num_cores+1 validators
+# 3 validators needed: num_cores=3 requires at least num_cores+1 validators
 # for the relay chain to finalize blocks.
 
 [[relaychain.nodes]]
 name = "alice"
 validator = true
+env = [{ name = "POLKAVM_CORE_PINNING", value = "disabled" }]
 
 [[relaychain.nodes]]
 name = "bob"
 validator = true
+env = [{ name = "POLKAVM_CORE_PINNING", value = "disabled" }]
 
 [[relaychain.nodes]]
 name = "charlie"
 validator = true
-
-[[relaychain.nodes]]
-name = "dave"
-validator = true
+env = [{ name = "POLKAVM_CORE_PINNING", value = "disabled" }]
 
 [[parachains]]
 id = 1000
@@ -60,8 +60,9 @@ num_cores = 3
 [[parachains.collators]]
 name = "asset-hub-collator-1"
 command = "polkadot-parachain"
+env = [{ name = "POLKAVM_CORE_PINNING", value = "disabled" }]
 args = [
-  "-lerror,sc_rpc_server=info",
+  "-lerror,sc_rpc_server=info,runtime::revive=debug,polkavm=debug",
   "--authoring=slot-based",
   "--rpc-methods=unsafe",
   "--rpc-cors=all",

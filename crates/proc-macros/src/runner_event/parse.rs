@@ -1,6 +1,8 @@
-use syn::parse::{Parse, ParseStream};
-use syn::punctuated::Punctuated;
-use syn::{Attribute, Ident, Token, Type, Visibility, braced};
+use syn::{
+    Attribute, Ident, Token, Type, Visibility, braced,
+    parse::{Parse, ParseStream},
+    punctuated::Punctuated,
+};
 
 use super::types::{EventDef, EventField, EventGroup, RunnerEventInput};
 

@@ -32,7 +32,7 @@ impl Solc {
         context: impl HasSolcConfiguration + HasWorkingDirectoryConfiguration + Send + 'static,
         version: impl Into<Option<VersionOrRequirement>> + Send + 'static,
         runtime_target: SolcRuntimeTarget,
-    ) -> FrameworkFuture<Result<Self>> {
+    ) -> StaticFuture<Result<Self>> {
         Box::pin(async move {
             // This is a cache for the compiler objects so that whenever the same compiler version is
             // requested the same object is returned. We do this as we do not want to keep cloning the
@@ -89,14 +89,14 @@ impl Solc {
     pub fn new_native(
         context: impl HasSolcConfiguration + HasWorkingDirectoryConfiguration + Send + 'static,
         version: impl Into<Option<VersionOrRequirement>> + Send + 'static,
-    ) -> FrameworkFuture<Result<Self>> {
+    ) -> StaticFuture<Result<Self>> {
         Self::new(context, version, SolcRuntimeTarget::Native)
     }
 
     pub fn new_wasm(
         context: impl HasSolcConfiguration + HasWorkingDirectoryConfiguration + Send + 'static,
         version: impl Into<Option<VersionOrRequirement>> + Send + 'static,
-    ) -> FrameworkFuture<Result<Self>> {
+    ) -> StaticFuture<Result<Self>> {
         Self::new(context, version, SolcRuntimeTarget::Wasm)
     }
 }
@@ -133,7 +133,7 @@ impl SolidityCompiler for Solc {
             libraries,
             revert_string_handling,
         }: CompilerInput,
-    ) -> FrameworkFuture<Result<CompilerOutput>> {
+    ) -> StaticFuture<Result<CompilerOutput>> {
         let this = self.clone();
         Box::pin(async move {
             if matches!(this.0.runtime_target, SolcRuntimeTarget::Wasm) {
@@ -229,7 +229,11 @@ impl SolidityCompiler for Solc {
                 .arg("--standard-json");
 
             if let Some(ref base_path) = base_path {
-                command.arg("--base-path").arg(base_path);
+                if this.compiler_supports_base_path() {
+                    command.arg("--base-path").arg(base_path);
+                } else {
+                    command.current_dir(base_path);
+                }
             }
             if !allow_paths.is_empty() {
                 command.arg("--allow-paths").arg(
@@ -335,5 +339,10 @@ impl Solc {
     fn compiler_supports_yul(&self) -> bool {
         const SOLC_VERSION_SUPPORTING_VIA_YUL_IR: Version = Version::new(0, 8, 13);
         SolidityCompiler::version(self) >= &SOLC_VERSION_SUPPORTING_VIA_YUL_IR
+    }
+
+    fn compiler_supports_base_path(&self) -> bool {
+        const SOLC_VERSION_SUPPORTING_BASE_PATH: Version = Version::new(0, 6, 9);
+        SolidityCompiler::version(self) >= &SOLC_VERSION_SUPPORTING_BASE_PATH
     }
 }

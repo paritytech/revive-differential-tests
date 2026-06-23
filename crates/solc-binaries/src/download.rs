@@ -15,7 +15,7 @@ impl List {
     ///
     /// Caches the list retrieved from the `url` into [LIST_CACHE],
     /// subsequent calls with the same `url` will return the cached list.
-    pub fn download(url: &'static str) -> FrameworkFuture<anyhow::Result<Self>> {
+    pub fn download(url: &'static str) -> StaticFuture<anyhow::Result<Self>> {
         Box::pin(async move {
             if let Some(list) = LIST_CACHE.lock().unwrap().get(url) {
                 return Ok(list.clone());
@@ -55,7 +55,7 @@ impl SolcDownloader {
         version: impl Into<VersionOrRequirement> + Send + 'static,
         target: &'static str,
         list: &'static str,
-    ) -> FrameworkFuture<anyhow::Result<Self>> {
+    ) -> StaticFuture<anyhow::Result<Self>> {
         Box::pin(async move {
             static MAXIMUM_COMPILER_VERSION_REQUIREMENT: LazyLock<VersionReq> =
                 LazyLock::new(|| VersionReq::from_str("<=0.8.30").unwrap());
@@ -96,25 +96,25 @@ impl SolcDownloader {
 
     pub fn linux(
         version: impl Into<VersionOrRequirement> + Send + 'static,
-    ) -> FrameworkFuture<anyhow::Result<Self>> {
+    ) -> StaticFuture<anyhow::Result<Self>> {
         Self::new(version, Self::LINUX_NAME, List::LINUX_URL)
     }
 
     pub fn macosx(
         version: impl Into<VersionOrRequirement> + Send + 'static,
-    ) -> FrameworkFuture<anyhow::Result<Self>> {
+    ) -> StaticFuture<anyhow::Result<Self>> {
         Self::new(version, Self::MACOSX_NAME, List::MACOSX_URL)
     }
 
     pub fn windows(
         version: impl Into<VersionOrRequirement> + Send + 'static,
-    ) -> FrameworkFuture<anyhow::Result<Self>> {
+    ) -> StaticFuture<anyhow::Result<Self>> {
         Self::new(version, Self::WINDOWS_NAME, List::WINDOWS_URL)
     }
 
     pub fn wasm(
         version: impl Into<VersionOrRequirement> + Send + 'static,
-    ) -> FrameworkFuture<anyhow::Result<Self>> {
+    ) -> StaticFuture<anyhow::Result<Self>> {
         Self::new(version, Self::WASM_NAME, List::WASM_URL)
     }
 

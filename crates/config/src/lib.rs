@@ -9,12 +9,11 @@ use std::{
     ops::Deref,
     path::{Path, PathBuf},
     str::FromStr,
-    sync::{Arc, LazyLock, OnceLock},
+    sync::{Arc, OnceLock},
     time::Duration,
 };
 
 use alloy::{
-    genesis::Genesis,
     network::EthereumWallet,
     primitives::{B256, FixedBytes, U256},
     signers::local::PrivateKeySigner,
@@ -57,7 +56,6 @@ mod context {
         pub polkadot_omnichain_node: PolkadotOmnichainNodeConfiguration,
         pub zombienet: ZombienetConfiguration,
         pub eth_rpc: EthRpcConfiguration,
-        pub genesis: GenesisConfiguration,
         pub wallet: WalletConfiguration,
         pub concurrency: ConcurrencyConfiguration,
         pub compilation: CompilationConfiguration,
@@ -88,18 +86,6 @@ mod context {
         pub compilation: CompilationConfiguration,
         pub report: ReportConfiguration,
         pub shutdown: ShutdownConfiguration,
-    }
-
-    /// Exports the genesis file of the desired platform.
-    #[subcommand]
-    pub struct ExportGenesis {
-        pub target: ExportGenesisTargetConfiguration,
-        pub geth: GethConfiguration,
-        pub kurtosis: KurtosisConfiguration,
-        pub polkadot_parachain: PolkadotParachainConfiguration,
-        pub revive_dev_node: ReviveDevNodeConfiguration,
-        pub polkadot_omnichain_node: PolkadotOmnichainNodeConfiguration,
-        pub wallet: WalletConfiguration,
     }
 
     /// Exports the JSON schema of the MatterLabs test format used by the tool.
@@ -339,6 +325,10 @@ mod context {
         /// timeout of several hours may be needed.
         #[clap(default_value = "300000", value_parser = parse_duration)]
         pub block_production_timeout_ms: Duration,
+
+        /// JSON node connector configuration augmenting the default zombienet
+        /// connector behavior and overriding it on conflicts.
+        pub connector_configurations: Option<String>,
     }
 
     /// A set of configuration parameters for Polkadot Parachain.
@@ -373,6 +363,10 @@ mod context {
         /// The logging configuration to pass to the binary when it's being started.
         #[clap(default_value = "3")]
         pub logging_level: String,
+
+        /// JSON node connector configuration augmenting the default geth connector
+        /// behavior and overriding it on conflicts.
+        pub connector_configurations: Option<String>,
     }
 
     /// A set of configuration parameters for kurtosis.
@@ -384,6 +378,14 @@ mod context {
         /// that's provided in the user's $PATH.
         #[clap(default_value = "kurtosis")]
         pub path: PathBuf,
+
+        /// The amount of time to wait upon startup before considering that the node timed out.
+        #[clap(default_value = "900000", value_parser = parse_duration)]
+        pub start_timeout_ms: Duration,
+
+        /// JSON node connector configuration augmenting the default lighthouse/geth
+        /// connector behavior and overriding it on conflicts.
+        pub connector_configurations: Option<String>,
     }
 
     /// A set of configuration parameters for the revive dev node.
@@ -408,13 +410,9 @@ mod context {
         #[clap(default_value = "error,evm=debug,sc_rpc_server=info,runtime::revive=debug")]
         pub logging_level: String,
 
-        /// Specifies the connection string of an existing node that's not managed by the
-        /// framework.
-        ///
-        /// If this argument is specified then the framework will not spawn certain nodes itself
-        /// but rather it will opt to using the existing node's through their provided connection
-        /// strings.
-        pub existing_rpc_url: Vec<String>,
+        /// JSON node connector configuration augmenting the default revive dev
+        /// node connector behavior and overriding it on conflicts.
+        pub connector_configurations: Option<String>,
     }
 
     /// A set of configuration parameters for the polkadot-omni-node.
@@ -446,6 +444,10 @@ mod context {
         /// The logging configuration to pass to the binary when it's being started.
         #[clap(default_value = "error,evm=debug,sc_rpc_server=info,runtime::revive=debug")]
         pub logging_level: String,
+
+        /// JSON node connector configuration augmenting the default
+        /// polkadot-omni-node connector behavior and overriding it on conflicts.
+        pub connector_configurations: Option<String>,
     }
 
     /// A set of configuration parameters for the ETH RPC.
@@ -465,44 +467,6 @@ mod context {
         /// The logging configuration to pass to the binary when it's being started.
         #[clap(default_value = "info,eth-rpc=debug")]
         pub logging_level: String,
-    }
-
-    /// A set of configuration parameters for the genesis.
-    #[derive(Default)]
-    #[configuration(key = "genesis")]
-    pub struct GenesisConfiguration {
-        /// Specifies the path of the genesis file to use for the nodes that are started.
-        ///
-        /// This is expected to be the path of a JSON geth genesis file.
-        path: Option<PathBuf>,
-
-        /// The genesis object found at the provided path.
-        #[clap(skip)]
-        #[serde(skip)]
-        genesis: OnceLock<Genesis>,
-    }
-
-    impl GenesisConfiguration {
-        pub fn genesis(&self) -> anyhow::Result<&Genesis> {
-            static DEFAULT_GENESIS: LazyLock<Genesis> = LazyLock::new(|| {
-                let genesis = include_str!("../../../assets/dev-genesis.json");
-                serde_json::from_str(genesis).unwrap()
-            });
-
-            match self.genesis.get() {
-                Some(genesis) => Ok(genesis),
-                None => {
-                    let genesis = match self.path.as_ref() {
-                        Some(genesis_path) => {
-                            let genesis_content = std::fs::read_to_string(genesis_path)?;
-                            serde_json::from_str(genesis_content.as_str())?
-                        }
-                        None => DEFAULT_GENESIS.clone(),
-                    };
-                    Ok(self.genesis.get_or_init(|| genesis))
-                }
-            }
-        }
     }
 
     /// A set of configuration parameters for the wallet.
@@ -637,10 +601,7 @@ mod context {
             match self {
                 Self::Test(ctx) => ctx.update_for_profile(),
                 Self::Benchmark(ctx) => ctx.update_for_profile(),
-                Self::ExportJsonSchema(_)
-                | Self::ExportGenesis(..)
-                | Self::Compile(..)
-                | Self::ExportTestSpecifiers(..) => {}
+                Self::ExportJsonSchema(_) | Self::Compile(..) | Self::ExportTestSpecifiers(..) => {}
             }
         }
     }
@@ -837,9 +798,6 @@ impl Display for WorkingDirectoryPath {
 )]
 #[strum(serialize_all = "kebab-case")]
 pub enum OutputFormat {
-    /// The legacy format that was used in the past for the output.
-    Legacy,
-
     /// An output format that looks heavily resembles the output from `cargo test`.
     CargoTestLike,
 }

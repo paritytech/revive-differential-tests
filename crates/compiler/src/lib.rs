@@ -11,36 +11,36 @@ pub use revive_dt_common::types::{
 };
 
 pub mod prelude {
-    pub use crate::revive_resolc::{Resolc, ResolcRuntimeTarget};
-    pub use crate::solc::{Solc, SolcRuntimeTarget};
-    pub use crate::{Compiler, CompilerInput, CompilerOutput, RevertString, SolidityCompiler};
-    pub use crate::{Mode, ModeOptimizerSetting, ModePipeline};
+    pub use crate::{
+        Compiler, CompilerInput, CompilerOutput, Mode, ModeOptimizerSetting, ModePipeline,
+        RevertString, SolidityCompiler,
+        revive_resolc::{Resolc, ResolcRuntimeTarget},
+        solc::{Solc, SolcRuntimeTarget},
+    };
 }
 
 pub(crate) mod internal_prelude {
-    pub use crate::prelude::*;
-    pub use crate::{resolve_output_source_path, sha256_file_hex};
+    pub use crate::{prelude::*, resolve_output_source_path, sha256_file_hex};
     pub use revive_dt_config::prelude::*;
 
-    pub use std::collections::{BTreeSet, HashMap};
-    pub use std::hash::Hash;
-    pub use std::path::{Path, PathBuf};
-    pub use std::process::Stdio;
-    pub use std::sync::{Arc, LazyLock};
+    pub use std::{
+        collections::{BTreeSet, HashMap},
+        hash::Hash,
+        path::{Path, PathBuf},
+        process::Stdio,
+        sync::{Arc, LazyLock},
+    };
 
-    pub use alloy::json_abi::JsonAbi;
-    pub use alloy::primitives::Address;
-    pub use anyhow::Context as _;
-    pub use anyhow::Result;
+    pub use alloy::{json_abi::JsonAbi, primitives::Address};
+    pub use anyhow::{Context as _, Result};
     pub use dashmap::DashMap;
     pub use foundry_compilers_artifacts::{
         output_selection::{
             BytecodeOutputSelection, ContractOutputSelection, EvmOutputSelection, OutputSelection,
         },
-        solc::CompilerOutput as SolcOutput,
         solc::{
-            BytecodeObject, DebuggingSettings, Libraries, Optimizer, RevertStrings, Settings,
-            SolcInput, SolcLanguage, Source, Sources,
+            BytecodeObject, CompilerOutput as SolcOutput, DebuggingSettings, Libraries, Optimizer,
+            RevertStrings, Settings, SolcInput, SolcLanguage, Source, Sources,
         },
     };
     pub use revive_solc_json_interface::{
@@ -59,10 +59,10 @@ pub(crate) mod internal_prelude {
     pub use tracing::{Span, field::display, info};
 
     pub use revive_common::EVMVersion;
-    pub use revive_dt_common::cached_fs::read_to_string;
-    pub use revive_dt_common::fs::normalize_path;
-    pub use revive_dt_common::futures::FrameworkFuture;
-    pub use revive_dt_common::types::VersionOrRequirement;
+    pub use revive_dt_common::{
+        cached_fs::read_to_string, fs::normalize_path, futures::StaticFuture,
+        types::VersionOrRequirement,
+    };
     pub use revive_dt_solc_binaries::download_solc;
 }
 
@@ -84,7 +84,7 @@ pub trait SolidityCompiler {
     fn fingerprint(&self) -> &str;
 
     /// The low-level compiler interface.
-    fn build(&self, input: CompilerInput) -> FrameworkFuture<Result<CompilerOutput>>;
+    fn build(&self, input: CompilerInput) -> StaticFuture<Result<CompilerOutput>>;
 
     /// Does the compiler support the provided mode and version settings.
     fn supports_mode(&self, mode: &Mode) -> bool;
@@ -143,11 +143,6 @@ impl Compiler {
         self
     }
 
-    pub fn with_evm_version(mut self, version: impl Into<Option<EVMVersion>>) -> Self {
-        self.input.evm_version = version.into();
-        self
-    }
-
     pub fn with_allow_path(mut self, path: impl AsRef<Path>) -> Self {
         self.input.allow_paths.push(path.as_ref().into());
         self
@@ -177,14 +172,6 @@ impl Compiler {
             .entry(path.as_ref().to_path_buf())
             .or_default()
             .insert(name.as_ref().into(), address);
-        self
-    }
-
-    pub fn with_revert_string_handling(
-        mut self,
-        revert_string_handling: impl Into<Option<RevertString>>,
-    ) -> Self {
-        self.input.revert_string_handling = revert_string_handling.into();
         self
     }
 

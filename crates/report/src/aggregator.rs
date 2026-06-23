@@ -25,9 +25,7 @@ impl ReportAggregator {
                 Context::Test(ref context) => context.report.file_name.clone(),
                 Context::Benchmark(ref context) => context.report.file_name.clone(),
                 Context::Compile(ref context) => context.report.file_name.clone(),
-                Context::ExportJsonSchema(_)
-                | Context::ExportGenesis(..)
-                | Context::ExportTestSpecifiers(..) => None,
+                Context::ExportJsonSchema(_) | Context::ExportTestSpecifiers(..) => None,
             },
             report: Report::new(context),
             remaining_cases: Default::default(),
@@ -38,7 +36,7 @@ impl ReportAggregator {
         }
     }
 
-    pub fn into_task(mut self) -> (Reporter, FrameworkFuture<Result<Report>>) {
+    pub fn into_task(mut self) -> (Reporter, StaticFuture<Result<Report>>) {
         let reporter = self
             .runner_tx
             .take()
@@ -47,7 +45,7 @@ impl ReportAggregator {
         (reporter, self.aggregate())
     }
 
-    fn aggregate(mut self) -> FrameworkFuture<Result<Report>> {
+    fn aggregate(mut self) -> StaticFuture<Result<Report>> {
         Box::pin(async move {
             debug!("Starting to aggregate report");
 
@@ -269,7 +267,6 @@ impl ReportAggregator {
         execution_information.node = Some(TestCaseNodeInformation {
             id: event.id,
             platform_identifier: event.platform_identifier,
-            connection_string: event.connection_string,
         });
     }
 
@@ -716,8 +713,6 @@ pub struct TestCaseNodeInformation {
     pub id: usize,
     /// The platform of the node.
     pub platform_identifier: PlatformIdentifier,
-    /// The connection string of the node.
-    pub connection_string: String,
 }
 
 /// Execution information tied to the platform.
@@ -1264,6 +1259,7 @@ mod tests {
             block_hash: [0u8; 32],
             pre_dispatch_ref_time: 0,
             pre_dispatch_proof_size: 0,
+            is_last_block_in_slot: false,
         };
         let blocks = vec![
             make_block(
@@ -1406,6 +1402,7 @@ mod tests {
             block_hash: [0u8; 32],
             pre_dispatch_ref_time: 4000,
             pre_dispatch_proof_size: 2000,
+            is_last_block_in_slot: false,
         };
         let blocks = vec![make_block(
             1,

@@ -2,7 +2,7 @@
 
 use crate::internal_prelude::*;
 
-use crate::differential_benchmarks::Driver;
+use crate::interpreter::Interpreter;
 
 /// Handles the differential testing executing it according to the information defined in the
 /// context
@@ -103,9 +103,6 @@ pub async fn handle_differential_benchmarks(
     .map(Arc::new)
     .context("Failed to initialize cached compiler")?;
 
-    // The inclusion watcher to use for all of the benchmarks.
-    let inclusion_watcher = InclusionWatcher::new();
-
     // Note: we do not want to run all of the workloads concurrently on all platforms. Rather, we'd
     // like to run all of the workloads for one platform, and then the next sequentially as we'd
     // like for the effect of concurrency to be minimized when we're doing the benchmarking.
@@ -132,121 +129,62 @@ pub async fn handle_differential_benchmarks(
 
             // Initializing all of the components requires to execute this particular workload.
             let private_key_allocator = private_key_allocator.clone();
-            let provider = platform_information
-                .node
-                .provider()
-                .await
-                .context("Failed to create the node's provider")?;
-            let substrate_provider = match platform_information.node.substrate_provider() {
-                Some(future) => Some(
-                    future
-                        .await
-                        .context("Failed to create the substrate provider")?,
-                ),
-                None => None,
-            };
-            let transaction_finder =
-                TransactionFinder::new(provider.clone(), substrate_provider.clone());
             let (watcher, watcher_tx) = Watcher::new(
-                platform_information
-                    .node
-                    .subscribe_to_full_blocks_information()
-                    .await
-                    .context("Failed to subscribe to full blocks information from the node")?,
-                provider,
-                substrate_provider,
+                platform_information.connector.clone(),
                 test_definition
                     .reporter
                     .execution_specific_reporter(0usize, platform_identifier),
             );
-            let driver = Driver::new(
+            let steps = test_definition
+                .case
+                .steps_iterator_for_benchmarks(context.benchmark_run.default_repetition_count)
+                .enumerate()
+                .map(|(step_idx, step)| -> (StepPath, Step) {
+                    (StepPath::new(vec![StepIdx::new(step_idx)]), step)
+                })
+                .collect::<Vec<_>>()
+                .into_iter();
+            let interpreter = Interpreter::for_benchmarks(
                 platform_information,
                 test_definition,
-                context.benchmark_run.repetition_count_override,
                 private_key_allocator,
+                watcher_tx,
                 cached_compiler.as_ref(),
-                watcher_tx.clone(),
-                false,
-                &inclusion_watcher,
-                transaction_finder,
-                test_definition
-                    .case
-                    .steps_iterator_for_benchmarks(context.benchmark_run.default_repetition_count)
-                    .enumerate()
-                    .map(|(step_idx, step)| -> (StepPath, Step) {
-                        (StepPath::new(vec![StepIdx::new(step_idx)]), step)
-                    }),
+                steps,
             )
             .await
-            .context("Failed to create the benchmarks driver")?;
+            .context("Failed to create the benchmarks interpreter")?
+            .with_repetition_count_override(context.benchmark_run.repetition_count_override);
 
-            // Running the auxiliary tasks
             let watcher_task = tokio::spawn(watcher.run().instrument(info_span!(
                 "Running Watcher",
                 %platform_identifier,
                 case_name = %test_definition.case.name.clone().unwrap_or_default()
-            )));
-            let inclusion_watcher_task = tokio::spawn(
-                inclusion_watcher.run(
-                    platform_information
-                        .node
-                        .subscribe_to_transaction_inclusions()
-                        .await
-                        .context("Failed to subscribe to full blocks information from the node")?,
-                ),
-            );
-
-            // Running the driver.
-            let driver_rtn = driver
-                .execute_all()
+            )))
+            .map(|rtn| rtn.context("Watcher failed").flatten());
+            let interpreter_task = interpreter
+                .run_to_completion()
                 .instrument(info_span!(
                     "Executing Benchmarks",
                     %platform_identifier,
                     case_name = %test_definition.case.name.clone().unwrap_or_default()
                 ))
-                .inspect(|_| {
-                    info!("All transactions submitted - driver completed execution");
-                })
+                .inspect_ok(|_| info!("Workload Execution Succeeded"))
+                .inspect_err(|err| error!(?err, "Workload Execution Failed"))
+                .map(|rtn| rtn.context("Failed to run the interpreter and executor"));
+
+            let rtn = try_join(interpreter_task, watcher_task)
                 .await
-                .context("Failed to run the driver and executor")
-                .inspect(|(steps_executed, _)| {
-                    info!(steps_executed, "Workload Execution Succeeded")
-                })
-                .inspect_err(|err| error!(?err, "Workload Execution Failed"));
+                .context("Failure in benchmarks");
 
-            // Stopping auxiliary tasks.
-            watcher_tx
-                .send(WatcherEvent::AllTransactionsSubmitted)
-                .unwrap();
-            inclusion_watcher.stop();
-
-            let watcher_rtn = watcher_task.await.context("Watcher failed").flatten();
-            let inclusion_rtn = inclusion_watcher_task.await;
-
-            info!(
-                keep_alive_on_failures = context.shutdown.keep_alive_on_failures,
-                driver_rtn = driver_rtn.is_err(),
-                watcher_rtn = watcher_rtn.is_err(),
-                inclusion_rtn = inclusion_rtn.is_err(),
-            );
-
-            if context.shutdown.keep_alive_on_failures
-                && (driver_rtn.is_err() || watcher_rtn.is_err() || inclusion_rtn.is_err())
-            {
-                error!(
-                    driver_rtn = ?driver_rtn.err(),
-                    watcher_rtn = ?watcher_rtn.err(),
-                    inclusion_rtn = ?inclusion_rtn.err(),
-                    "One of the critical tasks failed, keeping the tool alive to investigate"
-                );
+            if context.shutdown.keep_alive_on_failures && rtn.is_err() {
+                error!("One of the critical tasks failed, keeping the tool alive to investigate");
                 loop {
                     std::thread::sleep(Duration::from_secs(3600));
                 }
             }
 
-            let _ = driver_rtn.context("Driver failed")?;
-            watcher_rtn.context("Watcher failed")?;
-            inclusion_rtn.context("Inclusion watcher failed")?;
+            rtn.context("Benchmark run failed")?;
         }
     }
 

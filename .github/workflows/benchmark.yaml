@@ -43,12 +43,12 @@ on:
       resolc-ref:
         description: The branch, tag, or commit hash to use for the resolc repository.
         required: true
-        default: v0.6.0
+        default: v1.2.0
       network:
         description: The Asset Hub network configuration to benchmark against
         required: true
         type: choice
-        default: polkadot
+        default: westend
         options:
           - polkadot
           - westend
@@ -68,6 +68,16 @@ on:
         type: number
         description: A way for the repetition count to be overridden. This is only used when we want to quickly run the CI to check if it works, please do not use it otherwise
         required: false
+      test-specifier-filters:
+        description: Optional comma or newline-separated substrings for benchmark test specifiers. Empty runs all test specifiers.
+        required: false
+        type: string
+        default: ""
+      platform-filters:
+        description: Optional comma or newline-separated substrings for benchmark platform identifiers. Empty runs all platforms.
+        required: false
+        type: string
+        default: ""
 
 env:
   CARGO_TERM_COLOR: always
@@ -83,7 +93,7 @@ jobs:
 
   build-retester:
     name: Build and Cache Retester Binaries
-    runs-on: parity-large-persistent-new
+    runs-on: parity-large-t2d
     steps:
       - name: Checkout This Repository
         uses: actions/checkout@v4
@@ -104,7 +114,7 @@ jobs:
 
   build-chainspec-generator:
     name: Build and Cache Runtime's Chainspec Generator
-    runs-on: parity-large-persistent-new
+    runs-on: parity-large-t2d
     steps:
       - name: Checkout This Repository
         uses: actions/checkout@v4
@@ -130,7 +140,7 @@ jobs:
 
   build-polkadot-sdk:
     name: Build and Cache the Polkadot SDK Dependencies
-    runs-on: parity-large-persistent-new
+    runs-on: parity-large-t2d
     steps:
       - name: Checkout This Repository
         uses: actions/checkout@v4
@@ -155,7 +165,7 @@ jobs:
 
   build-resolc:
     name: Build and Cache Resolc Binary
-    runs-on: parity-large-persistent-new
+    runs-on: parity-large-t2d
     steps:
       - name: Checkout This Repository
         uses: actions/checkout@v4
@@ -173,9 +183,11 @@ jobs:
   generate-matrix:
     name: Generate Benchmark Matrix
     needs: build-retester
-    runs-on: parity-large-persistent-new
+    runs-on: parity-large-t2d
     outputs:
       tests: ${{ steps.matrix.outputs.tests }}
+      platforms: ${{ steps.matrix.outputs.platforms }}
+      benchmark-count: ${{ steps.matrix.outputs.benchmark-count }}
     steps:
       - name: Checkout This Repository
         uses: actions/checkout@v4
@@ -202,10 +214,81 @@ jobs:
         id: matrix
         env:
           RUST_LOG: "off"
+          TEST_SPECIFIER_FILTERS: ${{ inputs.test-specifier-filters }}
+          PLATFORM_FILTERS: ${{ inputs.platform-filters }}
         run: |
-          TESTS=$(retester export-test-specifiers \
+          set -euo pipefail
+
+          parse_filters() {
+            jq -n -c --arg filters "$1" '
+              $filters
+              | gsub("\r\n"; "\n")
+              | gsub("\r"; "\n")
+              | split("\n")
+              | map(split(","))
+              | flatten
+              | map(gsub("^\\s+|\\s+$"; ""))
+              | map(select(length > 0))
+            '
+          }
+
+          TEST_FILTERS=$(parse_filters "$TEST_SPECIFIER_FILTERS")
+          PLATFORM_FILTERS_JSON=$(parse_filters "$PLATFORM_FILTERS")
+
+          ALL_TESTS=$(retester export-test-specifiers \
             --test ./compiler-tests/fixtures/solidity/workloads)
+          ALL_PLATFORMS='["zombienet-revm-solc","zombienet-polkavm-resolc","lighthouse-geth-evm-solc"]'
+
+          TESTS=$(jq -c --argjson filters "$TEST_FILTERS" '
+            if ($filters | length) == 0 then
+              .
+            else
+              map(select(.specifier as $specifier |
+                any($filters[]; . as $filter | $specifier | contains($filter))))
+            end
+          ' <<< "$ALL_TESTS")
+          PLATFORMS=$(jq -c --argjson filters "$PLATFORM_FILTERS_JSON" '
+            if ($filters | length) == 0 then
+              .
+            else
+              map(select(. as $platform |
+                any($filters[]; . as $filter | $platform | contains($filter))))
+            end
+          ' <<< "$ALL_PLATFORMS")
+
+          TEST_COUNT=$(jq 'length' <<< "$TESTS")
+          PLATFORM_COUNT=$(jq 'length' <<< "$PLATFORMS")
+          BENCHMARK_COUNT=$((TEST_COUNT * PLATFORM_COUNT))
+
+          echo "Selected $TEST_COUNT test specifier(s) and $PLATFORM_COUNT platform(s)."
+          echo "Benchmark matrix contains $BENCHMARK_COUNT job(s)."
+
           echo "tests=${TESTS}" >> "$GITHUB_OUTPUT"
+          echo "platforms=${PLATFORMS}" >> "$GITHUB_OUTPUT"
+          echo "benchmark-count=${BENCHMARK_COUNT}" >> "$GITHUB_OUTPUT"
+      - name: Print generated benchmark matrix
+        env:
+          TESTS: ${{ steps.matrix.outputs.tests }}
+          PLATFORMS: ${{ steps.matrix.outputs.platforms }}
+          BENCHMARK_COUNT: ${{ steps.matrix.outputs.benchmark-count }}
+        run: |
+          set -euo pipefail
+
+          TEST_COUNT=$(jq 'length' <<< "$TESTS")
+          PLATFORM_COUNT=$(jq 'length' <<< "$PLATFORMS")
+
+          echo "Generated benchmark matrix:"
+          echo "  test specifiers: $TEST_COUNT"
+          echo "  platforms: $PLATFORM_COUNT"
+          echo "  benchmark jobs: $BENCHMARK_COUNT"
+
+          echo "::group::Platforms"
+          jq . <<< "$PLATFORMS"
+          echo "::endgroup::"
+
+          echo "::group::Test specifiers"
+          jq -r '.[] | "\(.name) => \(.specifier)"' <<< "$TESTS"
+          echo "::endgroup::"
 
   # ============================================
   # Benchmark Job: Runs the Requested Benchmark
@@ -213,7 +296,7 @@ jobs:
 
   benchmark:
     name: "${{ matrix.platform }} - ${{ matrix.test.name }}"
-    runs-on: parity-large-persistent-new
+    runs-on: parity-large-t2d
     timeout-minutes: 120
     needs:
       [
@@ -227,15 +310,13 @@ jobs:
       needs.generate-matrix.result == 'success' &&
       needs.build-chainspec-generator.result == 'success' &&
       needs.build-polkadot-sdk.result == 'success' &&
-      needs.build-resolc.result == 'success'
+      needs.build-resolc.result == 'success' &&
+      needs.generate-matrix.outputs.benchmark-count != '0'
     strategy:
       fail-fast: false
       matrix:
         test: ${{ fromJSON(needs.generate-matrix.outputs.tests) }}
-        platform:
-          - lighthouse-geth-evm-solc
-          - zombienet-revm-solc
-          - zombienet-polkavm-resolc
+        platform: ${{ fromJSON(needs.generate-matrix.outputs.platforms) }}
     steps:
       - name: Checkout This Repository
         uses: actions/checkout@v4
@@ -357,6 +438,16 @@ jobs:
             additional_args+=(--benchmark.repetition-count-override "$OVERRIDE_REPETITION_COUNT")
           fi
 
+          # JIT currently exposes an eth_estimate_gas issue where binary-search dry runs can
+          # reuse warm pricing after the first cold run, underestimating gas for workloads like
+          # erc20-transfers. Force retester to use non-binary-search estimation on zombienet JIT.
+          # TODO: remove once polkadot-sdk eth_estimate_gas keeps each search attempt cold.
+          if [[ "${{ inputs.use-jit }}" == "true" && "${{ matrix.platform }}" == zombienet-* ]]; then
+            additional_args+=(--zombienet.connector-configurations '{"substrate_provider_configuration":{"allowed_estimation_methods":"ETH_TRANSACT_WITH_CONFIG | ETH_TRANSACT"}}')
+          fi
+
+          export POLKAVM_CORE_PINNING="disabled"
+
           retester benchmark \
             --log-format json \
             --test "$TEST_SPECIFIER" \
@@ -383,11 +474,14 @@ jobs:
 
   publish:
     name: Publish The Report
-    runs-on: parity-large-persistent-new
+    runs-on: parity-large-t2d
     needs:
       - generate-matrix
       - benchmark
-    if: always() && !cancelled()
+    if: >-
+      always() &&
+      !cancelled() &&
+      needs.generate-matrix.outputs.benchmark-count != '0'
     steps:
       - name: Set Report Name
         run: echo "REPORT_NAME=benchmark-$(date -u +%Y-%m-%d-%H%M%S)" >> "$GITHUB_ENV"

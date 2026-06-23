@@ -1,7 +1,9 @@
 pub mod chainspec;
-mod eth_rpc;
-mod process;
+mod command;
+mod node_directories;
+mod node_id_allocator;
 
 pub use chainspec::*;
-pub use eth_rpc::*;
-pub use process::*;
+pub use command::*;
+pub use node_directories::*;
+pub use node_id_allocator::*;

@@ -13,12 +13,14 @@ pub mod prelude {
 pub(crate) mod internal_prelude {
     pub use revive_dt_common::prelude::*;
 
-    pub use std::collections::{HashMap, HashSet};
-    pub use std::fs::{File, create_dir_all};
-    pub use std::io::{BufWriter, Write};
-    pub use std::path::{Path, PathBuf};
-    pub use std::str::FromStr;
-    pub use std::sync::{LazyLock, Mutex};
+    pub use std::{
+        collections::{HashMap, HashSet},
+        fs::{File, create_dir_all},
+        io::{BufWriter, Write},
+        path::{Path, PathBuf},
+        str::FromStr,
+        sync::{LazyLock, Mutex},
+    };
 
     pub use anyhow::Context as _;
     pub use semver::{Version, VersionReq};
@@ -27,8 +29,7 @@ pub(crate) mod internal_prelude {
     pub use tokio::sync::Mutex as TokioMutex;
 
     pub(crate) use crate::cache::get_or_download;
-    pub use crate::download::SolcDownloader;
-    pub use crate::list::List;
+    pub use crate::{download::SolcDownloader, list::List};
 }
 
 use crate::internal_prelude::*;
