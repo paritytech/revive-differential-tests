@@ -55,7 +55,7 @@ pub(crate) mod internal_prelude {
     pub use semver::Version;
     pub use serde::{Deserialize, Serialize};
     pub use sha2::{Digest, Sha256};
-    pub use tokio::{io::AsyncWriteExt, process::Command as AsyncCommand};
+    pub use tokio::{io::AsyncWriteExt, process::Command as AsyncCommand, sync::OnceCell};
     pub use tracing::{Span, field::display, info};
 
     pub use revive_common::EVMVersion;

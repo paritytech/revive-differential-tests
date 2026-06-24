@@ -15,6 +15,8 @@ struct ResolcInner {
     solc: Solc,
     /// Path to the resolc compiler.
     resolc_path: PathBuf,
+    /// The version of the resolc compiler.
+    resolc_version: Version,
     /// The PVM heap size in bytes.
     pvm_heap_size: u32,
     /// The PVM stack size in bytes.
@@ -56,6 +58,7 @@ impl Resolc {
                 .stack_size
                 .unwrap_or(PolkaVMDefaultStackMemorySize);
             let runtime_target = ResolcRuntimeTarget::from_path(&resolc_path);
+            let resolc_version = runtime_target.execute_version_command(&resolc_path).await?;
             let solc = match runtime_target {
                 ResolcRuntimeTarget::Native => Solc::new_native(context, version),
                 ResolcRuntimeTarget::Wasm => Solc::new_wasm(context, version),
@@ -84,6 +87,7 @@ impl Resolc {
                 runtime_target,
                 solc,
                 resolc_path,
+                resolc_version,
                 pvm_heap_size,
                 pvm_stack_size,
                 fingerprint,
@@ -232,7 +236,7 @@ impl SolidityCompiler for Resolc {
                 display(serde_json::to_string(&std_input_json).unwrap()),
             );
 
-            let mut command = this.0.runtime_target.command(
+            let mut command = this.0.runtime_target.compile_command(
                 &this.0.resolc_path,
                 this.0.solc.path(),
                 base_path.as_deref(),
@@ -387,8 +391,8 @@ impl SolidityCompiler for Resolc {
 }
 
 impl ResolcRuntimeTarget {
-    /// Constructs the `Command` for invoking resolc.
-    fn command(
+    /// Constructs the command for invoking resolc and compiling contracts.
+    fn compile_command(
         &self,
         resolc_path: &Path,
         solc_path: &Path,
@@ -431,6 +435,62 @@ impl ResolcRuntimeTarget {
         }
     }
 
+    /// Constructs the command for invoking resolc and getting the version.
+    fn version_command(&self, resolc_path: &Path) -> AsyncCommand {
+        match self {
+            Self::Native => {
+                let mut command = AsyncCommand::new(resolc_path);
+                command.arg("--version");
+                command
+            }
+            Self::Wasm => {
+                let mut command = AsyncCommand::new("node");
+                command
+                    .arg(get_resolc_wasm_wrapper_path())
+                    .arg("--resolc")
+                    .arg(resolc_path)
+                    .arg("--version");
+                command
+            }
+        }
+    }
+
+    /// Executes resolc with the version flag.
+    async fn execute_version_command(&self, resolc_path: &Path) -> Result<Version> {
+        static RESOLC_VERSION_CACHE: LazyLock<DashMap<PathBuf, Arc<OnceCell<Version>>>> =
+            LazyLock::new(Default::default);
+
+        let version = RESOLC_VERSION_CACHE
+            .entry(resolc_path.to_path_buf())
+            .or_default()
+            .clone();
+        version
+            .get_or_try_init(|| async {
+                let output = self
+                    .version_command(resolc_path)
+                    .output()
+                    .await
+                    .with_context(|| {
+                        format!(
+                            "Failed to get resolc version using {}",
+                            resolc_path.display()
+                        )
+                    })?;
+
+                anyhow::ensure!(
+                    output.status.success(),
+                    "Getting the resolc version exited with {}: {}",
+                    output.status,
+                    String::from_utf8_lossy(&output.stderr)
+                );
+
+                let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+                parse_version_output(&stdout)
+            })
+            .await
+            .cloned()
+    }
+
     /// Infers the runtime target from the provided `path`. Vanilla JavaScript
     /// extensions are interpreted as using the Emscripten Wasm build, targeting
     /// a Wasm runtime, while anything else is interpreted as a native runtime target.
@@ -454,6 +514,19 @@ impl ResolcRuntimeTarget {
             ],
         }
     }
+}
+
+/// Parses resolc's `--version` output.
+/// Example output: "Solidity frontend for the revive compiler version 1.3.0+commit.fb0e9e6a.llvm-22.1.5"
+fn parse_version_output(stdout: &str) -> Result<Version> {
+    let long_version = stdout
+        .trim()
+        .rsplit_once(" version ")
+        .map(|(_, long_version)| long_version.trim())
+        .with_context(|| format!("Unexpected resolc --version output: {stdout:?}"))?;
+
+    Version::parse(long_version)
+        .with_context(|| format!("Failed to parse resolc version from `{long_version}`"))
 }
 
 /// Extracts the embedded wrapper script to a process-scoped temp file on
@@ -557,5 +630,36 @@ mod tests {
             let json_input = Resolc::inject_resolc_specific_settings(&input).unwrap();
             assert_expected_solc_input(&json_input, opt_level, pvm_heap_size, pvm_stack_size);
         }
+    }
+
+    #[test]
+    fn parses_version_output() {
+        let version = parse_version_output(
+            "Solidity frontend for the revive compiler version 1.3.0+commit.fb0e9e6a.llvm-22.1.5",
+        )
+        .unwrap();
+        assert_eq!(
+            version,
+            Version::parse("1.3.0+commit.fb0e9e6a.llvm-22.1.5").unwrap()
+        );
+        assert_eq!((version.major, version.minor, version.patch), (1, 3, 0));
+
+        let normalized_version = Version::new(version.major, version.minor, version.patch);
+        assert!(normalized_version == Version::new(1, 3, 0));
+        assert!(normalized_version < Version::new(1, 3, 1));
+        assert!(normalized_version < Version::new(1, 4, 0));
+        assert!(normalized_version > Version::new(1, 2, 0));
+
+        let nightly_version = parse_version_output("Solidity frontend for the revive compiler version 1.2.0-nightly.2026.6.3+commit.3a20436d").unwrap();
+        assert_eq!(
+            (
+                nightly_version.major,
+                nightly_version.minor,
+                nightly_version.patch
+            ),
+            (1, 2, 0)
+        );
+
+        assert!(parse_version_output("no version").is_err());
     }
 }
