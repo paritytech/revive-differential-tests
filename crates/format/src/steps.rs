@@ -208,7 +208,7 @@ pub enum Expected {
 /// A set of assertions to run on the transaction.
 #[derive(Clone, Debug, Default, Serialize, Deserialize, JsonSchema, Eq, PartialEq)]
 pub struct ExpectedOutput {
-    /// An optional compiler version that's required in order for this assertion to run.
+    /// An optional solc version that's required in order for this assertion to run.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[schemars(with = "Option<String>")]
     pub compiler_version: Option<VersionReq>,

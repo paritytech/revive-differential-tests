@@ -106,6 +106,10 @@ impl SolidityCompiler for Solc {
         &self.0.solc_version
     }
 
+    fn frontend_version(&self) -> &Version {
+        self.version()
+    }
+
     fn path(&self) -> &std::path::Path {
         &self.0.solc_path
     }

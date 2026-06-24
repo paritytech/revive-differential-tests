@@ -449,7 +449,8 @@ impl<'a> Interpreter<'a> {
                         .into_iter()
                         .filter(|expectation| {
                             expectation.compiler_version.as_ref().is_none_or(|version| {
-                                version.matches(self.platform_information.compiler.version())
+                                version
+                                    .matches(self.platform_information.compiler.frontend_version())
                             })
                         })
                         .collect();

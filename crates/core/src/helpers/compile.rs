@@ -57,7 +57,7 @@ impl<'a> CompilationDefinition<'a> {
             })?;
 
             if let Some(version_requirement) = Self::parse_pragma_solidity_requirement(&source)
-                && !version_requirement.matches(self.compiler.version())
+                && !version_requirement.matches(self.compiler.frontend_version())
             {
                 incompatible_files.push(json!({
                     "source_path": source_path.display().to_string(),
@@ -72,7 +72,7 @@ impl<'a> CompilationDefinition<'a> {
             Err((
                 "Source pragma is incompatible with the Solidity compiler version.",
                 indexmap! {
-                    "compiler_version" => json!(self.compiler.version().to_string()),
+                    "compiler_frontend_version" => json!(self.compiler.frontend_version().to_string()),
                     "incompatible_files" => json!(incompatible_files),
                 },
             ))

@@ -74,6 +74,9 @@ pub trait SolidityCompiler {
     /// Returns the version of the compiler.
     fn version(&self) -> &Version;
 
+    /// Returns the Solidity frontend version used by the compiler.
+    fn frontend_version(&self) -> &Version;
+
     /// Returns the path of the compiler executable.
     fn path(&self) -> &Path;
 

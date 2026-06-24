@@ -131,9 +131,11 @@ impl Resolc {
 
 impl SolidityCompiler for Resolc {
     fn version(&self) -> &Version {
-        // We currently return the solc compiler version since we do not support multiple resolc
-        // compiler versions.
-        SolidityCompiler::version(&self.0.solc)
+        &self.0.resolc_version
+    }
+
+    fn frontend_version(&self) -> &Version {
+        self.0.solc.version()
     }
 
     fn path(&self) -> &std::path::Path {
