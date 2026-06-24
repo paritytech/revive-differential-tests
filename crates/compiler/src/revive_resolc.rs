@@ -103,14 +103,10 @@ impl Resolc {
         self.0.runtime_target
     }
 
-    fn polkavm_settings(&self) -> SolcStandardJsonInputSettingsPolkaVM {
-        SolcStandardJsonInputSettingsPolkaVM::new(
-            Some(SolcStandardJsonInputSettingsPolkaVMMemory::new(
-                Some(self.0.pvm_heap_size),
-                Some(self.0.pvm_stack_size),
-            )),
-            false,
-        )
+    fn supports_newyork(&self) -> bool {
+        const MIN_VERSION_SUPPORTING_NEWYORK: Version = Version::new(1, 3, 0);
+        let version = self.version();
+        Version::new(version.major, version.minor, version.patch) >= MIN_VERSION_SUPPORTING_NEWYORK
     }
 
     /// Injects resolc-specific settings that are marked `skip_serializing`
@@ -176,13 +172,24 @@ impl SolidityCompiler for Resolc {
     ) -> StaticFuture<Result<CompilerOutput>> {
         let this = self.clone();
         Box::pin(async move {
-            if !matches!(pipeline, None | Some(ModePipeline::ViaYulIR)) {
+            if !matches!(
+                pipeline,
+                None | Some(ModePipeline::ViaYulIR) | Some(ModePipeline::ViaNewYorkIR)
+            ) {
                 anyhow::bail!(
-                    "Resolc only supports the Y (via Yul IR) pipeline, but the provided pipeline is {pipeline:?}"
+                    "Resolc only supports the Y (via Yul IR) and NY (via newyork IR) pipelines, but the provided pipeline is {pipeline:?}"
                 );
             }
 
             let optimize_setting = optimization.unwrap_or_default();
+            let mut polkavm_settings = SolcStandardJsonInputSettingsPolkaVM::new(
+                Some(SolcStandardJsonInputSettingsPolkaVMMemory::new(
+                    Some(this.0.pvm_heap_size),
+                    Some(this.0.pvm_stack_size),
+                )),
+                false,
+            );
+            polkavm_settings.newyork = Some(pipeline == Some(ModePipeline::ViaNewYorkIR));
 
             let input = SolcStandardJsonInput {
                 language: SolcStandardJsonInputLanguage::Solidity,
@@ -225,7 +232,7 @@ impl SolidityCompiler for Resolc {
                         // to be the determining factor for the default values of solc's optimizer details.
                         SolcOptimizerDetails::default(),
                     ),
-                    polkavm: this.polkavm_settings(),
+                    polkavm: polkavm_settings,
                     metadata: SolcStandardJsonInputSettingsMetadata::default(),
                     detect_missing_libraries: false,
                 },
@@ -387,8 +394,17 @@ impl SolidityCompiler for Resolc {
     }
 
     fn supports_mode(&self, mode: &Mode) -> bool {
-        mode.pipeline == ModePipeline::ViaYulIR
-            && SolidityCompiler::supports_mode(&self.0.solc, mode)
+        match mode.pipeline {
+            ModePipeline::ViaYulIR => self.0.solc.supports_mode(mode),
+            ModePipeline::ViaNewYorkIR => {
+                self.supports_newyork()
+                    && self.0.solc.supports_mode(&Mode {
+                        pipeline: ModePipeline::ViaYulIR,
+                        ..mode.clone()
+                    })
+            }
+            ModePipeline::ViaEVMAssembly => false,
+        }
     }
 }
 
@@ -556,10 +572,20 @@ mod tests {
     use revive_solc_json_interface::standard_json::input::source::Source as SolcStandardJsonInputSource;
 
     fn make_solc_input_with_resolc_settings(
+        pipeline: ModePipeline,
         optimizer_level: ModeOptimizerLevel,
         pvm_heap_size: u32,
         pvm_stack_size: u32,
     ) -> SolcStandardJsonInput {
+        let mut polkavm = SolcStandardJsonInputSettingsPolkaVM::new(
+            Some(SolcStandardJsonInputSettingsPolkaVMMemory::new(
+                Some(pvm_heap_size),
+                Some(pvm_stack_size),
+            )),
+            false,
+        );
+        polkavm.newyork = Some(pipeline == ModePipeline::ViaNewYorkIR);
+
         SolcStandardJsonInput {
             language: SolcStandardJsonInputLanguage::Solidity,
             sources: BTreeMap::from([(
@@ -577,13 +603,7 @@ mod tests {
                     optimizer_level.to_mode_char(),
                     SolcOptimizerDetails::default(),
                 ),
-                polkavm: SolcStandardJsonInputSettingsPolkaVM::new(
-                    Some(SolcStandardJsonInputSettingsPolkaVMMemory::new(
-                        Some(pvm_heap_size),
-                        Some(pvm_stack_size),
-                    )),
-                    false,
-                ),
+                polkavm,
                 metadata: Default::default(),
                 detect_missing_libraries: false,
             },
@@ -592,6 +612,7 @@ mod tests {
 
     fn assert_expected_solc_input(
         json_input: &serde_json::Value,
+        pipeline: ModePipeline,
         optimizer_level: ModeOptimizerLevel,
         pvm_heap_size: u32,
         pvm_stack_size: u32,
@@ -613,6 +634,10 @@ mod tests {
             Some(pvm_stack_size as u64)
         );
         assert_eq!(polkavm["debugInformation"].as_bool(), Some(false));
+        assert_eq!(
+            polkavm["newyork"].as_bool(),
+            Some(pipeline == ModePipeline::ViaNewYorkIR)
+        );
 
         // Standard fields survive the round-trip.
         assert_eq!(json_input["language"].as_str(), Some("Solidity"));
@@ -622,15 +647,40 @@ mod tests {
 
     #[test]
     fn injects_resolc_specific_settings() {
-        for (opt_level, pvm_heap_size, pvm_stack_size) in [
-            (ModeOptimizerLevel::M0, 100_000, 50_000),
-            (ModeOptimizerLevel::M3, 200_000, 75_000),
-            (ModeOptimizerLevel::Mz, 300_000, 100_000),
+        for (pipeline, opt_level, pvm_heap_size, pvm_stack_size) in [
+            (
+                ModePipeline::ViaYulIR,
+                ModeOptimizerLevel::M0,
+                100_000,
+                50_000,
+            ),
+            (
+                ModePipeline::ViaNewYorkIR,
+                ModeOptimizerLevel::M3,
+                200_000,
+                75_000,
+            ),
+            (
+                ModePipeline::ViaNewYorkIR,
+                ModeOptimizerLevel::Mz,
+                300_000,
+                100_000,
+            ),
         ] {
-            let input =
-                make_solc_input_with_resolc_settings(opt_level, pvm_heap_size, pvm_stack_size);
+            let input = make_solc_input_with_resolc_settings(
+                pipeline,
+                opt_level,
+                pvm_heap_size,
+                pvm_stack_size,
+            );
             let json_input = Resolc::inject_resolc_specific_settings(&input).unwrap();
-            assert_expected_solc_input(&json_input, opt_level, pvm_heap_size, pvm_stack_size);
+            assert_expected_solc_input(
+                &json_input,
+                pipeline,
+                opt_level,
+                pvm_heap_size,
+                pvm_stack_size,
+            );
         }
     }
 
