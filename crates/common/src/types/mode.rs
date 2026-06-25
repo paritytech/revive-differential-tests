@@ -133,6 +133,17 @@ impl ModePipeline {
         ]
         .into_iter()
     }
+
+    /// Returns the name of the pipeline as reported in resolc's standard JSON output.
+    pub fn to_resolc_output(pipeline: Option<ModePipeline>) -> Result<&'static str> {
+        match pipeline {
+            None | Some(ModePipeline::ViaYulIR) => Ok("yul"),
+            Some(ModePipeline::ViaNewYorkIR) => Ok("newyork"),
+            Some(ModePipeline::ViaEVMAssembly) => {
+                anyhow::bail!("resolc does not support an EVM assembly pipeline")
+            }
+        }
+    }
 }
 
 /// Optimizer configuration for compilation.
@@ -807,5 +818,19 @@ mod tests {
         for mode in Mode::all() {
             assert_eq!(&Mode::from_str(&mode.to_string()).unwrap(), mode);
         }
+    }
+
+    #[test]
+    fn maps_pipeline_to_resolc_output() {
+        assert_eq!(ModePipeline::to_resolc_output(None).unwrap(), "yul");
+        assert_eq!(
+            ModePipeline::to_resolc_output(Some(ModePipeline::ViaYulIR)).unwrap(),
+            "yul"
+        );
+        assert_eq!(
+            ModePipeline::to_resolc_output(Some(ModePipeline::ViaNewYorkIR)).unwrap(),
+            "newyork"
+        );
+        assert!(ModePipeline::to_resolc_output(Some(ModePipeline::ViaEVMAssembly)).is_err());
     }
 }

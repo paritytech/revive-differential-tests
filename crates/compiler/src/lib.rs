@@ -12,15 +12,17 @@ pub use revive_dt_common::types::{
 
 pub mod prelude {
     pub use crate::{
-        Compiler, CompilerInput, CompilerOutput, Mode, ModeOptimizerSetting, ModePipeline,
-        RevertString, SolidityCompiler,
+        Compiler, CompilerInput, CompilerOutput, Mode, ModeOptimizerLevel, ModeOptimizerSetting,
+        ModePipeline, RevertString, SolidityCompiler,
         revive_resolc::{Resolc, ResolcRuntimeTarget},
         solc::{Solc, SolcRuntimeTarget},
     };
 }
 
 pub(crate) mod internal_prelude {
-    pub use crate::{prelude::*, resolve_output_source_path, sha256_file_hex};
+    pub use crate::{
+        is_same_major_minor_patch, prelude::*, resolve_output_source_path, sha256_file_hex,
+    };
     pub use revive_dt_config::prelude::*;
 
     pub use std::{
@@ -112,6 +114,9 @@ pub struct CompilerOutput {
     /// The compiled contracts. The bytecode of the contract is kept as a string in case linking is
     /// required and the compiled source has placeholders.
     pub contracts: HashMap<PathBuf, HashMap<String, (String, JsonAbi)>>,
+    /// The resolc IR pipeline used.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resolc_pipeline: Option<String>,
 }
 
 /// A generic builder style interface for configuring the supported compiler options.
@@ -271,4 +276,11 @@ pub fn resolve_output_source_path(path: &Path, base_path: Option<&Path>) -> Resu
     path_buf
         .canonicalize()
         .with_context(|| format!("Failed to canonicalize path {}", path_buf.display()))
+}
+
+/// Checks whether two versions have the same major, minor, and patch,
+/// ignoring any existing build metadata and pre-release.
+pub fn is_same_major_minor_patch(a: &Version, b: &Version) -> bool {
+    // Note: Do not use `a == b` since that also compares build metadata.
+    (a.major, a.minor, a.patch) == (b.major, b.minor, b.patch)
 }

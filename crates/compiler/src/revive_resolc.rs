@@ -123,6 +123,48 @@ impl Resolc {
         }
         Ok(input_value)
     }
+
+    /// Verifies that the standard JSON output fields match what is expected.
+    fn verify_output(
+        &self,
+        output: &SolcStandardJsonOutput,
+        requested_pipeline: Option<ModePipeline>,
+    ) -> Result<()> {
+        if output.contracts.is_empty() {
+            anyhow::bail!("Unexpected error - resolc output doesn't have a contracts section");
+        }
+
+        for (label, output_version, expected_version) in [
+            ("resolc", &output.revive_version, self.version()),
+            ("solc", &output.version, self.frontend_version()),
+        ] {
+            if let Some(output_version) = output_version.as_deref() {
+                let output_version = Version::parse(output_version).with_context(|| {
+                    format!("Failed to parse {label} output version: {output_version}")
+                })?;
+                if !is_same_major_minor_patch(&output_version, expected_version) {
+                    anyhow::bail!(
+                        "The {label} version in the output ({output_version}) does not match the expected version ({expected_version})"
+                    );
+                }
+            };
+        }
+
+        if self.supports_newyork() {
+            let output_pipeline = output
+                .resolc_pipeline
+                .as_deref()
+                .context("The resolc output is missing the pipeline")?;
+            let expected_pipeline = ModePipeline::to_resolc_output(requested_pipeline)?;
+            if output_pipeline != expected_pipeline {
+                anyhow::bail!(
+                    "The resolc output reports a different pipeline (\"{output_pipeline}\") than expected (\"{expected_pipeline}\")"
+                );
+            }
+        }
+
+        Ok(())
+    }
 }
 
 impl SolidityCompiler for Resolc {
@@ -324,9 +366,7 @@ impl SolidityCompiler for Resolc {
                 }
             }
 
-            if parsed.contracts.is_empty() {
-                anyhow::bail!("Unexpected error - resolc output doesn't have a contracts section");
-            }
+            this.verify_output(&parsed, pipeline)?;
 
             let mut compiler_output = CompilerOutput::default();
             for (source_path, contracts) in parsed.contracts.into_iter() {
@@ -389,6 +429,8 @@ impl SolidityCompiler for Resolc {
                 }
             }
 
+            compiler_output.resolc_pipeline = parsed.resolc_pipeline;
+
             Ok(compiler_output)
         })
     }
@@ -397,11 +439,9 @@ impl SolidityCompiler for Resolc {
         match mode.pipeline {
             ModePipeline::ViaYulIR => self.0.solc.supports_mode(mode),
             ModePipeline::ViaNewYorkIR => {
-                self.supports_newyork()
-                    && self.0.solc.supports_mode(&Mode {
-                        pipeline: ModePipeline::ViaYulIR,
-                        ..mode.clone()
-                    })
+                let mut mode_with_yul = mode.clone();
+                mode_with_yul.pipeline = ModePipeline::ViaYulIR;
+                self.supports_newyork() && self.0.solc.supports_mode(&mode_with_yul)
             }
             ModePipeline::ViaEVMAssembly => false,
         }
@@ -503,7 +543,7 @@ impl ResolcRuntimeTarget {
                 );
 
                 let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-                parse_version_output(&stdout)
+                parse_version_cli_output(&stdout)
             })
             .await
             .cloned()
@@ -536,7 +576,7 @@ impl ResolcRuntimeTarget {
 
 /// Parses resolc's `--version` output.
 /// Example output: "Solidity frontend for the revive compiler version 1.3.0+commit.fb0e9e6a.llvm-22.1.5"
-fn parse_version_output(stdout: &str) -> Result<Version> {
+fn parse_version_cli_output(stdout: &str) -> Result<Version> {
     let long_version = stdout
         .trim()
         .rsplit_once(" version ")
@@ -568,7 +608,6 @@ mod tests {
     use super::*;
     use std::collections::BTreeMap;
 
-    use revive_dt_common::types::ModeOptimizerLevel;
     use revive_solc_json_interface::standard_json::input::source::Source as SolcStandardJsonInputSource;
 
     fn make_solc_input_with_resolc_settings(
@@ -686,7 +725,7 @@ mod tests {
 
     #[test]
     fn parses_version_output() {
-        let version = parse_version_output(
+        let version = parse_version_cli_output(
             "Solidity frontend for the revive compiler version 1.3.0+commit.fb0e9e6a.llvm-22.1.5",
         )
         .unwrap();
@@ -702,7 +741,7 @@ mod tests {
         assert!(normalized_version < Version::new(1, 4, 0));
         assert!(normalized_version > Version::new(1, 2, 0));
 
-        let nightly_version = parse_version_output("Solidity frontend for the revive compiler version 1.2.0-nightly.2026.6.3+commit.3a20436d").unwrap();
+        let nightly_version = parse_version_cli_output("Solidity frontend for the revive compiler version 1.2.0-nightly.2026.6.3+commit.3a20436d").unwrap();
         assert_eq!(
             (
                 nightly_version.major,
@@ -712,6 +751,6 @@ mod tests {
             (1, 2, 0)
         );
 
-        assert!(parse_version_output("no version").is_err());
+        assert!(parse_version_cli_output("no version").is_err());
     }
 }
