@@ -559,6 +559,64 @@ impl ParsedMode {
     }
 }
 
+/// An allow-list over the fully-expanded compiler [`Mode`]s a run is permitted to execute.
+#[derive(Clone, Debug, Default)]
+pub struct ModeAllowList {
+    /// Allowed modes.
+    /// `None` is interpreted as unrestricted and allows all modes.
+    /// `Some` is interpreted as a subset of modes to allow.
+    allowed: Option<Vec<Mode>>,
+}
+
+impl ModeAllowList {
+    /// Builds an allow-list from parsed modes. An empty iterator yields an unrestricted (`None`) list.
+    pub fn from_parsed_modes<'a>(modes: impl IntoIterator<Item = &'a ParsedMode>) -> Self {
+        let modes: Vec<Mode> = ParsedMode::many_to_modes(modes.into_iter()).collect();
+
+        Self {
+            allowed: if modes.is_empty() { None } else { Some(modes) },
+        }
+    }
+
+    /// Checks whether the requested `mode` is allowed.
+    ///
+    /// When the allow-list is unrestricted (`None`) every mode is allowed. Otherwise, `mode` is
+    /// allowed iff its pipeline and optimizer settings match one of the modes in the allow-list.
+    ///
+    /// ## Examples
+    ///
+    /// | allowed                  | requested `mode`  | `allows` |
+    /// |--------------------------|-------------------|----------|
+    /// | `None`                   | `Y M0 S-`         | `true`   |
+    /// | `[Y Mz S+, NY Mz S+]`    | `Y Mz S+`         | `true`   |
+    /// | `[Y Mz S+, NY Mz S+]`    | `NY Mz S+`        | `true`   |
+    /// | `[Y Mz S+, NY Mz S+]`    | `Y Mz S-`         | `false`  |
+    /// | `[Y Mz S+, NY Mz S+]`    | `E Mz S+`         | `false`  |
+    /// | `[Y Mz S+]`              | `Y Mz S+ >=0.8.1` | `true`   |
+    /// | `[Y Mz S+ >=0.8.1]`      | `Y Mz S+`         | `true`   |
+    pub fn allows(&self, mode: &Mode) -> bool {
+        match &self.allowed {
+            None => true,
+            Some(allowed) => allowed
+                .iter()
+                .any(|allowed_mode| Self::matches(mode, allowed_mode)),
+        }
+    }
+
+    /// Checks whether two modes are equivalent for allow-list purposes.
+    fn matches(requested_mode: &Mode, allowed_mode: &Mode) -> bool {
+        // Use exhaustive destructure so that a new `Mode` field fails to compile here until it is handled.
+        let Mode {
+            pipeline: allowed_pipeline,
+            optimize_setting: allowed_optimize_setting,
+            solc_version: _,
+        } = allowed_mode;
+
+        requested_mode.pipeline == *allowed_pipeline
+            && requested_mode.optimize_setting == *allowed_optimize_setting
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -832,5 +890,90 @@ mod tests {
             "newyork"
         );
         assert!(ModePipeline::to_resolc_output(Some(ModePipeline::ViaEVMAssembly)).is_err());
+    }
+
+    fn make_allow_list(modes: &[&str]) -> ModeAllowList {
+        let modes: Vec<ParsedMode> = modes
+            .iter()
+            .map(|mode| ParsedMode::from_str(mode).unwrap())
+            .collect();
+        ModeAllowList::from_parsed_modes(modes.iter())
+    }
+
+    fn make_mode(str: &str) -> Mode {
+        Mode::from_str(str).unwrap()
+    }
+
+    #[test]
+    fn unspecified_allow_list_allows_everything() {
+        let allow_list = make_allow_list(&[]);
+        assert!(allow_list.allowed.is_none());
+        for mode in Mode::all() {
+            assert!(
+                allow_list.allows(mode),
+                "an unrestricted allow-list must allow `{mode}`"
+            );
+        }
+    }
+
+    #[test]
+    fn pipeline_only_allows_all_combinations_of_that_pipeline() {
+        for pipeline in [
+            ModePipeline::ViaYulIR,
+            ModePipeline::ViaNewYorkIR,
+            ModePipeline::ViaEVMAssembly,
+        ] {
+            let allow_list = make_allow_list(&[&pipeline.to_string()]);
+            for mode in Mode::all() {
+                assert_eq!(allow_list.allows(mode), mode.pipeline == pipeline);
+            }
+        }
+    }
+
+    #[test]
+    fn fully_specified_mode_only_allows_that_mode() {
+        let allow_list = make_allow_list(&["Y M3 S+"]);
+        for mode in Mode::all() {
+            let matches = mode.pipeline == ModePipeline::ViaYulIR
+                && mode.optimize_setting.level == ModeOptimizerLevel::M3
+                && mode.optimize_setting.solc_optimizer_enabled;
+            assert_eq!(allow_list.allows(mode), matches);
+        }
+        assert!(allow_list.allows(&make_mode("Y M3 S+")));
+        assert!(allow_list.allows(&make_mode("Y M3 S+ >=0.8.3")));
+        assert!(!allow_list.allows(&make_mode("Y M3 S-")));
+        assert!(!allow_list.allows(&make_mode("NY M3 S+")));
+        assert!(!allow_list.allows(&make_mode("E Mz S+")));
+
+        let allow_list = make_allow_list(&["NY Mz S+"]);
+        for mode in Mode::all() {
+            let matches = mode.pipeline == ModePipeline::ViaNewYorkIR
+                && mode.optimize_setting.level == ModeOptimizerLevel::Mz
+                && mode.optimize_setting.solc_optimizer_enabled;
+            assert_eq!(allow_list.allows(mode), matches);
+        }
+        assert!(allow_list.allows(&make_mode("NY Mz S+")));
+        assert!(allow_list.allows(&make_mode("NY Mz S+ >=0.8.3")));
+        assert!(!allow_list.allows(&make_mode("NY Mz S-")));
+        assert!(!allow_list.allows(&make_mode("Y Mz S+")));
+        assert!(!allow_list.allows(&make_mode("E M3 S+")));
+    }
+
+    #[test]
+    fn multiple_modes_allows_union() {
+        let allow_list = make_allow_list(&["Y", "Y >=0.8.3", "NY Mz S+", "NY Mz S-"]);
+        for mode in Mode::all() {
+            let matches = mode.pipeline == ModePipeline::ViaYulIR
+                || (mode.pipeline == ModePipeline::ViaNewYorkIR
+                    && mode.optimize_setting.level == ModeOptimizerLevel::Mz);
+            assert_eq!(allow_list.allows(mode), matches);
+        }
+        assert!(allow_list.allows(&make_mode("Y M0 S+")));
+        assert!(allow_list.allows(&make_mode("Y M0 S- >=0.8.3")));
+        assert!(allow_list.allows(&make_mode("NY Mz S+")));
+        assert!(allow_list.allows(&make_mode("NY Mz S-")));
+        assert!(!allow_list.allows(&make_mode("NY M3 S+")));
+        assert!(!allow_list.allows(&make_mode("NY M3 S-")));
+        assert!(!allow_list.allows(&make_mode("E Mz S+")));
     }
 }
