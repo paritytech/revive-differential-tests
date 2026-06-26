@@ -17,12 +17,12 @@ impl ZombienetProcess {
         let network = runtime.block_on(async move {
             if use_kubernetes {
                 network_configuration
-                    .spawn_native()
+                    .spawn_k8s()
                     .await
                     .context("Failed to spawn the zombienet network")
             } else {
                 network_configuration
-                    .spawn_k8s()
+                    .spawn_native()
                     .await
                     .context("Failed to spawn the zombienet network")
             }
