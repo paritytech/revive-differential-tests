@@ -10,14 +10,22 @@ impl ZombienetProcess {
     pub fn new(
         network_configuration: NetworkConfig,
         block_production_timeout: Duration,
+        use_kubernetes: bool,
     ) -> Result<Self> {
         let runtime =
             Runtime::new().context("Failed to create the tokio runtime that zombienet runs on")?;
         let network = runtime.block_on(async move {
-            network_configuration
-                .spawn_native()
-                .await
-                .context("Failed to spawn the zombienet network")
+            if use_kubernetes {
+                network_configuration
+                    .spawn_native()
+                    .await
+                    .context("Failed to spawn the zombienet network")
+            } else {
+                network_configuration
+                    .spawn_k8s()
+                    .await
+                    .context("Failed to spawn the zombienet network")
+            }
         })?;
 
         let url = network
