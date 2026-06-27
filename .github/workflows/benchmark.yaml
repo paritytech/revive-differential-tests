@@ -461,6 +461,7 @@ jobs:
             --wallet.additional-keys ${{ inputs.additional-keys }} \
             --eth-rpc.logging-level info \
             --report.file-name report.json \
+            --report.include-compiler-input \
             "${additional_args[@]}" \
             > ./workdir/retester.log 2>&1
       - name: Upload workdir

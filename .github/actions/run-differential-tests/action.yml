@@ -32,6 +32,10 @@ inputs:
     required: false
     default: ""
     type: string
+  allowed-modes:
+    description: "Comma-separated allow-list of compiler modes allowed to run (e.g. 'Y, NY Mz S+'). If empty, retester's default is used ('allow all')."
+    required: false
+    default: ""
   use-compilation-caches:
     description: "Controls if the compilation caches will be used for the test run or not."
     required: false
@@ -161,12 +165,24 @@ runs:
           )
         fi
 
+        ALLOWED_MODE_ARGS=()
+        if [[ -n "${{ inputs.allowed-modes }}" ]]; then
+          # Strip spaces around commas.
+          CLEANED_ALLOWED_MODES=$(echo "${{ inputs.allowed-modes }}" | sed 's/ *, */,/g')
+          IFS=',' read -ra ALLOWED_MODES <<< "$CLEANED_ALLOWED_MODES"
+          for mode in "${ALLOWED_MODES[@]}"; do
+            ALLOWED_MODE_ARGS+=(--allowed-mode "$mode")
+          done
+        fi
+
         retester test \
           --test "${{ steps.repo.outputs.path }}/resolc-compiler-tests/fixtures/solidity/simple" \
           --test "${{ steps.repo.outputs.path }}/resolc-compiler-tests/fixtures/solidity/complex" \
           --test "${{ steps.repo.outputs.path }}/resolc-compiler-tests/fixtures/solidity/translated_semantic_tests" \
           --platform "${{ inputs['platform'] }}" \
+          "${ALLOWED_MODE_ARGS[@]}" \
           --report.file-name report.json \
+          --report.include-compiler-input \
           --concurrency.number-of-nodes "${{ inputs['concurrency-number-of-nodes'] }}" \
           --concurrency.number-of-threads "${{ inputs['concurrency-number-of-threads'] }}" \
           --concurrency.number-of-concurrent-tasks "${{ inputs['concurrency-number-of-concurrent-tasks'] }}" \
