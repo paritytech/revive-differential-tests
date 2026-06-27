@@ -6,6 +6,7 @@ pub async fn create_test_definitions_stream<'a>(
     context: &Context,
     corpus: &'a Corpus,
     platforms_and_nodes: &'a BTreeMap<PlatformIdentifier, (&dyn Platform, NodePool)>,
+    allowed_modes: &ModeAllowList,
     test_case_ignore_configuration: &TestCaseIgnoreResolvedConfiguration,
     reporter: Reporter,
 ) -> impl Stream<Item = TestDefinition<'a>> {
@@ -103,7 +104,7 @@ pub async fn create_test_definitions_stream<'a>(
     )
     // Filter out the test cases which are incompatible or that can't run in the current setup.
     .filter_map(move |test| async move {
-        match test.check_compatibility(test_case_ignore_configuration) {
+        match test.check_compatibility(allowed_modes, test_case_ignore_configuration) {
             Ok(()) => Some(test),
             Err((reason, additional_information)) => {
                 debug!(
@@ -228,6 +229,7 @@ impl<'a> TestDefinition<'a> {
     /// Checks if this test can be ran with the current configuration.
     pub fn check_compatibility(
         &self,
+        allowed_modes: &ModeAllowList,
         test_case_ignore_configuration: &TestCaseIgnoreResolvedConfiguration,
     ) -> TestCheckFunctionResult {
         self.check_metadata_file_ignored()?;
@@ -235,6 +237,10 @@ impl<'a> TestDefinition<'a> {
         self.check_target_compatibility()?;
         self.check_evm_version_compatibility()?;
         self.check_compiler_compatibility()?;
+        // Keep the allowed modes check _after_ the compatibility checks so that
+        // reporting an incompatible mode takes priority, and _before_ the ignore
+        // configuration check so that reporting a forbidden mode takes priority.
+        self.check_allowed_modes(allowed_modes)?;
         self.check_ignore_configuration(test_case_ignore_configuration)?;
         Ok(())
     }
@@ -345,6 +351,21 @@ impl<'a> TestDefinition<'a> {
             Err((
                 "Compilers do not support this mode either for the provided platforms.",
                 error_map,
+            ))
+        }
+    }
+
+    /// Checks if the test's mode is allowed by the allow-list.
+    fn check_allowed_modes(&self, allowed_modes: &ModeAllowList) -> TestCheckFunctionResult {
+        if allowed_modes.allows(&self.mode) {
+            Ok(())
+        } else {
+            Err((
+                "Compiler mode is not allowed by the allow list, specified via `--allowed-mode`.",
+                indexmap! {
+                    "mode" => json!(self.mode.to_string()),
+                    "allowed_modes" => json!(allowed_modes.to_string())
+                },
             ))
         }
     }

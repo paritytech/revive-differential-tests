@@ -597,7 +597,7 @@ impl ModeAllowList {
     pub fn allows(&self, mode: &Mode) -> bool {
         match &self.allowed {
             None => true,
-            Some(allowed) => allowed
+            Some(modes) => modes
                 .iter()
                 .any(|allowed_mode| Self::matches(mode, allowed_mode)),
         }
@@ -614,6 +614,19 @@ impl ModeAllowList {
 
         requested_mode.pipeline == *allowed_pipeline
             && requested_mode.optimize_setting == *allowed_optimize_setting
+    }
+}
+
+impl Display for ModeAllowList {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match &self.allowed {
+            None => f.write_str("all"),
+            Some(modes) => {
+                let mut modes: Vec<String> = modes.iter().map(|mode| mode.to_string()).collect();
+                modes.sort();
+                f.write_str(&modes.join(", "))
+            }
+        }
     }
 }
 
