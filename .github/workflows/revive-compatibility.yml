@@ -163,7 +163,7 @@ jobs:
               echo "::error::Could not parse '$label' from '$WORKFLOW'. Its structure may have changed, update this compatibility workflow."
               exit 1
             fi
-            echo "$label=$value" >> "$GITHUB_OUTPUT"
+            echo "$label=$value" | tee -a "$GITHUB_OUTPUT"
           }
 
           validate compile-modes "$COMPILE_MODES"
