@@ -144,10 +144,9 @@ jobs:
         run: |
           WORKFLOW="revive/.github/workflows/differential-tests.yml"
           # Exact modes used for `retester compile`. (For compatibility, using only two modes is sufficient.)
-          COMPILE_MODES="Y M0 S+, Y Mz S+"
+          COMPILE_MODES="Y M0 S+, NY Mz S+"
           # Allowed modes used for `retester test`.
-          # TODO: Temporarily only allowing the Yul pipeline for a CI run (will be removed).
-          E2E_ALLOWED_MODES="Y"
+          E2E_ALLOWED_MODES="Y, NY Mz S+, NY Mz S-"
           SOLC_VERSION=$(yq '.env.SOLC_VERSION' "$WORKFLOW")
           POLKADOT_SDK_REF=$(yq '.jobs["run-e2e-tests"].env.POLKADOT_SDK_REF' "$WORKFLOW")
 
