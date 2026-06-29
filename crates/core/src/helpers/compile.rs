@@ -161,7 +161,12 @@ pub async fn create_compilation_definitions_stream<'a>(
                 reporter
                     .report_post_link_compilation_discovery_event()
                     .expect("Can't fail");
-            }),
+            })
+            // Collect eagerly so every discovery `.inspect` above runs before any ignore
+            // below. `stream::iter` is lazy, so otherwise discovery and ignore interleave per
+            // mode, `remaining_compilation_modes` empties after each ignored mode, and the
+            // file's completion event re-fires once per mode, over-counting ignores.
+            .collect::<Vec<_>>(),
     )
     // Creating the `CompilationDefinition` objects from all of the various objects we have.
     .filter_map(move |(metadata_file, mode, reporter)| async move {

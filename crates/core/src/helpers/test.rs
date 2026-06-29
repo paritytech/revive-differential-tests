@@ -43,7 +43,12 @@ pub async fn create_test_definitions_stream<'a>(
                 reporter
                     .report_test_case_discovery_event()
                     .expect("Can't fail");
-            }),
+            })
+            // Collect eagerly so every discovery `.inspect` above runs before any ignore
+            // below. `stream::iter` is lazy, so otherwise discovery and ignore interleave per
+            // mode, `remaining_cases[file][mode]` empties after each ignored case, and the
+            // file's completion event re-fires once per case, over-counting ignores.
+            .collect::<Vec<_>>(),
     )
     // Creating the Test Definition objects from all of the various objects we have and creating
     // their required dependencies (e.g., compiler).
