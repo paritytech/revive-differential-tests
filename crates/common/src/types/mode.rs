@@ -134,14 +134,12 @@ impl ModePipeline {
         .into_iter()
     }
 
-    /// Returns the name of the pipeline as reported in resolc's standard JSON output.
-    pub fn to_resolc_output(pipeline: Option<ModePipeline>) -> Result<&'static str> {
-        match pipeline {
-            None | Some(ModePipeline::ViaYulIR) => Ok("yul"),
-            Some(ModePipeline::ViaNewYorkIR) => Ok("newyork"),
-            Some(ModePipeline::ViaEVMAssembly) => {
-                anyhow::bail!("resolc does not support an EVM assembly pipeline")
-            }
+    /// Parses the pipeline name reported in resolc's standard JSON output into a [`ModePipeline`].
+    pub fn try_from_resolc_output(pipeline_output: &str) -> Result<ModePipeline> {
+        match pipeline_output {
+            "yul" => Ok(ModePipeline::ViaYulIR),
+            "newyork" => Ok(ModePipeline::ViaNewYorkIR),
+            other => anyhow::bail!("Unexpected resolc pipeline output: {other:?}"),
         }
     }
 }
@@ -892,17 +890,17 @@ mod tests {
     }
 
     #[test]
-    fn maps_pipeline_to_resolc_output() {
-        assert_eq!(ModePipeline::to_resolc_output(None).unwrap(), "yul");
+    fn maps_resolc_output_to_pipeline() {
         assert_eq!(
-            ModePipeline::to_resolc_output(Some(ModePipeline::ViaYulIR)).unwrap(),
-            "yul"
+            ModePipeline::try_from_resolc_output("yul").unwrap(),
+            ModePipeline::ViaYulIR
         );
         assert_eq!(
-            ModePipeline::to_resolc_output(Some(ModePipeline::ViaNewYorkIR)).unwrap(),
-            "newyork"
+            ModePipeline::try_from_resolc_output("newyork").unwrap(),
+            ModePipeline::ViaNewYorkIR
         );
-        assert!(ModePipeline::to_resolc_output(Some(ModePipeline::ViaEVMAssembly)).is_err());
+        assert!(ModePipeline::try_from_resolc_output("evm").is_err());
+        assert!(ModePipeline::try_from_resolc_output("").is_err());
     }
 
     fn make_allow_list(modes: &[&str]) -> ModeAllowList {
@@ -924,7 +922,7 @@ mod tests {
         for mode in Mode::all() {
             assert!(
                 allow_list.allows(mode),
-                "an unrestricted allow-list must allow `{mode}`"
+                "An unrestricted allow-list must allow `{mode}`"
             );
         }
     }

@@ -130,9 +130,10 @@ impl Resolc {
         output: &SolcStandardJsonOutput,
         requested_pipeline: Option<ModePipeline>,
     ) -> Result<()> {
-        if output.contracts.is_empty() {
-            anyhow::bail!("Unexpected error - resolc output doesn't have a contracts section");
-        }
+        anyhow::ensure!(
+            !output.contracts.is_empty(),
+            "Unexpected error - resolc output doesn't have a contracts section"
+        );
 
         for (label, output_version, expected_version) in [
             ("resolc", &output.revive_version, self.version()),
@@ -142,11 +143,10 @@ impl Resolc {
                 let output_version = Version::parse(output_version).with_context(|| {
                     format!("Failed to parse {label} output version: {output_version}")
                 })?;
-                if !is_same_major_minor_patch(&output_version, expected_version) {
-                    anyhow::bail!(
-                        "The {label} version in the output ({output_version}) does not match the expected version ({expected_version})"
-                    );
-                }
+                anyhow::ensure!(
+                    is_same_major_minor_patch(&output_version, expected_version),
+                    "The {label} version in the output ({output_version}) does not match the expected version ({expected_version})"
+                );
             };
         }
 
@@ -155,12 +155,12 @@ impl Resolc {
                 .resolc_pipeline
                 .as_deref()
                 .context("The resolc output is missing the pipeline")?;
-            let expected_pipeline = ModePipeline::to_resolc_output(requested_pipeline)?;
-            if output_pipeline != expected_pipeline {
-                anyhow::bail!(
-                    "The resolc output reports a different pipeline (\"{output_pipeline}\") than expected (\"{expected_pipeline}\")"
-                );
-            }
+            let output_pipeline = ModePipeline::try_from_resolc_output(output_pipeline)?;
+            let expected_pipeline = requested_pipeline.unwrap_or(ModePipeline::ViaYulIR);
+            anyhow::ensure!(
+                output_pipeline == expected_pipeline,
+                "The resolc output reports a different pipeline ({output_pipeline}) than expected ({expected_pipeline})"
+            );
         }
 
         Ok(())
@@ -214,14 +214,13 @@ impl SolidityCompiler for Resolc {
     ) -> StaticFuture<Result<CompilerOutput>> {
         let this = self.clone();
         Box::pin(async move {
-            if !matches!(
-                pipeline,
-                None | Some(ModePipeline::ViaYulIR) | Some(ModePipeline::ViaNewYorkIR)
-            ) {
-                anyhow::bail!(
-                    "Resolc only supports the Y (via Yul IR) and NY (via newyork IR) pipelines, but the provided pipeline is {pipeline:?}"
-                );
-            }
+            anyhow::ensure!(
+                matches!(
+                    pipeline,
+                    None | Some(ModePipeline::ViaYulIR) | Some(ModePipeline::ViaNewYorkIR)
+                ),
+                "Resolc only supports the Y (via Yul IR) and NY (via newyork IR) pipelines, but the provided pipeline is {pipeline:?}"
+            );
 
             let optimize_setting = optimization.unwrap_or_default();
             let mut polkavm_settings = SolcStandardJsonInputSettingsPolkaVM::new(
@@ -429,7 +428,11 @@ impl SolidityCompiler for Resolc {
                 }
             }
 
-            compiler_output.resolc_pipeline = parsed.resolc_pipeline;
+            compiler_output.resolc_pipeline = parsed
+                .resolc_pipeline
+                .as_deref()
+                .map(ModePipeline::try_from_resolc_output)
+                .transpose()?;
 
             Ok(compiler_output)
         })

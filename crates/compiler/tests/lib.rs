@@ -153,10 +153,7 @@ async fn assert_contracts_can_be_compiled_with_resolc(
     assert!(callable_file_contracts.contains_key("Callable"));
 
     if supports_newyork(&resolc) {
-        assert_eq!(
-            output.resolc_pipeline.as_deref(),
-            Some(ModePipeline::to_resolc_output(Some(expected_pipeline)).unwrap()),
-        );
+        assert_eq!(output.resolc_pipeline, Some(expected_pipeline));
     }
 }
 
