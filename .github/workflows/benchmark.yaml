@@ -44,6 +44,11 @@ on:
         description: The branch, tag, or commit hash to use for the resolc repository.
         required: true
         default: v1.2.0
+      allowed-modes:
+        description: "Comma-separated allow-list of compiler modes allowed to run (e.g. 'Y M3 S+, NY Mz S+'). If empty, retester's default is used ('allow all')."
+        required: false
+        default: ""
+        type: string
       network:
         description: The Asset Hub network configuration to benchmark against
         required: true
@@ -235,8 +240,20 @@ jobs:
           TEST_FILTERS=$(parse_filters "$TEST_SPECIFIER_FILTERS")
           PLATFORM_FILTERS_JSON=$(parse_filters "$PLATFORM_FILTERS")
 
+          # Filter the generated matrix so that it only contains modes allowed to run.
+          ALLOWED_MODE_ARGS=()
+          if [[ -n "${{ inputs.allowed-modes }}" ]]; then
+            # Strip spaces around commas.
+            CLEANED_ALLOWED_MODES=$(echo "${{ inputs.allowed-modes }}" | sed 's/ *, */,/g')
+            IFS=',' read -ra ALLOWED_MODES <<< "$CLEANED_ALLOWED_MODES"
+            for mode in "${ALLOWED_MODES[@]}"; do
+              ALLOWED_MODE_ARGS+=(--allowed-mode "$mode")
+            done
+          fi
+
           ALL_TESTS=$(retester export-test-specifiers \
-            --test ./compiler-tests/fixtures/solidity/workloads)
+            --test ./compiler-tests/fixtures/solidity/workloads \
+            "${ALLOWED_MODE_ARGS[@]}")
           ALL_PLATFORMS='["zombienet-revm-solc","zombienet-polkavm-resolc","lighthouse-geth-evm-solc"]'
 
           TESTS=$(jq -c --argjson filters "$TEST_FILTERS" '
