@@ -325,5 +325,6 @@ jobs:
           resolc-path: resolc-bin/resolc-x86_64-unknown-linux-musl
           solc-version: ${{ needs.resolve-config.outputs.solc-version }}
           allowed-modes: ${{ needs.resolve-config.outputs.e2e-allowed-modes }}
+          use-compilation-caches: false
           expectations-file-path: revive/.github/assets/revive-dev-node-polkavm-resolc.json
           concurrency-number-of-concurrent-tasks: ${{ needs.resolve-config.outputs.concurrency-tasks }}
