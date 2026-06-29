@@ -16,8 +16,7 @@ concurrency:
 env:
   CARGO_TERM_COLOR: always
   POLKADOT_VERSION: polkadot-stable2506-2
-  # TODO: Temporarily testing with a pre-newyork release. Will be updated.
-  RESOLC_VERSION: v1.2.0
+  RESOLC_VERSION: v1.3.0
 
 jobs:
   machete:
