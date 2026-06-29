@@ -250,18 +250,24 @@ fn main() -> anyhow::Result<()> {
                 Ok(())
             }),
         Context::ExportTestSpecifiers(context) => {
+            let allowed_modes =
+                ModeAllowList::from_parsed_modes(context.corpus.allowed_modes.iter());
             let corpus = context
                 .corpus
                 .test_specifiers
                 .into_iter()
                 .try_fold(Corpus::new(), Corpus::with_test_specifier)?;
+            let cases = corpus
+                .cases_iterator()
+                .filter(|(_, _, _, mode)| allowed_modes.allows(mode))
+                .collect::<Vec<_>>();
             let common_prefix = common_directory_prefix(
-                corpus
-                    .cases_iterator()
+                cases
+                    .iter()
                     .map(|(metadata, _, _, _)| metadata.metadata_file_path.as_path()),
             );
-            let test_specifiers = corpus
-                .cases_iterator()
+            let test_specifiers = cases
+                .into_iter()
                 .map(|(metadata, case_idx, _, mode)| {
                     let path =
                         remove_directory_prefix(&metadata.metadata_file_path, &common_prefix);
