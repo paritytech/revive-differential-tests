@@ -364,11 +364,13 @@ jobs:
         uses: ./.github/actions/require-binary
         with:
           get-all-binaries: true
-          binary-name: eth-rpc
+          binary-name: polkadot
           repository: ${{ inputs.polkadot-sdk-repository }}
           ref: ${{ inputs.polkadot-sdk-ref }}
           profile: production
           packages: |
+            polkadot
+            polkadot-parachain-bin
             pallet-revive-eth-rpc
           env: |
             ${{ inputs.use-jit && 'RUSTFLAGS=-Awarnings --cfg revive_jit' || 'RUSTFLAGS=-Awarnings' }}
