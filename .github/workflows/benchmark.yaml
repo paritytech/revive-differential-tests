@@ -364,7 +364,7 @@ jobs:
         uses: ./.github/actions/require-binary
         with:
           get-all-binaries: true
-          binary-name: polkadot
+          binary-name: eth-rpc
           repository: ${{ inputs.polkadot-sdk-repository }}
           ref: ${{ inputs.polkadot-sdk-ref }}
           profile: production
