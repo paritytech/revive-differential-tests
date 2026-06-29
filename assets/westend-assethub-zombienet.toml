@@ -5,6 +5,7 @@ node_spawn_timeout = 240
 [relaychain]
 default_command = "polkadot"
 default_args = ["-linfo,polkavm=debug", "--no-mdns"]
+default_image = "docker.io/parity/polkadot"
 chain = "westend-dev"
 chain_spec_command = "polkadot build-spec --chain {{chainName}}"
 # Override RC spec raw to allow paras to produce blocks
@@ -46,20 +47,42 @@ MaxMemoryPages = 65536
 name = "alice"
 validator = true
 env = [{ name = "POLKAVM_CORE_PINNING", value = "disabled" }]
+[relaychain.nodes.resources.requests]
+  memory = "14Gi"
+  cpu = "4"
+
+[relaychain.nodes.resources.limits]
+  memory = "16Gi"
+  cpu = "4"
 
 [[relaychain.nodes]]
 name = "bob"
 validator = true
 env = [{ name = "POLKAVM_CORE_PINNING", value = "disabled" }]
+[relaychain.nodes.resources.requests]
+  memory = "14Gi"
+  cpu = "4"
+
+[relaychain.nodes.resources.limits]
+  memory = "16Gi"
+  cpu = "4"
 
 [[relaychain.nodes]]
 name = "charlie"
 validator = true
 env = [{ name = "POLKAVM_CORE_PINNING", value = "disabled" }]
+[relaychain.nodes.resources.requests]
+  memory = "14Gi"
+  cpu = "4"
+
+[relaychain.nodes.resources.limits]
+  memory = "16Gi"
+  cpu = "4"
 
 [[parachains]]
 id = 1000
 chain = "asset-hub-westend-dev"
+default_image = "docker.io/parity/polkadot-parachain"
 chain_spec_command = "polkadot-parachain build-spec --chain {{chainName}}"
 cumulus_based = true
 # Assign 3 cores at genesis (RC)
@@ -84,3 +107,11 @@ args = [
   "--state-pruning=archive",
   "--blocks-pruning=archive",
 ]
+
+[parachains.collators.resources.requests]
+  memory = "30Gi"
+  cpu = "8"
+
+[parachains.collators.resources.limits]
+  memory = "31Gi"
+  cpu = "8"

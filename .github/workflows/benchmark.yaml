@@ -296,7 +296,8 @@ jobs:
 
   benchmark:
     name: "${{ matrix.platform }} - ${{ matrix.test.name }}"
-    runs-on: parity-large-t2d
+    #runs-on: parity-large-t2d
+    runs-on: parity-zombienet-native-default
     timeout-minutes: 120
     needs:
       [
@@ -429,6 +430,7 @@ jobs:
         env:
           OVERRIDE_REPETITION_COUNT: ${{ inputs.override-repetition-count }}
           TEST_SPECIFIER: ${{ matrix.test.specifier }}
+          X_INFRA_NODETYPE: "reference-hw"
         run: |
           export TMPDIR="$PWD/workdir"
 
@@ -460,6 +462,7 @@ jobs:
             --concurrency.number-of-concurrent-tasks 1000 \
             --zombienet.config-path ./assets/${{ inputs.network }}-assethub-zombienet.toml \
             --zombienet.block-production-timeout-ms 300000 \
+            --zombienet.use-kubernetes true \
             --wallet.additional-keys ${{ inputs.additional-keys }} \
             --eth-rpc.logging-level info \
             --report.file-name report.json \
