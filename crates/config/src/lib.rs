@@ -371,6 +371,11 @@ mod context {
         #[clap(default_value = "300000", value_parser = parse_duration)]
         pub block_production_timeout_ms: Duration,
 
+        /// Configures if kubernetes should be used as the provider for zombienet or not. If this is
+        /// not specified then the native provider will be used which means that the validators and
+        /// the collators will be running locally.
+        pub use_kubernetes: bool,
+
         /// JSON node connector configuration augmenting the default zombienet
         /// connector behavior and overriding it on conflicts.
         pub connector_configurations: Option<String>,

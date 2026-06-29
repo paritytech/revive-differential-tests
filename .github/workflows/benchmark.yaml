@@ -448,6 +448,8 @@ jobs:
 
           export POLKAVM_CORE_PINNING="disabled"
 
+          # TODO: Add the `--zombienet.use-kubernetes` flag when we have K8s support.
+
           retester benchmark \
             --log-format json \
             --test "$TEST_SPECIFIER" \

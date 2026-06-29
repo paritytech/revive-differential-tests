@@ -41,9 +41,12 @@ impl ZombienetNode {
         )
         .context("Failed to initialize the zombienet config")?;
 
-        let zombienet_process =
-            ZombienetProcess::new(network_config, zombienet_config.block_production_timeout_ms)
-                .inspect_err(|err| error!(error = ?err, "Failed to spawn zombienet"))?;
+        let zombienet_process = ZombienetProcess::new(
+            network_config,
+            zombienet_config.block_production_timeout_ms,
+            zombienet_config.use_kubernetes,
+        )
+        .inspect_err(|err| error!(error = ?err, "Failed to spawn zombienet"))?;
 
         let eth_rpc_process = EthRpcProcess::new(
             rpc_config.path.as_path(),
