@@ -171,11 +171,25 @@ pub async fn create_compilation_definitions_stream<'a>(
     // Creating the `CompilationDefinition` objects from all of the various objects we have.
     .filter_map(move |(metadata_file, mode, reporter)| async move {
         // NOTE: Currently always specifying the resolc compiler.
-        let compiler = Resolc::new(context.clone(), mode.solc_version.clone().map(Into::into))
-            .await
-            .map(|compiler| Box::new(compiler) as Box<dyn SolidityCompiler>)
-            .inspect_err(|err| error!(?err, "Failed to instantiate the compiler"))
-            .ok()?;
+        let compiler =
+            match Resolc::new(context.clone(), mode.solc_version.clone().map(Into::into)).await {
+                Ok(compiler) => Box::new(compiler) as Box<dyn SolidityCompiler>,
+                Err(err) => {
+                    error!(?err, "Failed to instantiate the compiler");
+                    // Without a terminal status this mode never leaves `remaining_compilation_modes`,
+                    // so the file's completion event never fires and it drops from the run summary.
+                    CompilationReporter::PostLink(&reporter)
+                        .report_post_link_contracts_compilation_failed_event(
+                            None,
+                            None,
+                            context.resolc.path.clone(),
+                            None,
+                            format!("Failed to instantiate the compiler: {err:#}"),
+                        )
+                        .expect("Can't fail");
+                    return None;
+                }
+            };
 
         Some(CompilationDefinition {
             metadata: metadata_file,

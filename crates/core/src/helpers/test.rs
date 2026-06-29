@@ -57,17 +57,27 @@ pub async fn create_test_definitions_stream<'a>(
             let mut platforms = BTreeMap::new();
             for (platform, node_pool) in platforms_and_nodes.values() {
                 let node = node_pool.round_robbin();
-                let compiler = platform
+                let compiler = match platform
                     .new_compiler(context.clone(), mode.solc_version.clone().map(Into::into))
                     .await
-                    .inspect_err(|err| {
+                {
+                    Ok(compiler) => compiler,
+                    Err(err) => {
                         error!(
                             ?err,
                             platform_identifier = %platform.platform_identifier(),
                             "Failed to instantiate the compiler"
-                        )
-                    })
-                    .ok()?;
+                        );
+                        // Without a terminal status this case never leaves `remaining_cases`,
+                        // so the file's completion event never fires and it drops from the run summary.
+                        reporter
+                            .report_test_failed_event(format!(
+                                "Failed to instantiate the compiler: {err:#}"
+                            ))
+                            .expect("Can't fail");
+                        return None;
+                    }
+                };
 
                 reporter
                     .report_node_assigned_event(node.node_id(), platform.platform_identifier())
