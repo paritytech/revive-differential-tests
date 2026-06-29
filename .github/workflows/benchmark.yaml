@@ -369,8 +369,6 @@ jobs:
           ref: ${{ inputs.polkadot-sdk-ref }}
           profile: production
           packages: |
-            # polkadot
-            # polkadot-parachain-bin
             pallet-revive-eth-rpc
           env: |
             ${{ inputs.use-jit && 'RUSTFLAGS=-Awarnings --cfg revive_jit' || 'RUSTFLAGS=-Awarnings' }}
