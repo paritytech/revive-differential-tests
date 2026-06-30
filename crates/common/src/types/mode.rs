@@ -4,8 +4,6 @@ use crate::internal_prelude::*;
 ///
 /// We obtain this by taking a [`ParsedMode`], which may be looser or more strict
 /// in its requirements, and then expanding it out into a list of [`Mode`]s.
-///
-/// Use [`ParsedMode::to_test_modes()`] to do this.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Mode {
     pub pipeline: ModePipeline,
@@ -579,6 +577,9 @@ impl ModeAllowList {
     ///
     /// When the allow-list is unrestricted (`None`) every mode is allowed. Otherwise, `mode` is
     /// allowed iff its pipeline and optimizer settings match one of the modes in the allow-list.
+    /// Any solc version requirements included in the allow-list or a requested mode are ignored
+    /// when determining if a mode is allowed, but an explicit version requirement is still honored
+    /// when downloading the corresponding solc binary.
     ///
     /// ## Examples
     ///
@@ -601,6 +602,16 @@ impl ModeAllowList {
     }
 
     /// Checks whether two modes are equivalent for allow-list purposes.
+    ///
+    /// Note that the `solc_version` requirement is ignored due to:
+    /// * It would compare version _ranges_ on the allowed mode versus the requested mode.
+    ///   This creates ambiguity in many scenarios:
+    ///   * If the allow-list is `Y Mz <0.8.1`, would `>=0.8.0` or `=0.8` be allowed?
+    ///   * If the allow-list is `Y Mz =0.8.1`, would an omitted version requirement be allowed?
+    /// * It usually does not change what runs.
+    ///   * For instance, `>=0.8.0`, `>=0.8.1`, and `>=0.8.9` resolve to the same solc binary.
+    ///     Thus, it could filter on a field that would not change the output.
+    /// * An explicit version requirement is still honored when the solc binary is downloaded.
     fn matches(requested_mode: &Mode, allowed_mode: &Mode) -> bool {
         // Use exhaustive destructure so that a new `Mode` field fails to compile here until it is handled.
         let Mode {

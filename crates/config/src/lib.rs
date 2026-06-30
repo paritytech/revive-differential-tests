@@ -250,7 +250,8 @@ mod context {
         ///
         /// Each `--allowed-mode` value expands like the modes above; their union is the allow-list.
         /// If omitted, every mode is allowed. A metadata's requested mode that is not in the
-        /// allow-list is reported ignored. Matching ignores the `<semver>` part.
+        /// allow-list is reported ignored. Any solc version requirements included in the allow-list
+        /// or a requested mode are ignored when determining if a mode is allowed.
         ///
         /// ## Examples
         ///
