@@ -298,6 +298,8 @@ jobs:
     name: "${{ matrix.platform }} - ${{ matrix.test.name }}"
     #runs-on: parity-large-t2d
     runs-on: parity-zombienet
+    container:
+      image: docker.io/paritytech/ci-unified:bullseye-1.88.0-2025-06-27-v202506301118
     timeout-minutes: 120
     needs:
       [
