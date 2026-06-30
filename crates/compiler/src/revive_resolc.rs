@@ -135,20 +135,30 @@ impl Resolc {
             "Unexpected error - resolc output doesn't have a contracts section"
         );
 
-        for (label, output_version, expected_version) in [
-            ("resolc", &output.revive_version, self.version()),
-            ("solc", &output.version, self.frontend_version()),
-        ] {
-            if let Some(output_version) = output_version.as_deref() {
-                let output_version = Version::parse(output_version).with_context(|| {
-                    format!("Failed to parse {label} output version: {output_version}")
-                })?;
-                anyhow::ensure!(
-                    is_same_major_minor_patch(&output_version, expected_version),
-                    "The {label} version in the output ({output_version}) does not match the expected version ({expected_version})"
-                );
-            };
+        // We can't expect `revive_version` to be `Some` due to a resolc bug
+        // where the field was not populated.
+        if let Some(output_version) = output.revive_version.as_deref() {
+            let output_version = Version::parse(output_version).with_context(|| {
+                format!("Failed to parse resolc output version: {output_version}")
+            })?;
+            let expected_version = self.version();
+            anyhow::ensure!(
+                is_same_major_minor_patch(&output_version, expected_version),
+                "The resolc version in the output ({output_version}) does not match the expected version ({expected_version})"
+            );
         }
+
+        let output_version = output
+            .version
+            .as_deref()
+            .context("The resolc output is missing the solc version")?;
+        let output_version = Version::parse(output_version)
+            .with_context(|| format!("Failed to parse solc output version: {output_version}"))?;
+        let expected_version = self.frontend_version();
+        anyhow::ensure!(
+            is_same_major_minor_patch(&output_version, expected_version),
+            "The solc version in the output ({output_version}) does not match the expected version ({expected_version})"
+        );
 
         if self.supports_newyork() {
             let output_pipeline = output
