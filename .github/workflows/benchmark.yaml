@@ -357,7 +357,7 @@ jobs:
           sudo ln -s /usr/bin/podman /usr/bin/docker
           sudo touch /var/run/docker.sock
 
-          # docker-ce docker-ce-cli containerd.io
+          export DOCKER_HOST="unix:///run/podman/podman.sock"
 
           docker --version
 
