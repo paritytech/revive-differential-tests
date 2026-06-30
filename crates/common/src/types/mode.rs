@@ -281,13 +281,12 @@ impl ModeOptimizerLevel {
 /// Mode strings can take the following form (in pseudo-regex):
 ///
 /// ```text
-/// (NY|[YEILV])[+-]? (M[0123sz])? (S[+-])? <semver>?
+/// (NY|[YE])[+-]? (M[0123sz])? (S[+-])? <semver>?
 /// ```
 ///
 /// ## Components
 ///
-/// - `NY|[YEILV]`: Pipeline — `Y` (via Yul IR), `NY` (via newyork IR), or `E` (via EVM Assembly). `I`, `L`, `V` are
-///   legacy aliases.
+/// - `NY|[YE]`: Pipeline — `Y` (via Yul IR), `NY` (via newyork IR), or `E` (via EVM Assembly).
 /// - `[+-]`: Solc optimizer shorthand — `+` (solc optimizer enabled) or `-` (solc optimizer
 ///   disabled). Expands across **all** LLVM optimizer levels (M0 through Mz).
 /// - `M[0123sz]`: LLVM optimizer level — `M0` (none), `M1` (light), `M2` (default),
@@ -339,7 +338,7 @@ impl FromStr for ParsedMode {
             Regex::new(
                 r"(?x)
                 ^
-                (?:(?P<pipeline>NY|[YEILV])(?P<optimize_flag>[+-])?)? # Pipeline to use e.g. Y, NY, E+, E-
+                (?:(?P<pipeline>NY|[YE])(?P<optimize_flag>[+-])?)? # Pipeline to use e.g. Y, NY, E+, E-
                 \s*
                 (?P<optimize_level>M[a-zA-Z0-9])?                  # Optimize level e.g. M0, Ms, Mz
                 \s*
