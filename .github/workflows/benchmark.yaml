@@ -353,8 +353,9 @@ jobs:
           sudo apt-get update
           sudo apt install -y podman
 
-          # create alias
+          # create alias and mock sock
           sudo ln -s /usr/bin/podman /usr/bin/docker
+          sudo touch /var/run/docker.sock
 
           # docker-ce docker-ce-cli containerd.io
 
