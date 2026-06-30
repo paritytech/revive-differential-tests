@@ -300,6 +300,7 @@ jobs:
     runs-on: parity-zombienet
     container:
       image: docker.io/paritytech/ci-unified:bullseye-1.88.0-2025-06-27-v202506301118
+      options: "--privileged"
     timeout-minutes: 120
     needs:
       [
