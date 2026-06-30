@@ -327,10 +327,11 @@ jobs:
       - name: Install sudo if needed
         shell: bash
         run: |
+          export DEBIAN_FRONTEND=noninteractive
           if [ $(id -u) -ne 0 ]; then
-            sudo apt-get install sudo
+            sudo apt-get update && sudo apt-get install -y sudo
           else
-            apt-get install sudo
+            apt-get update && sudo apt-get install -y sudo
           fi
 
       - name: Setup the Machine
