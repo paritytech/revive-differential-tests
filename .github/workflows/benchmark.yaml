@@ -323,6 +323,16 @@ jobs:
     steps:
       - name: Checkout This Repository
         uses: actions/checkout@v4
+
+      - name: Install sudo if needed
+        shell: bash
+        run: |
+          if [ $(id -u) -ne 0 ]; then
+            sudo apt-get install sudo
+          else
+            apt-get install sudo
+          fi
+
       - name: Setup the Machine
         uses: ./.github/actions/setup-benchmark-machine
         with:
