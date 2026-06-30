@@ -351,7 +351,12 @@ jobs:
           EOF
 
           sudo apt-get update
-          sudo apt install -y docker-ce docker-ce-cli containerd.io
+          sudo apt install -y podman
+
+          # create alias
+          sudo ln -s /usr/bin/podman /usr/bin/docker
+
+          # docker-ce docker-ce-cli containerd.io
 
           docker --version
 

@@ -112,7 +112,7 @@ runs:
         fi
 
         docker info
-    #     sudo chmod 666 /var/run/docker.sock
+        sudo chmod 666 /var/run/docker.sock
 
     - name: Start Kurtosis
       shell: bash
