@@ -98,21 +98,20 @@ runs:
         repository: ${{ inputs.resolc-repository }}
         ref: ${{ inputs.resolc-ref }}
 
-    # DEBUG
-    # - name: Wait for Docker to start
-    #   shell: bash
-    #   run: |
-    #     set -euo pipefail
+    - name: Wait for Docker to start
+      shell: bash
+      run: |
+        set -euo pipefail
 
-    #     if ! docker info > /dev/null 2>&1; then
-    #       sudo dockerd &
-    #       for i in $(seq 1 15); do
-    #         docker info > /dev/null 2>&1 && break
-    #         sleep 1
-    #       done
-    #     fi
+        if ! docker info > /dev/null 2>&1; then
+          sudo dockerd &
+          for i in $(seq 1 15); do
+            docker info > /dev/null 2>&1 && break
+            sleep 1
+          done
+        fi
 
-    #     docker info
+        docker info
     #     sudo chmod 666 /var/run/docker.sock
 
     - name: Start Kurtosis
