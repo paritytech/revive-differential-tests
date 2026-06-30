@@ -428,12 +428,6 @@ impl SolidityCompiler for Resolc {
                 }
             }
 
-            compiler_output.resolc_pipeline = parsed
-                .resolc_pipeline
-                .as_deref()
-                .map(ModePipeline::try_from_resolc_output)
-                .transpose()?;
-
             Ok(compiler_output)
         })
     }

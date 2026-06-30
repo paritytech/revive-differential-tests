@@ -151,10 +151,6 @@ async fn assert_contracts_can_be_compiled_with_resolc(
         .unwrap();
     assert!(main_file_contracts.contains_key("Main"));
     assert!(callable_file_contracts.contains_key("Callable"));
-
-    if supports_newyork(&resolc) {
-        assert_eq!(output.resolc_pipeline, Some(expected_pipeline));
-    }
 }
 
 #[tokio::test]

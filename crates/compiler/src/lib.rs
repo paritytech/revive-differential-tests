@@ -114,9 +114,6 @@ pub struct CompilerOutput {
     /// The compiled contracts. The bytecode of the contract is kept as a string in case linking is
     /// required and the compiled source has placeholders.
     pub contracts: HashMap<PathBuf, HashMap<String, (String, JsonAbi)>>,
-    /// The resolc IR pipeline used.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub resolc_pipeline: Option<ModePipeline>,
 }
 
 /// A generic builder style interface for configuring the supported compiler options.
