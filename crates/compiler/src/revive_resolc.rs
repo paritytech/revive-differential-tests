@@ -105,8 +105,23 @@ impl Resolc {
 
     fn supports_newyork(&self) -> bool {
         const MIN_VERSION_SUPPORTING_NEWYORK: Version = Version::new(1, 3, 0);
-        let version = self.version();
-        Version::new(version.major, version.minor, version.patch) >= MIN_VERSION_SUPPORTING_NEWYORK
+        is_gte_major_minor_patch(self.version(), &MIN_VERSION_SUPPORTING_NEWYORK)
+    }
+
+    fn polkavm_settings(
+        pipeline: Option<ModePipeline>,
+        pvm_heap_size: u32,
+        pvm_stack_size: u32,
+    ) -> SolcStandardJsonInputSettingsPolkaVM {
+        let mut settings = SolcStandardJsonInputSettingsPolkaVM::new(
+            Some(SolcStandardJsonInputSettingsPolkaVMMemory::new(
+                Some(pvm_heap_size),
+                Some(pvm_stack_size),
+            )),
+            false,
+        );
+        settings.newyork = Some(pipeline == Some(ModePipeline::ViaNewYorkIR));
+        settings
     }
 
     /// Injects resolc-specific settings that are marked `skip_serializing`
@@ -122,58 +137,6 @@ impl Resolc {
             }
         }
         Ok(input_value)
-    }
-
-    /// Verifies that the standard JSON output fields match what is expected.
-    fn verify_output(
-        &self,
-        output: &SolcStandardJsonOutput,
-        requested_pipeline: Option<ModePipeline>,
-    ) -> Result<()> {
-        anyhow::ensure!(
-            !output.contracts.is_empty(),
-            "Unexpected error - resolc output doesn't have a contracts section"
-        );
-
-        // We can't expect `revive_version` to be `Some` due to a resolc bug
-        // where the field was not populated.
-        if let Some(output_version) = output.revive_version.as_deref() {
-            let output_version = Version::parse(output_version).with_context(|| {
-                format!("Failed to parse resolc output version: {output_version}")
-            })?;
-            let expected_version = self.version();
-            anyhow::ensure!(
-                is_same_major_minor_patch(&output_version, expected_version),
-                "The resolc version in the output ({output_version}) does not match the expected version ({expected_version})"
-            );
-        }
-
-        let output_version = output
-            .version
-            .as_deref()
-            .context("The resolc output is missing the solc version")?;
-        let output_version = Version::parse(output_version)
-            .with_context(|| format!("Failed to parse solc output version: {output_version}"))?;
-        let expected_version = self.frontend_version();
-        anyhow::ensure!(
-            is_same_major_minor_patch(&output_version, expected_version),
-            "The solc version in the output ({output_version}) does not match the expected version ({expected_version})"
-        );
-
-        if self.supports_newyork() {
-            let output_pipeline = output
-                .resolc_pipeline
-                .as_deref()
-                .context("The resolc output is missing the pipeline")?;
-            let output_pipeline = ModePipeline::try_from_resolc_output(output_pipeline)?;
-            let expected_pipeline = requested_pipeline.unwrap_or(ModePipeline::ViaYulIR);
-            anyhow::ensure!(
-                output_pipeline == expected_pipeline,
-                "The resolc output reports a different pipeline ({output_pipeline}) than expected ({expected_pipeline})"
-            );
-        }
-
-        Ok(())
     }
 }
 
@@ -233,14 +196,6 @@ impl SolidityCompiler for Resolc {
             );
 
             let optimize_setting = optimization.unwrap_or_default();
-            let mut polkavm_settings = SolcStandardJsonInputSettingsPolkaVM::new(
-                Some(SolcStandardJsonInputSettingsPolkaVMMemory::new(
-                    Some(this.0.pvm_heap_size),
-                    Some(this.0.pvm_stack_size),
-                )),
-                false,
-            );
-            polkavm_settings.newyork = Some(pipeline == Some(ModePipeline::ViaNewYorkIR));
 
             let input = SolcStandardJsonInput {
                 language: SolcStandardJsonInputLanguage::Solidity,
@@ -283,7 +238,11 @@ impl SolidityCompiler for Resolc {
                         // to be the determining factor for the default values of solc's optimizer details.
                         SolcOptimizerDetails::default(),
                     ),
-                    polkavm: polkavm_settings,
+                    polkavm: Self::polkavm_settings(
+                        pipeline,
+                        this.0.pvm_heap_size,
+                        this.0.pvm_stack_size,
+                    ),
                     metadata: SolcStandardJsonInputSettingsMetadata::default(),
                     detect_missing_libraries: false,
                 },
@@ -375,7 +334,9 @@ impl SolidityCompiler for Resolc {
                 }
             }
 
-            this.verify_output(&parsed, pipeline)?;
+            if parsed.contracts.is_empty() {
+                anyhow::bail!("Unexpected error - resolc output doesn't have a contracts section");
+            }
 
             let mut compiler_output = CompilerOutput::default();
             for (source_path, contracts) in parsed.contracts.into_iter() {
@@ -623,15 +584,6 @@ mod tests {
         pvm_heap_size: u32,
         pvm_stack_size: u32,
     ) -> SolcStandardJsonInput {
-        let mut polkavm = SolcStandardJsonInputSettingsPolkaVM::new(
-            Some(SolcStandardJsonInputSettingsPolkaVMMemory::new(
-                Some(pvm_heap_size),
-                Some(pvm_stack_size),
-            )),
-            false,
-        );
-        polkavm.newyork = Some(pipeline == ModePipeline::ViaNewYorkIR);
-
         SolcStandardJsonInput {
             language: SolcStandardJsonInputLanguage::Solidity,
             sources: BTreeMap::from([(
@@ -649,7 +601,7 @@ mod tests {
                     optimizer_level.to_mode_char(),
                     SolcOptimizerDetails::default(),
                 ),
-                polkavm,
+                polkavm: Resolc::polkavm_settings(Some(pipeline), pvm_heap_size, pvm_stack_size),
                 metadata: Default::default(),
                 detect_missing_libraries: false,
             },

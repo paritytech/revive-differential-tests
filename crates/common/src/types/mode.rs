@@ -131,15 +131,6 @@ impl ModePipeline {
         ]
         .into_iter()
     }
-
-    /// Parses the pipeline name reported in resolc's standard JSON output into a [`ModePipeline`].
-    pub fn try_from_resolc_output(pipeline_output: &str) -> Result<ModePipeline> {
-        match pipeline_output {
-            "yul" => Ok(ModePipeline::ViaYulIR),
-            "newyork" => Ok(ModePipeline::ViaNewYorkIR),
-            other => anyhow::bail!("Unexpected resolc pipeline output: {other:?}"),
-        }
-    }
 }
 
 /// Optimizer configuration for compilation.
@@ -897,20 +888,6 @@ mod tests {
         for mode in Mode::all() {
             assert_eq!(&Mode::from_str(&mode.to_string()).unwrap(), mode);
         }
-    }
-
-    #[test]
-    fn maps_resolc_output_to_pipeline() {
-        assert_eq!(
-            ModePipeline::try_from_resolc_output("yul").unwrap(),
-            ModePipeline::ViaYulIR
-        );
-        assert_eq!(
-            ModePipeline::try_from_resolc_output("newyork").unwrap(),
-            ModePipeline::ViaNewYorkIR
-        );
-        assert!(ModePipeline::try_from_resolc_output("evm").is_err());
-        assert!(ModePipeline::try_from_resolc_output("").is_err());
     }
 
     fn make_allow_list(modes: &[&str]) -> ModeAllowList {
