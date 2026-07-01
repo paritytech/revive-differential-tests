@@ -1,0 +1,2168 @@
+{
+  "context": {
+    "Benchmark": {
+      "profile": {
+        "profile": "Default"
+      },
+      "log": {
+        "log_format": "Json"
+      },
+      "platforms": {
+        "platforms": [
+          "zombienet-revm-solc"
+        ]
+      },
+      "working_directory": {
+        "working_directory": "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/workdir"
+      },
+      "benchmark_run": {
+        "default_repetition_count": 1000,
+        "repetition_count_override": 10,
+        "profile_watched_txs": true,
+        "profile_samples_per_step_path": 10,
+        "profile_all": false,
+        "profile_concurrency": 4,
+        "profile_step_limit": 0
+      },
+      "corpus": {
+        "test_specifiers": [
+          "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/test.json::0::Y Mz S+"
+        ]
+      },
+      "solc": {
+        "version": "0.8.29"
+      },
+      "resolc": {
+        "path": "resolc",
+        "heap_size": null,
+        "stack_size": null
+      },
+      "polkadot_parachain": {
+        "path": "polkadot-parachain",
+        "start_timeout_ms": {
+          "secs": 5,
+          "nanos": 0
+        }
+      },
+      "geth": {
+        "path": "geth",
+        "start_timeout_ms": {
+          "secs": 30,
+          "nanos": 0
+        },
+        "logging_level": "3"
+      },
+      "kurtosis": {
+        "path": "kurtosis"
+      },
+      "revive_dev_node": {
+        "path": "revive-dev-node",
+        "start_timeout_ms": {
+          "secs": 30,
+          "nanos": 0
+        },
+        "consensus": "instant-seal",
+        "logging_level": "error,evm=debug,sc_rpc_server=info,runtime::revive=debug",
+        "existing_rpc_url": []
+      },
+      "polkadot_omnichain_node": {
+        "path": "polkadot-omni-node",
+        "start_timeout_ms": {
+          "secs": 90,
+          "nanos": 0
+        },
+        "block_time_ms": {
+          "secs": 0,
+          "nanos": 200000000
+        },
+        "chain_spec_path": null,
+        "parachain_id": null,
+        "logging_level": "error,evm=debug,sc_rpc_server=info,runtime::revive=debug"
+      },
+      "zombienet": {
+        "config_path": "./assets/westend-assethub-zombienet.toml",
+        "block_production_timeout_ms": {
+          "secs": 300,
+          "nanos": 0
+        }
+      },
+      "eth_rpc": {
+        "path": "eth-rpc",
+        "start_timeout_ms": {
+          "secs": 30,
+          "nanos": 0
+        },
+        "logging_level": "info"
+      },
+      "wallet": {
+        "default_private_key": "0x4f3edf983ac636a65a842ce7c78d9aa706d3b113bce9c46f30d7d21715b23b1d",
+        "additional_keys": 201000
+      },
+      "concurrency": {
+        "number_of_nodes": 1,
+        "number_of_threads": 12,
+        "number_of_concurrent_tasks": 1000
+      },
+      "compilation": {
+        "invalidate_cache": false
+      },
+      "report": {
+        "include_compiler_input": false,
+        "include_compiler_output": false,
+        "file_name": "report.json"
+      },
+      "shutdown": {
+        "keep_alive_on_failures": false,
+        "keep_alive": false
+      }
+    }
+  },
+  "metadata_files": [
+    "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/test.json"
+  ],
+  "execution_information": {
+    "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/test.json": {
+      "case_reports": {
+        "0": {
+          "mode_execution_reports": {
+            "Y Mz S+": {
+              "metrics_information": {
+                "zombienet-revm-solc": [
+                  {
+                    "block_number": 48,
+                    "relative_block_number": 0,
+                    "block_timestamp_seconds": 1782924864,
+                    "relative_block_timestamp_seconds": 0,
+                    "observation_time_seconds": 1782924889,
+                    "relative_observation_time_seconds": 0,
+                    "transaction_count": 9,
+                    "step_count": {
+                      "17.1": 9
+                    },
+                    "block_gas_mined": 1192768920,
+                    "block_gas_limit": 18446744073709551615,
+                    "block_gas_fullness": 0,
+                    "block_ref_time": 360656599261,
+                    "block_ref_time_limit": 1399875000000,
+                    "block_ref_time_fullness": 25,
+                    "block_proof_size": 395432,
+                    "block_proof_size_limit": 7340032,
+                    "block_proof_size_fullness": 5,
+                    "additional_tx_capacity_gas": 139189321476,
+                    "additional_tx_capacity_ref_time": 25,
+                    "additional_tx_capacity_proof_size": 158,
+                    "additional_tx_capacity_pre_dispatch_ref_time": 7,
+                    "additional_tx_capacity_pre_dispatch_proof_size": 9,
+                    "pending_transaction_count": 0
+                  }
+                ]
+              },
+              "platform_execution": {
+                "zombienet-revm-solc": {
+                  "node": {
+                    "id": 0,
+                    "platform_identifier": "zombienet-revm-solc",
+                    "connection_string": "http://localhost:8545"
+                  },
+                  "pre_link_compilation_status": {
+                    "status": "Success",
+                    "is_cached": true,
+                    "compiler_version": "0.8.29",
+                    "compiler_path": "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/workdir/solc/0.8.29/linux-amd64",
+                    "compiled_contracts_info": {
+                      "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/harness/DaimoP256Verifier.sol": {
+                        "DaimoP256Verifier": {
+                          "bytecode_hash": "0xd75bc3b0dc6f16cd462e293196f1e190ca0a8669fd3b2109f497447fa6d4ed9f"
+                        }
+                      },
+                      "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/dcap-attestation/utils/BELE.sol": {
+                        "BELE": {
+                          "bytecode_hash": "0xd9bf772f3de1590384b08dec4001bd87e6bd101a3d2f8bb952548b612ee2a136"
+                        }
+                      },
+                      "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/forge-std/console.sol": {
+                        "console": {
+                          "bytecode_hash": "0x4e094c8493470cf98e088fcc4b674250756b2175336a118a70bfb6e252a7b421"
+                        }
+                      },
+                      "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/@sp1-contracts/ISP1Verifier.sol": {
+                        "ISP1Verifier": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "ISP1VerifierWithHash": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        }
+                      },
+                      "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/lib/automata-dcap-attestation/evm/lib/automata-on-chain-pccs/src/helpers/X509Helper.sol": {
+                        "X509Helper": {
+                          "bytecode_hash": "0x8298a8fe90c4989284c9751f496e6f4b6035aeee18b565223c994e7895611dd2"
+                        }
+                      },
+                      "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/solady/utils/DateTimeLib.sol": {
+                        "DateTimeLib": {
+                          "bytecode_hash": "0xfe12f1409affaaef5ca9ddb729ffcdcea2fc5f031b5f378937b865912402deb9"
+                        }
+                      },
+                      "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/@automata-network/on-chain-pccs/bases/DaoBase.sol": {
+                        "DaoBase": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        }
+                      },
+                      "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/@automata-network/on-chain-pccs/helpers/FmspcTcbHelper.sol": {
+                        "FmspcTcbHelper": {
+                          "bytecode_hash": "0x94a35b638398ce0aaf58989927847424e3e3f4a0675164354ded0a3a5699be24"
+                        }
+                      },
+                      "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/lib/automata-dcap-attestation/evm/lib/risc0-ethereum/lib/openzeppelin-contracts/contracts/utils/math/SafeCast.sol": {
+                        "SafeCast": {
+                          "bytecode_hash": "0x7c13beafd5150d387c6557eb58b81908c0b0bd32fbfad3259895aaf37735b9b6"
+                        }
+                      },
+                      "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/@automata-network/on-chain-pccs/bases/PcsDao.sol": {
+                        "PcsDao": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        }
+                      },
+                      "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/lib/automata-dcap-attestation/evm/lib/automata-on-chain-pccs/src/utils/P256Verifier.sol": {
+                        "P256Verifier": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        }
+                      },
+                      "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/dcap-attestation/interfaces/IQuoteVerifier.sol": {
+                        "IQuoteVerifier": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        }
+                      },
+                      "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/lib/solady/src/utils/JSONParserLib.sol": {
+                        "JSONParserLib": {
+                          "bytecode_hash": "0x611fbe930a9b5fffd6155ac895b45036ff420f3a6c363b3a8246548a00e5511b"
+                        }
+                      },
+                      "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/lib/automata-dcap-attestation/evm/lib/automata-on-chain-pccs/src/helpers/X509CRLHelper.sol": {
+                        "X509CRLHelper": {
+                          "bytecode_hash": "0xe0a4e9b5221c0ed28a28f545000a1c58788d8a42ac734b9df50a4300f98c77b6"
+                        }
+                      },
+                      "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/@automata-network/on-chain-pccs/interfaces/IDaoAttestationResolver.sol": {
+                        "IDaoAttestationResolver": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        }
+                      },
+                      "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/@automata-network/on-chain-pccs/helpers/EnclaveIdentityHelper.sol": {
+                        "EnclaveIdentityHelper": {
+                          "bytecode_hash": "0x89a4381640e46845e4e965b432176d41fce234c2077e782adeeed6e3033e4420"
+                        }
+                      },
+                      "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/solady/utils/JSONParserLib.sol": {
+                        "JSONParserLib": {
+                          "bytecode_hash": "0xf7b54e59d6fb089f02e3b68dd832cbe2c18a856ec5dc777914f7dd8834c32138"
+                        }
+                      },
+                      "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/@automata-network/on-chain-pccs/utils/P256Verifier.sol": {
+                        "P256Verifier": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        }
+                      },
+                      "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/lib/automata-dcap-attestation/evm/lib/automata-on-chain-pccs/src/interfaces/IDaoAttestationResolver.sol": {
+                        "IDaoAttestationResolver": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        }
+                      },
+                      "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/lib/automata-dcap-attestation/evm/contracts/AutomataDcapAttestationFee.sol": {
+                        "AutomataDcapAttestationFee": {
+                          "bytecode_hash": "0xf46945a8a73a418d0728d6479ff16bea5a39d03969846ed58d87ebbd02825deb"
+                        }
+                      },
+                      "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/dcap-attestation/bases/FeeManagerBase.sol": {
+                        "FeeManagerBase": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        }
+                      },
+                      "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/lib/forge-std/src/console.sol": {
+                        "console": {
+                          "bytecode_hash": "0x99a235e11c4f35dea9f43fa37d420962ca3f2073332e3183b142b8a65f11fbd7"
+                        }
+                      },
+                      "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/lib/automata-dcap-attestation/evm/contracts/bases/tcb/TCBInfoV3Base.sol": {
+                        "TCBInfoV3Base": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        }
+                      },
+                      "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/@automata-network/on-chain-pccs/utils/DateTimeUtils.sol": {
+                        "DateTimeUtils": {
+                          "bytecode_hash": "0x2cabf198a8049ea40683ef0a634c4c9f54644dc9c1a1790fdffc4eadc7c5b364"
+                        }
+                      },
+                      "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/lib/solady/src/utils/DateTimeLib.sol": {
+                        "DateTimeLib": {
+                          "bytecode_hash": "0x6f60a7b91116afcd9a42ce514a1e513cbdbb561f1930d496d35176fe0e982765"
+                        }
+                      },
+                      "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/lib/solady/src/utils/LibBytes.sol": {
+                        "LibBytes": {
+                          "bytecode_hash": "0xd83c7e9b5a8d0ce129d99b4647e8882fd8323906c3c95f537596c9a62c8df567"
+                        }
+                      },
+                      "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/lib/automata-dcap-attestation/evm/lib/automata-on-chain-pccs/src/helpers/PCKHelper.sol": {
+                        "PCKHelper": {
+                          "bytecode_hash": "0xdde2d96d9ba928f20bea373d9ad55641f2fb44466b8ab95cadca033c8aac5299"
+                        }
+                      },
+                      "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/dcap-attestation/verifiers/V5QuoteVerifier.sol": {
+                        "V5QuoteVerifier": {
+                          "bytecode_hash": "0xba9102e664981a8c5d4d3507592bd484e79ac82d46f9de53b1318c7e87ab3e3e"
+                        }
+                      },
+                      "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/@automata-network/on-chain-pccs/helpers/X509Helper.sol": {
+                        "X509Helper": {
+                          "bytecode_hash": "0x6e6d8fc81b752d6b62d513b6a1ad0965a51c40005a6998f23ca34e5013b456de"
+                        }
+                      },
+                      "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/dcap-attestation/bases/QuoteVerifierBase.sol": {
+                        "QuoteVerifierBase": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        }
+                      },
+                      "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/dcap-attestation/utils/P256Verifier.sol": {
+                        "P256Verifier": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        }
+                      },
+                      "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/lib/automata-dcap-attestation/evm/contracts/utils/P256Verifier.sol": {
+                        "P256Verifier": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        }
+                      },
+                      "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/lib/automata-dcap-attestation/evm/lib/automata-on-chain-pccs/src/helpers/FmspcTcbHelper.sol": {
+                        "FmspcTcbHelper": {
+                          "bytecode_hash": "0xfaf2a97feca3cc443edefec6e6d6a918f9f6905effa250278dd843f24feefcfc"
+                        }
+                      },
+                      "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/dcap-attestation/interfaces/IPCCSRouter.sol": {
+                        "IPCCSRouter": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        }
+                      },
+                      "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/src/interfaces/ITeeRollupVerifier.sol": {
+                        "ITeeRollupVerifier": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        }
+                      },
+                      "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/@automata-network/on-chain-pccs/helpers/PCKHelper.sol": {
+                        "PCKHelper": {
+                          "bytecode_hash": "0x598b40e96b0c3ff89ba99b449919bcf31144d280b1bc32815a73a8c65d17dc42"
+                        }
+                      },
+                      "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/lib/automata-dcap-attestation/evm/lib/sp1-contracts/contracts/src/ISP1Verifier.sol": {
+                        "ISP1Verifier": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "ISP1VerifierWithHash": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        }
+                      },
+                      "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/src/TEECacheVerifier.sol": {
+                        "TEECacheVerifier": {
+                          "bytecode_hash": "0x7b0f2043c5b409b5794fe04b3ad8a5307c6776a642df5d1b42654fd02f03209a"
+                        }
+                      },
+                      "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/lib/automata-dcap-attestation/evm/lib/risc0-ethereum/contracts/src/IRiscZeroVerifier.sol": {
+                        "ReceiptClaimLib": {
+                          "bytecode_hash": "0xb0c024b49405726aa8ba134f4b4a2807170a904f28885c01d3a496caf70d0a30"
+                        },
+                        "IRiscZeroVerifier": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "SystemStateLib": {
+                          "bytecode_hash": "0x71b2f74fbc77f1600654a22f761b102b30f309e06161eaadc9556d42565d3d15"
+                        },
+                        "OutputLib": {
+                          "bytecode_hash": "0xea71604ff678a2cb9459058d1d963b71b2c7a76f18f59ad2640fed857669cb33"
+                        }
+                      },
+                      "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/lib/automata-dcap-attestation/evm/contracts/bases/QuoteVerifierBase.sol": {
+                        "QuoteVerifierBase": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        }
+                      },
+                      "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/src/TEEVerifierProxy.sol": {
+                        "TEEVerifierProxy": {
+                          "bytecode_hash": "0xede093cabff83fd3a843cb9f2dcb7f328054d041911787718fa2815a2f92e84a"
+                        }
+                      },
+                      "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/lib/solady/src/utils/Base64.sol": {
+                        "Base64": {
+                          "bytecode_hash": "0x4bea3a62bebda4910c2638d88f3ce3bc148f258f09e39204aa7a5badacbd9fab"
+                        }
+                      },
+                      "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/dcap-attestation/AutomataDcapAttestationFee.sol": {
+                        "AutomataDcapAttestationFee": {
+                          "bytecode_hash": "0x5263225172ad8453ef231daa40b7c868eff2215105b04794f0cffb14b1ee1630"
+                        }
+                      },
+                      "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/solady/auth/Ownable.sol": {
+                        "Ownable": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        }
+                      },
+                      "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/lib/automata-dcap-attestation/evm/contracts/utils/BytesUtils.sol": {
+                        "BytesUtils": {
+                          "bytecode_hash": "0x402d0c7ad1f4fb2df7f5643ca5989df5fcffca50426687282db14fb1e15def34"
+                        }
+                      },
+                      "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/solady/utils/LibBytes.sol": {
+                        "LibBytes": {
+                          "bytecode_hash": "0x735bb995b1affc3c54860aedb8eff51fd01069bbd21769f012d549020451089e"
+                        }
+                      },
+                      "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/@automata-network/on-chain-pccs/utils/BytesUtils.sol": {
+                        "BytesUtils": {
+                          "bytecode_hash": "0xab4cd0437a94aff46fb83cd916fde6f8c3068eafad05f2b59e77fff9d7407413"
+                        }
+                      },
+                      "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/dcap-attestation/bases/X509ChainBase.sol": {
+                        "X509ChainBase": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        }
+                      },
+                      "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/lib/solady/src/utils/LibString.sol": {
+                        "LibString": {
+                          "bytecode_hash": "0x4652c32e314b46ce276e3514f5837cd3cf5b41608ea77026efcf254367384303"
+                        }
+                      },
+                      "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/lib/automata-dcap-attestation/evm/contracts/bases/FeeManagerBase.sol": {
+                        "FeeManagerBase": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        }
+                      },
+                      "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/lib/automata-dcap-attestation/evm/lib/automata-on-chain-pccs/src/utils/BytesUtils.sol": {
+                        "BytesUtils": {
+                          "bytecode_hash": "0x6bdebab270de8d18feb40996a77437a07bcfa97cc55e08cf1881ec8f7d2c6191"
+                        }
+                      },
+                      "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/solady/utils/Base64.sol": {
+                        "Base64": {
+                          "bytecode_hash": "0x38653e677111904cd535a611c9907ef5623f06f4e67182f68d3ff36a88033e47"
+                        }
+                      },
+                      "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/lib/automata-dcap-attestation/evm/lib/automata-on-chain-pccs/src/bases/SigVerifyBase.sol": {
+                        "IX509": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "SigVerifyBase": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        }
+                      },
+                      "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/lib/automata-dcap-attestation/evm/contracts/bases/EnclaveIdBase.sol": {
+                        "EnclaveIdBase": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        }
+                      },
+                      "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/dcap-attestation/bases/tcb/TCBInfoV2Base.sol": {
+                        "TCBInfoV2Base": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        }
+                      },
+                      "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/lib/automata-dcap-attestation/evm/lib/automata-on-chain-pccs/src/utils/Asn1Decode.sol": {
+                        "NodePtr": {
+                          "bytecode_hash": "0xbc97886a2dbdae5c52a8bb8f9228d66109ae74e51e1e9d8b52f3c54f8027502a"
+                        },
+                        "Asn1Decode": {
+                          "bytecode_hash": "0xa3401ffb6ca2bea98348e8badf8c9df087669189dc0dc082189d53d909771b81"
+                        }
+                      },
+                      "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/dcap-attestation/bases/tcb/TCBInfoV3Base.sol": {
+                        "TCBInfoV3Base": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        }
+                      },
+                      "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/harness/SnapshotPCCSRouter.sol": {
+                        "SnapshotPCCSRouter": {
+                          "bytecode_hash": "0x3c5056403ec4e851e54b0235f2292424ed82041bf7d4e2542dbb1656579c1646"
+                        }
+                      },
+                      "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/lib/automata-dcap-attestation/evm/contracts/verifiers/V4QuoteVerifier.sol": {
+                        "V4QuoteVerifier": {
+                          "bytecode_hash": "0x74c7d387936a41796795959d5c9c4fb9a183cc66f9b434d94a050dac54dd38c2"
+                        }
+                      },
+                      "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/@automata-network/on-chain-pccs/bases/SigVerifyBase.sol": {
+                        "SigVerifyBase": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "IX509": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        }
+                      },
+                      "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/dcap-attestation/verifiers/V4QuoteVerifier.sol": {
+                        "V4QuoteVerifier": {
+                          "bytecode_hash": "0x2e97f6102b4e2f6c697e8deb1dab244e7ced527c7c34ba88a9d37eff1e9de44e"
+                        }
+                      },
+                      "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/lib/automata-dcap-attestation/evm/contracts/bases/tcb/TCBInfoV2Base.sol": {
+                        "TCBInfoV2Base": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        }
+                      },
+                      "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/lib/automata-dcap-attestation/evm/contracts/AttestationEntrypointBase.sol": {
+                        "AttestationEntrypointBase": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        }
+                      },
+                      "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/dcap-attestation/utils/BytesUtils.sol": {
+                        "BytesUtils": {
+                          "bytecode_hash": "0x01acf08e59abd178089045f9759695b6b688db53f881e541aa8d7437ba203edc"
+                        }
+                      },
+                      "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/dcap-attestation/bases/TDXModuleBase.sol": {
+                        "TDXModuleBase": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        }
+                      },
+                      "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/lib/automata-dcap-attestation/evm/lib/automata-on-chain-pccs/src/bases/PcsDao.sol": {
+                        "PcsDao": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        }
+                      },
+                      "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/src/MeasurementDao.sol": {
+                        "MeasurementDao": {
+                          "bytecode_hash": "0x10b7d10581b76e97a2bd5cd9d6fea7847f274441e4cf72f9d8ac4ebbce39feba"
+                        }
+                      },
+                      "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/@automata-network/on-chain-pccs/helpers/X509CRLHelper.sol": {
+                        "X509CRLHelper": {
+                          "bytecode_hash": "0x946b4242bc323ee3b182e864c534538fc6aafed8a402eec71224ae0a640ef337"
+                        }
+                      },
+                      "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/lib/automata-dcap-attestation/evm/contracts/bases/TDXModuleBase.sol": {
+                        "TDXModuleBase": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        }
+                      },
+                      "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/src/DcapAttestationRouter.sol": {
+                        "DcapAttestationRouter": {
+                          "bytecode_hash": "0x4f1dc8769fe9e161b0cbc42dd199dd0463d1b46e7b00ad2c6a7917a5ade34fe1"
+                        }
+                      },
+                      "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/lib/automata-dcap-attestation/evm/lib/automata-on-chain-pccs/src/helpers/EnclaveIdentityHelper.sol": {
+                        "EnclaveIdentityHelper": {
+                          "bytecode_hash": "0x0c935e54f5fcd564dab2a0996ba99edea773252a42b14c9f294543e82b002001"
+                        }
+                      },
+                      "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/lib/automata-dcap-attestation/evm/contracts/utils/BELE.sol": {
+                        "BELE": {
+                          "bytecode_hash": "0x3141bf81e5e29db87b99d3a7a3124eab3a89ed745f652c16637c1e624bb459f8"
+                        }
+                      },
+                      "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/lib/automata-dcap-attestation/evm/contracts/interfaces/IPCCSRouter.sol": {
+                        "IPCCSRouter": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        }
+                      },
+                      "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/risc0/IRiscZeroVerifier.sol": {
+                        "SystemStateLib": {
+                          "bytecode_hash": "0xe9491c9ca214565a3e5b8e78a8a219befe704990c31dc710db792343006dce7d"
+                        },
+                        "ReceiptClaimLib": {
+                          "bytecode_hash": "0x10aff7b888caf6b6ce2b90d9b18eb4444e4c2c5c1a7316530f1c9f4c8410cfb4"
+                        },
+                        "IRiscZeroVerifier": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        },
+                        "OutputLib": {
+                          "bytecode_hash": "0xd0c32166c20ccbd3243ebc7bbe75d564d046142fe10149453ab766a79df5a4c2"
+                        }
+                      },
+                      "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/solady/utils/LibString.sol": {
+                        "LibString": {
+                          "bytecode_hash": "0x61d3d47eeb40a02577091669ad07676a832804b6f4656ccb1ddac9d0aef2c37f"
+                        }
+                      },
+                      "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/lib/automata-dcap-attestation/evm/contracts/interfaces/IQuoteVerifier.sol": {
+                        "IQuoteVerifier": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        }
+                      },
+                      "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/lib/automata-dcap-attestation/evm/contracts/verifiers/V5QuoteVerifier.sol": {
+                        "V5QuoteVerifier": {
+                          "bytecode_hash": "0x3e9a3feffdd2cd33fe9cc3b44b50a00fdd6dba7e3a73d0c4beb07e2cb2fcc705"
+                        }
+                      },
+                      "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/@openzeppelin/contracts/utils/math/SafeCast.sol": {
+                        "SafeCast": {
+                          "bytecode_hash": "0xc2f03e336ecc04762bd72c2b311a0db06e9a0b8be936336b4fd2a3238ae6917a"
+                        }
+                      },
+                      "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/dcap-attestation/bases/EnclaveIdBase.sol": {
+                        "EnclaveIdBase": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        }
+                      },
+                      "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/lib/automata-dcap-attestation/evm/contracts/bases/X509ChainBase.sol": {
+                        "X509ChainBase": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        }
+                      },
+                      "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/lib/automata-dcap-attestation/evm/lib/automata-on-chain-pccs/src/bases/DaoBase.sol": {
+                        "DaoBase": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        }
+                      },
+                      "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/lib/automata-dcap-attestation/evm/lib/automata-on-chain-pccs/src/utils/DateTimeUtils.sol": {
+                        "DateTimeUtils": {
+                          "bytecode_hash": "0xb2701b99ba56b771287b7914295d920d048f8df9b33460123bc0536bcd04e13d"
+                        }
+                      },
+                      "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/dcap-attestation/AttestationEntrypointBase.sol": {
+                        "AttestationEntrypointBase": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        }
+                      },
+                      "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/lib/solady/src/auth/Ownable.sol": {
+                        "Ownable": {
+                          "bytecode_hash": "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470"
+                        }
+                      },
+                      "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/@automata-network/on-chain-pccs/utils/Asn1Decode.sol": {
+                        "Asn1Decode": {
+                          "bytecode_hash": "0x972017e0a36332bf57a6d131fa6c3a325186b2a956e9da363d303c18baa6f45b"
+                        },
+                        "NodePtr": {
+                          "bytecode_hash": "0x0882bc79d0c1945dd1081330afb0334ed0885fd10f187a835e80c40c3fce703c"
+                        }
+                      }
+                    }
+                  },
+                  "deployed_contracts": {
+                    "AutomataDcapAttestationFee": "0x6d411e0a54382ed43f02410ce1c7a7c122afa6e1",
+                    "DaimoP256Verifier": "0xf2e246bb76df876cef8b38ae84130f4f55de395b",
+                    "DcapAttestationRouter": "0x66a15edcc3b50a663e72f1457ffd49b9ae284ddc",
+                    "MeasurementDao": "0xa3183498b579bd228aa2b62101c40cc1da978f24",
+                    "PCKHelper": "0x2946259e0334f33a064106302415ad3391bed384",
+                    "SnapshotPCCSRouter": "0x51a240271ab8ab9f9a21c82d9a85396b704e164d",
+                    "TEECacheVerifier": "0x63f58053c9499e1104a6f6c6d2581d6d83067eeb",
+                    "TEEVerifierProxy": "0xd30c8839c1145609e564b986f667b273ddcb8496",
+                    "V5QuoteVerifier": "0xb9816fc57977d5a786e654c7cf76767be63b966e",
+                    "X509CRLHelper": "0xde09e74d4888bc4e65f589e8c13bce9f71ddf4c7"
+                  },
+                  "opcode_profile": {
+                    "sampled_tx_count": 0,
+                    "block_count": 1,
+                    "failed_count": 0,
+                    "opcodes": [],
+                    "opcode_catalog": {
+                      "evm": {
+                        "0": {
+                          "name": "STOP",
+                          "category": "Returns"
+                        },
+                        "1": {
+                          "name": "ADD",
+                          "category": "Arithmetic & Logic"
+                        },
+                        "10": {
+                          "name": "EXP",
+                          "category": "Arithmetic & Logic"
+                        },
+                        "100": {
+                          "name": "PUSH5",
+                          "category": "Stack"
+                        },
+                        "101": {
+                          "name": "PUSH6",
+                          "category": "Stack"
+                        },
+                        "102": {
+                          "name": "PUSH7",
+                          "category": "Stack"
+                        },
+                        "103": {
+                          "name": "PUSH8",
+                          "category": "Stack"
+                        },
+                        "104": {
+                          "name": "PUSH9",
+                          "category": "Stack"
+                        },
+                        "105": {
+                          "name": "PUSH10",
+                          "category": "Stack"
+                        },
+                        "106": {
+                          "name": "PUSH11",
+                          "category": "Stack"
+                        },
+                        "107": {
+                          "name": "PUSH12",
+                          "category": "Stack"
+                        },
+                        "108": {
+                          "name": "PUSH13",
+                          "category": "Stack"
+                        },
+                        "109": {
+                          "name": "PUSH14",
+                          "category": "Stack"
+                        },
+                        "11": {
+                          "name": "SIGNEXTEND",
+                          "category": "Arithmetic & Logic"
+                        },
+                        "110": {
+                          "name": "PUSH15",
+                          "category": "Stack"
+                        },
+                        "111": {
+                          "name": "PUSH16",
+                          "category": "Stack"
+                        },
+                        "112": {
+                          "name": "PUSH17",
+                          "category": "Stack"
+                        },
+                        "113": {
+                          "name": "PUSH18",
+                          "category": "Stack"
+                        },
+                        "114": {
+                          "name": "PUSH19",
+                          "category": "Stack"
+                        },
+                        "115": {
+                          "name": "PUSH20",
+                          "category": "Stack"
+                        },
+                        "116": {
+                          "name": "PUSH21",
+                          "category": "Stack"
+                        },
+                        "117": {
+                          "name": "PUSH22",
+                          "category": "Stack"
+                        },
+                        "118": {
+                          "name": "PUSH23",
+                          "category": "Stack"
+                        },
+                        "119": {
+                          "name": "PUSH24",
+                          "category": "Stack"
+                        },
+                        "120": {
+                          "name": "PUSH25",
+                          "category": "Stack"
+                        },
+                        "121": {
+                          "name": "PUSH26",
+                          "category": "Stack"
+                        },
+                        "122": {
+                          "name": "PUSH27",
+                          "category": "Stack"
+                        },
+                        "123": {
+                          "name": "PUSH28",
+                          "category": "Stack"
+                        },
+                        "124": {
+                          "name": "PUSH29",
+                          "category": "Stack"
+                        },
+                        "125": {
+                          "name": "PUSH30",
+                          "category": "Stack"
+                        },
+                        "126": {
+                          "name": "PUSH31",
+                          "category": "Stack"
+                        },
+                        "127": {
+                          "name": "PUSH32",
+                          "category": "Stack"
+                        },
+                        "128": {
+                          "name": "DUP1",
+                          "category": "Stack"
+                        },
+                        "129": {
+                          "name": "DUP2",
+                          "category": "Stack"
+                        },
+                        "130": {
+                          "name": "DUP3",
+                          "category": "Stack"
+                        },
+                        "131": {
+                          "name": "DUP4",
+                          "category": "Stack"
+                        },
+                        "132": {
+                          "name": "DUP5",
+                          "category": "Stack"
+                        },
+                        "133": {
+                          "name": "DUP6",
+                          "category": "Stack"
+                        },
+                        "134": {
+                          "name": "DUP7",
+                          "category": "Stack"
+                        },
+                        "135": {
+                          "name": "DUP8",
+                          "category": "Stack"
+                        },
+                        "136": {
+                          "name": "DUP9",
+                          "category": "Stack"
+                        },
+                        "137": {
+                          "name": "DUP10",
+                          "category": "Stack"
+                        },
+                        "138": {
+                          "name": "DUP11",
+                          "category": "Stack"
+                        },
+                        "139": {
+                          "name": "DUP12",
+                          "category": "Stack"
+                        },
+                        "140": {
+                          "name": "DUP13",
+                          "category": "Stack"
+                        },
+                        "141": {
+                          "name": "DUP14",
+                          "category": "Stack"
+                        },
+                        "142": {
+                          "name": "DUP15",
+                          "category": "Stack"
+                        },
+                        "143": {
+                          "name": "DUP16",
+                          "category": "Stack"
+                        },
+                        "144": {
+                          "name": "SWAP1",
+                          "category": "Stack"
+                        },
+                        "145": {
+                          "name": "SWAP2",
+                          "category": "Stack"
+                        },
+                        "146": {
+                          "name": "SWAP3",
+                          "category": "Stack"
+                        },
+                        "147": {
+                          "name": "SWAP4",
+                          "category": "Stack"
+                        },
+                        "148": {
+                          "name": "SWAP5",
+                          "category": "Stack"
+                        },
+                        "149": {
+                          "name": "SWAP6",
+                          "category": "Stack"
+                        },
+                        "150": {
+                          "name": "SWAP7",
+                          "category": "Stack"
+                        },
+                        "151": {
+                          "name": "SWAP8",
+                          "category": "Stack"
+                        },
+                        "152": {
+                          "name": "SWAP9",
+                          "category": "Stack"
+                        },
+                        "153": {
+                          "name": "SWAP10",
+                          "category": "Stack"
+                        },
+                        "154": {
+                          "name": "SWAP11",
+                          "category": "Stack"
+                        },
+                        "155": {
+                          "name": "SWAP12",
+                          "category": "Stack"
+                        },
+                        "156": {
+                          "name": "SWAP13",
+                          "category": "Stack"
+                        },
+                        "157": {
+                          "name": "SWAP14",
+                          "category": "Stack"
+                        },
+                        "158": {
+                          "name": "SWAP15",
+                          "category": "Stack"
+                        },
+                        "159": {
+                          "name": "SWAP16",
+                          "category": "Stack"
+                        },
+                        "16": {
+                          "name": "LT",
+                          "category": "Arithmetic & Logic"
+                        },
+                        "160": {
+                          "name": "LOG0",
+                          "category": "Logs"
+                        },
+                        "161": {
+                          "name": "LOG1",
+                          "category": "Logs"
+                        },
+                        "162": {
+                          "name": "LOG2",
+                          "category": "Logs"
+                        },
+                        "163": {
+                          "name": "LOG3",
+                          "category": "Logs"
+                        },
+                        "164": {
+                          "name": "LOG4",
+                          "category": "Logs"
+                        },
+                        "17": {
+                          "name": "GT",
+                          "category": "Arithmetic & Logic"
+                        },
+                        "18": {
+                          "name": "SLT",
+                          "category": "Arithmetic & Logic"
+                        },
+                        "19": {
+                          "name": "SGT",
+                          "category": "Arithmetic & Logic"
+                        },
+                        "2": {
+                          "name": "MUL",
+                          "category": "Arithmetic & Logic"
+                        },
+                        "20": {
+                          "name": "EQ",
+                          "category": "Arithmetic & Logic"
+                        },
+                        "21": {
+                          "name": "ISZERO",
+                          "category": "Arithmetic & Logic"
+                        },
+                        "22": {
+                          "name": "AND",
+                          "category": "Arithmetic & Logic"
+                        },
+                        "23": {
+                          "name": "OR",
+                          "category": "Arithmetic & Logic"
+                        },
+                        "24": {
+                          "name": "XOR",
+                          "category": "Arithmetic & Logic"
+                        },
+                        "240": {
+                          "name": "CREATE",
+                          "category": "Calls"
+                        },
+                        "241": {
+                          "name": "CALL",
+                          "category": "Calls"
+                        },
+                        "242": {
+                          "name": "CALLCODE",
+                          "category": "Calls"
+                        },
+                        "243": {
+                          "name": "RETURN",
+                          "category": "Returns"
+                        },
+                        "244": {
+                          "name": "DELEGATECALL",
+                          "category": "Calls"
+                        },
+                        "245": {
+                          "name": "CREATE2",
+                          "category": "Calls"
+                        },
+                        "25": {
+                          "name": "NOT",
+                          "category": "Arithmetic & Logic"
+                        },
+                        "250": {
+                          "name": "STATICCALL",
+                          "category": "Calls"
+                        },
+                        "253": {
+                          "name": "REVERT",
+                          "category": "Returns"
+                        },
+                        "254": {
+                          "name": "INVALID",
+                          "category": "Returns"
+                        },
+                        "255": {
+                          "name": "SELFDESTRUCT",
+                          "category": "Returns"
+                        },
+                        "26": {
+                          "name": "BYTE",
+                          "category": "Arithmetic & Logic"
+                        },
+                        "27": {
+                          "name": "SHL",
+                          "category": "Arithmetic & Logic"
+                        },
+                        "28": {
+                          "name": "SHR",
+                          "category": "Arithmetic & Logic"
+                        },
+                        "29": {
+                          "name": "SAR",
+                          "category": "Arithmetic & Logic"
+                        },
+                        "3": {
+                          "name": "SUB",
+                          "category": "Arithmetic & Logic"
+                        },
+                        "30": {
+                          "name": "CLZ",
+                          "category": "Other"
+                        },
+                        "32": {
+                          "name": "KECCAK256",
+                          "category": "Crypto"
+                        },
+                        "4": {
+                          "name": "DIV",
+                          "category": "Arithmetic & Logic"
+                        },
+                        "48": {
+                          "name": "ADDRESS",
+                          "category": "Context"
+                        },
+                        "49": {
+                          "name": "BALANCE",
+                          "category": "Context"
+                        },
+                        "5": {
+                          "name": "SDIV",
+                          "category": "Arithmetic & Logic"
+                        },
+                        "50": {
+                          "name": "ORIGIN",
+                          "category": "Context"
+                        },
+                        "51": {
+                          "name": "CALLER",
+                          "category": "Context"
+                        },
+                        "52": {
+                          "name": "CALLVALUE",
+                          "category": "Context"
+                        },
+                        "53": {
+                          "name": "CALLDATALOAD",
+                          "category": "Calldata / Returndata"
+                        },
+                        "54": {
+                          "name": "CALLDATASIZE",
+                          "category": "Calldata / Returndata"
+                        },
+                        "55": {
+                          "name": "CALLDATACOPY",
+                          "category": "Calldata / Returndata"
+                        },
+                        "56": {
+                          "name": "CODESIZE",
+                          "category": "Code"
+                        },
+                        "57": {
+                          "name": "CODECOPY",
+                          "category": "Code"
+                        },
+                        "58": {
+                          "name": "GASPRICE",
+                          "category": "Context"
+                        },
+                        "59": {
+                          "name": "EXTCODESIZE",
+                          "category": "Code"
+                        },
+                        "6": {
+                          "name": "MOD",
+                          "category": "Arithmetic & Logic"
+                        },
+                        "60": {
+                          "name": "EXTCODECOPY",
+                          "category": "Code"
+                        },
+                        "61": {
+                          "name": "RETURNDATASIZE",
+                          "category": "Calldata / Returndata"
+                        },
+                        "62": {
+                          "name": "RETURNDATACOPY",
+                          "category": "Calldata / Returndata"
+                        },
+                        "63": {
+                          "name": "EXTCODEHASH",
+                          "category": "Code"
+                        },
+                        "64": {
+                          "name": "BLOCKHASH",
+                          "category": "Context"
+                        },
+                        "65": {
+                          "name": "COINBASE",
+                          "category": "Context"
+                        },
+                        "66": {
+                          "name": "TIMESTAMP",
+                          "category": "Context"
+                        },
+                        "67": {
+                          "name": "NUMBER",
+                          "category": "Context"
+                        },
+                        "68": {
+                          "name": "DIFFICULTY",
+                          "category": "Context"
+                        },
+                        "69": {
+                          "name": "GASLIMIT",
+                          "category": "Context"
+                        },
+                        "7": {
+                          "name": "SMOD",
+                          "category": "Arithmetic & Logic"
+                        },
+                        "70": {
+                          "name": "CHAINID",
+                          "category": "Context"
+                        },
+                        "71": {
+                          "name": "SELFBALANCE",
+                          "category": "Context"
+                        },
+                        "72": {
+                          "name": "BASEFEE",
+                          "category": "Context"
+                        },
+                        "73": {
+                          "name": "BLOBHASH",
+                          "category": "Context"
+                        },
+                        "74": {
+                          "name": "BLOBBASEFEE",
+                          "category": "Context"
+                        },
+                        "8": {
+                          "name": "ADDMOD",
+                          "category": "Arithmetic & Logic"
+                        },
+                        "80": {
+                          "name": "POP",
+                          "category": "Stack"
+                        },
+                        "81": {
+                          "name": "MLOAD",
+                          "category": "Memory"
+                        },
+                        "82": {
+                          "name": "MSTORE",
+                          "category": "Memory"
+                        },
+                        "83": {
+                          "name": "MSTORE8",
+                          "category": "Memory"
+                        },
+                        "84": {
+                          "name": "SLOAD",
+                          "category": "Storage"
+                        },
+                        "85": {
+                          "name": "SSTORE",
+                          "category": "Storage"
+                        },
+                        "86": {
+                          "name": "JUMP",
+                          "category": "Control flow"
+                        },
+                        "87": {
+                          "name": "JUMPI",
+                          "category": "Control flow"
+                        },
+                        "88": {
+                          "name": "PC",
+                          "category": "Control flow"
+                        },
+                        "89": {
+                          "name": "MSIZE",
+                          "category": "Memory"
+                        },
+                        "9": {
+                          "name": "MULMOD",
+                          "category": "Arithmetic & Logic"
+                        },
+                        "90": {
+                          "name": "GAS",
+                          "category": "Control flow"
+                        },
+                        "91": {
+                          "name": "JUMPDEST",
+                          "category": "Control flow"
+                        },
+                        "92": {
+                          "name": "TLOAD",
+                          "category": "Storage"
+                        },
+                        "93": {
+                          "name": "TSTORE",
+                          "category": "Storage"
+                        },
+                        "94": {
+                          "name": "MCOPY",
+                          "category": "Memory"
+                        },
+                        "95": {
+                          "name": "PUSH0",
+                          "category": "Stack"
+                        },
+                        "96": {
+                          "name": "PUSH1",
+                          "category": "Stack"
+                        },
+                        "97": {
+                          "name": "PUSH2",
+                          "category": "Stack"
+                        },
+                        "98": {
+                          "name": "PUSH3",
+                          "category": "Stack"
+                        },
+                        "99": {
+                          "name": "PUSH4",
+                          "category": "Stack"
+                        }
+                      },
+                      "pvm": {
+                        "0": {
+                          "name": "noop",
+                          "category": "VM overhead"
+                        },
+                        "1": {
+                          "name": "set_storage",
+                          "category": "Storage"
+                        },
+                        "10": {
+                          "name": "call_data_size",
+                          "category": "Calldata / Returndata"
+                        },
+                        "11": {
+                          "name": "call_data_copy",
+                          "category": "Calldata / Returndata"
+                        },
+                        "12": {
+                          "name": "call_data_load",
+                          "category": "Calldata / Returndata"
+                        },
+                        "13": {
+                          "name": "seal_return",
+                          "category": "Returns"
+                        },
+                        "14": {
+                          "name": "caller",
+                          "category": "Context"
+                        },
+                        "15": {
+                          "name": "origin",
+                          "category": "Context"
+                        },
+                        "16": {
+                          "name": "code_hash",
+                          "category": "Code"
+                        },
+                        "17": {
+                          "name": "code_size",
+                          "category": "Code"
+                        },
+                        "18": {
+                          "name": "address",
+                          "category": "Context"
+                        },
+                        "19": {
+                          "name": "get_immutable_data",
+                          "category": "Immutables"
+                        },
+                        "2": {
+                          "name": "set_storage_or_clear",
+                          "category": "Storage"
+                        },
+                        "20": {
+                          "name": "set_immutable_data",
+                          "category": "Immutables"
+                        },
+                        "21": {
+                          "name": "balance",
+                          "category": "Context"
+                        },
+                        "22": {
+                          "name": "balance_of",
+                          "category": "Context"
+                        },
+                        "23": {
+                          "name": "chain_id",
+                          "category": "Context"
+                        },
+                        "24": {
+                          "name": "gas_limit",
+                          "category": "Context"
+                        },
+                        "25": {
+                          "name": "value_transferred",
+                          "category": "Context"
+                        },
+                        "26": {
+                          "name": "gas_price",
+                          "category": "Context"
+                        },
+                        "27": {
+                          "name": "base_fee",
+                          "category": "Context"
+                        },
+                        "28": {
+                          "name": "now",
+                          "category": "Context"
+                        },
+                        "29": {
+                          "name": "deposit_event",
+                          "category": "Logs"
+                        },
+                        "3": {
+                          "name": "get_storage",
+                          "category": "Storage"
+                        },
+                        "30": {
+                          "name": "block_number",
+                          "category": "Context"
+                        },
+                        "31": {
+                          "name": "block_hash",
+                          "category": "Context"
+                        },
+                        "32": {
+                          "name": "block_author",
+                          "category": "Context"
+                        },
+                        "33": {
+                          "name": "hash_keccak_256",
+                          "category": "Crypto"
+                        },
+                        "34": {
+                          "name": "return_data_size",
+                          "category": "Calldata / Returndata"
+                        },
+                        "35": {
+                          "name": "return_data_copy",
+                          "category": "Calldata / Returndata"
+                        },
+                        "36": {
+                          "name": "ref_time_left",
+                          "category": "VM overhead"
+                        },
+                        "37": {
+                          "name": "consume_all_gas",
+                          "category": "Returns"
+                        },
+                        "38": {
+                          "name": "ecdsa_to_eth_address",
+                          "category": "Crypto"
+                        },
+                        "39": {
+                          "name": "sr25519_verify",
+                          "category": "Crypto"
+                        },
+                        "4": {
+                          "name": "get_storage_or_zero",
+                          "category": "Storage"
+                        },
+                        "40": {
+                          "name": "terminate",
+                          "category": "Returns"
+                        },
+                        "41": {
+                          "name": "pvm_fuel",
+                          "category": "VM overhead"
+                        },
+                        "5": {
+                          "name": "call",
+                          "category": "Calls"
+                        },
+                        "6": {
+                          "name": "call_evm",
+                          "category": "Calls"
+                        },
+                        "7": {
+                          "name": "delegate_call",
+                          "category": "Calls"
+                        },
+                        "8": {
+                          "name": "delegate_call_evm",
+                          "category": "Calls"
+                        },
+                        "9": {
+                          "name": "instantiate",
+                          "category": "Calls"
+                        }
+                      },
+                      "category_order": [
+                        "Storage",
+                        "Calls",
+                        "Returns",
+                        "Memory",
+                        "Stack",
+                        "Arithmetic & Logic",
+                        "Control flow",
+                        "Context",
+                        "Calldata / Returndata",
+                        "Code",
+                        "Logs",
+                        "Crypto",
+                        "Immutables",
+                        "VM overhead",
+                        "Other"
+                      ]
+                    }
+                  }
+                }
+              },
+              "compiled_contracts": {
+                "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/@automata-network/on-chain-pccs/bases/DaoBase.sol": {
+                  "DaoBase": {
+                    "contract_size": {
+                      "zombienet-revm-solc": 0
+                    }
+                  }
+                },
+                "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/@automata-network/on-chain-pccs/bases/PcsDao.sol": {
+                  "PcsDao": {
+                    "contract_size": {
+                      "zombienet-revm-solc": 0
+                    }
+                  }
+                },
+                "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/@automata-network/on-chain-pccs/bases/SigVerifyBase.sol": {
+                  "IX509": {
+                    "contract_size": {
+                      "zombienet-revm-solc": 0
+                    }
+                  },
+                  "SigVerifyBase": {
+                    "contract_size": {
+                      "zombienet-revm-solc": 0
+                    }
+                  }
+                },
+                "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/@automata-network/on-chain-pccs/helpers/EnclaveIdentityHelper.sol": {
+                  "EnclaveIdentityHelper": {
+                    "contract_size": {
+                      "zombienet-revm-solc": 9338
+                    }
+                  }
+                },
+                "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/@automata-network/on-chain-pccs/helpers/FmspcTcbHelper.sol": {
+                  "FmspcTcbHelper": {
+                    "contract_size": {
+                      "zombienet-revm-solc": 16346
+                    }
+                  }
+                },
+                "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/@automata-network/on-chain-pccs/helpers/PCKHelper.sol": {
+                  "PCKHelper": {
+                    "contract_size": {
+                      "zombienet-revm-solc": 9958
+                    }
+                  }
+                },
+                "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/@automata-network/on-chain-pccs/helpers/X509CRLHelper.sol": {
+                  "X509CRLHelper": {
+                    "contract_size": {
+                      "zombienet-revm-solc": 7760
+                    }
+                  }
+                },
+                "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/@automata-network/on-chain-pccs/helpers/X509Helper.sol": {
+                  "X509Helper": {
+                    "contract_size": {
+                      "zombienet-revm-solc": 8167
+                    }
+                  }
+                },
+                "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/@automata-network/on-chain-pccs/interfaces/IDaoAttestationResolver.sol": {
+                  "IDaoAttestationResolver": {
+                    "contract_size": {
+                      "zombienet-revm-solc": 0
+                    }
+                  }
+                },
+                "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/@automata-network/on-chain-pccs/utils/Asn1Decode.sol": {
+                  "Asn1Decode": {
+                    "contract_size": {
+                      "zombienet-revm-solc": 85
+                    }
+                  },
+                  "NodePtr": {
+                    "contract_size": {
+                      "zombienet-revm-solc": 85
+                    }
+                  }
+                },
+                "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/@automata-network/on-chain-pccs/utils/BytesUtils.sol": {
+                  "BytesUtils": {
+                    "contract_size": {
+                      "zombienet-revm-solc": 85
+                    }
+                  }
+                },
+                "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/@automata-network/on-chain-pccs/utils/DateTimeUtils.sol": {
+                  "DateTimeUtils": {
+                    "contract_size": {
+                      "zombienet-revm-solc": 85
+                    }
+                  }
+                },
+                "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/@automata-network/on-chain-pccs/utils/P256Verifier.sol": {
+                  "P256Verifier": {
+                    "contract_size": {
+                      "zombienet-revm-solc": 0
+                    }
+                  }
+                },
+                "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/@openzeppelin/contracts/utils/math/SafeCast.sol": {
+                  "SafeCast": {
+                    "contract_size": {
+                      "zombienet-revm-solc": 85
+                    }
+                  }
+                },
+                "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/@sp1-contracts/ISP1Verifier.sol": {
+                  "ISP1Verifier": {
+                    "contract_size": {
+                      "zombienet-revm-solc": 0
+                    }
+                  },
+                  "ISP1VerifierWithHash": {
+                    "contract_size": {
+                      "zombienet-revm-solc": 0
+                    }
+                  }
+                },
+                "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/dcap-attestation/AttestationEntrypointBase.sol": {
+                  "AttestationEntrypointBase": {
+                    "contract_size": {
+                      "zombienet-revm-solc": 0
+                    }
+                  }
+                },
+                "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/dcap-attestation/AutomataDcapAttestationFee.sol": {
+                  "AutomataDcapAttestationFee": {
+                    "contract_size": {
+                      "zombienet-revm-solc": 4385
+                    }
+                  }
+                },
+                "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/dcap-attestation/bases/EnclaveIdBase.sol": {
+                  "EnclaveIdBase": {
+                    "contract_size": {
+                      "zombienet-revm-solc": 0
+                    }
+                  }
+                },
+                "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/dcap-attestation/bases/FeeManagerBase.sol": {
+                  "FeeManagerBase": {
+                    "contract_size": {
+                      "zombienet-revm-solc": 0
+                    }
+                  }
+                },
+                "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/dcap-attestation/bases/QuoteVerifierBase.sol": {
+                  "QuoteVerifierBase": {
+                    "contract_size": {
+                      "zombienet-revm-solc": 0
+                    }
+                  }
+                },
+                "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/dcap-attestation/bases/TDXModuleBase.sol": {
+                  "TDXModuleBase": {
+                    "contract_size": {
+                      "zombienet-revm-solc": 0
+                    }
+                  }
+                },
+                "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/dcap-attestation/bases/X509ChainBase.sol": {
+                  "X509ChainBase": {
+                    "contract_size": {
+                      "zombienet-revm-solc": 0
+                    }
+                  }
+                },
+                "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/dcap-attestation/bases/tcb/TCBInfoV2Base.sol": {
+                  "TCBInfoV2Base": {
+                    "contract_size": {
+                      "zombienet-revm-solc": 0
+                    }
+                  }
+                },
+                "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/dcap-attestation/bases/tcb/TCBInfoV3Base.sol": {
+                  "TCBInfoV3Base": {
+                    "contract_size": {
+                      "zombienet-revm-solc": 0
+                    }
+                  }
+                },
+                "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/dcap-attestation/interfaces/IPCCSRouter.sol": {
+                  "IPCCSRouter": {
+                    "contract_size": {
+                      "zombienet-revm-solc": 0
+                    }
+                  }
+                },
+                "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/dcap-attestation/interfaces/IQuoteVerifier.sol": {
+                  "IQuoteVerifier": {
+                    "contract_size": {
+                      "zombienet-revm-solc": 0
+                    }
+                  }
+                },
+                "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/dcap-attestation/utils/BELE.sol": {
+                  "BELE": {
+                    "contract_size": {
+                      "zombienet-revm-solc": 85
+                    }
+                  }
+                },
+                "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/dcap-attestation/utils/BytesUtils.sol": {
+                  "BytesUtils": {
+                    "contract_size": {
+                      "zombienet-revm-solc": 85
+                    }
+                  }
+                },
+                "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/dcap-attestation/utils/P256Verifier.sol": {
+                  "P256Verifier": {
+                    "contract_size": {
+                      "zombienet-revm-solc": 0
+                    }
+                  }
+                },
+                "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/dcap-attestation/verifiers/V4QuoteVerifier.sol": {
+                  "V4QuoteVerifier": {
+                    "contract_size": {
+                      "zombienet-revm-solc": 23078
+                    }
+                  }
+                },
+                "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/dcap-attestation/verifiers/V5QuoteVerifier.sol": {
+                  "V5QuoteVerifier": {
+                    "contract_size": {
+                      "zombienet-revm-solc": 24188
+                    }
+                  }
+                },
+                "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/forge-std/console.sol": {
+                  "console": {
+                    "contract_size": {
+                      "zombienet-revm-solc": 85
+                    }
+                  }
+                },
+                "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/harness/DaimoP256Verifier.sol": {
+                  "DaimoP256Verifier": {
+                    "contract_size": {
+                      "zombienet-revm-solc": 3673
+                    }
+                  }
+                },
+                "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/harness/SnapshotPCCSRouter.sol": {
+                  "SnapshotPCCSRouter": {
+                    "contract_size": {
+                      "zombienet-revm-solc": 10591
+                    }
+                  }
+                },
+                "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/lib/automata-dcap-attestation/evm/contracts/AttestationEntrypointBase.sol": {
+                  "AttestationEntrypointBase": {
+                    "contract_size": {
+                      "zombienet-revm-solc": 0
+                    }
+                  }
+                },
+                "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/lib/automata-dcap-attestation/evm/contracts/AutomataDcapAttestationFee.sol": {
+                  "AutomataDcapAttestationFee": {
+                    "contract_size": {
+                      "zombienet-revm-solc": 4385
+                    }
+                  }
+                },
+                "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/lib/automata-dcap-attestation/evm/contracts/bases/EnclaveIdBase.sol": {
+                  "EnclaveIdBase": {
+                    "contract_size": {
+                      "zombienet-revm-solc": 0
+                    }
+                  }
+                },
+                "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/lib/automata-dcap-attestation/evm/contracts/bases/FeeManagerBase.sol": {
+                  "FeeManagerBase": {
+                    "contract_size": {
+                      "zombienet-revm-solc": 0
+                    }
+                  }
+                },
+                "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/lib/automata-dcap-attestation/evm/contracts/bases/QuoteVerifierBase.sol": {
+                  "QuoteVerifierBase": {
+                    "contract_size": {
+                      "zombienet-revm-solc": 0
+                    }
+                  }
+                },
+                "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/lib/automata-dcap-attestation/evm/contracts/bases/TDXModuleBase.sol": {
+                  "TDXModuleBase": {
+                    "contract_size": {
+                      "zombienet-revm-solc": 0
+                    }
+                  }
+                },
+                "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/lib/automata-dcap-attestation/evm/contracts/bases/X509ChainBase.sol": {
+                  "X509ChainBase": {
+                    "contract_size": {
+                      "zombienet-revm-solc": 0
+                    }
+                  }
+                },
+                "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/lib/automata-dcap-attestation/evm/contracts/bases/tcb/TCBInfoV2Base.sol": {
+                  "TCBInfoV2Base": {
+                    "contract_size": {
+                      "zombienet-revm-solc": 0
+                    }
+                  }
+                },
+                "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/lib/automata-dcap-attestation/evm/contracts/bases/tcb/TCBInfoV3Base.sol": {
+                  "TCBInfoV3Base": {
+                    "contract_size": {
+                      "zombienet-revm-solc": 0
+                    }
+                  }
+                },
+                "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/lib/automata-dcap-attestation/evm/contracts/interfaces/IPCCSRouter.sol": {
+                  "IPCCSRouter": {
+                    "contract_size": {
+                      "zombienet-revm-solc": 0
+                    }
+                  }
+                },
+                "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/lib/automata-dcap-attestation/evm/contracts/interfaces/IQuoteVerifier.sol": {
+                  "IQuoteVerifier": {
+                    "contract_size": {
+                      "zombienet-revm-solc": 0
+                    }
+                  }
+                },
+                "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/lib/automata-dcap-attestation/evm/contracts/utils/BELE.sol": {
+                  "BELE": {
+                    "contract_size": {
+                      "zombienet-revm-solc": 85
+                    }
+                  }
+                },
+                "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/lib/automata-dcap-attestation/evm/contracts/utils/BytesUtils.sol": {
+                  "BytesUtils": {
+                    "contract_size": {
+                      "zombienet-revm-solc": 85
+                    }
+                  }
+                },
+                "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/lib/automata-dcap-attestation/evm/contracts/utils/P256Verifier.sol": {
+                  "P256Verifier": {
+                    "contract_size": {
+                      "zombienet-revm-solc": 0
+                    }
+                  }
+                },
+                "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/lib/automata-dcap-attestation/evm/contracts/verifiers/V4QuoteVerifier.sol": {
+                  "V4QuoteVerifier": {
+                    "contract_size": {
+                      "zombienet-revm-solc": 23078
+                    }
+                  }
+                },
+                "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/lib/automata-dcap-attestation/evm/contracts/verifiers/V5QuoteVerifier.sol": {
+                  "V5QuoteVerifier": {
+                    "contract_size": {
+                      "zombienet-revm-solc": 24188
+                    }
+                  }
+                },
+                "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/lib/automata-dcap-attestation/evm/lib/automata-on-chain-pccs/src/bases/DaoBase.sol": {
+                  "DaoBase": {
+                    "contract_size": {
+                      "zombienet-revm-solc": 0
+                    }
+                  }
+                },
+                "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/lib/automata-dcap-attestation/evm/lib/automata-on-chain-pccs/src/bases/PcsDao.sol": {
+                  "PcsDao": {
+                    "contract_size": {
+                      "zombienet-revm-solc": 0
+                    }
+                  }
+                },
+                "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/lib/automata-dcap-attestation/evm/lib/automata-on-chain-pccs/src/bases/SigVerifyBase.sol": {
+                  "IX509": {
+                    "contract_size": {
+                      "zombienet-revm-solc": 0
+                    }
+                  },
+                  "SigVerifyBase": {
+                    "contract_size": {
+                      "zombienet-revm-solc": 0
+                    }
+                  }
+                },
+                "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/lib/automata-dcap-attestation/evm/lib/automata-on-chain-pccs/src/helpers/EnclaveIdentityHelper.sol": {
+                  "EnclaveIdentityHelper": {
+                    "contract_size": {
+                      "zombienet-revm-solc": 9338
+                    }
+                  }
+                },
+                "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/lib/automata-dcap-attestation/evm/lib/automata-on-chain-pccs/src/helpers/FmspcTcbHelper.sol": {
+                  "FmspcTcbHelper": {
+                    "contract_size": {
+                      "zombienet-revm-solc": 16346
+                    }
+                  }
+                },
+                "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/lib/automata-dcap-attestation/evm/lib/automata-on-chain-pccs/src/helpers/PCKHelper.sol": {
+                  "PCKHelper": {
+                    "contract_size": {
+                      "zombienet-revm-solc": 9958
+                    }
+                  }
+                },
+                "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/lib/automata-dcap-attestation/evm/lib/automata-on-chain-pccs/src/helpers/X509CRLHelper.sol": {
+                  "X509CRLHelper": {
+                    "contract_size": {
+                      "zombienet-revm-solc": 7760
+                    }
+                  }
+                },
+                "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/lib/automata-dcap-attestation/evm/lib/automata-on-chain-pccs/src/helpers/X509Helper.sol": {
+                  "X509Helper": {
+                    "contract_size": {
+                      "zombienet-revm-solc": 8167
+                    }
+                  }
+                },
+                "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/lib/automata-dcap-attestation/evm/lib/automata-on-chain-pccs/src/interfaces/IDaoAttestationResolver.sol": {
+                  "IDaoAttestationResolver": {
+                    "contract_size": {
+                      "zombienet-revm-solc": 0
+                    }
+                  }
+                },
+                "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/lib/automata-dcap-attestation/evm/lib/automata-on-chain-pccs/src/utils/Asn1Decode.sol": {
+                  "Asn1Decode": {
+                    "contract_size": {
+                      "zombienet-revm-solc": 85
+                    }
+                  },
+                  "NodePtr": {
+                    "contract_size": {
+                      "zombienet-revm-solc": 85
+                    }
+                  }
+                },
+                "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/lib/automata-dcap-attestation/evm/lib/automata-on-chain-pccs/src/utils/BytesUtils.sol": {
+                  "BytesUtils": {
+                    "contract_size": {
+                      "zombienet-revm-solc": 85
+                    }
+                  }
+                },
+                "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/lib/automata-dcap-attestation/evm/lib/automata-on-chain-pccs/src/utils/DateTimeUtils.sol": {
+                  "DateTimeUtils": {
+                    "contract_size": {
+                      "zombienet-revm-solc": 85
+                    }
+                  }
+                },
+                "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/lib/automata-dcap-attestation/evm/lib/automata-on-chain-pccs/src/utils/P256Verifier.sol": {
+                  "P256Verifier": {
+                    "contract_size": {
+                      "zombienet-revm-solc": 0
+                    }
+                  }
+                },
+                "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/lib/automata-dcap-attestation/evm/lib/risc0-ethereum/contracts/src/IRiscZeroVerifier.sol": {
+                  "IRiscZeroVerifier": {
+                    "contract_size": {
+                      "zombienet-revm-solc": 0
+                    }
+                  },
+                  "OutputLib": {
+                    "contract_size": {
+                      "zombienet-revm-solc": 85
+                    }
+                  },
+                  "ReceiptClaimLib": {
+                    "contract_size": {
+                      "zombienet-revm-solc": 85
+                    }
+                  },
+                  "SystemStateLib": {
+                    "contract_size": {
+                      "zombienet-revm-solc": 85
+                    }
+                  }
+                },
+                "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/lib/automata-dcap-attestation/evm/lib/risc0-ethereum/lib/openzeppelin-contracts/contracts/utils/math/SafeCast.sol": {
+                  "SafeCast": {
+                    "contract_size": {
+                      "zombienet-revm-solc": 85
+                    }
+                  }
+                },
+                "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/lib/automata-dcap-attestation/evm/lib/sp1-contracts/contracts/src/ISP1Verifier.sol": {
+                  "ISP1Verifier": {
+                    "contract_size": {
+                      "zombienet-revm-solc": 0
+                    }
+                  },
+                  "ISP1VerifierWithHash": {
+                    "contract_size": {
+                      "zombienet-revm-solc": 0
+                    }
+                  }
+                },
+                "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/lib/forge-std/src/console.sol": {
+                  "console": {
+                    "contract_size": {
+                      "zombienet-revm-solc": 85
+                    }
+                  }
+                },
+                "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/lib/solady/src/auth/Ownable.sol": {
+                  "Ownable": {
+                    "contract_size": {
+                      "zombienet-revm-solc": 0
+                    }
+                  }
+                },
+                "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/lib/solady/src/utils/Base64.sol": {
+                  "Base64": {
+                    "contract_size": {
+                      "zombienet-revm-solc": 85
+                    }
+                  }
+                },
+                "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/lib/solady/src/utils/DateTimeLib.sol": {
+                  "DateTimeLib": {
+                    "contract_size": {
+                      "zombienet-revm-solc": 85
+                    }
+                  }
+                },
+                "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/lib/solady/src/utils/JSONParserLib.sol": {
+                  "JSONParserLib": {
+                    "contract_size": {
+                      "zombienet-revm-solc": 85
+                    }
+                  }
+                },
+                "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/lib/solady/src/utils/LibBytes.sol": {
+                  "LibBytes": {
+                    "contract_size": {
+                      "zombienet-revm-solc": 85
+                    }
+                  }
+                },
+                "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/lib/solady/src/utils/LibString.sol": {
+                  "LibString": {
+                    "contract_size": {
+                      "zombienet-revm-solc": 85
+                    }
+                  }
+                },
+                "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/risc0/IRiscZeroVerifier.sol": {
+                  "IRiscZeroVerifier": {
+                    "contract_size": {
+                      "zombienet-revm-solc": 0
+                    }
+                  },
+                  "OutputLib": {
+                    "contract_size": {
+                      "zombienet-revm-solc": 85
+                    }
+                  },
+                  "ReceiptClaimLib": {
+                    "contract_size": {
+                      "zombienet-revm-solc": 85
+                    }
+                  },
+                  "SystemStateLib": {
+                    "contract_size": {
+                      "zombienet-revm-solc": 85
+                    }
+                  }
+                },
+                "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/solady/auth/Ownable.sol": {
+                  "Ownable": {
+                    "contract_size": {
+                      "zombienet-revm-solc": 0
+                    }
+                  }
+                },
+                "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/solady/utils/Base64.sol": {
+                  "Base64": {
+                    "contract_size": {
+                      "zombienet-revm-solc": 85
+                    }
+                  }
+                },
+                "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/solady/utils/DateTimeLib.sol": {
+                  "DateTimeLib": {
+                    "contract_size": {
+                      "zombienet-revm-solc": 85
+                    }
+                  }
+                },
+                "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/solady/utils/JSONParserLib.sol": {
+                  "JSONParserLib": {
+                    "contract_size": {
+                      "zombienet-revm-solc": 85
+                    }
+                  }
+                },
+                "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/solady/utils/LibBytes.sol": {
+                  "LibBytes": {
+                    "contract_size": {
+                      "zombienet-revm-solc": 85
+                    }
+                  }
+                },
+                "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/solady/utils/LibString.sol": {
+                  "LibString": {
+                    "contract_size": {
+                      "zombienet-revm-solc": 85
+                    }
+                  }
+                },
+                "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/src/DcapAttestationRouter.sol": {
+                  "DcapAttestationRouter": {
+                    "contract_size": {
+                      "zombienet-revm-solc": 4582
+                    }
+                  }
+                },
+                "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/src/MeasurementDao.sol": {
+                  "MeasurementDao": {
+                    "contract_size": {
+                      "zombienet-revm-solc": 6044
+                    }
+                  }
+                },
+                "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/src/TEECacheVerifier.sol": {
+                  "TEECacheVerifier": {
+                    "contract_size": {
+                      "zombienet-revm-solc": 6337
+                    }
+                  }
+                },
+                "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/src/TEEVerifierProxy.sol": {
+                  "TEEVerifierProxy": {
+                    "contract_size": {
+                      "zombienet-revm-solc": 1679
+                    }
+                  }
+                },
+                "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/tee-attestation/src/interfaces/ITeeRollupVerifier.sol": {
+                  "ITeeRollupVerifier": {
+                    "contract_size": {
+                      "zombienet-revm-solc": 0
+                    }
+                  }
+                }
+              },
+              "contract_addresses": {
+                "AutomataDcapAttestationFee": {
+                  "zombienet-revm-solc": [
+                    "0x6d411e0a54382ed43f02410ce1c7a7c122afa6e1"
+                  ]
+                },
+                "DaimoP256Verifier": {
+                  "zombienet-revm-solc": [
+                    "0xf2e246bb76df876cef8b38ae84130f4f55de395b"
+                  ]
+                },
+                "DcapAttestationRouter": {
+                  "zombienet-revm-solc": [
+                    "0x66a15edcc3b50a663e72f1457ffd49b9ae284ddc"
+                  ]
+                },
+                "MeasurementDao": {
+                  "zombienet-revm-solc": [
+                    "0xa3183498b579bd228aa2b62101c40cc1da978f24"
+                  ]
+                },
+                "PCKHelper": {
+                  "zombienet-revm-solc": [
+                    "0x2946259e0334f33a064106302415ad3391bed384"
+                  ]
+                },
+                "SnapshotPCCSRouter": {
+                  "zombienet-revm-solc": [
+                    "0x51a240271ab8ab9f9a21c82d9a85396b704e164d"
+                  ]
+                },
+                "TEECacheVerifier": {
+                  "zombienet-revm-solc": [
+                    "0x63f58053c9499e1104a6f6c6d2581d6d83067eeb"
+                  ]
+                },
+                "TEEVerifierProxy": {
+                  "zombienet-revm-solc": [
+                    "0xd30c8839c1145609e564b986f667b273ddcb8496"
+                  ]
+                },
+                "V5QuoteVerifier": {
+                  "zombienet-revm-solc": [
+                    "0xb9816fc57977d5a786e654c7cf76767be63b966e"
+                  ]
+                },
+                "X509CRLHelper": {
+                  "zombienet-revm-solc": [
+                    "0xde09e74d4888bc4e65f589e8c13bce9f71ddf4c7"
+                  ]
+                }
+              },
+              "mined_block_information": {},
+              "steps": {
+                "17.1": {
+                  "transactions": {}
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
