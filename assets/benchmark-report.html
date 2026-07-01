@@ -3364,7 +3364,15 @@ function renderStepOpcodeBreakdownChart(chartId, txProfiles, topN = 8) {
     return;
   }
 
-  const xData = rollups.map(r => r.step_path);
+  // Horizontal orientation: one row per step. Size the container to the row
+  // count so each row stays legible instead of being crushed into a fixed
+  // height (the CSS height is only a pre-init fallback).
+  const el = document.getElementById(chartId);
+  if (el) {
+    el.style.height = `${Math.max(200, rollups.length * 26 + 96)}px`;
+  }
+
+  const catData = rollups.map(r => r.step_path);
   const series = topOps.map((opKey, i) => ({
     name: opKeyToName(opKey),
     type: 'bar',
@@ -3396,18 +3404,19 @@ function renderStepOpcodeBreakdownChart(chartId, txProfiles, topN = 8) {
       itemHeight: 8,
     },
     xAxis: {
-      type: 'category',
-      data: xData,
-      axisLabel: { rotate: 45, fontSize: 9, color: '#6b6b6b' },
-      axisTick: { alignWithLabel: true },
-      axisLine: { lineStyle: { color: '#d0d0d0' } },
-    },
-    yAxis: {
       type: 'value',
       name: 'ref_time',
       nameTextStyle: { fontSize: 10, color: '#6b6b6b' },
       axisLabel: { fontSize: 9, color: '#6b6b6b', formatter: fmtOpcodeRefTime },
       splitLine: { lineStyle: { color: '#f0f0f0' } },
+    },
+    yAxis: {
+      type: 'category',
+      inverse: true,
+      data: catData,
+      axisLabel: { fontSize: 9, color: '#6b6b6b' },
+      axisTick: { alignWithLabel: true },
+      axisLine: { lineStyle: { color: '#d0d0d0' } },
     },
     tooltip: {
       trigger: 'axis',
@@ -3419,7 +3428,7 @@ function renderStepOpcodeBreakdownChart(chartId, txProfiles, topN = 8) {
       formatter: (params) => {
         if (!params || params.length === 0) return '';
         const idx = params[0].dataIndex;
-        const stepPath = xData[idx];
+        const stepPath = catData[idx];
         const total = params.reduce((s, p) => s + Number(p.value || 0), 0);
         let html = `<b>step ${escapeHtml(stepPath)}</b>` +
                    `<br/>total: ${fmtOpcodeRefTime(total)}`;
