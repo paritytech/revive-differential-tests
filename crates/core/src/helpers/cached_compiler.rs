@@ -44,6 +44,7 @@ impl<'a> CachedCompiler<'a> {
         let cache_key = CacheKey {
             compiler_identifier,
             compiler_version: compiler.version().clone(),
+            compiler_frontend_version: compiler.frontend_version().clone(),
             compiler_fingerprint: compiler.fingerprint().to_owned(),
             metadata_file_path,
             compiler_mode: mode.clone(),
@@ -70,6 +71,7 @@ impl<'a> CachedCompiler<'a> {
                 "Running compilation for the cache key",
                 cache_key.compiler_identifier = %cache_key.compiler_identifier,
                 cache_key.compiler_version = %cache_key.compiler_version,
+                cache_key.compiler_frontend_version = %cache_key.compiler_frontend_version,
                 cache_key.compiler_fingerprint = %cache_key.compiler_fingerprint,
                 cache_key.metadata_file_path = %cache_key.metadata_file_path.display(),
                 cache_key.compiler_mode = %cache_key.compiler_mode,
@@ -119,6 +121,7 @@ impl<'a> CachedCompiler<'a> {
                         exec_reporter
                             .report_pre_link_contracts_compilation_succeeded_event(
                                 compiler.version().clone(),
+                                compiler.frontend_version().clone(),
                                 compiler.path(),
                                 true,
                                 None,
@@ -210,6 +213,7 @@ async fn compile_contracts(
             reporter
                 .report_post_link_contracts_compilation_succeeded_event(
                     compiler.version().clone(),
+                    compiler.frontend_version().clone(),
                     compiler.path(),
                     false,
                     input,
@@ -224,6 +228,7 @@ async fn compile_contracts(
             exec_reporter
                 .report_pre_link_contracts_compilation_succeeded_event(
                     compiler.version().clone(),
+                    compiler.frontend_version().clone(),
                     compiler.path(),
                     false,
                     input,
@@ -235,6 +240,7 @@ async fn compile_contracts(
             reporter
                 .report_post_link_contracts_compilation_failed_event(
                     compiler.version().clone(),
+                    compiler.frontend_version().clone(),
                     compiler.path().to_path_buf(),
                     input,
                     format!("{err:#}"),
@@ -248,6 +254,7 @@ async fn compile_contracts(
             exec_reporter
                 .report_pre_link_contracts_compilation_failed_event(
                     compiler.version().clone(),
+                    compiler.frontend_version().clone(),
                     compiler.path().to_path_buf(),
                     input,
                     format!("{err:#}"),
@@ -315,6 +322,9 @@ struct CacheKey<'a> {
     /// The version of the compiler that was used to compile the artifacts. Retained for
     /// human-readable logging; correctness of the cache is determined by `compiler_fingerprint`.
     compiler_version: Version,
+
+    /// The version of the Solidity frontend used by the compiler.
+    compiler_frontend_version: Version,
 
     /// Hex-encoded sha256 of the compiler binary (plus any compile-time settings baked into its
     /// output, e.g. PVM heap/stack sizes for resolc). Distinguishes binaries with the same

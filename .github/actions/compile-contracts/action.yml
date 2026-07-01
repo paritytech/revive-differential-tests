@@ -18,7 +18,7 @@ inputs:
     required: false
     default: ""
   modes:
-    description: "Comma-separated compiler modes to compile with (e.g. 'Y M0 S+, Y M3 S+, Y Mz S+'). If empty, retester's default is used."
+    description: "Comma-separated compiler modes to compile with (e.g. 'Y M0 S+, Y M3 S+, NY Mz S+'). If empty, retester's default is used."
     required: false
     default: ""
   upload-artifact-name:

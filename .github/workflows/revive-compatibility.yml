@@ -124,7 +124,8 @@ jobs:
     needs: resolc-nightly
     runs-on: ubuntu-24.04
     outputs:
-      modes: ${{ steps.parse.outputs.modes }}
+      compile-modes: ${{ steps.parse.outputs.compile-modes }}
+      e2e-allowed-modes: ${{ steps.parse.outputs.e2e-allowed-modes }}
       solc-version: ${{ steps.parse.outputs.solc-version }}
       polkadot-sdk-ref: ${{ steps.parse.outputs.polkadot-sdk-ref }}
       concurrency-tasks: ${{ steps.parse.outputs.concurrency-tasks }}
@@ -142,8 +143,10 @@ jobs:
         id: parse
         run: |
           WORKFLOW="revive/.github/workflows/differential-tests.yml"
-          # For compatibility, using only two modes is sufficient.
-          MODES="Y M0 S+, Y Mz S+"
+          # Exact modes used for `retester compile`. (For compatibility, using only two modes is sufficient.)
+          COMPILE_MODES="Y M0 S+, NY Mz S+"
+          # Allowed modes used for `retester test`.
+          E2E_ALLOWED_MODES="Y, NY Mz S+, NY Mz S-"
           SOLC_VERSION=$(yq '.env.SOLC_VERSION' "$WORKFLOW")
           POLKADOT_SDK_REF=$(yq '.jobs["run-e2e-tests"].env.POLKADOT_SDK_REF' "$WORKFLOW")
 
@@ -159,10 +162,11 @@ jobs:
               echo "::error::Could not parse '$label' from '$WORKFLOW'. Its structure may have changed, update this compatibility workflow."
               exit 1
             fi
-            echo "$label=$value" >> "$GITHUB_OUTPUT"
+            echo "$label=$value" | tee -a "$GITHUB_OUTPUT"
           }
 
-          validate modes "$MODES"
+          validate compile-modes "$COMPILE_MODES"
+          validate e2e-allowed-modes "$E2E_ALLOWED_MODES"
           validate solc-version "$SOLC_VERSION"
           validate polkadot-sdk-ref "$POLKADOT_SDK_REF"
           validate concurrency-tasks "$CONCURRENCY"
@@ -216,7 +220,7 @@ jobs:
           revive-differential-tests-path: rdt
           resolc-path: resolc-bin/resolc-${{ matrix.target }}${{ runner.os == 'Windows' && '.exe' || '' }}
           solc-version: ${{ needs.resolve-config.outputs.solc-version }}
-          modes: ${{ needs.resolve-config.outputs.modes }}
+          modes: ${{ needs.resolve-config.outputs.compile-modes }}
           upload-artifact-name: compilation-report-${{ matrix.platform }}
 
       - name: Export bytecode hashes
@@ -245,7 +249,7 @@ jobs:
           hash-artifact-names: >-
             hashes-linux-x86_64,
             hashes-windows-x86_64
-          modes: ${{ needs.resolve-config.outputs.modes }}
+          modes: ${{ needs.resolve-config.outputs.compile-modes }}
           upload-artifact-name: hash-comparison-result
 
   run-e2e-tests:
@@ -306,7 +310,7 @@ jobs:
       - name: Set up Rust toolchain
         uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
-          toolchain: "1.91.0"
+          toolchain: ${{ needs.resolve-config.outputs.rust-toolchain }}
           target: "wasm32-unknown-unknown"
           components: "rust-src"
           rustflags: ""
@@ -320,5 +324,7 @@ jobs:
           platform: revive-dev-node-polkavm-resolc
           resolc-path: resolc-bin/resolc-x86_64-unknown-linux-musl
           solc-version: ${{ needs.resolve-config.outputs.solc-version }}
+          allowed-modes: ${{ needs.resolve-config.outputs.e2e-allowed-modes }}
+          use-compilation-caches: false
           expectations-file-path: revive/.github/assets/revive-dev-node-polkavm-resolc.json
           concurrency-number-of-concurrent-tasks: ${{ needs.resolve-config.outputs.concurrency-tasks }}

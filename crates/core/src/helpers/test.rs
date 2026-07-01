@@ -6,6 +6,7 @@ pub async fn create_test_definitions_stream<'a>(
     context: &Context,
     corpus: &'a Corpus,
     platforms_and_nodes: &'a BTreeMap<PlatformIdentifier, (&dyn Platform, NodePool)>,
+    allowed_modes: &ModeAllowList,
     test_case_ignore_configuration: &TestCaseIgnoreResolvedConfiguration,
     reporter: Reporter,
 ) -> impl Stream<Item = TestDefinition<'a>> {
@@ -42,7 +43,12 @@ pub async fn create_test_definitions_stream<'a>(
                 reporter
                     .report_test_case_discovery_event()
                     .expect("Can't fail");
-            }),
+            })
+            // Collect eagerly so every discovery `.inspect` above runs before any ignore
+            // below. `stream::iter` is lazy, so otherwise discovery and ignore interleave per
+            // mode, `remaining_cases[file][mode]` empties after each ignored case, and the
+            // file's completion event re-fires once per case, over-counting ignores.
+            .collect::<Vec<_>>(),
     )
     // Creating the Test Definition objects from all of the various objects we have and creating
     // their required dependencies (e.g., compiler).
@@ -51,17 +57,27 @@ pub async fn create_test_definitions_stream<'a>(
             let mut platforms = BTreeMap::new();
             for (platform, node_pool) in platforms_and_nodes.values() {
                 let node = node_pool.round_robbin();
-                let compiler = platform
+                let compiler = match platform
                     .new_compiler(context.clone(), mode.solc_version.clone().map(Into::into))
                     .await
-                    .inspect_err(|err| {
+                {
+                    Ok(compiler) => compiler,
+                    Err(err) => {
                         error!(
                             ?err,
                             platform_identifier = %platform.platform_identifier(),
                             "Failed to instantiate the compiler"
-                        )
-                    })
-                    .ok()?;
+                        );
+                        // Without a terminal status this case never leaves `remaining_cases`,
+                        // so the file's completion event never fires and it drops from the run summary.
+                        reporter
+                            .report_test_failed_event(format!(
+                                "Failed to instantiate the compiler: {err:#}"
+                            ))
+                            .expect("Can't fail");
+                        return None;
+                    }
+                };
 
                 reporter
                     .report_node_assigned_event(node.node_id(), platform.platform_identifier())
@@ -103,7 +119,7 @@ pub async fn create_test_definitions_stream<'a>(
     )
     // Filter out the test cases which are incompatible or that can't run in the current setup.
     .filter_map(move |test| async move {
-        match test.check_compatibility(test_case_ignore_configuration) {
+        match test.check_compatibility(allowed_modes, test_case_ignore_configuration) {
             Ok(()) => Some(test),
             Err((reason, additional_information)) => {
                 debug!(
@@ -228,6 +244,7 @@ impl<'a> TestDefinition<'a> {
     /// Checks if this test can be ran with the current configuration.
     pub fn check_compatibility(
         &self,
+        allowed_modes: &ModeAllowList,
         test_case_ignore_configuration: &TestCaseIgnoreResolvedConfiguration,
     ) -> TestCheckFunctionResult {
         self.check_metadata_file_ignored()?;
@@ -235,6 +252,10 @@ impl<'a> TestDefinition<'a> {
         self.check_target_compatibility()?;
         self.check_evm_version_compatibility()?;
         self.check_compiler_compatibility()?;
+        // Keep the allowed modes check _after_ the compatibility checks so that
+        // reporting an incompatible mode takes priority, and _before_ the ignore
+        // configuration check so that reporting a forbidden mode takes priority.
+        self.check_allowed_modes(allowed_modes)?;
         self.check_ignore_configuration(test_case_ignore_configuration)?;
         Ok(())
     }
@@ -345,6 +366,21 @@ impl<'a> TestDefinition<'a> {
             Err((
                 "Compilers do not support this mode either for the provided platforms.",
                 error_map,
+            ))
+        }
+    }
+
+    /// Checks if the test's mode is allowed by the allow-list.
+    fn check_allowed_modes(&self, allowed_modes: &ModeAllowList) -> TestCheckFunctionResult {
+        if allowed_modes.allows(&self.mode) {
+            Ok(())
+        } else {
+            Err((
+                "Compiler mode is not allowed by the allow list, specified via `--allowed-mode`.",
+                indexmap! {
+                    "mode" => json!(self.mode.to_string()),
+                    "allowed_modes" => json!(allowed_modes.to_string())
+                },
             ))
         }
     }

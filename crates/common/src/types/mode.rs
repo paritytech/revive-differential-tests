@@ -4,8 +4,6 @@ use crate::internal_prelude::*;
 ///
 /// We obtain this by taking a [`ParsedMode`], which may be looser or more strict
 /// in its requirements, and then expanding it out into a list of [`Mode`]s.
-///
-/// Use [`ParsedMode::to_test_modes()`] to do this.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Mode {
     pub pipeline: ModePipeline,
@@ -85,6 +83,8 @@ impl Mode {
 pub enum ModePipeline {
     /// Compile Solidity code via Yul IR
     ViaYulIR,
+    /// Compile Solidity via newyork IR.
+    ViaNewYorkIR,
     /// Compile Solidity direct to assembly
     ViaEVMAssembly,
 }
@@ -93,13 +93,13 @@ impl FromStr for ModePipeline {
     type Err = anyhow::Error;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            // via Yul IR
             "Y" => Ok(ModePipeline::ViaYulIR),
+            "NY" => Ok(ModePipeline::ViaNewYorkIR),
             // Don't go via Yul IR
             "E" => Ok(ModePipeline::ViaEVMAssembly),
             // Anything else that we see isn't a mode at all
             _ => Err(anyhow::anyhow!(
-                "Unsupported pipeline '{s}': expected 'Y' or 'E'"
+                "Unsupported pipeline '{s}': expected 'Y', 'NY', or 'E'"
             )),
         }
     }
@@ -109,6 +109,7 @@ impl Display for ModePipeline {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             ModePipeline::ViaYulIR => f.write_str("Y"),
+            ModePipeline::ViaNewYorkIR => f.write_str("NY"),
             ModePipeline::ViaEVMAssembly => f.write_str("E"),
         }
     }
@@ -123,7 +124,12 @@ impl ModePipeline {
     /// An iterator over the available pipelines that we'd like to test,
     /// when an explicit pipeline was not specified.
     pub fn test_cases() -> impl Iterator<Item = ModePipeline> + Clone {
-        [ModePipeline::ViaYulIR, ModePipeline::ViaEVMAssembly].into_iter()
+        [
+            ModePipeline::ViaYulIR,
+            ModePipeline::ViaNewYorkIR,
+            ModePipeline::ViaEVMAssembly,
+        ]
+        .into_iter()
     }
 }
 
@@ -264,13 +270,12 @@ impl ModeOptimizerLevel {
 /// Mode strings can take the following form (in pseudo-regex):
 ///
 /// ```text
-/// [YEILV][+-]? (M[0123sz])? (S[+-])? <semver>?
+/// (NY|[YE])[+-]? (M[0123sz])? (S[+-])? <semver>?
 /// ```
 ///
 /// ## Components
 ///
-/// - `[YEILV]`: Pipeline — `Y` (via Yul IR) or `E` (via EVM Assembly). `I`, `L`, `V` are
-///   legacy aliases.
+/// - `NY|[YE]`: Pipeline — `Y` (via Yul IR), `NY` (via newyork IR), or `E` (via EVM Assembly).
 /// - `[+-]`: Solc optimizer shorthand — `+` (solc optimizer enabled) or `-` (solc optimizer
 ///   disabled). Expands across **all** LLVM optimizer levels (M0 through Mz).
 /// - `M[0123sz]`: LLVM optimizer level — `M0` (none), `M1` (light), `M2` (default),
@@ -288,6 +293,9 @@ impl ModeOptimizerLevel {
 /// | `Y+`      | `Y M0 S+`, `Y M1 S+`, `Y M2 S+`, `Y M3 S+`, `Y Ms S+`, `Y Mz S+` |
 /// | `Y-`      | `Y M0 S-`, `Y M1 S-`, `Y M2 S-`, `Y M3 S-`, `Y Ms S-`, `Y Mz S-` |
 /// | `Y`       | `Y+` ∪ `Y-` = all 12 Y modes |
+/// | `NY+`      | `NY M0 S+`, `NY M1 S+`, `NY M2 S+`, `NY M3 S+`, `NY Ms S+`, `NY Mz S+` |
+/// | `NY-`      | `NY M0 S-`, `NY M1 S-`, `NY M2 S-`, `NY M3 S-`, `NY Ms S-`, `NY Mz S-` |
+/// | `NY`       | `NY+` ∪ `NY-` = all 12 NY modes |
 /// | `E+`      | `E M0 S+`, `E M1 S+`, `E M2 S+`, `E M3 S+`, `E Ms S+`, `E Mz S+` |
 /// | `E-`      | `E M0 S-`, `E M1 S-`, `E M2 S-`, `E M3 S-`, `E Ms S-`, `E Mz S-` |
 /// | `E`       | `E+` ∪ `E-` = all 12 E modes |
@@ -319,7 +327,7 @@ impl FromStr for ParsedMode {
             Regex::new(
                 r"(?x)
                 ^
-                (?:(?P<pipeline>[YEILV])(?P<optimize_flag>[+-])?)? # Pipeline to use e.g. Y, E+, E-
+                (?:(?P<pipeline>NY|[YE])(?P<optimize_flag>[+-])?)? # Pipeline to use e.g. Y, NY, E+, E-
                 \s*
                 (?P<optimize_level>M[a-zA-Z0-9])?                  # Optimize level e.g. M0, Ms, Mz
                 \s*
@@ -439,7 +447,7 @@ impl ParsedMode {
     ///
     /// # Expansion rules
     ///
-    /// A mode string has four optional components: pipeline (`Y`/`E`), optimize flag
+    /// A mode string has four optional components: pipeline (`Y`/`NY`/`E`), optimize flag
     /// (`+`/`-`), LLVM optimizer level (`M0`..`M3`, `Ms`, `Mz`), and solc optimizer
     /// (`S+`/`S-`). Each omitted component expands to all of its possible values.
     ///
@@ -450,6 +458,8 @@ impl ParsedMode {
     ///
     /// - `Y+` → `Y M0 S+`, `Y M1 S+`, `Y M2 S+`, `Y M3 S+`, `Y Ms S+`, `Y Mz S+`
     /// - `Y-` → `Y M0 S-`, `Y M1 S-`, `Y M2 S-`, `Y M3 S-`, `Y Ms S-`, `Y Mz S-`
+    /// - `NY+` → `NY M0 S+`, `NY M1 S+`, `NY M2 S+`, `NY M3 S+`, `NY Ms S+`, `NY Mz S+`
+    /// - `NY-` → `NY M0 S-`, `NY M1 S-`, `NY M2 S-`, `NY M3 S-`, `NY Ms S-`, `NY Mz S-`
     /// - `E+` → `E M0 S+`, `E M1 S+`, `E M2 S+`, `E M3 S+`, `E Ms S+`, `E Mz S+`
     /// - `E-` → `E M0 S-`, `E M1 S-`, `E M2 S-`, `E M3 S-`, `E Ms S-`, `E Mz S-`
     ///
@@ -459,6 +469,7 @@ impl ParsedMode {
     /// (equivalent to the union of `+` and `-`):
     ///
     /// - `Y` → `Y+` ∪ `Y-` (12 modes)
+    /// - `NY` → `NY+` ∪ `NY-` (12 modes)
     /// - `E` → `E+` ∪ `E-` (12 modes)
     ///
     /// ## Explicit level and/or solc optimizer
@@ -534,6 +545,90 @@ impl ParsedMode {
     }
 }
 
+/// An allow-list over the fully-expanded compiler [`Mode`]s a run is permitted to execute.
+#[derive(Clone, Debug, Default)]
+pub struct ModeAllowList {
+    /// Allowed modes.
+    /// `None` is interpreted as unrestricted and allows all modes.
+    /// `Some` is interpreted as a subset of modes to allow.
+    allowed: Option<Vec<Mode>>,
+}
+
+impl ModeAllowList {
+    /// Builds an allow-list from parsed modes. An empty iterator yields an unrestricted (`None`) list.
+    pub fn from_parsed_modes<'a>(modes: impl IntoIterator<Item = &'a ParsedMode>) -> Self {
+        let modes: Vec<Mode> = ParsedMode::many_to_modes(modes.into_iter()).collect();
+
+        Self {
+            allowed: if modes.is_empty() { None } else { Some(modes) },
+        }
+    }
+
+    /// Checks whether the requested `mode` is allowed.
+    ///
+    /// When the allow-list is unrestricted (`None`) every mode is allowed. Otherwise, `mode` is
+    /// allowed iff its pipeline and optimizer settings match one of the modes in the allow-list.
+    /// Any solc version requirements included in the allow-list or a requested mode are ignored
+    /// when determining if a mode is allowed, but an explicit version requirement is still honored
+    /// when downloading the corresponding solc binary.
+    ///
+    /// ## Examples
+    ///
+    /// | allowed                  | requested `mode`  | `allows` |
+    /// |--------------------------|-------------------|----------|
+    /// | `None`                   | `Y M0 S-`         | `true`   |
+    /// | `[Y Mz S+, NY Mz S+]`    | `Y Mz S+`         | `true`   |
+    /// | `[Y Mz S+, NY Mz S+]`    | `NY Mz S+`        | `true`   |
+    /// | `[Y Mz S+, NY Mz S+]`    | `Y Mz S-`         | `false`  |
+    /// | `[Y Mz S+, NY Mz S+]`    | `E Mz S+`         | `false`  |
+    /// | `[Y Mz S+]`              | `Y Mz S+ >=0.8.1` | `true`   |
+    /// | `[Y Mz S+ >=0.8.1]`      | `Y Mz S+`         | `true`   |
+    pub fn allows(&self, mode: &Mode) -> bool {
+        match &self.allowed {
+            None => true,
+            Some(modes) => modes
+                .iter()
+                .any(|allowed_mode| Self::matches(mode, allowed_mode)),
+        }
+    }
+
+    /// Checks whether two modes are equivalent for allow-list purposes.
+    ///
+    /// Note that the `solc_version` requirement is ignored due to:
+    /// * It would compare version _ranges_ on the allowed mode versus the requested mode.
+    ///   This creates ambiguity in many scenarios:
+    ///   * If the allow-list is `Y Mz <0.8.1`, would `>=0.8.0` or `=0.8` be allowed?
+    ///   * If the allow-list is `Y Mz =0.8.1`, would an omitted version requirement be allowed?
+    /// * It usually does not change what runs.
+    ///   * For instance, `>=0.8.0`, `>=0.8.1`, and `>=0.8.9` resolve to the same solc binary.
+    ///     Thus, it could filter on a field that would not change the output.
+    /// * An explicit version requirement is still honored when the solc binary is downloaded.
+    fn matches(requested_mode: &Mode, allowed_mode: &Mode) -> bool {
+        // Use exhaustive destructure so that a new `Mode` field fails to compile here until it is handled.
+        let Mode {
+            pipeline: allowed_pipeline,
+            optimize_setting: allowed_optimize_setting,
+            solc_version: _,
+        } = allowed_mode;
+
+        requested_mode.pipeline == *allowed_pipeline
+            && requested_mode.optimize_setting == *allowed_optimize_setting
+    }
+}
+
+impl Display for ModeAllowList {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match &self.allowed {
+            None => f.write_str("all"),
+            Some(modes) => {
+                let mut modes: Vec<String> = modes.iter().map(|mode| mode.to_string()).collect();
+                modes.sort();
+                f.write_str(&modes.join(", "))
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -547,6 +642,9 @@ mod tests {
             ("Y", "Y"),
             ("Y+", "Y+"),
             ("Y-", "Y-"),
+            ("NY", "NY"),
+            ("NY+", "NY+"),
+            ("NY-", "NY-"),
             ("E", "E"),
             ("E+", "E+"),
             ("E-", "E-"),
@@ -556,6 +654,12 @@ mod tests {
             ("Y M3", "Y M3"),
             ("Y Ms", "Y Ms"),
             ("Y Mz", "Y Mz"),
+            ("NY M0", "NY M0"),
+            ("NY M1", "NY M1"),
+            ("NY M2", "NY M2"),
+            ("NY M3", "NY M3"),
+            ("NY Ms", "NY Ms"),
+            ("NY Mz", "NY Mz"),
             ("E M0", "E M0"),
             ("E M1", "E M1"),
             ("E M2", "E M2"),
@@ -574,6 +678,18 @@ mod tests {
             ("Y Ms S-", "Y Ms S-"),
             ("Y Mz S+", "Y Mz S+"),
             ("Y Mz S-", "Y Mz S-"),
+            ("NY M0 S+", "NY M0 S+"),
+            ("NY M0 S-", "NY M0 S-"),
+            ("NY M1 S+", "NY M1 S+"),
+            ("NY M1 S-", "NY M1 S-"),
+            ("NY M2 S+", "NY M2 S+"),
+            ("NY M2 S-", "NY M2 S-"),
+            ("NY M3 S+", "NY M3 S+"),
+            ("NY M3 S-", "NY M3 S-"),
+            ("NY Ms S+", "NY Ms S+"),
+            ("NY Ms S-", "NY Ms S-"),
+            ("NY Mz S+", "NY Mz S+"),
+            ("NY Mz S-", "NY Mz S-"),
             ("E M0 S+", "E M0 S+"),
             ("E M0 S-", "E M0 S-"),
             ("E M1 S+", "E M1 S+"),
@@ -590,6 +706,7 @@ mod tests {
             ("Y 0.8.0", "Y ^0.8.0"),
             ("E+ 0.8.0", "E+ ^0.8.0"),
             ("Y M3 S+ >=0.8.0", "Y M3 S+ >=0.8.0"),
+            ("NY Mz S+ >=0.8.0", "NY Mz S+ >=0.8.0"),
             ("E Mz S- <0.7.0", "E Mz S- <0.7.0"),
             // We can parse +- _and_ M1/M2 and S+/S- but the latter ones take priority.
             ("Y+ M1 S+ 0.8.0", "Y+ M1 S+ ^0.8.0"),
@@ -612,11 +729,17 @@ mod tests {
     #[test]
     fn test_parsed_mode_to_test_modes() {
         let strings = vec![
-            ("Mz", vec!["Y Mz S+", "Y Mz S-", "E Mz S+", "E Mz S-"]),
+            (
+                "Mz",
+                vec![
+                    "Y Mz S+", "Y Mz S-", "NY Mz S+", "NY Mz S-", "E Mz S+", "E Mz S-",
+                ],
+            ),
             (
                 "S+",
                 vec![
-                    "Y M0 S+", "Y M1 S+", "Y M2 S+", "Y M3 S+", "Y Ms S+", "Y Mz S+", "E M0 S+",
+                    "Y M0 S+", "Y M1 S+", "Y M2 S+", "Y M3 S+", "Y Ms S+", "Y Mz S+", "NY M0 S+",
+                    "NY M1 S+", "NY M2 S+", "NY M3 S+", "NY Ms S+", "NY Mz S+", "E M0 S+",
                     "E M1 S+", "E M2 S+", "E M3 S+", "E Ms S+", "E Mz S+",
                 ],
             ),
@@ -625,6 +748,13 @@ mod tests {
                 vec![
                     "Y M0 S+", "Y M0 S-", "Y M1 S+", "Y M1 S-", "Y M2 S+", "Y M2 S-", "Y M3 S+",
                     "Y M3 S-", "Y Ms S+", "Y Ms S-", "Y Mz S+", "Y Mz S-",
+                ],
+            ),
+            (
+                "NY",
+                vec![
+                    "NY M0 S+", "NY M0 S-", "NY M1 S+", "NY M1 S-", "NY M2 S+", "NY M2 S-",
+                    "NY M3 S+", "NY M3 S-", "NY Ms S+", "NY Ms S-", "NY Mz S+", "NY Mz S-",
                 ],
             ),
             (
@@ -644,6 +774,30 @@ mod tests {
                 "Y-",
                 vec![
                     "Y M0 S-", "Y M1 S-", "Y M2 S-", "Y M3 S-", "Y Ms S-", "Y Mz S-",
+                ],
+            ),
+            (
+                "NY+",
+                vec![
+                    "NY M0 S+", "NY M1 S+", "NY M2 S+", "NY M3 S+", "NY Ms S+", "NY Mz S+",
+                ],
+            ),
+            (
+                "NY-",
+                vec![
+                    "NY M0 S-", "NY M1 S-", "NY M2 S-", "NY M3 S-", "NY Ms S-", "NY Mz S-",
+                ],
+            ),
+            (
+                "E+",
+                vec![
+                    "E M0 S+", "E M1 S+", "E M2 S+", "E M3 S+", "E Ms S+", "E Mz S+",
+                ],
+            ),
+            (
+                "E-",
+                vec![
+                    "E M0 S-", "E M1 S-", "E M2 S-", "E M3 S-", "E Ms S-", "E Mz S-",
                 ],
             ),
             (
@@ -678,6 +832,18 @@ mod tests {
                     "Y Ms S- <=0.8",
                     "Y Mz S+ <=0.8",
                     "Y Mz S- <=0.8",
+                    "NY M0 S+ <=0.8",
+                    "NY M0 S- <=0.8",
+                    "NY M1 S+ <=0.8",
+                    "NY M1 S- <=0.8",
+                    "NY M2 S+ <=0.8",
+                    "NY M2 S- <=0.8",
+                    "NY M3 S+ <=0.8",
+                    "NY M3 S- <=0.8",
+                    "NY Ms S+ <=0.8",
+                    "NY Ms S- <=0.8",
+                    "NY Mz S+ <=0.8",
+                    "NY Mz S- <=0.8",
                     "E M0 S+ <=0.8",
                     "E M0 S- <=0.8",
                     "E M1 S+ <=0.8",
@@ -695,9 +861,11 @@ mod tests {
             ("Y M3", vec!["Y M3 S+", "Y M3 S-"]),
             ("E M0", vec!["E M0 S+", "E M0 S-"]),
             ("Y M3 S+", vec!["Y M3 S+"]),
+            ("NY Mz S+", vec!["NY Mz S+"]),
             ("E M0 S-", vec!["E M0 S-"]),
             // Explicit M/S override the +/- flag.
             ("Y+ M3 S+", vec!["Y M3 S+"]),
+            ("NY+ Mz S+", vec!["NY Mz S+"]),
             ("E- M0 S-", vec!["E M0 S-"]),
         ];
 
@@ -715,130 +883,95 @@ mod tests {
     }
 
     #[test]
-    fn y_plus_expands_to_all_optimizer_levels_with_solc_enabled() {
-        // Arrange
-        let parsed = ParsedMode::from_str("Y+").expect("Failed to parse 'Y+'");
+    fn all_modes_round_trip() {
+        assert_eq!(Mode::all().count(), 36);
+        for mode in Mode::all() {
+            assert_eq!(&Mode::from_str(&mode.to_string()).unwrap(), mode);
+        }
+    }
 
-        // Act
-        let actual: HashSet<String> = parsed.to_modes().map(|m| m.to_string()).collect();
+    fn make_allow_list(modes: &[&str]) -> ModeAllowList {
+        let modes: Vec<ParsedMode> = modes
+            .iter()
+            .map(|mode| ParsedMode::from_str(mode).unwrap())
+            .collect();
+        ModeAllowList::from_parsed_modes(modes.iter())
+    }
 
-        // Assert
-        let expected: HashSet<String> = [
-            "Y M0 S+", "Y M1 S+", "Y M2 S+", "Y M3 S+", "Y Ms S+", "Y Mz S+",
-        ]
-        .into_iter()
-        .map(String::from)
-        .collect();
-        assert_eq!(
-            expected, actual,
-            "'Y+' should expand to all Y optimizer levels with S+"
-        );
+    fn make_mode(str: &str) -> Mode {
+        Mode::from_str(str).unwrap()
     }
 
     #[test]
-    fn y_minus_expands_to_all_optimizer_levels_with_solc_disabled() {
-        // Arrange
-        let parsed = ParsedMode::from_str("Y-").expect("Failed to parse 'Y-'");
-
-        // Act
-        let actual: HashSet<String> = parsed.to_modes().map(|m| m.to_string()).collect();
-
-        // Assert
-        let expected: HashSet<String> = [
-            "Y M0 S-", "Y M1 S-", "Y M2 S-", "Y M3 S-", "Y Ms S-", "Y Mz S-",
-        ]
-        .into_iter()
-        .map(String::from)
-        .collect();
-        assert_eq!(
-            expected, actual,
-            "'Y-' should expand to all Y optimizer levels with S-"
-        );
+    fn unspecified_allow_list_allows_everything() {
+        let allow_list = make_allow_list(&[]);
+        assert!(allow_list.allowed.is_none());
+        for mode in Mode::all() {
+            assert!(
+                allow_list.allows(mode),
+                "An unrestricted allow-list must allow `{mode}`"
+            );
+        }
     }
 
     #[test]
-    fn e_plus_expands_to_all_optimizer_levels_with_solc_enabled() {
-        // Arrange
-        let parsed = ParsedMode::from_str("E+").expect("Failed to parse 'E+'");
-
-        // Act
-        let actual: HashSet<String> = parsed.to_modes().map(|m| m.to_string()).collect();
-
-        // Assert
-        let expected: HashSet<String> = [
-            "E M0 S+", "E M1 S+", "E M2 S+", "E M3 S+", "E Ms S+", "E Mz S+",
-        ]
-        .into_iter()
-        .map(String::from)
-        .collect();
-        assert_eq!(
-            expected, actual,
-            "'E+' should expand to all E optimizer levels with S+"
-        );
+    fn pipeline_only_allows_all_combinations_of_that_pipeline() {
+        for pipeline in [
+            ModePipeline::ViaYulIR,
+            ModePipeline::ViaNewYorkIR,
+            ModePipeline::ViaEVMAssembly,
+        ] {
+            let allow_list = make_allow_list(&[&pipeline.to_string()]);
+            for mode in Mode::all() {
+                assert_eq!(allow_list.allows(mode), mode.pipeline == pipeline);
+            }
+        }
     }
 
     #[test]
-    fn e_minus_expands_to_all_optimizer_levels_with_solc_disabled() {
-        // Arrange
-        let parsed = ParsedMode::from_str("E-").expect("Failed to parse 'E-'");
+    fn fully_specified_mode_only_allows_that_mode() {
+        let allow_list = make_allow_list(&["Y M3 S+"]);
+        for mode in Mode::all() {
+            let matches = mode.pipeline == ModePipeline::ViaYulIR
+                && mode.optimize_setting.level == ModeOptimizerLevel::M3
+                && mode.optimize_setting.solc_optimizer_enabled;
+            assert_eq!(allow_list.allows(mode), matches);
+        }
+        assert!(allow_list.allows(&make_mode("Y M3 S+")));
+        assert!(allow_list.allows(&make_mode("Y M3 S+ >=0.8.3")));
+        assert!(!allow_list.allows(&make_mode("Y M3 S-")));
+        assert!(!allow_list.allows(&make_mode("NY M3 S+")));
+        assert!(!allow_list.allows(&make_mode("E Mz S+")));
 
-        // Act
-        let actual: HashSet<String> = parsed.to_modes().map(|m| m.to_string()).collect();
-
-        // Assert
-        let expected: HashSet<String> = [
-            "E M0 S-", "E M1 S-", "E M2 S-", "E M3 S-", "E Ms S-", "E Mz S-",
-        ]
-        .into_iter()
-        .map(String::from)
-        .collect();
-        assert_eq!(
-            expected, actual,
-            "'E-' should expand to all E optimizer levels with S-"
-        );
+        let allow_list = make_allow_list(&["NY Mz S+"]);
+        for mode in Mode::all() {
+            let matches = mode.pipeline == ModePipeline::ViaNewYorkIR
+                && mode.optimize_setting.level == ModeOptimizerLevel::Mz
+                && mode.optimize_setting.solc_optimizer_enabled;
+            assert_eq!(allow_list.allows(mode), matches);
+        }
+        assert!(allow_list.allows(&make_mode("NY Mz S+")));
+        assert!(allow_list.allows(&make_mode("NY Mz S+ >=0.8.3")));
+        assert!(!allow_list.allows(&make_mode("NY Mz S-")));
+        assert!(!allow_list.allows(&make_mode("Y Mz S+")));
+        assert!(!allow_list.allows(&make_mode("E M3 S+")));
     }
 
     #[test]
-    fn y_expands_to_all_y_modes() {
-        // Arrange
-        let parsed = ParsedMode::from_str("Y").expect("Failed to parse 'Y'");
-
-        // Act
-        let actual: HashSet<String> = parsed.to_modes().map(|m| m.to_string()).collect();
-
-        // Assert
-        let expected: HashSet<String> = [
-            "Y M0 S+", "Y M0 S-", "Y M1 S+", "Y M1 S-", "Y M2 S+", "Y M2 S-", "Y M3 S+", "Y M3 S-",
-            "Y Ms S+", "Y Ms S-", "Y Mz S+", "Y Mz S-",
-        ]
-        .into_iter()
-        .map(String::from)
-        .collect();
-        assert_eq!(
-            expected, actual,
-            "'Y' should expand to all 12 Y modes (Y+ union Y-)"
-        );
-    }
-
-    #[test]
-    fn e_expands_to_all_e_modes() {
-        // Arrange
-        let parsed = ParsedMode::from_str("E").expect("Failed to parse 'E'");
-
-        // Act
-        let actual: HashSet<String> = parsed.to_modes().map(|m| m.to_string()).collect();
-
-        // Assert
-        let expected: HashSet<String> = [
-            "E M0 S+", "E M0 S-", "E M1 S+", "E M1 S-", "E M2 S+", "E M2 S-", "E M3 S+", "E M3 S-",
-            "E Ms S+", "E Ms S-", "E Mz S+", "E Mz S-",
-        ]
-        .into_iter()
-        .map(String::from)
-        .collect();
-        assert_eq!(
-            expected, actual,
-            "'E' should expand to all 12 E modes (E+ union E-)"
-        );
+    fn multiple_modes_allows_union() {
+        let allow_list = make_allow_list(&["Y", "Y >=0.8.3", "NY Mz S+", "NY Mz S-"]);
+        for mode in Mode::all() {
+            let matches = mode.pipeline == ModePipeline::ViaYulIR
+                || (mode.pipeline == ModePipeline::ViaNewYorkIR
+                    && mode.optimize_setting.level == ModeOptimizerLevel::Mz);
+            assert_eq!(allow_list.allows(mode), matches);
+        }
+        assert!(allow_list.allows(&make_mode("Y M0 S+")));
+        assert!(allow_list.allows(&make_mode("Y M0 S- >=0.8.3")));
+        assert!(allow_list.allows(&make_mode("NY Mz S+")));
+        assert!(allow_list.allows(&make_mode("NY Mz S-")));
+        assert!(!allow_list.allows(&make_mode("NY M3 S+")));
+        assert!(!allow_list.allows(&make_mode("NY M3 S-")));
+        assert!(!allow_list.allows(&make_mode("E Mz S+")));
     }
 }
