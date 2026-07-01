@@ -246,8 +246,15 @@ jobs:
         env:
           RUST_LOG: "off"
         run: |
+          set -euo pipefail
           TESTS=$(retester export-test-specifiers \
-            --test ./compiler-tests/fixtures/solidity/workloads)
+            --test ./compiler-tests/fixtures/solidity/workloads/tee-attestation \
+            | jq -c '[.[] | select(.specifier | endswith("::Y Mz S+"))]')
+          if [ "$(jq 'length' <<< "$TESTS")" -eq 0 ]; then
+            echo "::error::No test specifiers matched the 'Y Mz S+' mode for tee-attestation." \
+                 "The declared modes may have changed; check test.json."
+            exit 1
+          fi
           echo "tests=${TESTS}" >> "$GITHUB_OUTPUT"
 
   # ============================================
@@ -276,7 +283,6 @@ jobs:
       matrix:
         test: ${{ fromJSON(needs.generate-matrix.outputs.tests) }}
         platform:
-          - lighthouse-geth-evm-solc
           - zombienet-revm-solc
           - zombienet-polkavm-resolc
     steps:
