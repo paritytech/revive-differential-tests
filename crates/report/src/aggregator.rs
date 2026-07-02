@@ -284,6 +284,7 @@ impl ReportAggregator {
         let status = CompilationStatus::Success {
             is_cached: event.is_cached,
             compiler_version: event.compiler_version,
+            compiler_frontend_version: event.compiler_frontend_version,
             compiler_path: event.compiler_path,
             compiler_input,
             compiled_contracts_info: Self::generate_compiled_contracts_info(
@@ -310,6 +311,7 @@ impl ReportAggregator {
         let status = CompilationStatus::Success {
             is_cached: event.is_cached,
             compiler_version: event.compiler_version,
+            compiler_frontend_version: event.compiler_frontend_version,
             compiler_path: event.compiler_path,
             compiler_input,
             compiled_contracts_info: Self::generate_compiled_contracts_info(
@@ -338,6 +340,7 @@ impl ReportAggregator {
         let status = CompilationStatus::Failure {
             reason: event.reason,
             compiler_version: event.compiler_version,
+            compiler_frontend_version: event.compiler_frontend_version,
             compiler_path: event.compiler_path,
             compiler_input: event.compiler_input,
         };
@@ -353,6 +356,7 @@ impl ReportAggregator {
         let status = CompilationStatus::Failure {
             reason: event.reason,
             compiler_version: event.compiler_version,
+            compiler_frontend_version: event.compiler_frontend_version,
             compiler_path: event.compiler_path,
             compiler_input: event.compiler_input,
         };
@@ -753,6 +757,8 @@ pub enum CompilationStatus {
         is_cached: bool,
         /// The version of the compiler used to compile the contracts.
         compiler_version: Version,
+        /// The version of the Solidity frontend used by the compiler.
+        compiler_frontend_version: Version,
         /// The path of the compiler used to compile the contracts.
         compiler_path: PathBuf,
         /// The input provided to the compiler to compile the contracts. This is only included if
@@ -770,6 +776,9 @@ pub enum CompilationStatus {
         /// The version of the compiler used to compile the contracts.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         compiler_version: Option<Version>,
+        /// The version of the Solidity frontend used by the compiler.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        compiler_frontend_version: Option<Version>,
         /// The path of the compiler used to compile the contracts.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         compiler_path: Option<PathBuf>,

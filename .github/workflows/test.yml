@@ -16,7 +16,7 @@ concurrency:
 env:
   CARGO_TERM_COLOR: always
   POLKADOT_VERSION: polkadot-stable2506-2
-  RESOLC_VERSION: v1.1.0
+  RESOLC_VERSION: v1.3.0
 
 jobs:
   machete:
@@ -145,12 +145,14 @@ jobs:
           curl -sL "https://github.com/paritytech/revive/releases/download/${{ env.RESOLC_VERSION }}/resolc-x86_64-unknown-linux-musl" -o resolc
           chmod +x resolc
           sudo mv resolc /usr/local/bin
+          resolc --version
       - name: Download resolc on macOS
         if: matrix.os == 'macos-14'
         run: |
           curl -sL "https://github.com/paritytech/revive/releases/download/${{ env.RESOLC_VERSION }}/resolc-universal-apple-darwin" -o resolc
           chmod +x resolc
           sudo mv resolc /usr/local/bin
+          resolc --version
       - name: Download resolc Wasm
         run: |
           mkdir -p resolc-wasm

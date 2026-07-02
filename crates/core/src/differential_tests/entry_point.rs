@@ -167,6 +167,7 @@ pub async fn handle_differential_tests(context: Test, reporter: Reporter) -> any
     info!("Spawned the platform nodes");
 
     // Preparing test definitions.
+    let allowed_modes = ModeAllowList::from_parsed_modes(context.corpus.allowed_modes.iter());
     let test_case_ignore_configuration =
         TestCaseIgnoreResolvedConfiguration::try_from(context.ignore.clone())?;
     let full_context = Context::Test(Box::new(context.clone()));
@@ -174,6 +175,7 @@ pub async fn handle_differential_tests(context: Test, reporter: Reporter) -> any
         &full_context,
         &corpus,
         &platforms_and_nodes,
+        &allowed_modes,
         &test_case_ignore_configuration,
         reporter.clone(),
     )

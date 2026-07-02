@@ -106,6 +106,10 @@ impl SolidityCompiler for Solc {
         &self.0.solc_version
     }
 
+    fn frontend_version(&self) -> &Version {
+        self.version()
+    }
+
     fn path(&self) -> &std::path::Path {
         &self.0.solc_path
     }
@@ -337,12 +341,12 @@ impl Solc {
     }
 
     fn compiler_supports_yul(&self) -> bool {
-        const SOLC_VERSION_SUPPORTING_VIA_YUL_IR: Version = Version::new(0, 8, 13);
-        SolidityCompiler::version(self) >= &SOLC_VERSION_SUPPORTING_VIA_YUL_IR
+        const MIN_VERSION_SUPPORTING_VIA_YUL_IR: Version = Version::new(0, 8, 13);
+        is_gte_major_minor_patch(self.version(), &MIN_VERSION_SUPPORTING_VIA_YUL_IR)
     }
 
     fn compiler_supports_base_path(&self) -> bool {
-        const SOLC_VERSION_SUPPORTING_BASE_PATH: Version = Version::new(0, 6, 9);
-        SolidityCompiler::version(self) >= &SOLC_VERSION_SUPPORTING_BASE_PATH
+        const MIN_VERSION_SUPPORTING_BASE_PATH: Version = Version::new(0, 6, 9);
+        is_gte_major_minor_patch(self.version(), &MIN_VERSION_SUPPORTING_BASE_PATH)
     }
 }

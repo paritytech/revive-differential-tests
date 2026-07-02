@@ -77,10 +77,12 @@ pub async fn handle_differential_benchmarks(
     info!("Spawned the platform nodes");
 
     // Preparing test definitions for the execution.
+    let allowed_modes = ModeAllowList::from_parsed_modes(context.corpus.allowed_modes.iter());
     let test_definitions = create_test_definitions_stream(
         &full_context,
         &corpus,
         &platforms_and_nodes,
+        &allowed_modes,
         &Default::default(),
         reporter.clone(),
     )

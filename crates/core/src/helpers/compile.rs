@@ -57,7 +57,7 @@ impl<'a> CompilationDefinition<'a> {
             })?;
 
             if let Some(version_requirement) = Self::parse_pragma_solidity_requirement(&source)
-                && !version_requirement.matches(self.compiler.version())
+                && !version_requirement.matches(self.compiler.frontend_version())
             {
                 incompatible_files.push(json!({
                     "source_path": source_path.display().to_string(),
@@ -72,7 +72,7 @@ impl<'a> CompilationDefinition<'a> {
             Err((
                 "Source pragma is incompatible with the Solidity compiler version.",
                 indexmap! {
-                    "compiler_version" => json!(self.compiler.version().to_string()),
+                    "compiler_frontend_version" => json!(self.compiler.frontend_version().to_string()),
                     "incompatible_files" => json!(incompatible_files),
                 },
             ))
@@ -161,16 +161,35 @@ pub async fn create_compilation_definitions_stream<'a>(
                 reporter
                     .report_post_link_compilation_discovery_event()
                     .expect("Can't fail");
-            }),
+            })
+            // Collect eagerly so every discovery `.inspect` above runs before any ignore
+            // below. `stream::iter` is lazy, so otherwise discovery and ignore interleave per
+            // mode, `remaining_compilation_modes` empties after each ignored mode, and the
+            // file's completion event re-fires once per mode, over-counting ignores.
+            .collect::<Vec<_>>(),
     )
     // Creating the `CompilationDefinition` objects from all of the various objects we have.
     .filter_map(move |(metadata_file, mode, reporter)| async move {
         // NOTE: Currently always specifying the resolc compiler.
-        let compiler = Resolc::new(context.clone(), mode.solc_version.clone().map(Into::into))
-            .await
-            .map(|compiler| Box::new(compiler) as Box<dyn SolidityCompiler>)
-            .inspect_err(|err| error!(?err, "Failed to instantiate the compiler"))
-            .ok()?;
+        let compiler =
+            match Resolc::new(context.clone(), mode.solc_version.clone().map(Into::into)).await {
+                Ok(compiler) => Box::new(compiler) as Box<dyn SolidityCompiler>,
+                Err(err) => {
+                    error!(?err, "Failed to instantiate the compiler");
+                    // Without a terminal status this mode never leaves `remaining_compilation_modes`,
+                    // so the file's completion event never fires and it drops from the run summary.
+                    CompilationReporter::PostLink(&reporter)
+                        .report_post_link_contracts_compilation_failed_event(
+                            None,
+                            None,
+                            context.resolc.path.clone(),
+                            None,
+                            format!("Failed to instantiate the compiler: {err:#}"),
+                        )
+                        .expect("Can't fail");
+                    return None;
+                }
+            };
 
         Some(CompilationDefinition {
             metadata: metadata_file,

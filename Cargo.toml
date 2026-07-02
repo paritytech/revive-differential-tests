@@ -94,8 +94,8 @@ itertools = { version = "0.14.0" }
 derive_more = { version = "2.1.1" }
 
 # revive compiler
-revive-solc-json-interface = { version = "0.5.0" }
-revive-common = { version = "0.3.0" }
+revive-solc-json-interface = { version = "1.1.0" }
+revive-common = { version = "1.1.0" }
 revive-differential = { version = "0.3.0" }
 
 zombienet-sdk = { version = "0.4.14" }

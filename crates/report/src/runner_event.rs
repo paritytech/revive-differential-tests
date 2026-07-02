@@ -31,6 +31,8 @@ revive_dt_proc_macros::define_runner_event! {
                 specifier: CompilationSpecifier,
                 /// The version of the compiler used to compile the contracts.
                 compiler_version: Version,
+                /// The version of the Solidity frontend used by the compiler.
+                compiler_frontend_version: Version,
                 /// The path of the compiler used to compile the contracts.
                 compiler_path: PathBuf,
                 /// A flag of whether the contract bytecode and ABI were cached or if they were
@@ -49,6 +51,8 @@ revive_dt_proc_macros::define_runner_event! {
                 specifier: CompilationSpecifier,
                 /// The version of the compiler used to compile the contracts.
                 compiler_version: Option<Version>,
+                /// The version of the Solidity frontend used by the compiler.
+                compiler_frontend_version: Option<Version>,
                 /// The path of the compiler used to compile the contracts.
                 compiler_path: Option<PathBuf>,
                 /// The input provided to the compiler — optional and not provided if the
@@ -97,6 +101,8 @@ revive_dt_proc_macros::define_runner_event! {
             PreLinkContractsCompilationSucceeded {
                 /// The version of the compiler used to compile the contracts.
                 compiler_version: Version,
+                /// The version of the Solidity frontend used by the compiler.
+                compiler_frontend_version: Version,
                 /// The path of the compiler used to compile the contracts.
                 compiler_path: PathBuf,
                 /// A flag of whether the contract bytecode and ABI were cached or if they were
@@ -113,6 +119,8 @@ revive_dt_proc_macros::define_runner_event! {
             PreLinkContractsCompilationFailed {
                 /// The version of the compiler used to compile the contracts.
                 compiler_version: Option<Version>,
+                /// The version of the Solidity frontend used by the compiler.
+                compiler_frontend_version: Option<Version>,
                 /// The path of the compiler used to compile the contracts.
                 compiler_path: Option<PathBuf>,
                 /// The input provided to the compiler — optional and not provided if the
@@ -247,6 +255,7 @@ impl CompilationReporter<'_> {
     pub fn report_post_link_contracts_compilation_succeeded_event(
         &self,
         compiler_version: impl Into<Version>,
+        compiler_frontend_version: impl Into<Version>,
         compiler_path: impl Into<PathBuf>,
         is_cached: impl Into<bool>,
         compiler_input: impl Into<Option<CompilerInput>>,
@@ -256,6 +265,7 @@ impl CompilationReporter<'_> {
             .report_post_link_contracts_compilation_succeeded_event(
                 self.compilation_specifier(),
                 compiler_version,
+                compiler_frontend_version,
                 compiler_path,
                 is_cached,
                 compiler_input,
@@ -266,6 +276,7 @@ impl CompilationReporter<'_> {
     pub fn report_post_link_contracts_compilation_failed_event(
         &self,
         compiler_version: impl Into<Option<Version>>,
+        compiler_frontend_version: impl Into<Option<Version>>,
         compiler_path: impl Into<Option<PathBuf>>,
         compiler_input: impl Into<Option<CompilerInput>>,
         reason: impl Into<String>,
@@ -274,6 +285,7 @@ impl CompilationReporter<'_> {
             .report_post_link_contracts_compilation_failed_event(
                 self.compilation_specifier(),
                 compiler_version,
+                compiler_frontend_version,
                 compiler_path,
                 compiler_input,
                 reason,

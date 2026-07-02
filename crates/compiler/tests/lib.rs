@@ -3,7 +3,7 @@ use std::{collections::HashMap, path::PathBuf};
 use alloy::primitives::Address;
 use revive_dt_common::types::VersionOrRequirement;
 use revive_dt_compiler::{
-    Compiler, ModeOptimizerLevel, ModeOptimizerSetting,
+    Compiler, Mode, ModeOptimizerLevel, ModeOptimizerSetting, ModePipeline, SolidityCompiler,
     revive_resolc::{Resolc, ResolcRuntimeTarget},
     solc::{Solc, SolcRuntimeTarget},
 };
@@ -30,6 +30,15 @@ fn get_resolc_js_path() -> PathBuf {
     });
 
     PathBuf::from(path)
+}
+
+/// Checks whether the resolc binary supports compiling via newyork IR.
+fn supports_newyork(resolc: &Resolc) -> bool {
+    resolc.supports_mode(&Mode {
+        pipeline: ModePipeline::ViaNewYorkIR,
+        optimize_setting: Default::default(),
+        solc_version: None,
+    })
 }
 
 #[tokio::test]
@@ -88,6 +97,7 @@ async fn assert_contracts_can_be_compiled_with_resolc(
     + Send
     + 'static,
     expected_runtime_target: ResolcRuntimeTarget,
+    expected_pipeline: ModePipeline,
 ) {
     let resolc = Resolc::new(
         // Clone context because this function takes ownership and drops it, which
@@ -100,8 +110,18 @@ async fn assert_contracts_can_be_compiled_with_resolc(
 
     assert_eq!(resolc.runtime_target(), expected_runtime_target);
 
+    // Skip test for resolc binaries not supporting the pipeline (e.g. pre-newyork releases).
+    if expected_pipeline == ModePipeline::ViaNewYorkIR && !supports_newyork(&resolc) {
+        eprintln!(
+            "skipping resolc {expected_runtime_target:?} test using pipeline {expected_pipeline:?}: resolc {} does not support it",
+            resolc.version()
+        );
+        return;
+    }
+
     // Act
     let output = Compiler::new()
+        .with_pipeline(expected_pipeline)
         .with_source("./tests/assets/array_one_element/callable.sol")
         .unwrap()
         .with_source("./tests/assets/array_one_element/main.sol")
@@ -135,15 +155,24 @@ async fn assert_contracts_can_be_compiled_with_resolc(
 
 #[tokio::test]
 async fn contracts_can_be_compiled_with_resolc_native() {
-    assert_contracts_can_be_compiled_with_resolc(Test::default(), ResolcRuntimeTarget::Native)
+    for pipeline in [ModePipeline::ViaYulIR, ModePipeline::ViaNewYorkIR] {
+        assert_contracts_can_be_compiled_with_resolc(
+            Compile::default(),
+            ResolcRuntimeTarget::Native,
+            pipeline,
+        )
         .await;
+    }
 }
 
 #[tokio::test]
 async fn contracts_can_be_compiled_with_resolc_wasm() {
-    let mut context = Compile::default();
-    context.resolc.path = get_resolc_js_path();
-    assert_contracts_can_be_compiled_with_resolc(context, ResolcRuntimeTarget::Wasm).await;
+    for pipeline in [ModePipeline::ViaYulIR, ModePipeline::ViaNewYorkIR] {
+        let mut context = Compile::default();
+        context.resolc.path = get_resolc_js_path();
+        assert_contracts_can_be_compiled_with_resolc(context, ResolcRuntimeTarget::Wasm, pipeline)
+            .await;
+    }
 }
 
 /// Asserts that bytecode differs across optimization modes in order to verify

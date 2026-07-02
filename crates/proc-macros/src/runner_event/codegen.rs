@@ -265,6 +265,7 @@ fn gen_report_method(is_base: bool, event: &EventDef, specifier_field_name: &Ide
 
     if is_base {
         quote! {
+            #[allow(clippy::too_many_arguments)]
             pub fn #method_name(&self #(, #param_list)*) -> anyhow::Result<()> {
                 self.report(#struct_name {
                     #(#field_inits,)*
@@ -273,6 +274,7 @@ fn gen_report_method(is_base: bool, event: &EventDef, specifier_field_name: &Ide
         }
     } else {
         quote! {
+            #[allow(clippy::too_many_arguments)]
             pub fn #method_name(&self #(, #param_list)*) -> anyhow::Result<()> {
                 self.report(#struct_name {
                     #specifier_field_name: self.#specifier_field_name.clone(),

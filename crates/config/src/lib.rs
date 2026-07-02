@@ -223,6 +223,49 @@ mod context {
         #[serde_as(as = "Vec<serde_with::DisplayFromStr>")]
         #[arg(short = 't', long = "test", required = true, verbatim_doc_comment)]
         pub test_specifiers: Vec<ParsedTestSpecifier>,
+
+        /// An allow-list of compiler modes that are permitted to run. Repeatable.
+        ///
+        /// Format: `(NY|Y|E)[+-]? (M[0123sz])? (S[+-])? <semver>?`
+        ///
+        /// - `NY|Y|E`: Pipeline
+        ///           - `Y` (via Yul IR)
+        ///           - `NY` (via newyork IR)
+        ///           - `E` (via EVM assembly)
+        /// - `[+-]`: Solc optimization shorthand
+        ///           - `+` (`M0`..`M3`, `Ms`, `Mz`, with S+)
+        ///           - `-` (`M0`..`M3`, `Ms`, `Mz`, with S-)
+        /// - `M[0123sz]`: Resolc's LLVM optimization level
+        /// - `S[+-]`: Solc optimizer
+        ///           - `S+` (enabled)
+        ///           - `S-` (disabled)
+        /// - `<semver>`: Solc version requirement
+        ///
+        /// If a part is omitted, it expands to all combinations we'd like to test. E.g.:
+        ///   - `Y` → All combinations of the optimization settings, via the Yul IR pipeline
+        ///   - `Y M3 S+` → `Y M3 S+`
+        ///   - `Y M3` → `Y M3 S+` and `Y M3 S-`
+        ///   - `NY Mz` → `NY Mz S+` and `NY Mz S-`
+        ///   - `Y S+` → `Y M0 S+`, `Y M1 S+`, `Y M2 S+`, `Y M3 S+`, `Y Ms S+`, and `Y Mz S+`
+        ///
+        /// Each `--allowed-mode` value expands like the modes above; their union is the allow-list.
+        /// If omitted, every mode is allowed. A metadata's requested mode that is not in the
+        /// allow-list is reported ignored. Any solc version requirements included in the allow-list
+        /// or a requested mode are ignored when determining if a mode is allowed.
+        ///
+        /// ## Examples
+        ///
+        /// | `--allowed-mode`(s) | metadata's expanded mode | outcome |
+        /// |---------------------|--------------------------|---------|
+        /// | (omitted)           | `E M0 S-`                | allowed |
+        /// | `Y Mz S+`           | `Y Mz S+`                | allowed |
+        /// | `Y Mz S+`           | `Y Mz S-`                | ignored |
+        /// | `Y`                 | `NY Mz S+`               | ignored |
+        /// | `Y`, `NY Mz S+`     | `NY Mz S+`               | allowed |
+        /// | `NY Mz S+`          | `NY Mz S+ >=0.8.1`       | allowed |
+        #[serde_as(as = "Vec<serde_with::DisplayFromStr>")]
+        #[arg(long = "allowed-mode", verbatim_doc_comment)]
+        pub allowed_modes: Vec<ParsedMode>,
     }
 
     /// A set of configuration parameters for the corpus files to use for the post-link-only compilation.
@@ -240,15 +283,17 @@ mod context {
         #[arg(short = 'c', long = "compile", required = true)]
         pub compilation_specifiers: Vec<ParsedCompilationSpecifier>,
 
-        /// The compiler mode(s) to use for all compilations.
+        /// The compiler mode(s) to use for all compilations. Repeatable.
         ///
-        /// Format: `Y[+-]? (M[0123sz])? (S[+-])? <semver>?`
+        /// Format: `(NY|Y)[+-]? (M[0123sz])? (S[+-])? <semver>?`
         ///
-        /// - `Y`: Pipeline (via Yul IR)
-        /// - `[+-]`: Optimization shorthand
-        ///           - `+` (`M0`..`M3`, `Ms`, `Mz`, and solc optimizer enabled)
-        ///           - `-` (`M0`..`M3`, `Ms`, `Mz`, and solc optimizer disabled)
-        /// - `M[0123sz]`: Resolc/LLVM optimization level
+        /// - `NY|Y`: Pipeline
+        ///           — `Y` (via Yul IR)
+        ///           - `NY` (via newyork IR)
+        /// - `[+-]`: Solc optimization shorthand
+        ///           - `+` (`M0`..`M3`, `Ms`, `Mz`, with S+)
+        ///           - `-` (`M0`..`M3`, `Ms`, `Mz`, with S-)
+        /// - `M[0123sz]`: Resolc's LLVM optimization level
         /// - `S[+-]`: Solc optimizer
         ///           - `S+` (enabled)
         ///           - `S-` (disabled)
@@ -259,6 +304,7 @@ mod context {
         /// - If omitted, expands to all combinations we'd like to test. E.g.:
         ///   - `Y M3 S+` → `Y M3 S+`
         ///   - `Y M3` → `Y M3 S+` and `Y M3 S-`
+        ///   - `NY Mz` → `NY Mz S+` and `NY Mz S-`
         ///   - `Y S+` → `Y M0 S+`, `Y M1 S+`, `Y M2 S+`, `Y M3 S+`, `Y Ms S+`, and `Y Mz S+`
         #[serde_as(as = "Vec<serde_with::DisplayFromStr>")]
         #[arg(

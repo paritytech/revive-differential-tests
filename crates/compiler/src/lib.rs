@@ -12,15 +12,17 @@ pub use revive_dt_common::types::{
 
 pub mod prelude {
     pub use crate::{
-        Compiler, CompilerInput, CompilerOutput, Mode, ModeOptimizerSetting, ModePipeline,
-        RevertString, SolidityCompiler,
+        Compiler, CompilerInput, CompilerOutput, Mode, ModeOptimizerLevel, ModeOptimizerSetting,
+        ModePipeline, RevertString, SolidityCompiler,
         revive_resolc::{Resolc, ResolcRuntimeTarget},
         solc::{Solc, SolcRuntimeTarget},
     };
 }
 
 pub(crate) mod internal_prelude {
-    pub use crate::{prelude::*, resolve_output_source_path, sha256_file_hex};
+    pub use crate::{
+        is_gte_major_minor_patch, prelude::*, resolve_output_source_path, sha256_file_hex,
+    };
     pub use revive_dt_config::prelude::*;
 
     pub use std::{
@@ -55,7 +57,7 @@ pub(crate) mod internal_prelude {
     pub use semver::Version;
     pub use serde::{Deserialize, Serialize};
     pub use sha2::{Digest, Sha256};
-    pub use tokio::{io::AsyncWriteExt, process::Command as AsyncCommand};
+    pub use tokio::{io::AsyncWriteExt, process::Command as AsyncCommand, sync::OnceCell};
     pub use tracing::{Span, field::display, info};
 
     pub use revive_common::EVMVersion;
@@ -73,6 +75,9 @@ pub mod solc;
 pub trait SolidityCompiler {
     /// Returns the version of the compiler.
     fn version(&self) -> &Version;
+
+    /// Returns the Solidity frontend version used by the compiler.
+    fn frontend_version(&self) -> &Version;
 
     /// Returns the path of the compiler executable.
     fn path(&self) -> &Path;
@@ -268,4 +273,45 @@ pub fn resolve_output_source_path(path: &Path, base_path: Option<&Path>) -> Resu
     path_buf
         .canonicalize()
         .with_context(|| format!("Failed to canonicalize path {}", path_buf.display()))
+}
+
+/// Checks whether version `a` is greater than or equal to version `b`, comparing
+/// only major, minor, and patch and ignoring any build metadata and pre-release.
+pub fn is_gte_major_minor_patch(a: &Version, b: &Version) -> bool {
+    // Note: Do not use `a >= b` since that also compares build metadata.
+    Version::new(a.major, a.minor, a.patch) >= Version::new(b.major, b.minor, b.patch)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn version_comparison_ignores_pre_release_and_build_metadata() {
+        let core_version = Version::new(1, 3, 0);
+        let same_core_nightly = Version::parse("1.3.0-nightly.2026.6.3+commit.abcdefgh").unwrap();
+        let higher_core_nightly = Version::parse("1.3.1-nightly.2026.6.3+commit.abcdefgh").unwrap();
+        let lower_core_nightly = Version::parse("1.2.9-nightly.2026.6.3+commit.abcdefgh").unwrap();
+        assert!(is_gte_major_minor_patch(&same_core_nightly, &core_version));
+        assert!(is_gte_major_minor_patch(&core_version, &same_core_nightly));
+        assert!(is_gte_major_minor_patch(
+            &higher_core_nightly,
+            &core_version
+        ));
+        assert!(!is_gte_major_minor_patch(
+            &lower_core_nightly,
+            &core_version
+        ));
+
+        let same_core_commit_a = Version::parse("1.3.0+commit.abcdefgh.llvm-22.1.5").unwrap();
+        let same_core_commit_b = Version::parse("1.3.0+commit.ijklmnop.llvm-22.1.5").unwrap();
+        assert!(is_gte_major_minor_patch(
+            &same_core_commit_a,
+            &same_core_commit_b
+        ));
+        assert!(is_gte_major_minor_patch(
+            &same_core_commit_b,
+            &same_core_commit_a
+        ));
+    }
 }
