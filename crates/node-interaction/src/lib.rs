@@ -199,6 +199,73 @@ pub trait NodeApi {
         })
     }
 
+    /// Estimate gas via a single `ReviveApi_eth_transact` dry-run instead of the
+    /// node's binary-search `eth_estimateGas`.
+    ///
+    /// The binary-search estimator reuses warm pricing after the first (cold) dry
+    /// run under the PVM JIT, underestimating gas; `eth_transact` performs a single
+    /// dry run with no supplied gas (the runtime caps it at the block gas limit) and
+    /// returns the actual `eth_gas` required. This is the JIT-safe path and mirrors
+    /// what `main` selects via `allowed_estimation_methods`.
+    ///
+    /// Requires a substrate RPC client; callers should only use this for substrate
+    /// based nodes (e.g. zombienet) and fall back to eth-rpc estimation otherwise.
+    fn estimate_gas_via_transact(
+        &self,
+        transaction: TransactionRequest,
+    ) -> FrameworkFuture<Result<u64>> {
+        use pallet_revive::codec::{Decode, Encode};
+
+        let rpc_client_future = self.substrate_rpc_client();
+        Box::pin(async move {
+            let rpc_client = rpc_client_future
+                .context(
+                    "estimate_gas_via_transact requires a substrate RPC client; \
+                     this node is not substrate-based",
+                )?
+                .await
+                .context("Failed to get the substrate RPC client")?;
+
+            // Convert the alloy transaction request into a revive `GenericTransaction`
+            // via a JSON round-trip (their serde representations line up).
+            let tx_json = serde_json::to_value(&transaction)
+                .context("Failed to serialize transaction request to JSON")?;
+            let generic_tx: pallet_revive::evm::GenericTransaction =
+                serde_json::from_value(tx_json).context(
+                    "Failed to convert transaction request into a revive GenericTransaction",
+                )?;
+
+            let args = generic_tx.encode();
+
+            let mut params = subxt::ext::subxt_rpcs::client::RpcParams::new();
+            params
+                .push("ReviveApi_eth_transact")
+                .context("Failed to encode method name for state_call")?;
+            params
+                .push(format!("0x{}", hex::encode(&args)))
+                .context("Failed to encode args for state_call")?;
+
+            let hex_result: String = rpc_client
+                .request("state_call", params)
+                .await
+                .context("state_call(ReviveApi_eth_transact) failed")?;
+            let result_bytes = hex::decode(hex_result.strip_prefix("0x").unwrap_or(&hex_result))
+                .context("state_call returned non-hex bytes")?;
+
+            let info: core::result::Result<
+                pallet_revive::EthTransactInfo<u128>,
+                pallet_revive::EthTransactError,
+            > = Decode::decode(&mut result_bytes.as_slice())
+                .context("Failed to SCALE-decode eth_transact response")?;
+            let info = info
+                .map_err(|err| anyhow::anyhow!("ReviveApi_eth_transact failed: {err:?}"))?;
+
+            let eth_gas = u64::try_from(info.eth_gas)
+                .map_err(|err| anyhow::anyhow!("eth_gas does not fit in u64: {err}"))?;
+            Ok(eth_gas)
+        })
+    }
+
     /// Returns the state diff of the transaction hash in the [TransactionReceipt].
     fn state_diff(&self, tx_hash: TxHash) -> FrameworkFuture<Result<DiffMode>> {
         let provider = self.provider();

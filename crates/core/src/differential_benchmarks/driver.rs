@@ -1081,21 +1081,35 @@ where
                             *gas_estimate
                         }
                         None => {
-                            let gas_estimate = timeout(Duration::from_secs(5 * 60), async {
-                                let mut interval = interval(Duration::from_millis(200));
-                                loop {
-                                    interval.tick().await;
-                                    match provider.estimate_gas(transaction.clone()).await {
-                                        Ok(gas_estimate) => break gas_estimate,
-                                        Err(err) => {
-                                            warn!(?err, "Failed to get the gas estimate, retrying");
-                                            continue;
+                            let gas_estimate = if node.substrate_rpc_client().is_some() {
+                                // JIT-safe path: a single `ReviveApi_eth_transact` dry-run.
+                                // The node's binary-search `eth_estimateGas` reuses warm
+                                // pricing under the PVM JIT and underestimates, which makes
+                                // the eth-rpc retry loop below stall to the 5-minute deadline
+                                // and every polkavm workload time out.
+                                node.estimate_gas_via_transact(transaction.clone())
+                                    .await
+                                    .context("Failed to estimate gas via ReviveApi_eth_transact")?
+                            } else {
+                                timeout(Duration::from_secs(5 * 60), async {
+                                    let mut interval = interval(Duration::from_millis(200));
+                                    loop {
+                                        interval.tick().await;
+                                        match provider.estimate_gas(transaction.clone()).await {
+                                            Ok(gas_estimate) => break gas_estimate,
+                                            Err(err) => {
+                                                warn!(
+                                                    ?err,
+                                                    "Failed to get the gas estimate, retrying"
+                                                );
+                                                continue;
+                                            }
                                         }
                                     }
-                                }
-                            })
-                            .await
-                            .context("Failed to get the gas estimate")?;
+                                })
+                                .await
+                                .context("Failed to get the gas estimate")?
+                            };
                             write_guard.insert(step_path.clone(), gas_estimate);
                             info!(
                                 estimated_gas = gas_estimate,
