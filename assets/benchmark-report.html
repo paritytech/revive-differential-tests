@@ -947,6 +947,14 @@
       border-top: 1px solid var(--color-border-light);
     }
 
+    /* ── Profile coverage: step-limit chip in the opcode-profile card header ── */
+    .contract-card-header .cov-chip { margin-left: auto; align-self: center; }
+    .cov-chip { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 600;
+      padding: 3px 9px; border-radius: 999px; white-space: nowrap; line-height: 1.3; }
+    .cov-chip-ok { color: var(--color-success); background: var(--color-success-bg); }
+    .cov-chip-hit { color: var(--color-error); background: var(--color-error-bg); }
+    .cov-chip-na { color: var(--color-text-muted); background: var(--color-surface); }
+
     .opcode-step-charts {
       display: grid;
       grid-template-columns: 1fr 1fr;
@@ -3308,12 +3316,14 @@ function renderMultiPlatformStepBandChart(chartId, platformRollups, axis) {
  *   { topOps: [op_key, ...],
  *     rollups: [{ step_path, byOp: { op_key → ref_time }, other: ref_time }, ...] }
  */
-function computeStepOpcodeRollups(txProfiles, topN) {
+function computeStepOpcodeRollups(txProfiles, topN, metric = 'ref_time') {
+  const totKey = 'total_' + metric;
+  const unKey = 'unattributed_' + metric;
   // Pass 1 — workload-wide opcode totals to pick the named series.
   const opcodeTotals = {};
   for (const t of txProfiles || []) {
     for (const op of (t.opcodes || [])) {
-      opcodeTotals[op.op_key] = (opcodeTotals[op.op_key] || 0) + Number(op.total_ref_time || 0);
+      opcodeTotals[op.op_key] = (opcodeTotals[op.op_key] || 0) + Number(op[totKey] || 0);
     }
   }
   const topOps = Object.entries(opcodeTotals)
@@ -3326,10 +3336,13 @@ function computeStepOpcodeRollups(txProfiles, topN) {
   const byStep = {};
   for (const t of txProfiles || []) {
     const sp = t.step_path;
-    if (!byStep[sp]) byStep[sp] = { step_path: sp, byOp: {}, other: 0 };
+    if (!byStep[sp]) byStep[sp] = { step_path: sp, byOp: {}, other: 0, unattributed: 0 };
     const g = byStep[sp];
+    // Weight consumed but not attributed to any captured step (residual) — so the
+    // stacked bar totals weight_consumed and the coverage gap is visible inline.
+    g.unattributed += Number(t[unKey] || 0);
     for (const op of (t.opcodes || [])) {
-      const v = Number(op.total_ref_time || 0);
+      const v = Number(op[totKey] || 0);
       if (topSet.has(op.op_key)) {
         g.byOp[op.op_key] = (g.byOp[op.op_key] || 0) + v;
       } else {
@@ -3355,9 +3368,10 @@ const OPCODE_OTHER_COLOR = '#9ca3af';
  * Stacked bar per step showing the per-opcode composition of each step's
  * ref_time for a single platform.
  */
-function renderStepOpcodeBreakdownChart(chartId, txProfiles, topN = 8) {
+function renderStepOpcodeBreakdownChart(chartId, txProfiles, topN = 8, metric = 'ref_time') {
   const chart = getOrInitChart(chartId, null);
-  const { topOps, rollups } = computeStepOpcodeRollups(txProfiles, topN);
+  const fmt = metric === 'proof_size' ? fmtOpcodeProofSize : fmtOpcodeRefTime;
+  const { topOps, rollups } = computeStepOpcodeRollups(txProfiles, topN, metric);
 
   if (rollups.length === 0) {
     chart.setOption({}, true);
@@ -3393,6 +3407,29 @@ function renderStepOpcodeBreakdownChart(chartId, txProfiles, topN = 8) {
       emphasis: { focus: 'series' },
     });
   }
+  // "Not profiled" residual (weight_consumed − Σ steps) as a final hatched
+  // segment, so each bar totals the step's consumed ref_time and the profiling
+  // gap reads inline. Hatched (not just gray) to stay distinct from "Other".
+  const anyUnattr = rollups.some(r => (r.unattributed || 0) > 0);
+  if (anyUnattr) {
+    series.push({
+      name: 'Not profiled',
+      type: 'bar',
+      stack: 'total',
+      itemStyle: {
+        color: '#dcdcd6',
+        decal: {
+          symbol: 'rect',
+          color: 'rgba(0,0,0,0.30)',
+          dashArrayX: [1, 0],
+          dashArrayY: [3, 4],
+          rotation: -Math.PI / 4,
+        },
+      },
+      data: rollups.map(r => r.unattributed || 0),
+      emphasis: { focus: 'series' },
+    });
+  }
 
   chart.setOption({
     grid: { left: 60, right: 16, top: 40, bottom: 64, containLabel: true },
@@ -3405,9 +3442,9 @@ function renderStepOpcodeBreakdownChart(chartId, txProfiles, topN = 8) {
     },
     xAxis: {
       type: 'value',
-      name: 'ref_time',
+      name: metric,
       nameTextStyle: { fontSize: 10, color: '#6b6b6b' },
-      axisLabel: { fontSize: 9, color: '#6b6b6b', formatter: fmtOpcodeRefTime },
+      axisLabel: { fontSize: 9, color: '#6b6b6b', formatter: fmt },
       splitLine: { lineStyle: { color: '#f0f0f0' } },
     },
     yAxis: {
@@ -3431,14 +3468,14 @@ function renderStepOpcodeBreakdownChart(chartId, txProfiles, topN = 8) {
         const stepPath = catData[idx];
         const total = params.reduce((s, p) => s + Number(p.value || 0), 0);
         let html = `<b>step ${escapeHtml(stepPath)}</b>` +
-                   `<br/>total: ${fmtOpcodeRefTime(total)}`;
+                   `<br/>total: ${fmt(total)}`;
         params.slice()
           .sort((a, b) => Number(b.value || 0) - Number(a.value || 0))
           .forEach(p => {
             const v = Number(p.value || 0);
             if (v === 0) return;
             const pct = total > 0 ? (v / total * 100).toFixed(1) : '0';
-            html += `<br/>${p.marker} ${escapeHtml(p.seriesName)}: ${fmtOpcodeRefTime(v)} (${pct}%)`;
+            html += `<br/>${p.marker} ${escapeHtml(p.seriesName)}: ${fmt(v)} (${pct}%)`;
           });
         return html;
       },
@@ -3656,6 +3693,45 @@ function hydrateOpcodeTable(table) {
   renderRows();
 }
 
+/**
+ * Step-limit status chip for one platform's opcode profile: how many of the N
+ * sampled txs hit the `profile-step-limit` cap (a hit truncates the trace tail,
+ * whose weight then lands in `unattributed`). Per-sample step counts are in the
+ * hover title. The profiled-vs-unattributed split itself is shown inline in the
+ * per-step stacked bars (the "Not profiled" segment), so this only builds the chip.
+ */
+function renderCoverageBlock(profile) {
+  const tps = (profile.tx_profiles || []).filter(t => Number(t.weight_consumed_ref_time || 0) > 0);
+  if (!tps.length) return '';
+  const cap = reportData?.context?.Benchmark?.benchmark_run?.profile_step_limit ?? null;
+  // Per-sample captured step counts, so we can report how many of the N samples
+  // actually hit the cap — an average would hide a partial truncation (some
+  // samples truncated, some not).
+  const capsHit = tps.map(t => (t.opcodes || []).reduce((s, o) => s + Number(o.sample_count || 0), 0));
+  const nSamples = capsHit.length;
+  const maxC = Math.max(...capsHit);
+  const hitCount = cap != null ? capsHit.filter(c => c >= cap).length : 0;
+
+  // Sampled txs can be different transactions with genuinely different step
+  // counts, so the chip reports status + how close the worst sample got to the
+  // cap (max), never a single conflated count. Per-sample counts live in the
+  // hover title.
+  const plur = nSamples === 1 ? 'sample' : 'samples';
+  const perSampleTitle = `Steps captured per sample: ${capsHit.map(c => c.toLocaleString()).join(' · ')}`
+    + (cap != null ? ` (limit ${cap.toLocaleString()})` : '');
+  let chip;
+  if (cap == null) {
+    chip = `<span class="cov-chip cov-chip-na" title="${perSampleTitle}">${nSamples} ${plur} · up to ${maxC.toLocaleString()} steps</span>`;
+  } else if (hitCount === 0) {
+    chip = `<span class="cov-chip cov-chip-ok" title="${perSampleTitle}">✓ Complete capture · ${nSamples} ${plur} · max ${maxC.toLocaleString()} / ${cap.toLocaleString()} steps</span>`;
+  } else {
+    const scope = hitCount === nSamples ? `all ${nSamples} ${plur}` : `${hitCount} of ${nSamples} ${plur}`;
+    chip = `<span class="cov-chip cov-chip-hit" title="${perSampleTitle} — weight beyond the cap is unattributed">⚠ Step limit reached · ${scope} truncated · ${cap.toLocaleString()}-step limit</span>`;
+  }
+
+  return chip;
+}
+
 function renderOpcodeProfileSection(modeData, enabledPlatforms) {
   const group = document.getElementById('opcodeProfileGroup');
   const grid = document.getElementById('opcodeProfileGrid');
@@ -3706,8 +3782,10 @@ function renderOpcodeProfileSection(modeData, enabledPlatforms) {
     const total = profile.opcodes.reduce((s, o) => s + Number(o.total_ref_time || 0), 0);
     const rollupsForPlatform = platformRollups.find(p => p.platform === platform).rollups;
     const stackedId = `opcodeStackedByStep_${slugify(platform)}`;
+    const stackedPsId = `opcodeStackedByStepPs_${slugify(platform)}`;
     if ((profile.tx_profiles || []).length > 0) {
-      stackedChartIds.push({ platform, chartId: stackedId, txProfiles: profile.tx_profiles });
+      stackedChartIds.push({ platform, chartId: stackedId, txProfiles: profile.tx_profiles, metric: 'ref_time' });
+      stackedChartIds.push({ platform, chartId: stackedPsId, txProfiles: profile.tx_profiles, metric: 'proof_size' });
     }
 
     const opcodeTotalRefTime = profile.opcodes.reduce(
@@ -3720,10 +3798,15 @@ function renderOpcodeProfileSection(modeData, enabledPlatforms) {
       ? `<div class="opcode-truncated">+ ${profile.opcodes.length - OPCODE_TABLE_TOP_N} more opcode${profile.opcodes.length - OPCODE_TABLE_TOP_N === 1 ? '' : 's'} (see report.json)</div>`
       : '';
 
+    const coverageChip = renderCoverageBlock(profile);
     const stackedBlock = (profile.tx_profiles || []).length > 0
       ? `<div class="opcode-stacked-card">
-          <div class="opcode-step-chart-title">Per-step ref_time by opcode (top 8 + Other)</div>
+          <div class="opcode-step-chart-title">ref_time by opcode (top 8 + Other + Not profiled)</div>
           <div class="opcode-stacked-chart" id="${stackedId}"></div>
+        </div>
+        <div class="opcode-stacked-card">
+          <div class="opcode-step-chart-title">proof_size by opcode (top 8 + Other + Not profiled)</div>
+          <div class="opcode-stacked-chart" id="${stackedPsId}"></div>
         </div>`
       : '';
 
@@ -3732,6 +3815,7 @@ function renderOpcodeProfileSection(modeData, enabledPlatforms) {
         <span class="contract-platform-dot" style="background:${color}"></span>
         <span class="contract-name">${escapeHtml(platform)}</span>
         <span class="contract-type-badge contract-type-instance">opcode profile</span>
+        ${coverageChip}
       </div>
       <div class="opcode-profile-summary">
         <span><b>${profile.sampled_tx_count}</b> sampled tx${profile.sampled_tx_count === 1 ? '' : 's'}</span>
@@ -3833,7 +3917,7 @@ function renderOpcodeProfileSection(modeData, enabledPlatforms) {
   }
 
   for (const job of stackedChartIds) {
-    renderStepOpcodeBreakdownChart(job.chartId, job.txProfiles, 8);
+    renderStepOpcodeBreakdownChart(job.chartId, job.txProfiles, 8, job.metric);
   }
 }
 
