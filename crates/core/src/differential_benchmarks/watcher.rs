@@ -1,3 +1,4 @@
+use crate::differential_benchmarks::tx_profiler::{ProfileConfig, run_profiling, sample_watched_txs};
 use crate::internal_prelude::*;
 use pallet_revive::Weight;
 
@@ -14,12 +15,16 @@ pub struct Watcher {
 
     /// The reporter used to send events to the report aggregator.
     reporter: ExecutionSpecificReporter,
+
+    /// Configuration for the watched-tx opcode profiler.
+    profile_config: ProfileConfig,
 }
 
 impl Watcher {
     pub fn new(
         connector: Arc<NodeConnector>,
         reporter: ExecutionSpecificReporter,
+        profile_config: ProfileConfig,
     ) -> (Self, UnboundedSender<WatcherEvent>) {
         let (tx, rx) = unbounded_channel::<WatcherEvent>();
         (
@@ -27,6 +32,7 @@ impl Watcher {
                 rx,
                 connector,
                 reporter,
+                profile_config,
             },
             tx,
         )
@@ -38,6 +44,7 @@ impl Watcher {
                 mut rx,
                 connector,
                 reporter,
+                profile_config,
             } = self;
             let ignore_blocks_before_block_number = loop {
                 let Some(WatcherEvent::StartEvent {
@@ -206,6 +213,8 @@ impl Watcher {
                 bail!("Encountered failing receipts when watching")
             }
 
+            let block_count = observed_blocks.len() as u32;
+
             for block_info in observed_blocks {
                 for hash in block_info.block.evm_block.transactions.hashes() {
                     let Some(info) = tx_information.get(&hash) else {
@@ -287,6 +296,40 @@ impl Watcher {
                 reporter
                     .report_block_mined_event(mined_block_information)
                     .expect("qed; can't fail")
+            }
+
+            // Watched-tx opcode profiling. Sample a subset of the submitted
+            // transactions, re-execute each under the execution tracer, and
+            // report the aggregated per-opcode weight breakdown. Non-substrate
+            // platforms trace to `None` and are skipped inside `run_profiling`.
+            if profile_config.enabled {
+                let profile_view = tx_information
+                    .iter()
+                    .map(|(hash, info)| (*hash, (info.step_path.clone(), ())))
+                    .collect::<IndexMap<TxHash, (StepPath, ())>>();
+                let samples = sample_watched_txs(&profile_view, profile_config.mode)
+                    .into_iter()
+                    .filter_map(|hash| {
+                        tx_information
+                            .get(&hash)
+                            .map(|info| (hash, info.step_path.clone()))
+                    })
+                    .collect::<Vec<_>>();
+                info!(
+                    sample_count = samples.len(),
+                    "Profiling watched transactions"
+                );
+                let summary = run_profiling(
+                    &connector,
+                    samples,
+                    block_count,
+                    profile_config.step_limit,
+                    profile_config.concurrency,
+                )
+                .await;
+                reporter
+                    .report_opcode_profile_completed_event(summary)
+                    .expect("qed; can't fail");
             }
 
             Ok(())

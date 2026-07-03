@@ -760,6 +760,62 @@ impl NodeConnector {
         })
     }
 
+    /// Trace one already-included transaction with the execution (opcode/syscall)
+    /// tracer, for post-run profiling. Substrate nodes only; returns `Ok(None)`
+    /// on eth-rpc nodes or when the returned trace isn't an execution trace.
+    pub fn trace_execution_tx(
+        &self,
+        tx_hash: TxHash,
+        step_limit: u64,
+    ) -> StaticFuture<Result<Option<pallet_revive::evm::ExecutionTrace>>> {
+        let Some(substrate_provider) = self.substrate_providers.as_ref() else {
+            return Box::pin(async move { Ok(None) });
+        };
+        let provider = substrate_provider.clone();
+        let inclusion_future = self.indexed_transactions.get(tx_hash);
+
+        Box::pin(async move {
+            let indexed_transaction = inclusion_future.await;
+            let substrate_block_information = indexed_transaction
+                .block_pair
+                .substrate_block
+                .as_ref()
+                .expect("qed; this is a substrate transaction");
+            let extrinsic_index = indexed_transaction
+                .extrinsic_index
+                .expect("qed; this is a substrate transaction")
+                as u32;
+            let parent_hash = substrate_block_information.runtime_block.header.parent_hash;
+            let block = substrate_block_information.runtime_block.clone();
+
+            let config = pallet_revive::evm::ExecutionTracerConfig {
+                enable_memory: false,
+                disable_stack: true,
+                disable_storage: true,
+                enable_return_data: false,
+                disable_syscall_details: false,
+                limit: (step_limit != 0).then_some(step_limit),
+                memory_word_limit: 0,
+            };
+            let tracer_type = pallet_revive::evm::TracerType::ExecutionTracer(Some(config));
+            let payload = revive_metadata::apis()
+                .revive_api()
+                .trace_tx(block.into(), extrinsic_index, tracer_type.into())
+                .unvalidated();
+            let trace = provider
+                .runtime_api()
+                .at(parent_hash)
+                .call(payload)
+                .await
+                .context("Failed to run the execution tracer")?;
+
+            Ok(trace.and_then(|trace| match trace.0 {
+                pallet_revive::evm::Trace::Execution(execution_trace) => Some(execution_trace),
+                _ => None,
+            }))
+        })
+    }
+
     pub fn balance_of(&self, address: Address) -> StaticFuture<Result<U256>> {
         match self.substrate_providers.as_ref() {
             Some(substrate_provider) => self.balance_of_substrate(address, substrate_provider),

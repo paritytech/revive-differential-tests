@@ -8809,6 +8809,7 @@ dependencies = [
  "parity-scale-codec",
  "revive-common",
  "revive-dt-common",
+ "revm-bytecode",
  "serde",
  "serde_json",
  "sp-runtime 43.0.0",

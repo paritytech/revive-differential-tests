@@ -108,6 +108,9 @@ impl ReportAggregator {
                         self.handle_contract_information(*event);
                     }
                     RunnerEvent::BlockMined(event) => self.handle_block_mined(*event),
+                    RunnerEvent::OpcodeProfileCompleted(event) => {
+                        self.handle_opcode_profile_completed(*event)
+                    }
                 }
             }
             self.handle_completion(CompletionEvent {});
@@ -516,6 +519,11 @@ impl ReportAggregator {
             .push(event.mined_block_information);
     }
 
+    fn handle_opcode_profile_completed(&mut self, event: OpcodeProfileCompletedEvent) {
+        self.execution_information(&event.execution_specifier)
+            .opcode_profile = Some(event.summary);
+    }
+
     fn test_case_report(&mut self, specifier: &TestSpecifier) -> &mut ExecutionReport {
         self.report
             .execution_information
@@ -737,6 +745,10 @@ pub struct ExecutionInformation {
     /// Information on the deployed libraries.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub deployed_libraries: Option<BTreeMap<ContractInstance, Address>>,
+    /// The watched-tx opcode profile for this platform. Only populated when
+    /// opcode profiling is enabled (`--benchmark.profile-watched-txs`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub opcode_profile: Option<OpcodeProfileSummary>,
 }
 
 /// The post-link-only compilation report.

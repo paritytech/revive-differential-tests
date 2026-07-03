@@ -2,6 +2,7 @@
 
 pub mod config;
 pub mod connector;
+pub mod opcode_profile;
 mod pool;
 mod providers;
 mod subxt_provider;

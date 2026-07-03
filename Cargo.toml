@@ -100,6 +100,7 @@ revive-differential = { version = "0.3.0" }
 
 zombienet-sdk = { version = "0.4.14" }
 pallet-revive = { version = "0.18.0", default-features = true }
+revm-bytecode = { version = "6.2.2", default-features = false, features = ["std"] }
 parity-scale-codec = { version = "3.7.5", features = ["derive"] }
 
 [profile.bench]

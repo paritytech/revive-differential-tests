@@ -2,11 +2,12 @@
 
 mod aggregator;
 mod common;
+mod opcode_profile;
 mod reporter_event;
 mod runner_event;
 
 pub mod prelude {
-    pub use crate::{aggregator::*, common::*, reporter_event::*, runner_event::*};
+    pub use crate::{aggregator::*, common::*, opcode_profile::*, reporter_event::*, runner_event::*};
 }
 
 pub(crate) mod internal_prelude {
@@ -47,5 +48,6 @@ pub(crate) mod internal_prelude {
 
 pub use aggregator::*;
 pub use common::*;
+pub use opcode_profile::*;
 pub use reporter_event::*;
 pub use runner_event::*;
