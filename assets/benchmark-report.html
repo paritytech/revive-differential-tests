@@ -3879,7 +3879,7 @@ function renderOpcodeProfileSection(modeData, enabledPlatforms) {
       <div class="opcode-profile-summary">
         <span><b>${profile.sampled_tx_count}</b> sampled tx${profile.sampled_tx_count === 1 ? '' : 's'}</span>
         <span>·</span>
-        <span><b>${profile.block_count}</b> block${profile.block_count === 1 ? '' : 's'} traced</span>
+        <span>across <b>${profile.block_count}</b> block${profile.block_count === 1 ? '' : 's'}</span>
         ${profile.failed_count > 0 ? `<span>·</span><span><b>${profile.failed_count}</b> failed</span>` : ''}
         <span>·</span>
         <span>Σ ref_time: <b>${fmtOpcodeRefTime(total)}</b></span>

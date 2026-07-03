@@ -213,7 +213,24 @@ impl Watcher {
                 bail!("Encountered failing receipts when watching")
             }
 
-            let block_count = observed_blocks.len() as u32;
+            // Map each observed tx to its block number so the profiler can report how many
+            // distinct blocks its sampled txs actually span (built only when profiling is on).
+            let tx_block_numbers: HashMap<TxHash, BlockNumber> = if profile_config.enabled {
+                observed_blocks
+                    .iter()
+                    .flat_map(|block_info| {
+                        let block_number = block_info.block.evm_block.number();
+                        block_info
+                            .block
+                            .evm_block
+                            .transactions
+                            .hashes()
+                            .map(move |hash| (hash, block_number))
+                    })
+                    .collect()
+            } else {
+                HashMap::new()
+            };
 
             for block_info in observed_blocks {
                 for hash in block_info.block.evm_block.transactions.hashes() {
@@ -315,9 +332,16 @@ impl Watcher {
                             .map(|info| (hash, info.step_path.clone()))
                     })
                     .collect::<Vec<_>>();
+                // How many distinct blocks the sampled txs were included in — the coverage the
+                // profile actually reflects, not the whole run's block count.
+                let block_count = samples
+                    .iter()
+                    .filter_map(|(hash, _)| tx_block_numbers.get(hash))
+                    .collect::<HashSet<_>>()
+                    .len() as u32;
                 info!(
                     sample_count = samples.len(),
-                    "Profiling watched transactions"
+                    block_count, "Profiling watched transactions"
                 );
                 let summary = run_profiling(
                     &connector,

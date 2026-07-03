@@ -8,6 +8,8 @@ use crate::internal_prelude::*;
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct OpcodeProfileSummary {
     pub sampled_tx_count: usize,
+    /// The number of distinct blocks the sampled transactions were included in
+    /// (the coverage this profile reflects — not the whole run's block count).
     pub block_count: u32,
     /// Sampled txs whose tracer reported `failed = true`. Reverted txs are
     /// still aggregated below — they spent metered weight worth profiling.
