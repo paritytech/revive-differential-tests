@@ -518,6 +518,7 @@ jobs:
             --zombienet.config-path ./assets/${{ inputs.network }}-assethub-zombienet.toml \
             --zombienet.block-production-timeout-ms 300000 \
             --wallet.additional-keys ${{ inputs.additional-keys }} \
+            --resolc.heap-size 500000 \
             --eth-rpc.logging-level info \
             --report.file-name report.json \
             --report.include-compiler-input \
