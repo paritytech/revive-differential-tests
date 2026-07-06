@@ -83,6 +83,11 @@ on:
         required: false
         type: string
         default: ""
+      compiler-tests-ref:
+        description: The branch, tag, or commit of paritytech/resolc-compiler-tests to benchmark. Empty uses the default branch.
+        required: false
+        type: string
+        default: ""
       profile-watched-txs:
         description: Enable per-opcode profiling of sampled watched txs. Requires `network == westend` (the trace API only exists on the asset-hub-westend runtime); builds the polkadot-sdk with `--cfg revive_debug`.
         type: boolean
@@ -233,6 +238,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: paritytech/resolc-compiler-tests
+          ref: ${{ inputs.compiler-tests-ref }}
           path: compiler-tests
       - name: Export test specifiers
         id: matrix
@@ -367,6 +373,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: paritytech/resolc-compiler-tests
+          ref: ${{ inputs.compiler-tests-ref }}
           path: compiler-tests
       - name: Get Retester Binaries
         uses: ./.github/actions/require-binary
@@ -565,6 +572,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: paritytech/resolc-compiler-tests
+          ref: ${{ inputs.compiler-tests-ref }}
           path: compiler-tests
       - name: Download all artifacts
         uses: actions/download-artifact@v4
