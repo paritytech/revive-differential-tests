@@ -1,0 +1,958 @@
+{
+  "context": {
+    "Benchmark": {
+      "profile": {
+        "profile": "Default"
+      },
+      "log": {
+        "log_format": "Json"
+      },
+      "platforms": {
+        "platforms": [
+          "zombienet-polkavm-resolc"
+        ]
+      },
+      "working_directory": {
+        "working_directory": "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/workdir"
+      },
+      "benchmark_run": {
+        "default_repetition_count": 1000,
+        "repetition_count_override": null,
+        "profile_watched_txs": false,
+        "profile_samples_per_step_path": 5,
+        "profile_all": false,
+        "profile_concurrency": 4,
+        "profile_step_limit": 100000
+      },
+      "corpus": {
+        "test_specifiers": [
+          "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/word-width-microbench/test.json::0::Y Mz S+"
+        ],
+        "allowed_modes": []
+      },
+      "solc": {
+        "version": "0.8.29"
+      },
+      "resolc": {
+        "path": "resolc",
+        "heap_size": 500000,
+        "stack_size": null
+      },
+      "polkadot_parachain": {
+        "path": "polkadot-parachain",
+        "start_timeout_ms": {
+          "secs": 5,
+          "nanos": 0
+        }
+      },
+      "geth": {
+        "path": "geth",
+        "start_timeout_ms": {
+          "secs": 30,
+          "nanos": 0
+        },
+        "logging_level": "3",
+        "connector_configurations": null
+      },
+      "kurtosis": {
+        "path": "kurtosis",
+        "start_timeout_ms": {
+          "secs": 900,
+          "nanos": 0
+        },
+        "connector_configurations": null
+      },
+      "revive_dev_node": {
+        "path": "revive-dev-node",
+        "start_timeout_ms": {
+          "secs": 30,
+          "nanos": 0
+        },
+        "consensus": "instant-seal",
+        "logging_level": "error,evm=debug,sc_rpc_server=info,runtime::revive=debug",
+        "connector_configurations": null
+      },
+      "polkadot_omnichain_node": {
+        "path": "polkadot-omni-node",
+        "start_timeout_ms": {
+          "secs": 90,
+          "nanos": 0
+        },
+        "block_time_ms": {
+          "secs": 0,
+          "nanos": 200000000
+        },
+        "chain_spec_path": null,
+        "parachain_id": null,
+        "logging_level": "error,evm=debug,sc_rpc_server=info,runtime::revive=debug",
+        "connector_configurations": null
+      },
+      "zombienet": {
+        "config_path": "./assets/westend-assethub-zombienet.toml",
+        "block_production_timeout_ms": {
+          "secs": 300,
+          "nanos": 0
+        },
+        "use_kubernetes": false,
+        "connector_configurations": "{\"substrate_provider_configuration\":{\"allowed_estimation_methods\":\"ETH_TRANSACT_WITH_CONFIG | ETH_TRANSACT\"}}"
+      },
+      "eth_rpc": {
+        "path": "eth-rpc",
+        "start_timeout_ms": {
+          "secs": 30,
+          "nanos": 0
+        },
+        "logging_level": "info"
+      },
+      "wallet": {
+        "default_private_key": "0x4f3edf983ac636a65a842ce7c78d9aa706d3b113bce9c46f30d7d21715b23b1d",
+        "additional_keys": 201000
+      },
+      "concurrency": {
+        "number_of_nodes": 1,
+        "number_of_threads": 12,
+        "number_of_concurrent_tasks": 1000
+      },
+      "compilation": {
+        "invalidate_cache": false
+      },
+      "report": {
+        "include_compiler_input": true,
+        "include_compiler_output": false,
+        "file_name": "report.json"
+      },
+      "shutdown": {
+        "keep_alive_on_failures": false,
+        "keep_alive": false
+      }
+    }
+  },
+  "metadata_files": [
+    "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/word-width-microbench/test.json"
+  ],
+  "execution_information": {
+    "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/word-width-microbench/test.json": {
+      "case_reports": {
+        "0": {
+          "mode_execution_reports": {
+            "Y Mz S+": {
+              "metrics_information": {
+                "zombienet-polkavm-resolc": [
+                  {
+                    "block_number": 179,
+                    "relative_block_number": 0,
+                    "block_timestamp_seconds": 1784108232,
+                    "relative_block_timestamp_seconds": 0,
+                    "observation_time_seconds": 1784108251,
+                    "relative_observation_time_seconds": 0,
+                    "transaction_count": 402,
+                    "step_count": {
+                      "2.1": 100,
+                      "3.1": 100,
+                      "4.1": 100,
+                      "6.1": 2,
+                      "7.1": 100
+                    },
+                    "block_gas_mined": 2380029970,
+                    "block_gas_limit": 18446744073709551615,
+                    "block_gas_fullness": 0,
+                    "block_ref_time": 1507931351006,
+                    "block_ref_time_limit": 1399875000000,
+                    "block_ref_time_fullness": 107,
+                    "block_proof_size": 728737,
+                    "block_proof_size_limit": 7340032,
+                    "block_proof_size_fullness": 9,
+                    "additional_tx_capacity_gas": 3115755647747,
+                    "additional_tx_capacity_ref_time": 0,
+                    "additional_tx_capacity_proof_size": 3648,
+                    "additional_tx_capacity_pre_dispatch_ref_time": 0,
+                    "additional_tx_capacity_pre_dispatch_proof_size": 145,
+                    "pending_transaction_count": 198
+                  },
+                  {
+                    "block_number": 180,
+                    "relative_block_number": 1,
+                    "block_timestamp_seconds": 1784108232,
+                    "relative_block_timestamp_seconds": 0,
+                    "observation_time_seconds": 1784108253,
+                    "relative_observation_time_seconds": 2,
+                    "transaction_count": 171,
+                    "step_count": {
+                      "5.1": 73,
+                      "6.1": 98
+                    },
+                    "transactions_per_second": 101.96779964221824,
+                    "ref_time_per_second": 898632244477.0424,
+                    "proof_size_per_second": 298240.3100775194,
+                    "gas_per_second": 876787339.8926655,
+                    "block_gas_mined": 1470372369,
+                    "block_gas_limit": 18446744073709551615,
+                    "block_gas_fullness": 0,
+                    "block_ref_time": 1507006273988,
+                    "block_ref_time_limit": 1399875000000,
+                    "block_ref_time_fullness": 107,
+                    "block_proof_size": 500149,
+                    "block_proof_size_limit": 7340032,
+                    "block_proof_size_fullness": 6,
+                    "additional_tx_capacity_gas": 2145302513393,
+                    "additional_tx_capacity_ref_time": 0,
+                    "additional_tx_capacity_proof_size": 2339,
+                    "additional_tx_capacity_pre_dispatch_ref_time": 0,
+                    "additional_tx_capacity_pre_dispatch_proof_size": 120,
+                    "pending_transaction_count": 27
+                  },
+                  {
+                    "block_number": 181,
+                    "relative_block_number": 2,
+                    "block_timestamp_seconds": 1784108232,
+                    "relative_block_timestamp_seconds": 0,
+                    "observation_time_seconds": 1784108255,
+                    "relative_observation_time_seconds": 4,
+                    "transaction_count": 27,
+                    "step_count": {
+                      "5.1": 27
+                    },
+                    "transactions_per_second": 15.306122448979592,
+                    "ref_time_per_second": 160255219213.15192,
+                    "proof_size_per_second": 179230.15873015873,
+                    "gas_per_second": 146433308.9569161,
+                    "block_gas_mined": 258308357,
+                    "block_gas_limit": 18446744073709551615,
+                    "block_gas_fullness": 0,
+                    "block_ref_time": 282690206692,
+                    "block_ref_time_limit": 1399875000000,
+                    "block_ref_time_fullness": 20,
+                    "block_proof_size": 316162,
+                    "block_proof_size_limit": 7340032,
+                    "block_proof_size_fullness": 4,
+                    "additional_tx_capacity_gas": 1928168741455,
+                    "additional_tx_capacity_ref_time": 106,
+                    "additional_tx_capacity_proof_size": 599,
+                    "additional_tx_capacity_pre_dispatch_ref_time": 90,
+                    "additional_tx_capacity_pre_dispatch_proof_size": 109,
+                    "pending_transaction_count": 0
+                  }
+                ],
+                "zombienet-revm-solc": [
+                  {
+                    "block_number": 164,
+                    "relative_block_number": 0,
+                    "block_timestamp_seconds": 1784108208,
+                    "relative_block_timestamp_seconds": 0,
+                    "observation_time_seconds": 1784108234,
+                    "relative_observation_time_seconds": 0,
+                    "transaction_count": 311,
+                    "step_count": {
+                      "2.1": 100,
+                      "3.1": 100,
+                      "4.1": 100,
+                      "5.1": 11
+                    },
+                    "block_gas_mined": 2249526129,
+                    "block_gas_limit": 18446744073709551615,
+                    "block_gas_fullness": 0,
+                    "block_ref_time": 1478026150941,
+                    "block_ref_time_limit": 1399875000000,
+                    "block_ref_time_fullness": 105,
+                    "block_proof_size": 629880,
+                    "block_proof_size_limit": 7340032,
+                    "block_proof_size_fullness": 8,
+                    "additional_tx_capacity_gas": 2550287420627,
+                    "additional_tx_capacity_ref_time": 0,
+                    "additional_tx_capacity_proof_size": 3313,
+                    "additional_tx_capacity_pre_dispatch_ref_time": 0,
+                    "additional_tx_capacity_pre_dispatch_proof_size": 146,
+                    "pending_transaction_count": 289
+                  },
+                  {
+                    "block_number": 165,
+                    "relative_block_number": 1,
+                    "block_timestamp_seconds": 1784108208,
+                    "relative_block_timestamp_seconds": 0,
+                    "observation_time_seconds": 1784108235,
+                    "relative_observation_time_seconds": 1,
+                    "transaction_count": 21,
+                    "step_count": {
+                      "5.1": 21
+                    },
+                    "transactions_per_second": 11.146496815286625,
+                    "ref_time_per_second": 784091114929.4055,
+                    "proof_size_per_second": 168673.5668789809,
+                    "gas_per_second": 639282356.6878982,
+                    "block_gas_mined": 1204407960,
+                    "block_gas_limit": 18446744073709551615,
+                    "block_gas_fullness": 0,
+                    "block_ref_time": 1477227660527,
+                    "block_ref_time_limit": 1399875000000,
+                    "block_ref_time_fullness": 105,
+                    "block_proof_size": 317781,
+                    "block_proof_size_limit": 7340032,
+                    "block_proof_size_fullness": 4,
+                    "additional_tx_capacity_gas": 321636553716,
+                    "additional_tx_capacity_ref_time": 0,
+                    "additional_tx_capacity_proof_size": 464,
+                    "additional_tx_capacity_pre_dispatch_ref_time": 0,
+                    "additional_tx_capacity_pre_dispatch_proof_size": 15,
+                    "pending_transaction_count": 268
+                  },
+                  {
+                    "block_number": 166,
+                    "relative_block_number": 2,
+                    "block_timestamp_seconds": 1784108208,
+                    "relative_block_timestamp_seconds": 0,
+                    "observation_time_seconds": 1784108237,
+                    "relative_observation_time_seconds": 3,
+                    "transaction_count": 21,
+                    "step_count": {
+                      "5.1": 21
+                    },
+                    "transactions_per_second": 10.632911392405065,
+                    "ref_time_per_second": 747937870905.3164,
+                    "proof_size_per_second": 147321.01265822785,
+                    "gas_per_second": 609820264.8101265,
+                    "block_gas_mined": 1204395023,
+                    "block_gas_limit": 18446744073709551615,
+                    "block_gas_fullness": 0,
+                    "block_ref_time": 1477177295038,
+                    "block_ref_time_limit": 1399875000000,
+                    "block_ref_time_fullness": 105,
+                    "block_proof_size": 290959,
+                    "block_proof_size_limit": 7340032,
+                    "block_proof_size_fullness": 3,
+                    "additional_tx_capacity_gas": 321640013913,
+                    "additional_tx_capacity_ref_time": 0,
+                    "additional_tx_capacity_proof_size": 508,
+                    "additional_tx_capacity_pre_dispatch_ref_time": 0,
+                    "additional_tx_capacity_pre_dispatch_proof_size": 16,
+                    "pending_transaction_count": 247
+                  },
+                  {
+                    "block_number": 167,
+                    "relative_block_number": 3,
+                    "block_timestamp_seconds": 1784108232,
+                    "relative_block_timestamp_seconds": 24,
+                    "observation_time_seconds": 1784108239,
+                    "relative_observation_time_seconds": 5,
+                    "transaction_count": 21,
+                    "step_count": {
+                      "5.1": 21
+                    },
+                    "transactions_per_second": 10.505252626313156,
+                    "ref_time_per_second": 738980269290.145,
+                    "proof_size_per_second": 145602.80140070035,
+                    "gas_per_second": 602502942.4712356,
+                    "block_gas_mined": 1204403382,
+                    "block_gas_limit": 18446744073709551615,
+                    "block_gas_fullness": 0,
+                    "block_ref_time": 1477221558311,
+                    "block_ref_time_limit": 1399875000000,
+                    "block_ref_time_fullness": 105,
+                    "block_proof_size": 291060,
+                    "block_proof_size_limit": 7340032,
+                    "block_proof_size_fullness": 3,
+                    "additional_tx_capacity_gas": 321637776273,
+                    "additional_tx_capacity_ref_time": 0,
+                    "additional_tx_capacity_proof_size": 508,
+                    "additional_tx_capacity_pre_dispatch_ref_time": 0,
+                    "additional_tx_capacity_pre_dispatch_proof_size": 16,
+                    "pending_transaction_count": 226
+                  },
+                  {
+                    "block_number": 168,
+                    "relative_block_number": 4,
+                    "block_timestamp_seconds": 1784108232,
+                    "relative_block_timestamp_seconds": 24,
+                    "observation_time_seconds": 1784108241,
+                    "relative_observation_time_seconds": 7,
+                    "transaction_count": 21,
+                    "step_count": {
+                      "5.1": 21
+                    },
+                    "transactions_per_second": 10.595358224016143,
+                    "ref_time_per_second": 745517215704.8436,
+                    "proof_size_per_second": 165411.7053481332,
+                    "gas_per_second": 607669879.9192735,
+                    "block_gas_mined": 1204401702,
+                    "block_gas_limit": 18446744073709551615,
+                    "block_gas_fullness": 0,
+                    "block_ref_time": 1477615121527,
+                    "block_ref_time_limit": 1399875000000,
+                    "block_ref_time_fullness": 105,
+                    "block_proof_size": 327846,
+                    "block_proof_size_limit": 7340032,
+                    "block_proof_size_fullness": 4,
+                    "additional_tx_capacity_gas": 321638224920,
+                    "additional_tx_capacity_ref_time": 0,
+                    "additional_tx_capacity_proof_size": 449,
+                    "additional_tx_capacity_pre_dispatch_ref_time": 0,
+                    "additional_tx_capacity_pre_dispatch_proof_size": 15,
+                    "pending_transaction_count": 205
+                  },
+                  {
+                    "block_number": 169,
+                    "relative_block_number": 5,
+                    "block_timestamp_seconds": 1784108232,
+                    "relative_block_timestamp_seconds": 24,
+                    "observation_time_seconds": 1784108243,
+                    "relative_observation_time_seconds": 9,
+                    "transaction_count": 17,
+                    "step_count": {
+                      "5.1": 5,
+                      "6.1": 12
+                    },
+                    "transactions_per_second": 8.432539682539682,
+                    "ref_time_per_second": 732524511352.6786,
+                    "proof_size_per_second": 141239.58333333334,
+                    "gas_per_second": 594035022.8174603,
+                    "block_gas_mined": 1197574606,
+                    "block_gas_limit": 18446744073709551615,
+                    "block_gas_fullness": 0,
+                    "block_ref_time": 1476769414887,
+                    "block_ref_time_limit": 1399875000000,
+                    "block_ref_time_fullness": 105,
+                    "block_proof_size": 284739,
+                    "block_proof_size_limit": 7340032,
+                    "block_proof_size_fullness": 3,
+                    "additional_tx_capacity_gas": 261858132197,
+                    "additional_tx_capacity_ref_time": 0,
+                    "additional_tx_capacity_proof_size": 421,
+                    "additional_tx_capacity_pre_dispatch_ref_time": 0,
+                    "additional_tx_capacity_pre_dispatch_proof_size": 12,
+                    "pending_transaction_count": 188
+                  },
+                  {
+                    "block_number": 170,
+                    "relative_block_number": 6,
+                    "block_timestamp_seconds": 1784108232,
+                    "relative_block_timestamp_seconds": 24,
+                    "observation_time_seconds": 1784108245,
+                    "relative_observation_time_seconds": 11,
+                    "transaction_count": 15,
+                    "step_count": {
+                      "6.1": 15
+                    },
+                    "transactions_per_second": 7.649158592554819,
+                    "ref_time_per_second": 717517711535.441,
+                    "proof_size_per_second": 144678.2253952065,
+                    "gas_per_second": 580572941.3564508,
+                    "block_gas_mined": 1138503538,
+                    "block_gas_limit": 18446744073709551615,
+                    "block_gas_fullness": 0,
+                    "block_ref_time": 1407052232321,
+                    "block_ref_time_limit": 1399875000000,
+                    "block_ref_time_fullness": 100,
+                    "block_proof_size": 283714,
+                    "block_proof_size_limit": 7340032,
+                    "block_proof_size_fullness": 3,
+                    "additional_tx_capacity_gas": 243039353864,
+                    "additional_tx_capacity_ref_time": 0,
+                    "additional_tx_capacity_proof_size": 373,
+                    "additional_tx_capacity_pre_dispatch_ref_time": 0,
+                    "additional_tx_capacity_pre_dispatch_proof_size": 12,
+                    "pending_transaction_count": 173
+                  },
+                  {
+                    "block_number": 171,
+                    "relative_block_number": 7,
+                    "block_timestamp_seconds": 1784108232,
+                    "relative_block_timestamp_seconds": 24,
+                    "observation_time_seconds": 1784108247,
+                    "relative_observation_time_seconds": 13,
+                    "transaction_count": 15,
+                    "step_count": {
+                      "6.1": 15
+                    },
+                    "transactions_per_second": 7.492507492507493,
+                    "ref_time_per_second": 702826347057.9421,
+                    "proof_size_per_second": 158584.4155844156,
+                    "gas_per_second": 568687867.1328672,
+                    "block_gas_mined": 1138513110,
+                    "block_gas_limit": 18446744073709551615,
+                    "block_gas_fullness": 0,
+                    "block_ref_time": 1407058346810,
+                    "block_ref_time_limit": 1399875000000,
+                    "block_ref_time_fullness": 100,
+                    "block_proof_size": 317486,
+                    "block_proof_size_limit": 7340032,
+                    "block_proof_size_fullness": 4,
+                    "additional_tx_capacity_gas": 243037307746,
+                    "additional_tx_capacity_ref_time": 0,
+                    "additional_tx_capacity_proof_size": 331,
+                    "additional_tx_capacity_pre_dispatch_ref_time": 0,
+                    "additional_tx_capacity_pre_dispatch_proof_size": 11,
+                    "pending_transaction_count": 158
+                  },
+                  {
+                    "block_number": 172,
+                    "relative_block_number": 8,
+                    "block_timestamp_seconds": 1784108232,
+                    "relative_block_timestamp_seconds": 24,
+                    "observation_time_seconds": 1784108249,
+                    "relative_observation_time_seconds": 15,
+                    "transaction_count": 15,
+                    "step_count": {
+                      "6.1": 15
+                    },
+                    "transactions_per_second": 7.541478129713424,
+                    "ref_time_per_second": 707394667468.0743,
+                    "proof_size_per_second": 142182.00100553042,
+                    "gas_per_second": 572403974.3589743,
+                    "block_gas_mined": 1138511505,
+                    "block_gas_limit": 18446744073709551615,
+                    "block_gas_fullness": 0,
+                    "block_ref_time": 1407007993594,
+                    "block_ref_time_limit": 1399875000000,
+                    "block_ref_time_fullness": 100,
+                    "block_proof_size": 282800,
+                    "block_proof_size_limit": 7340032,
+                    "block_proof_size_fullness": 3,
+                    "additional_tx_capacity_gas": 243037650364,
+                    "additional_tx_capacity_ref_time": 0,
+                    "additional_tx_capacity_proof_size": 374,
+                    "additional_tx_capacity_pre_dispatch_ref_time": 0,
+                    "additional_tx_capacity_pre_dispatch_proof_size": 12,
+                    "pending_transaction_count": 143
+                  },
+                  {
+                    "block_number": 173,
+                    "relative_block_number": 9,
+                    "block_timestamp_seconds": 1784108232,
+                    "relative_block_timestamp_seconds": 24,
+                    "observation_time_seconds": 1784108251,
+                    "relative_observation_time_seconds": 17,
+                    "transaction_count": 15,
+                    "step_count": {
+                      "6.1": 15
+                    },
+                    "transactions_per_second": 7.485029940119761,
+                    "ref_time_per_second": 702121872415.6687,
+                    "proof_size_per_second": 141600.2994011976,
+                    "gas_per_second": 568113712.0758483,
+                    "block_gas_mined": 1138499879,
+                    "block_gas_limit": 18446744073709551615,
+                    "block_gas_fullness": 0,
+                    "block_ref_time": 1407052232321,
+                    "block_ref_time_limit": 1399875000000,
+                    "block_ref_time_fullness": 100,
+                    "block_proof_size": 283767,
+                    "block_proof_size_limit": 7340032,
+                    "block_proof_size_fullness": 3,
+                    "additional_tx_capacity_gas": 243040135176,
+                    "additional_tx_capacity_ref_time": 0,
+                    "additional_tx_capacity_proof_size": 373,
+                    "additional_tx_capacity_pre_dispatch_ref_time": 0,
+                    "additional_tx_capacity_pre_dispatch_proof_size": 12,
+                    "pending_transaction_count": 128
+                  },
+                  {
+                    "block_number": 174,
+                    "relative_block_number": 10,
+                    "block_timestamp_seconds": 1784108232,
+                    "relative_block_timestamp_seconds": 24,
+                    "observation_time_seconds": 1784108253,
+                    "relative_observation_time_seconds": 19,
+                    "transaction_count": 15,
+                    "step_count": {
+                      "6.1": 15
+                    },
+                    "transactions_per_second": 7.556675062972292,
+                    "ref_time_per_second": 708845508582.8715,
+                    "proof_size_per_second": 159993.9546599496,
+                    "gas_per_second": 573550768.2619647,
+                    "block_gas_mined": 1138498275,
+                    "block_gas_limit": 18446744073709551615,
+                    "block_gas_fullness": 0,
+                    "block_ref_time": 1407058334537,
+                    "block_ref_time_limit": 1399875000000,
+                    "block_ref_time_fullness": 100,
+                    "block_proof_size": 317588,
+                    "block_proof_size_limit": 7340032,
+                    "block_proof_size_fullness": 4,
+                    "additional_tx_capacity_gas": 243040474601,
+                    "additional_tx_capacity_ref_time": 0,
+                    "additional_tx_capacity_proof_size": 331,
+                    "additional_tx_capacity_pre_dispatch_ref_time": 0,
+                    "additional_tx_capacity_pre_dispatch_proof_size": 11,
+                    "pending_transaction_count": 113
+                  },
+                  {
+                    "block_number": 175,
+                    "relative_block_number": 11,
+                    "block_timestamp_seconds": 1784108232,
+                    "relative_block_timestamp_seconds": 24,
+                    "observation_time_seconds": 1784108255,
+                    "relative_observation_time_seconds": 21,
+                    "transaction_count": 15,
+                    "step_count": {
+                      "6.1": 13,
+                      "7.1": 2
+                    },
+                    "transactions_per_second": 7.625826131164209,
+                    "ref_time_per_second": 715306209172.3436,
+                    "proof_size_per_second": 144314.6924250127,
+                    "gas_per_second": 578803922.7249619,
+                    "block_gas_mined": 1138507316,
+                    "block_gas_limit": 18446744073709551615,
+                    "block_gas_fullness": 0,
+                    "block_ref_time": 1407007313442,
+                    "block_ref_time_limit": 1399875000000,
+                    "block_ref_time_fullness": 100,
+                    "block_proof_size": 283867,
+                    "block_proof_size_limit": 7340032,
+                    "block_proof_size_fullness": 3,
+                    "additional_tx_capacity_gas": 243038546940,
+                    "additional_tx_capacity_ref_time": 0,
+                    "additional_tx_capacity_proof_size": 372,
+                    "additional_tx_capacity_pre_dispatch_ref_time": 0,
+                    "additional_tx_capacity_pre_dispatch_proof_size": 12,
+                    "pending_transaction_count": 98
+                  },
+                  {
+                    "block_number": 176,
+                    "relative_block_number": 12,
+                    "block_timestamp_seconds": 1784108232,
+                    "relative_block_timestamp_seconds": 24,
+                    "observation_time_seconds": 1784108257,
+                    "relative_observation_time_seconds": 23,
+                    "transaction_count": 15,
+                    "step_count": {
+                      "7.1": 15
+                    },
+                    "transactions_per_second": 7.403751233958539,
+                    "ref_time_per_second": 694495122856.8608,
+                    "proof_size_per_second": 139539.4866732478,
+                    "gas_per_second": 561935894.3731492,
+                    "block_gas_mined": 1138482122,
+                    "block_gas_limit": 18446744073709551615,
+                    "block_gas_fullness": 0,
+                    "block_ref_time": 1407047118908,
+                    "block_ref_time_limit": 1399875000000,
+                    "block_ref_time_fullness": 100,
+                    "block_proof_size": 282707,
+                    "block_proof_size_limit": 7340032,
+                    "block_proof_size_fullness": 3,
+                    "additional_tx_capacity_gas": 243043923332,
+                    "additional_tx_capacity_ref_time": 0,
+                    "additional_tx_capacity_proof_size": 374,
+                    "additional_tx_capacity_pre_dispatch_ref_time": 0,
+                    "additional_tx_capacity_pre_dispatch_proof_size": 12,
+                    "pending_transaction_count": 83
+                  },
+                  {
+                    "block_number": 177,
+                    "relative_block_number": 13,
+                    "block_timestamp_seconds": 1784108232,
+                    "relative_block_timestamp_seconds": 24,
+                    "observation_time_seconds": 1784108259,
+                    "relative_observation_time_seconds": 25,
+                    "transaction_count": 15,
+                    "step_count": {
+                      "7.1": 15
+                    },
+                    "transactions_per_second": 7.4478649453823245,
+                    "ref_time_per_second": 698636169647.4678,
+                    "proof_size_per_second": 157903.67428003973,
+                    "gas_per_second": 565293247.2691163,
+                    "block_gas_mined": 1138500600,
+                    "block_gas_limit": 18446744073709551615,
+                    "block_gas_fullness": 0,
+                    "block_ref_time": 1407053245670,
+                    "block_ref_time_limit": 1399875000000,
+                    "block_ref_time_fullness": 100,
+                    "block_proof_size": 318018,
+                    "block_proof_size_limit": 7340032,
+                    "block_proof_size_fullness": 4,
+                    "additional_tx_capacity_gas": 243039978273,
+                    "additional_tx_capacity_ref_time": 0,
+                    "additional_tx_capacity_proof_size": 331,
+                    "additional_tx_capacity_pre_dispatch_ref_time": 0,
+                    "additional_tx_capacity_pre_dispatch_proof_size": 11,
+                    "pending_transaction_count": 68
+                  },
+                  {
+                    "block_number": 178,
+                    "relative_block_number": 14,
+                    "block_timestamp_seconds": 1784108232,
+                    "relative_block_timestamp_seconds": 24,
+                    "observation_time_seconds": 1784108261,
+                    "relative_observation_time_seconds": 27,
+                    "transaction_count": 15,
+                    "step_count": {
+                      "7.1": 15
+                    },
+                    "transactions_per_second": 7.62970498474059,
+                    "ref_time_per_second": 715667798806.7141,
+                    "proof_size_per_second": 143865.71719226858,
+                    "gas_per_second": 579094112.4109868,
+                    "block_gas_mined": 1138499025,
+                    "block_gas_limit": 18446744073709551615,
+                    "block_gas_fullness": 0,
+                    "block_ref_time": 1407002892454,
+                    "block_ref_time_limit": 1399875000000,
+                    "block_ref_time_fullness": 100,
+                    "block_proof_size": 282840,
+                    "block_proof_size_limit": 7340032,
+                    "block_proof_size_fullness": 3,
+                    "additional_tx_capacity_gas": 243040314495,
+                    "additional_tx_capacity_ref_time": 0,
+                    "additional_tx_capacity_proof_size": 374,
+                    "additional_tx_capacity_pre_dispatch_ref_time": 0,
+                    "additional_tx_capacity_pre_dispatch_proof_size": 12,
+                    "pending_transaction_count": 53
+                  },
+                  {
+                    "block_number": 179,
+                    "relative_block_number": 15,
+                    "block_timestamp_seconds": 1784108256,
+                    "relative_block_timestamp_seconds": 48,
+                    "observation_time_seconds": 1784108263,
+                    "relative_observation_time_seconds": 29,
+                    "transaction_count": 15,
+                    "step_count": {
+                      "7.1": 15
+                    },
+                    "transactions_per_second": 7.530120481927711,
+                    "ref_time_per_second": 706348967597.3895,
+                    "proof_size_per_second": 142724.8995983936,
+                    "gas_per_second": 571535429.2168674,
+                    "block_gas_mined": 1138498575,
+                    "block_gas_limit": 18446744073709551615,
+                    "block_gas_fullness": 0,
+                    "block_ref_time": 1407047143454,
+                    "block_ref_time_limit": 1399875000000,
+                    "block_ref_time_fullness": 100,
+                    "block_proof_size": 284308,
+                    "block_proof_size_limit": 7340032,
+                    "block_proof_size_fullness": 3,
+                    "additional_tx_capacity_gas": 243040410558,
+                    "additional_tx_capacity_ref_time": 0,
+                    "additional_tx_capacity_proof_size": 372,
+                    "additional_tx_capacity_pre_dispatch_ref_time": 0,
+                    "additional_tx_capacity_pre_dispatch_proof_size": 12,
+                    "pending_transaction_count": 38
+                  },
+                  {
+                    "block_number": 180,
+                    "relative_block_number": 16,
+                    "block_timestamp_seconds": 1784108256,
+                    "relative_block_timestamp_seconds": 48,
+                    "observation_time_seconds": 1784108265,
+                    "relative_observation_time_seconds": 31,
+                    "transaction_count": 15,
+                    "step_count": {
+                      "7.1": 15
+                    },
+                    "transactions_per_second": 7.522567703109328,
+                    "ref_time_per_second": 705643553495.4865,
+                    "proof_size_per_second": 159764.2928786359,
+                    "gas_per_second": 570961384.1524574,
+                    "block_gas_mined": 1138497000,
+                    "block_gas_limit": 18446744073709551615,
+                    "block_gas_fullness": 0,
+                    "block_ref_time": 1407053245670,
+                    "block_ref_time_limit": 1399875000000,
+                    "block_ref_time_fullness": 100,
+                    "block_proof_size": 318570,
+                    "block_proof_size_limit": 7340032,
+                    "block_proof_size_fullness": 4,
+                    "additional_tx_capacity_gas": 243040746781,
+                    "additional_tx_capacity_ref_time": 0,
+                    "additional_tx_capacity_proof_size": 330,
+                    "additional_tx_capacity_pre_dispatch_ref_time": 0,
+                    "additional_tx_capacity_pre_dispatch_proof_size": 11,
+                    "pending_transaction_count": 23
+                  },
+                  {
+                    "block_number": 181,
+                    "relative_block_number": 17,
+                    "block_timestamp_seconds": 1784108256,
+                    "relative_block_timestamp_seconds": 48,
+                    "observation_time_seconds": 1784108267,
+                    "relative_observation_time_seconds": 33,
+                    "transaction_count": 15,
+                    "step_count": {
+                      "7.1": 15
+                    },
+                    "transactions_per_second": 7.37100737100737,
+                    "ref_time_per_second": 691401912753.8083,
+                    "proof_size_per_second": 139320.88452088452,
+                    "gas_per_second": 559457211.3022113,
+                    "block_gas_mined": 1138495425,
+                    "block_gas_limit": 18446744073709551615,
+                    "block_gas_fullness": 0,
+                    "block_ref_time": 1407002892454,
+                    "block_ref_time_limit": 1399875000000,
+                    "block_ref_time_fullness": 100,
+                    "block_proof_size": 283518,
+                    "block_proof_size_limit": 7340032,
+                    "block_proof_size_fullness": 3,
+                    "additional_tx_capacity_gas": 243041083005,
+                    "additional_tx_capacity_ref_time": 0,
+                    "additional_tx_capacity_proof_size": 373,
+                    "additional_tx_capacity_pre_dispatch_ref_time": 0,
+                    "additional_tx_capacity_pre_dispatch_proof_size": 12,
+                    "pending_transaction_count": 8
+                  },
+                  {
+                    "block_number": 182,
+                    "relative_block_number": 18,
+                    "block_timestamp_seconds": 1784108256,
+                    "relative_block_timestamp_seconds": 48,
+                    "observation_time_seconds": 1784108269,
+                    "relative_observation_time_seconds": 35,
+                    "transaction_count": 8,
+                    "step_count": {
+                      "7.1": 8
+                    },
+                    "transactions_per_second": 4.9597024178549285,
+                    "ref_time_per_second": 469394055479.23126,
+                    "proof_size_per_second": 168825.79045257284,
+                    "gas_per_second": 376439380.03719777,
+                    "block_gas_mined": 607196720,
+                    "block_gas_limit": 18446744073709551615,
+                    "block_gas_fullness": 0,
+                    "block_ref_time": 757132611488,
+                    "block_ref_time_limit": 1399875000000,
+                    "block_ref_time_fullness": 54,
+                    "block_proof_size": 272316,
+                    "block_proof_size_limit": 7340032,
+                    "block_proof_size_fullness": 3,
+                    "additional_tx_capacity_gas": 243041419236,
+                    "additional_tx_capacity_ref_time": 6,
+                    "additional_tx_capacity_proof_size": 207,
+                    "additional_tx_capacity_pre_dispatch_ref_time": 5,
+                    "additional_tx_capacity_pre_dispatch_proof_size": 12,
+                    "pending_transaction_count": 0
+                  }
+                ]
+              },
+              "platform_execution": {
+                "zombienet-polkavm-resolc": {
+                  "node": {
+                    "id": 0,
+                    "platform_identifier": "zombienet-polkavm-resolc"
+                  },
+                  "pre_link_compilation_status": {
+                    "status": "Success",
+                    "is_cached": false,
+                    "compiler_version": "1.4.0+commit.ab21035.llvm-22.1.5",
+                    "compiler_frontend_version": "0.8.29",
+                    "compiler_path": "resolc",
+                    "compiler_input": {
+                      "pipeline": "ViaYulIR",
+                      "optimization": {
+                        "solc_optimizer_enabled": true,
+                        "level": "Mz"
+                      },
+                      "evm_version": null,
+                      "allow_paths": [
+                        "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/word-width-microbench"
+                      ],
+                      "base_path": "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/word-width-microbench",
+                      "sources": {
+                        "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/word-width-microbench/main.sol": "// SPDX-License-Identifier: MIT\npragma solidity ^0.8.20;\n\n/// Isolates per-operation execution cost by operation class and word width.\n///\n/// Every method runs `n` iterations of a two-operation loop with a\n/// loop-carried dependency (the next iteration's operands depend on the\n/// previous result), so neither solc/Yul nor resolc/LLVM can constant-fold,\n/// vectorize, or strength-reduce the chain. The folded state is returned so\n/// the work cannot be dropped as dead code.\n///\n/// The chains differ only in the \"core\" operation:\n///   mulmodChain  — 256-bit modular multiplication with an odd 256-bit\n///                  modulus (the P-256 field prime): full 512-bit product\n///                  plus a 512/256-bit division. The FreshCryptoLib hot op.\n///   addmodChain  — 256-bit modular addition: linear add plus a division of\n///                  a <=257-bit dividend.\n///   mulChain     — 256-bit wrapping multiplication: quadratic limb work,\n///                  no division.\n///   addXorChain  — 256-bit add/xor/shift: linear limb work, no division.\n///   u64Chain     — the addXorChain shape on uint64 (native PVM word).\n///   u32Chain     — the addXorChain shape on uint32 (the sha-256 workload's\n///                  word size).\ncontract OpChains {\n    // P-256 (secp256r1) field prime: odd, full-width modulus so modular\n    // reduction can never degenerate into masking.\n    uint256 constant P =\n        0xFFFFFFFF00000001000000000000000000000000FFFFFFFFFFFFFFFFFFFFFFFF;\n\n    uint256 constant SEED_S =\n        0x8BB7C8F3_49AC2F16_D5C1E4B7_A2938F01_6E4D5B2A_C7F0E813_59A6B4D2_0F1E2C3B;\n    uint256 constant SEED_X =\n        0x51D3A2E8_0B4F6C79_E1A5D082_7C3B9F46_2D8E0A15_F6C4B793_A08D1E52_6B49C7F0;\n\n    function mulmodChain(uint256 n) external pure returns (uint256) {\n        uint256 s = SEED_S;\n        uint256 x = SEED_X;\n        unchecked {\n            for (uint256 i = 0; i < n; ++i) {\n                s = mulmod(s, x, P);\n                x ^= s;\n            }\n        }\n        return s ^ x;\n    }\n\n    function addmodChain(uint256 n) external pure returns (uint256) {\n        uint256 s = SEED_S;\n        uint256 x = SEED_X;\n        unchecked {\n            for (uint256 i = 0; i < n; ++i) {\n                s = addmod(s, x, P);\n                x ^= s;\n            }\n        }\n        return s ^ x;\n    }\n\n    function mulChain(uint256 n) external pure returns (uint256) {\n        uint256 s = SEED_S;\n        uint256 x = SEED_X;\n        unchecked {\n            for (uint256 i = 0; i < n; ++i) {\n                s = s * x + 1;\n                x ^= s;\n            }\n        }\n        return s ^ x;\n    }\n\n    function addXorChain(uint256 n) external pure returns (uint256) {\n        uint256 s = SEED_S;\n        uint256 x = SEED_X;\n        unchecked {\n            for (uint256 i = 0; i < n; ++i) {\n                s = (s + x) ^ (s >> 17);\n                x += s | 1;\n            }\n        }\n        return s ^ x;\n    }\n\n    function u64Chain(uint256 n) external pure returns (uint256) {\n        uint64 s = uint64(SEED_S);\n        uint64 x = uint64(SEED_X);\n        unchecked {\n            for (uint256 i = 0; i < n; ++i) {\n                s = (s + x) ^ (s >> 17);\n                x += s | 1;\n            }\n        }\n        return uint256(s) ^ uint256(x);\n    }\n\n    function u32Chain(uint256 n) external pure returns (uint256) {\n        uint32 s = uint32(SEED_S);\n        uint32 x = uint32(SEED_X);\n        unchecked {\n            for (uint256 i = 0; i < n; ++i) {\n                s = (s + x) ^ (s >> 17);\n                x += s | 1;\n            }\n        }\n        return uint256(s) ^ uint256(x);\n    }\n}\n"
+                      },
+                      "libraries": {},
+                      "revert_string_handling": null
+                    },
+                    "compiled_contracts_info": {
+                      "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/word-width-microbench/main.sol": {
+                        "OpChains": {
+                          "bytecode_hash": "0xe7a3b6524f205a94995be4fec24b3c12f3d5f2dd03bd06c82f12e03f4acf1dfa"
+                        }
+                      }
+                    }
+                  },
+                  "deployed_contracts": {
+                    "OpChains": "0x2946259e0334f33a064106302415ad3391bed384"
+                  }
+                },
+                "zombienet-revm-solc": {
+                  "node": {
+                    "id": 0,
+                    "platform_identifier": "zombienet-revm-solc"
+                  },
+                  "pre_link_compilation_status": {
+                    "status": "Success",
+                    "is_cached": false,
+                    "compiler_version": "0.8.29",
+                    "compiler_frontend_version": "0.8.29",
+                    "compiler_path": "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/workdir/solc/0.8.29/linux-amd64",
+                    "compiler_input": {
+                      "pipeline": "ViaYulIR",
+                      "optimization": {
+                        "solc_optimizer_enabled": true,
+                        "level": "Mz"
+                      },
+                      "evm_version": null,
+                      "allow_paths": [
+                        "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/word-width-microbench"
+                      ],
+                      "base_path": "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/word-width-microbench",
+                      "sources": {
+                        "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/word-width-microbench/main.sol": "// SPDX-License-Identifier: MIT\npragma solidity ^0.8.20;\n\n/// Isolates per-operation execution cost by operation class and word width.\n///\n/// Every method runs `n` iterations of a two-operation loop with a\n/// loop-carried dependency (the next iteration's operands depend on the\n/// previous result), so neither solc/Yul nor resolc/LLVM can constant-fold,\n/// vectorize, or strength-reduce the chain. The folded state is returned so\n/// the work cannot be dropped as dead code.\n///\n/// The chains differ only in the \"core\" operation:\n///   mulmodChain  — 256-bit modular multiplication with an odd 256-bit\n///                  modulus (the P-256 field prime): full 512-bit product\n///                  plus a 512/256-bit division. The FreshCryptoLib hot op.\n///   addmodChain  — 256-bit modular addition: linear add plus a division of\n///                  a <=257-bit dividend.\n///   mulChain     — 256-bit wrapping multiplication: quadratic limb work,\n///                  no division.\n///   addXorChain  — 256-bit add/xor/shift: linear limb work, no division.\n///   u64Chain     — the addXorChain shape on uint64 (native PVM word).\n///   u32Chain     — the addXorChain shape on uint32 (the sha-256 workload's\n///                  word size).\ncontract OpChains {\n    // P-256 (secp256r1) field prime: odd, full-width modulus so modular\n    // reduction can never degenerate into masking.\n    uint256 constant P =\n        0xFFFFFFFF00000001000000000000000000000000FFFFFFFFFFFFFFFFFFFFFFFF;\n\n    uint256 constant SEED_S =\n        0x8BB7C8F3_49AC2F16_D5C1E4B7_A2938F01_6E4D5B2A_C7F0E813_59A6B4D2_0F1E2C3B;\n    uint256 constant SEED_X =\n        0x51D3A2E8_0B4F6C79_E1A5D082_7C3B9F46_2D8E0A15_F6C4B793_A08D1E52_6B49C7F0;\n\n    function mulmodChain(uint256 n) external pure returns (uint256) {\n        uint256 s = SEED_S;\n        uint256 x = SEED_X;\n        unchecked {\n            for (uint256 i = 0; i < n; ++i) {\n                s = mulmod(s, x, P);\n                x ^= s;\n            }\n        }\n        return s ^ x;\n    }\n\n    function addmodChain(uint256 n) external pure returns (uint256) {\n        uint256 s = SEED_S;\n        uint256 x = SEED_X;\n        unchecked {\n            for (uint256 i = 0; i < n; ++i) {\n                s = addmod(s, x, P);\n                x ^= s;\n            }\n        }\n        return s ^ x;\n    }\n\n    function mulChain(uint256 n) external pure returns (uint256) {\n        uint256 s = SEED_S;\n        uint256 x = SEED_X;\n        unchecked {\n            for (uint256 i = 0; i < n; ++i) {\n                s = s * x + 1;\n                x ^= s;\n            }\n        }\n        return s ^ x;\n    }\n\n    function addXorChain(uint256 n) external pure returns (uint256) {\n        uint256 s = SEED_S;\n        uint256 x = SEED_X;\n        unchecked {\n            for (uint256 i = 0; i < n; ++i) {\n                s = (s + x) ^ (s >> 17);\n                x += s | 1;\n            }\n        }\n        return s ^ x;\n    }\n\n    function u64Chain(uint256 n) external pure returns (uint256) {\n        uint64 s = uint64(SEED_S);\n        uint64 x = uint64(SEED_X);\n        unchecked {\n            for (uint256 i = 0; i < n; ++i) {\n                s = (s + x) ^ (s >> 17);\n                x += s | 1;\n            }\n        }\n        return uint256(s) ^ uint256(x);\n    }\n\n    function u32Chain(uint256 n) external pure returns (uint256) {\n        uint32 s = uint32(SEED_S);\n        uint32 x = uint32(SEED_X);\n        unchecked {\n            for (uint256 i = 0; i < n; ++i) {\n                s = (s + x) ^ (s >> 17);\n                x += s | 1;\n            }\n        }\n        return uint256(s) ^ uint256(x);\n    }\n}\n"
+                      },
+                      "libraries": {},
+                      "revert_string_handling": null
+                    },
+                    "compiled_contracts_info": {
+                      "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/word-width-microbench/main.sol": {
+                        "OpChains": {
+                          "bytecode_hash": "0xd7a8d0598161bda65801545b110cc8f40b06e23137b99e681c0762b2c0162a18"
+                        }
+                      }
+                    }
+                  },
+                  "deployed_contracts": {
+                    "OpChains": "0x2946259e0334f33a064106302415ad3391bed384"
+                  }
+                }
+              },
+              "compiled_contracts": {
+                "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/word-width-microbench/main.sol": {
+                  "OpChains": {
+                    "contract_size": {
+                      "zombienet-polkavm-resolc": 12414,
+                      "zombienet-revm-solc": 855
+                    }
+                  }
+                }
+              },
+              "contract_addresses": {
+                "OpChains": {
+                  "zombienet-polkavm-resolc": [
+                    "0x2946259e0334f33a064106302415ad3391bed384"
+                  ],
+                  "zombienet-revm-solc": [
+                    "0x2946259e0334f33a064106302415ad3391bed384"
+                  ]
+                }
+              },
+              "mined_block_information": {},
+              "steps": {
+                "2.1": {
+                  "transactions": {}
+                },
+                "3.1": {
+                  "transactions": {}
+                },
+                "4.1": {
+                  "transactions": {}
+                },
+                "5.1": {
+                  "transactions": {}
+                },
+                "6.1": {
+                  "transactions": {}
+                },
+                "7.1": {
+                  "transactions": {}
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
