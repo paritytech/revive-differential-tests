@@ -38,13 +38,30 @@ pub async fn handle_differential_benchmarks(
     );
 
     // Discover the list of platforms that the tests should run on based on the context.
-    let platforms = context
-        .platforms
-        .platforms
-        .iter()
-        .copied()
-        .map(Into::<&dyn Platform>::into)
-        .collect::<Vec<_>>();
+    let configured_platforms = context.platforms.platforms.as_ref().map(|configuration| {
+        configuration
+            .as_ref()
+            .platforms
+            .iter()
+            .map(|(name, descriptor)| PlatformDescriptorWithName {
+                name: name.clone(),
+                descriptor: descriptor.clone(),
+            })
+            .collect::<Vec<_>>()
+    });
+    let platforms = match configured_platforms.as_ref() {
+        Some(platforms) => platforms
+            .iter()
+            .map(|platform| platform as &dyn Platform)
+            .collect::<Vec<_>>(),
+        None => context
+            .platforms
+            .platform
+            .iter()
+            .copied()
+            .map(Into::<&dyn Platform>::into)
+            .collect::<Vec<_>>(),
+    };
 
     // Starting the nodes of the various platforms specified in the context. Note that we use the
     // node pool since it contains all of the code needed to spawn nodes from A to Z and therefore

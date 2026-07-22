@@ -148,10 +148,15 @@ mod context {
         #[arg(
             short = 'p',
             long = "platform",
-            id = "platforms",
+            id = "platform",
             default_values = ["geth-evm-solc", "revive-dev-node-polkavm-resolc"]
         )]
-        pub platforms: Vec<PlatformIdentifier>,
+        pub platform: Vec<PlatformIdentifier>,
+
+        /// A JSON file defining the platforms that the tool should use. When
+        /// provided, these platforms replace those selected with `--platform`.
+        #[arg(long, value_hint = ValueHint::FilePath)]
+        pub platforms: Option<JsonFilePath<ConfigurationFile>>,
     }
 
     /// Configuration for the working directory.
@@ -951,7 +956,69 @@ fn parse_duration(s: &str) -> anyhow::Result<Duration> {
         .map_err(Into::into)
 }
 
-/// The structure of the configuration JSON file that the retester tools accepts.
+/// A JSON value loaded from a file while parsing command-line arguments.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(
+    try_from = "PathBuf",
+    into = "PathBuf",
+    bound(
+        serialize = "T: Clone",
+        deserialize = "T: for<'value> Deserialize<'value>"
+    )
+)]
+pub struct JsonFilePath<T> {
+    path: PathBuf,
+    #[serde(skip)]
+    value: T,
+}
+
+impl<T> AsRef<T> for JsonFilePath<T> {
+    fn as_ref(&self) -> &T {
+        &self.value
+    }
+}
+
+impl<T> Deref for JsonFilePath<T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        &self.value
+    }
+}
+
+impl<T> FromStr for JsonFilePath<T>
+where
+    T: for<'de> Deserialize<'de>,
+{
+    type Err = anyhow::Error;
+
+    fn from_str(path: &str) -> Result<Self, Self::Err> {
+        Self::try_from(PathBuf::from(path))
+    }
+}
+
+impl<T> TryFrom<PathBuf> for JsonFilePath<T>
+where
+    T: for<'de> Deserialize<'de>,
+{
+    type Error = anyhow::Error;
+
+    fn try_from(path: PathBuf) -> Result<Self, Self::Error> {
+        let file = std::fs::File::open(&path)
+            .with_context(|| format!("Failed to open JSON file `{}`", path.display()))?;
+        let value = serde_json::from_reader::<_, T>(file)
+            .with_context(|| format!("Failed to deserialize JSON file `{}`", path.display()))?;
+        Ok(Self { path, value })
+    }
+}
+
+impl<T> From<JsonFilePath<T>> for PathBuf {
+    fn from(path: JsonFilePath<T>) -> Self {
+        path.path
+    }
+}
+
+/// The structure of the configuration JSON file that the retester tool accepts.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ConfigurationFile {
     /// A mapping from the platform name (a human readable easy to understand name) to a platform

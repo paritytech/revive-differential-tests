@@ -8715,6 +8715,7 @@ dependencies = [
  "revive-dt-proc-macros",
  "semver 1.0.27",
  "serde",
+ "serde_json",
  "serde_with",
  "strum 0.27.2",
  "temp-dir",
