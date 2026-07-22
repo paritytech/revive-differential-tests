@@ -71,7 +71,7 @@ pub struct FunctionCallStep {
     /// Allows for the test to set a specific value for the various gas parameter for each one of
     /// the platforms we support. This is ignored for steps that perform contract deployments.
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
-    pub gas_overrides: HashMap<PlatformIdentifier, GasOverrides>,
+    pub gas_overrides: HashMap<PlatformName, GasOverrides>,
 }
 
 /// This represents a balance assertion step where the framework needs to query the balance of some

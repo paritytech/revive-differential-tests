@@ -19,6 +19,8 @@ pub(crate) mod internal_prelude {
     pub use revive_dt_node::prelude::*;
     pub use revive_dt_node_interaction::prelude::*;
 
+    pub use std::sync::LazyLock;
+
     pub use anyhow::{Context as _, Result};
     #[cfg(not(unix))]
     pub use futures::{FutureExt as _, future::ready};
@@ -29,9 +31,8 @@ use crate::internal_prelude::*;
 /// A trait that describes the interface for the platforms that are supported by the tool.
 #[allow(clippy::type_complexity)]
 pub trait Platform {
-    /// Returns the identifier of this platform. This is a combination of the node and the compiler
-    /// used.
-    fn platform_identifier(&self) -> PlatformIdentifier;
+    /// Returns the name of this platform.
+    fn platform_name(&self) -> &PlatformName;
 
     /// Returns a full identifier for the platform.
     fn full_identifier(&self) -> (NodeIdentifier, VmIdentifier, CompilerIdentifier) {
@@ -102,8 +103,10 @@ pub trait Platform {
 pub struct GethEvmSolcPlatform;
 
 impl Platform for GethEvmSolcPlatform {
-    fn platform_identifier(&self) -> PlatformIdentifier {
-        PlatformIdentifier::GethEvmSolc
+    fn platform_name(&self) -> &PlatformName {
+        static PLATFORM_NAME: LazyLock<PlatformName> =
+            LazyLock::new(|| PlatformName::new(PlatformIdentifier::GethEvmSolc.to_string()));
+        &PLATFORM_NAME
     }
 
     fn node_identifier(&self) -> NodeIdentifier {
@@ -123,8 +126,11 @@ impl Platform for GethEvmSolcPlatform {
 pub struct LighthouseGethEvmSolcPlatform;
 
 impl Platform for LighthouseGethEvmSolcPlatform {
-    fn platform_identifier(&self) -> PlatformIdentifier {
-        PlatformIdentifier::LighthouseGethEvmSolc
+    fn platform_name(&self) -> &PlatformName {
+        static PLATFORM_NAME: LazyLock<PlatformName> = LazyLock::new(|| {
+            PlatformName::new(PlatformIdentifier::LighthouseGethEvmSolc.to_string())
+        });
+        &PLATFORM_NAME
     }
 
     fn node_identifier(&self) -> NodeIdentifier {
@@ -144,8 +150,11 @@ impl Platform for LighthouseGethEvmSolcPlatform {
 pub struct ReviveDevNodePolkavmResolcPlatform;
 
 impl Platform for ReviveDevNodePolkavmResolcPlatform {
-    fn platform_identifier(&self) -> PlatformIdentifier {
-        PlatformIdentifier::ReviveDevNodePolkavmResolc
+    fn platform_name(&self) -> &PlatformName {
+        static PLATFORM_NAME: LazyLock<PlatformName> = LazyLock::new(|| {
+            PlatformName::new(PlatformIdentifier::ReviveDevNodePolkavmResolc.to_string())
+        });
+        &PLATFORM_NAME
     }
 
     fn node_identifier(&self) -> NodeIdentifier {
@@ -165,8 +174,11 @@ impl Platform for ReviveDevNodePolkavmResolcPlatform {
 pub struct ReviveDevNodeRevmSolcPlatform;
 
 impl Platform for ReviveDevNodeRevmSolcPlatform {
-    fn platform_identifier(&self) -> PlatformIdentifier {
-        PlatformIdentifier::ReviveDevNodeRevmSolc
+    fn platform_name(&self) -> &PlatformName {
+        static PLATFORM_NAME: LazyLock<PlatformName> = LazyLock::new(|| {
+            PlatformName::new(PlatformIdentifier::ReviveDevNodeRevmSolc.to_string())
+        });
+        &PLATFORM_NAME
     }
 
     fn node_identifier(&self) -> NodeIdentifier {
@@ -186,8 +198,11 @@ impl Platform for ReviveDevNodeRevmSolcPlatform {
 pub struct ZombienetPolkavmResolcPlatform;
 
 impl Platform for ZombienetPolkavmResolcPlatform {
-    fn platform_identifier(&self) -> PlatformIdentifier {
-        PlatformIdentifier::ZombienetPolkavmResolc
+    fn platform_name(&self) -> &PlatformName {
+        static PLATFORM_NAME: LazyLock<PlatformName> = LazyLock::new(|| {
+            PlatformName::new(PlatformIdentifier::ZombienetPolkavmResolc.to_string())
+        });
+        &PLATFORM_NAME
     }
 
     fn node_identifier(&self) -> NodeIdentifier {
@@ -207,8 +222,10 @@ impl Platform for ZombienetPolkavmResolcPlatform {
 pub struct ZombienetRevmSolcPlatform;
 
 impl Platform for ZombienetRevmSolcPlatform {
-    fn platform_identifier(&self) -> PlatformIdentifier {
-        PlatformIdentifier::ZombienetRevmSolc
+    fn platform_name(&self) -> &PlatformName {
+        static PLATFORM_NAME: LazyLock<PlatformName> =
+            LazyLock::new(|| PlatformName::new(PlatformIdentifier::ZombienetRevmSolc.to_string()));
+        &PLATFORM_NAME
     }
 
     fn node_identifier(&self) -> NodeIdentifier {
@@ -228,8 +245,11 @@ impl Platform for ZombienetRevmSolcPlatform {
 pub struct PolkadotOmniNodePolkavmResolcPlatform;
 
 impl Platform for PolkadotOmniNodePolkavmResolcPlatform {
-    fn platform_identifier(&self) -> PlatformIdentifier {
-        PlatformIdentifier::PolkadotOmniNodePolkavmResolc
+    fn platform_name(&self) -> &PlatformName {
+        static PLATFORM_NAME: LazyLock<PlatformName> = LazyLock::new(|| {
+            PlatformName::new(PlatformIdentifier::PolkadotOmniNodePolkavmResolc.to_string())
+        });
+        &PLATFORM_NAME
     }
 
     fn node_identifier(&self) -> NodeIdentifier {
@@ -249,8 +269,11 @@ impl Platform for PolkadotOmniNodePolkavmResolcPlatform {
 pub struct PolkadotOmniNodeRevmSolcPlatform;
 
 impl Platform for PolkadotOmniNodeRevmSolcPlatform {
-    fn platform_identifier(&self) -> PlatformIdentifier {
-        PlatformIdentifier::PolkadotOmniNodeRevmSolc
+    fn platform_name(&self) -> &PlatformName {
+        static PLATFORM_NAME: LazyLock<PlatformName> = LazyLock::new(|| {
+            PlatformName::new(PlatformIdentifier::PolkadotOmniNodeRevmSolc.to_string())
+        });
+        &PLATFORM_NAME
     }
 
     fn node_identifier(&self) -> NodeIdentifier {

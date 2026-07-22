@@ -28,7 +28,7 @@ pub struct TestSpecifier {
 pub struct ExecutionSpecifier {
     pub test_specifier: Arc<TestSpecifier>,
     pub node_id: usize,
-    pub platform_identifier: PlatformIdentifier,
+    pub platform_name: PlatformName,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]

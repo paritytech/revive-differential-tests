@@ -261,11 +261,11 @@ impl ReportAggregator {
         let execution_information = self.execution_information(&ExecutionSpecifier {
             test_specifier: event.test_specifier,
             node_id: event.id,
-            platform_identifier: event.platform_identifier,
+            platform_name: event.platform_name.clone(),
         });
         execution_information.node = Some(TestCaseNodeInformation {
             id: event.id,
-            platform_identifier: event.platform_identifier,
+            platform_name: event.platform_name,
         });
     }
 
@@ -445,7 +445,7 @@ impl ReportAggregator {
             .contract_addresses
             .entry(event.contract_instance)
             .or_default()
-            .entry(event.execution_specifier.platform_identifier)
+            .entry(event.execution_specifier.platform_name.clone())
             .or_default()
             .push(event.address);
     }
@@ -459,7 +459,7 @@ impl ReportAggregator {
         for report in self.report.execution_information.values_mut() {
             for report in report.case_reports.values_mut() {
                 for report in report.mode_execution_reports.values_mut() {
-                    for (platform_identifier, block_information) in
+                    for (platform_name, block_information) in
                         report.mined_block_information.iter_mut()
                     {
                         block_information.sort_by(|a, b| {
@@ -472,7 +472,7 @@ impl ReportAggregator {
                         if !metrics.is_empty() {
                             report
                                 .metrics_information
-                                .insert(*platform_identifier, metrics);
+                                .insert(platform_name.clone(), metrics);
                         }
                     }
                 }
@@ -486,7 +486,7 @@ impl ReportAggregator {
             .entry(event.step_path)
             .or_default()
             .transactions
-            .entry(event.execution_specifier.platform_identifier)
+            .entry(event.execution_specifier.platform_name.clone())
             .or_default()
             .push(event.transaction_information);
     }
@@ -500,7 +500,7 @@ impl ReportAggregator {
             .or_default()
             .contract_size
             .insert(
-                event.execution_specifier.platform_identifier,
+                event.execution_specifier.platform_name.clone(),
                 event.contract_size,
             );
     }
@@ -508,7 +508,7 @@ impl ReportAggregator {
     fn handle_block_mined(&mut self, event: BlockMinedEvent) {
         self.test_case_report(&event.execution_specifier.test_specifier)
             .mined_block_information
-            .entry(event.execution_specifier.platform_identifier)
+            .entry(event.execution_specifier.platform_name.clone())
             .or_default()
             .push(event.mined_block_information);
     }
@@ -533,7 +533,7 @@ impl ReportAggregator {
         let test_case_report = self.test_case_report(&specifier.test_specifier);
         test_case_report
             .platform_execution
-            .entry(specifier.platform_identifier)
+            .entry(specifier.platform_name.clone())
             .or_default()
             .get_or_insert_default()
     }
@@ -713,7 +713,7 @@ pub struct TestCaseNodeInformation {
     /// The ID of the node that this case is being executed on.
     pub id: usize,
     /// The platform of the node.
-    pub platform_identifier: PlatformIdentifier,
+    pub platform_name: PlatformName,
 }
 
 /// Execution information tied to the platform.
@@ -1090,8 +1090,8 @@ pub struct ContractInformation {
     pub contract_size: PlatformKeyedInformation<usize>,
 }
 
-/// Information keyed by the platform identifier.
-pub type PlatformKeyedInformation<T> = BTreeMap<PlatformIdentifier, T>;
+/// Information keyed by the platform name.
+pub type PlatformKeyedInformation<T> = BTreeMap<PlatformName, T>;
 
 #[cfg(test)]
 mod tests {

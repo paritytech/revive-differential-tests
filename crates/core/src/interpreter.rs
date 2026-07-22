@@ -471,7 +471,7 @@ impl<'a> Interpreter<'a> {
                         variable_assignment: step.variable_assignments,
                         gas_override: step
                             .gas_overrides
-                            .get(&self.platform_information.platform.platform_identifier())
+                            .get(self.platform_information.platform.platform_name())
                             .copied(),
                     }
                     .into()

@@ -24,13 +24,12 @@ impl CorpusDefinitionProcessor for TestDefinitionProcessor {
         state: Self::State,
     ) -> anyhow::Result<Self::ProcessResult> {
         let mut interpreters = futures::future::try_join_all(definition.platforms.iter().map(
-            |(identifier, information)| {
+            |(platform_name, information)| {
                 let private_key_allocator = state.private_key_allocator.clone();
                 async move {
-                    let platform_identifier = *identifier;
                     let node_id = information.connector.node_id();
                     let platform_span =
-                        info_span!("On Platform", node_id = %node_id, %platform_identifier);
+                        info_span!("On Platform", node_id = %node_id, %platform_name);
 
                     let steps = definition
                         .case
@@ -51,7 +50,7 @@ impl CorpusDefinitionProcessor for TestDefinitionProcessor {
                     .instrument(platform_span.clone())
                     .instrument(info_span!("Initializing the interpreter"))
                     .await
-                    .context(format!("Failed to create interpreter for {identifier}"))
+                    .context(format!("Failed to create interpreter for {platform_name}"))
                     .map(|interpreter| (interpreter, platform_span))
                 }
             },
@@ -145,7 +144,7 @@ pub async fn handle_differential_tests(context: Test, reporter: Reporter) -> any
         let mut map = BTreeMap::new();
 
         for platform in platforms.iter() {
-            let platform_identifier = platform.platform_identifier();
+            let platform_name = platform.platform_name();
 
             let node_pool = NodePool::new(context.concurrency.number_of_nodes, async || {
                 platform
@@ -156,13 +155,13 @@ pub async fn handle_differential_tests(context: Test, reporter: Reporter) -> any
             .inspect_err(|err| {
                 error!(
                     ?err,
-                    %platform_identifier,
+                    %platform_name,
                     "Failed to initialize the node pool for the platform."
                 )
             })
             .context("Failed to initialize the node pool")?;
 
-            map.insert(platform_identifier, (*platform, node_pool));
+            map.insert(platform_name.to_owned(), (*platform, node_pool));
         }
 
         map

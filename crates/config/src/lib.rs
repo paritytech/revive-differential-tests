@@ -22,9 +22,9 @@ use alloy::{
 use anyhow::Context as _;
 use clap::{Parser, ValueEnum, ValueHint};
 use indexmap::IndexMap;
-use revive_dt_common::{
-    define_wrapper_type,
-    types::{ParsedCompilationSpecifier, ParsedMode, ParsedTestSpecifier, PlatformIdentifier},
+pub use revive_dt_common::types::PlatformName;
+use revive_dt_common::types::{
+    ParsedCompilationSpecifier, ParsedMode, ParsedTestSpecifier, PlatformIdentifier,
 };
 use semver::Version;
 use serde::{Deserialize, Serialize, Serializer};
@@ -980,12 +980,6 @@ pub struct ConfigurationFile {
     /// A mapping from the platform name (a human readable easy to understand name) to a platform
     /// descriptor.
     pub platforms: IndexMap<PlatformName, PlatformDescriptor>,
-}
-
-define_wrapper_type! {
-    /// A Rust newtype for the platform name
-    #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-    pub struct PlatformName(String);
 }
 
 /// The descriptor of the platform which defines everything about the platform.
