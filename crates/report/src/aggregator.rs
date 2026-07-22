@@ -14,19 +14,24 @@ pub struct ReportAggregator {
     listener_tx: Sender<ReporterEvent>,
     /* Context */
     file_name: Option<String>,
+    working_directory: WorkingDirectoryPath,
+    include_compiler_input: bool,
+    include_compiler_output: bool,
 }
 
 impl ReportAggregator {
-    pub fn new(context: Context) -> Self {
+    pub fn new(
+        context: Context,
+        working_directory_configuration: &WorkingDirectoryConfiguration,
+        report_configuration: &ReportConfiguration,
+    ) -> Self {
         let (runner_tx, runner_rx) = unbounded_channel::<RunnerEvent>();
         let (listener_tx, _) = channel::<ReporterEvent>(0xFFFF);
         Self {
-            file_name: match context {
-                Context::Test(ref context) => context.report.file_name.clone(),
-                Context::Benchmark(ref context) => context.report.file_name.clone(),
-                Context::Compile(ref context) => context.report.file_name.clone(),
-                Context::ExportJsonSchema(_) | Context::ExportTestSpecifiers(..) => None,
-            },
+            file_name: report_configuration.file_name.clone(),
+            working_directory: working_directory_configuration.working_directory.clone(),
+            include_compiler_input: report_configuration.include_compiler_input,
+            include_compiler_output: report_configuration.include_compiler_output,
             report: Report::new(context),
             remaining_cases: Default::default(),
             remaining_compilation_modes: Default::default(),
@@ -123,13 +128,7 @@ impl ReportAggregator {
                 file_name
             };
             let file_name = self.file_name.unwrap_or(default_file_name);
-            let file_path = self
-                .report
-                .context
-                .as_working_directory_configuration()
-                .working_directory
-                .as_path()
-                .join(file_name);
+            let file_path = self.working_directory.as_path().join(file_name);
             let writer = OpenOptions::new()
                 .create(true)
                 .write(true)
@@ -274,8 +273,7 @@ impl ReportAggregator {
         &mut self,
         event: PreLinkContractsCompilationSucceededEvent,
     ) {
-        let report_configuration = self.report.context.as_report_configuration();
-        let compiler_input = if report_configuration.include_compiler_input {
+        let compiler_input = if self.include_compiler_input {
             event.compiler_input
         } else {
             None
@@ -289,7 +287,7 @@ impl ReportAggregator {
             compiler_input,
             compiled_contracts_info: Self::generate_compiled_contracts_info(
                 event.compiler_output,
-                report_configuration.include_compiler_output,
+                self.include_compiler_output,
             ),
         };
 
@@ -301,8 +299,7 @@ impl ReportAggregator {
         &mut self,
         event: PostLinkContractsCompilationSucceededEvent,
     ) {
-        let report_configuration = self.report.context.as_report_configuration();
-        let compiler_input = if report_configuration.include_compiler_input {
+        let compiler_input = if self.include_compiler_input {
             event.compiler_input
         } else {
             None
@@ -316,7 +313,7 @@ impl ReportAggregator {
             compiler_input,
             compiled_contracts_info: Self::generate_compiled_contracts_info(
                 event.compiler_output,
-                report_configuration.include_compiler_output,
+                self.include_compiler_output,
             ),
         };
 

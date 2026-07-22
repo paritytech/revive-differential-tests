@@ -128,7 +128,7 @@ mod context {
     #[configuration]
     pub struct LogConfiguration {
         /// The log output format.
-        #[arg(long = "log-format", default_value_t = LogFormat::Pretty)]
+        #[arg(long = "log-format", default_value_t = Default::default())]
         pub log_format: LogFormat,
     }
 

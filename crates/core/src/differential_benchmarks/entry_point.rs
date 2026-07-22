@@ -58,16 +58,18 @@ pub async fn handle_differential_benchmarks(
         for platform in platforms.iter() {
             let platform_identifier = platform.platform_identifier();
 
-            let node_pool = NodePool::new(full_context.clone(), *platform)
-                .await
-                .inspect_err(|err| {
-                    error!(
-                        ?err,
-                        %platform_identifier,
-                        "Failed to initialize the node pool for the platform."
-                    )
-                })
-                .context("Failed to initialize the node pool")?;
+            let node_pool = NodePool::new(context.concurrency.number_of_nodes, async || {
+                platform.new_node(full_context.clone()).await
+            })
+            .await
+            .inspect_err(|err| {
+                error!(
+                    ?err,
+                    %platform_identifier,
+                    "Failed to initialize the node pool for the platform."
+                )
+            })
+            .context("Failed to initialize the node pool")?;
 
             map.insert(platform_identifier, (*platform, node_pool));
         }
@@ -79,7 +81,9 @@ pub async fn handle_differential_benchmarks(
     // Preparing test definitions for the execution.
     let allowed_modes = ModeAllowList::from_parsed_modes(context.corpus.allowed_modes.iter());
     let test_definitions = create_test_definitions_stream(
-        &full_context,
+        &context.solc,
+        &context.resolc,
+        &context.working_directory,
         &corpus,
         &platforms_and_nodes,
         &allowed_modes,

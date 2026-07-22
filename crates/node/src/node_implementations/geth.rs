@@ -14,23 +14,21 @@ pub struct GethNode {
 
 impl GethNode {
     pub fn new(
-        context: impl HasWorkingDirectoryConfiguration
-        + HasWalletConfiguration
-        + HasGethConfiguration
-        + Clone,
+        working_directory_configuration: &WorkingDirectoryConfiguration,
+        wallet_configuration: &WalletConfiguration,
+        geth_configuration: &GethConfiguration,
     ) -> Result<Self> {
-        let workdir_config = context.as_working_directory_configuration();
-        let wallet_config = context.as_wallet_configuration();
-        let geth_config = context.as_geth_configuration();
-
         let id = NodeId::for_node("geth");
-        let directories =
-            NodeDirectories::new(workdir_config.working_directory.as_path(), "geth", id.0)
-                .context("Failed to initialize node directories")?;
+        let directories = NodeDirectories::new(
+            working_directory_configuration.working_directory.as_path(),
+            "geth",
+            id.0,
+        )
+        .context("Failed to initialize node directories")?;
         let ipc_path = directories.base_directory().join("geth.ipc");
         let genesis_path = directories.base_directory().join("genesis.json");
 
-        let wallet = wallet_config.wallet();
+        let wallet = wallet_configuration.wallet();
         let mut genesis = DEFAULT_GENESIS.clone();
         for signer_address in NetworkWallet::<Ethereum>::signer_addresses(&wallet) {
             genesis
@@ -46,14 +44,14 @@ impl GethNode {
             })?;
 
         let process = GethProcess::new(
-            geth_config.path.as_path(),
+            geth_configuration.path.as_path(),
             genesis_path,
             ipc_path.as_path(),
             directories.data_directory(),
             directories.logs_directory(),
-            geth_config.logging_level.as_str(),
-            &geth_config.environment_variables,
-            geth_config.start_timeout_ms,
+            geth_configuration.logging_level.as_str(),
+            &geth_configuration.environment_variables,
+            geth_configuration.start_timeout_ms,
         )
         .inspect_err(|err| error!(error = ?err, "Failed to spawn geth"))?;
 

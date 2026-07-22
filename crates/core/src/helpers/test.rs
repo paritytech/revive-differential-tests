@@ -1,9 +1,10 @@
 use crate::internal_prelude::*;
 
+#[allow(clippy::too_many_arguments)]
 pub async fn create_test_definitions_stream<'a>(
-    // This is only required for creating the compiler objects and is not used anywhere else in the
-    // function.
-    context: &Context,
+    solc_configuration: &SolcConfiguration,
+    resolc_configuration: &ResolcConfiguration,
+    working_directory_configuration: &WorkingDirectoryConfiguration,
     corpus: &'a Corpus,
     platforms_and_nodes: &'a BTreeMap<PlatformIdentifier, (&dyn Platform, NodePool)>,
     allowed_modes: &ModeAllowList,
@@ -58,7 +59,12 @@ pub async fn create_test_definitions_stream<'a>(
             for (platform, node_pool) in platforms_and_nodes.values() {
                 let node = node_pool.round_robbin();
                 let compiler = match platform
-                    .new_compiler(context.clone(), mode.solc_version.clone().map(Into::into))
+                    .new_compiler(
+                        solc_configuration,
+                        resolc_configuration,
+                        working_directory_configuration,
+                        mode.solc_version.clone().map(Into::into),
+                    )
                     .await
                 {
                     Ok(compiler) => compiler,

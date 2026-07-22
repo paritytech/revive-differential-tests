@@ -19,9 +19,9 @@ pub(crate) mod internal_prelude {
     pub use revive_dt_node::prelude::*;
     pub use revive_dt_node_interaction::prelude::*;
 
-    pub use std::thread::{self, JoinHandle};
-
     pub use anyhow::{Context as _, Result};
+    #[cfg(not(unix))]
+    pub use futures::{FutureExt as _, future::ready};
 }
 
 use crate::internal_prelude::*;
@@ -51,12 +51,8 @@ pub trait Platform {
     /// Returns the identifier of the compiler used.
     fn compiler_identifier(&self) -> CompilerIdentifier;
 
-    /// Creates a new node for the platform by spawning a new thread, creating the node object,
-    /// initializing it, spawning it, and waiting for it to start up.
-    fn new_node(
-        &self,
-        context: Context,
-    ) -> Result<JoinHandle<Result<StaticFuture<Result<NodeConnector>>>>> {
+    /// Creates and initializes a new node for the platform.
+    fn new_node(&self, context: Context) -> StaticFuture<Result<NodeConnector>> {
         match self.node_identifier() {
             NodeIdentifier::Geth => new_geth_node(context),
             NodeIdentifier::LighthouseGeth => new_lighthouse_geth_node(context),
@@ -68,7 +64,10 @@ pub trait Platform {
                 }
                 #[cfg(not(unix))]
                 {
-                    anyhow::bail!("Zombienet is not supported on this platform")
+                    ready(Err(anyhow::anyhow!(
+                        "Zombienet is not supported on this platform"
+                    )))
+                    .boxed()
                 }
             }
             NodeIdentifier::PolkadotOmniNode => new_polkadot_omni_node(context),
@@ -78,12 +77,23 @@ pub trait Platform {
     /// Creates a new compiler for the provided platform.
     fn new_compiler(
         &self,
-        context: Context,
+        solc_configuration: &SolcConfiguration,
+        resolc_configuration: &ResolcConfiguration,
+        working_directory_configuration: &WorkingDirectoryConfiguration,
         version: Option<VersionOrRequirement>,
     ) -> StaticFuture<Result<Box<dyn SolidityCompiler + Send + Sync>>> {
         match self.compiler_identifier() {
-            CompilerIdentifier::Solc => new_solc_compiler(context, version),
-            CompilerIdentifier::Resolc => new_resolc_compiler(context, version),
+            CompilerIdentifier::Solc => new_solc_compiler(
+                solc_configuration.clone(),
+                working_directory_configuration.clone(),
+                version,
+            ),
+            CompilerIdentifier::Resolc => new_resolc_compiler(
+                solc_configuration.clone(),
+                resolc_configuration.clone(),
+                working_directory_configuration.clone(),
+                version,
+            ),
         }
     }
 }
@@ -310,112 +320,240 @@ impl From<PlatformIdentifier> for &dyn Platform {
     }
 }
 
-fn new_geth_node(
-    context: Context,
-) -> Result<JoinHandle<Result<StaticFuture<Result<NodeConnector>>>>> {
-    Ok(thread::spawn(move || {
-        let wallet = context.as_wallet_configuration().wallet();
+fn new_geth_node(context: Context) -> StaticFuture<Result<NodeConnector>> {
+    Box::pin(async move {
+        let (
+            working_directory_configuration,
+            wallet_configuration,
+            geth_configuration,
+            subscription_kind,
+        ) = match &context {
+            Context::Test(context) => (
+                &context.working_directory,
+                &context.wallet,
+                &context.geth,
+                BlockProvisioningSubscriptionKind::BestBlocks,
+            ),
+            Context::Benchmark(context) => (
+                &context.working_directory,
+                &context.wallet,
+                &context.geth,
+                BlockProvisioningSubscriptionKind::FinalizedBlocks,
+            ),
+            Context::ExportJsonSchema(_)
+            | Context::ExportTestSpecifiers(_)
+            | Context::Compile(_) => {
+                anyhow::bail!("Nodes can only be created for tests and benchmarks")
+            }
+        };
+        let wallet = wallet_configuration.wallet();
         let node_configurations = node_configurations(
-            &context,
-            context
-                .as_geth_configuration()
-                .connector_configurations
-                .as_deref(),
+            subscription_kind,
+            geth_configuration.connector_configurations.as_deref(),
         )
         .context("Failed to parse --geth.connector-configurations as a JSON node connector configuration")?;
-        let node = GethNode::new(context).context("Failed to spawn geth node")?;
-        Ok(NodeConnector::new(node, wallet, node_configurations))
-    }))
+        let node = GethNode::new(
+            working_directory_configuration,
+            wallet_configuration,
+            geth_configuration,
+        )
+        .context("Failed to spawn geth node")?;
+        NodeConnector::new(node, wallet, node_configurations).await
+    })
 }
 
-fn new_lighthouse_geth_node(
-    context: Context,
-) -> Result<JoinHandle<Result<StaticFuture<Result<NodeConnector>>>>> {
-    Ok(thread::spawn(move || {
-        let wallet = context.as_wallet_configuration().wallet();
+fn new_lighthouse_geth_node(context: Context) -> StaticFuture<Result<NodeConnector>> {
+    Box::pin(async move {
+        let (
+            working_directory_configuration,
+            wallet_configuration,
+            kurtosis_configuration,
+            subscription_kind,
+        ) = match &context {
+            Context::Test(context) => (
+                &context.working_directory,
+                &context.wallet,
+                &context.kurtosis,
+                BlockProvisioningSubscriptionKind::BestBlocks,
+            ),
+            Context::Benchmark(context) => (
+                &context.working_directory,
+                &context.wallet,
+                &context.kurtosis,
+                BlockProvisioningSubscriptionKind::FinalizedBlocks,
+            ),
+            Context::ExportJsonSchema(_)
+            | Context::ExportTestSpecifiers(_)
+            | Context::Compile(_) => {
+                anyhow::bail!("Nodes can only be created for tests and benchmarks")
+            }
+        };
+        let wallet = wallet_configuration.wallet();
         let node_configurations = node_configurations(
-            &context,
-            context
-                .as_kurtosis_configuration()
-                .connector_configurations
-                .as_deref(),
+            subscription_kind,
+            kurtosis_configuration.connector_configurations.as_deref(),
         )
         .context("Failed to parse --kurtosis.connector-configurations as a JSON node connector configuration")?;
-        let node = LighthouseGethNode::new(context).context("Failed to spawn lighthouse node")?;
-        Ok(NodeConnector::new(node, wallet, node_configurations))
-    }))
+        let node = LighthouseGethNode::new(
+            working_directory_configuration,
+            wallet_configuration,
+            kurtosis_configuration,
+        )
+        .context("Failed to spawn lighthouse node")?;
+        NodeConnector::new(node, wallet, node_configurations).await
+    })
 }
 
-fn new_revive_dev_node(
-    context: Context,
-) -> Result<JoinHandle<Result<StaticFuture<Result<NodeConnector>>>>> {
-    Ok(thread::spawn(move || {
-        let wallet = context.as_wallet_configuration().wallet();
+fn new_revive_dev_node(context: Context) -> StaticFuture<Result<NodeConnector>> {
+    Box::pin(async move {
+        let (
+            working_directory_configuration,
+            eth_rpc_configuration,
+            wallet_configuration,
+            revive_dev_node_configuration,
+            subscription_kind,
+        ) = match &context {
+            Context::Test(context) => (
+                &context.working_directory,
+                &context.eth_rpc,
+                &context.wallet,
+                &context.revive_dev_node,
+                BlockProvisioningSubscriptionKind::BestBlocks,
+            ),
+            Context::Benchmark(context) => (
+                &context.working_directory,
+                &context.eth_rpc,
+                &context.wallet,
+                &context.revive_dev_node,
+                BlockProvisioningSubscriptionKind::FinalizedBlocks,
+            ),
+            Context::ExportJsonSchema(_)
+            | Context::ExportTestSpecifiers(_)
+            | Context::Compile(_) => {
+                anyhow::bail!("Nodes can only be created for tests and benchmarks")
+            }
+        };
+        let wallet = wallet_configuration.wallet();
         let node_configurations = node_configurations(
-            &context,
-            context
-                .as_revive_dev_node_configuration()
+            subscription_kind,
+            revive_dev_node_configuration
                 .connector_configurations
                 .as_deref(),
         )
         .context("Failed to parse --revive-dev-node.connector-configurations as a JSON node connector configuration")?;
-        let node = ReviveDevNode::new(context).context("Failed to spawn revive-dev-node")?;
-        Ok(NodeConnector::new(node, wallet, node_configurations))
-    }))
+        let node = ReviveDevNode::new(
+            working_directory_configuration,
+            eth_rpc_configuration,
+            wallet_configuration,
+            revive_dev_node_configuration,
+        )
+        .context("Failed to spawn revive-dev-node")?;
+        NodeConnector::new(node, wallet, node_configurations).await
+    })
 }
 
 #[cfg(unix)]
-fn new_zombienet_node(
-    context: Context,
-) -> Result<JoinHandle<Result<StaticFuture<Result<NodeConnector>>>>> {
-    Ok(thread::spawn(move || {
-        let wallet = context.as_wallet_configuration().wallet();
+fn new_zombienet_node(context: Context) -> StaticFuture<Result<NodeConnector>> {
+    Box::pin(async move {
+        let (
+            working_directory_configuration,
+            eth_rpc_configuration,
+            wallet_configuration,
+            zombienet_configuration,
+            subscription_kind,
+        ) = match &context {
+            Context::Test(context) => (
+                &context.working_directory,
+                &context.eth_rpc,
+                &context.wallet,
+                &context.zombienet,
+                BlockProvisioningSubscriptionKind::BestBlocks,
+            ),
+            Context::Benchmark(context) => (
+                &context.working_directory,
+                &context.eth_rpc,
+                &context.wallet,
+                &context.zombienet,
+                BlockProvisioningSubscriptionKind::FinalizedBlocks,
+            ),
+            Context::ExportJsonSchema(_)
+            | Context::ExportTestSpecifiers(_)
+            | Context::Compile(_) => {
+                anyhow::bail!("Nodes can only be created for tests and benchmarks")
+            }
+        };
+        let wallet = wallet_configuration.wallet();
         let node_configurations = node_configurations(
-            &context,
-            context
-                .as_zombienet_configuration()
-                .connector_configurations
-                .as_deref(),
+            subscription_kind,
+            zombienet_configuration.connector_configurations.as_deref(),
         )
         .context("Failed to parse --zombienet.connector-configurations as a JSON node connector configuration")?;
-        let node = ZombienetNode::new(context).context("Failed to spawn zombienet")?;
-        Ok(NodeConnector::new(node, wallet, node_configurations))
-    }))
+        let node = ZombienetNode::new(
+            working_directory_configuration,
+            eth_rpc_configuration,
+            wallet_configuration,
+            zombienet_configuration,
+        )
+        .context("Failed to spawn zombienet")?;
+        NodeConnector::new(node, wallet, node_configurations).await
+    })
 }
 
-fn new_polkadot_omni_node(
-    context: Context,
-) -> Result<JoinHandle<Result<StaticFuture<Result<NodeConnector>>>>> {
-    Ok(thread::spawn(move || {
-        let wallet = context.as_wallet_configuration().wallet();
+fn new_polkadot_omni_node(context: Context) -> StaticFuture<Result<NodeConnector>> {
+    Box::pin(async move {
+        let (
+            working_directory_configuration,
+            eth_rpc_configuration,
+            wallet_configuration,
+            polkadot_omnichain_node_configuration,
+            subscription_kind,
+        ) = match &context {
+            Context::Test(context) => (
+                &context.working_directory,
+                &context.eth_rpc,
+                &context.wallet,
+                &context.polkadot_omnichain_node,
+                BlockProvisioningSubscriptionKind::BestBlocks,
+            ),
+            Context::Benchmark(context) => (
+                &context.working_directory,
+                &context.eth_rpc,
+                &context.wallet,
+                &context.polkadot_omnichain_node,
+                BlockProvisioningSubscriptionKind::FinalizedBlocks,
+            ),
+            Context::ExportJsonSchema(_)
+            | Context::ExportTestSpecifiers(_)
+            | Context::Compile(_) => {
+                anyhow::bail!("Nodes can only be created for tests and benchmarks")
+            }
+        };
+        let wallet = wallet_configuration.wallet();
         let node_configurations = node_configurations(
-            &context,
-            context
-                .as_polkadot_omnichain_node_configuration()
+            subscription_kind,
+            polkadot_omnichain_node_configuration
                 .connector_configurations
                 .as_deref(),
         )
         .context("Failed to parse --polkadot-omni-node.connector-configurations as a JSON node connector configuration")?;
-        let node =
-            PolkadotOmnichainNode::new(context).context("Failed to spawn polkadot-omni-node")?;
-        Ok(NodeConnector::new(node, wallet, node_configurations))
-    }))
+        let node = PolkadotOmnichainNode::new(
+            working_directory_configuration,
+            eth_rpc_configuration,
+            wallet_configuration,
+            polkadot_omnichain_node_configuration,
+        )
+        .context("Failed to spawn polkadot-omni-node")?;
+        NodeConnector::new(node, wallet, node_configurations).await
+    })
 }
 
 fn node_configurations(
-    context: &Context,
+    subscription_kind: BlockProvisioningSubscriptionKind,
     user_config: Option<&str>,
 ) -> Result<impl Iterator<Item = NodeConnectorConfiguration> + use<>> {
     let user_config = user_config
         .map(serde_json::from_str::<NodeConnectorConfiguration>)
         .transpose()?;
-    let subscription_kind = match context {
-        Context::Benchmark(_) => BlockProvisioningSubscriptionKind::FinalizedBlocks,
-        Context::Test(_)
-        | Context::ExportJsonSchema(_)
-        | Context::ExportTestSpecifiers(_)
-        | Context::Compile(_) => BlockProvisioningSubscriptionKind::BestBlocks,
-    };
     let core_config = NodeConnectorConfiguration {
         block_provisioning_behavior: Some(BlockProvisioningBehavior {
             subscription_kind: Some(subscription_kind),
@@ -427,21 +565,31 @@ fn node_configurations(
 }
 
 fn new_solc_compiler(
-    context: Context,
+    solc_configuration: SolcConfiguration,
+    working_directory_configuration: WorkingDirectoryConfiguration,
     version: Option<VersionOrRequirement>,
 ) -> StaticFuture<Result<Box<dyn SolidityCompiler + Send + Sync>>> {
     Box::pin(async move {
-        let compiler = Solc::new_native(context, version).await;
+        let compiler =
+            Solc::new_native(solc_configuration, working_directory_configuration, version).await;
         compiler.map(|compiler| Box::new(compiler) as _)
     })
 }
 
 fn new_resolc_compiler(
-    context: Context,
+    solc_configuration: SolcConfiguration,
+    resolc_configuration: ResolcConfiguration,
+    working_directory_configuration: WorkingDirectoryConfiguration,
     version: Option<VersionOrRequirement>,
 ) -> StaticFuture<Result<Box<dyn SolidityCompiler + Send + Sync>>> {
     Box::pin(async move {
-        let compiler = Resolc::new(context, version).await;
+        let compiler = Resolc::new(
+            solc_configuration,
+            resolc_configuration,
+            working_directory_configuration,
+            version,
+        )
+        .await;
         compiler.map(|compiler| Box::new(compiler) as _)
     })
 }

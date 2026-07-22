@@ -11,53 +11,47 @@ pub struct ReviveDevNode {
 
 impl ReviveDevNode {
     pub fn new(
-        context: impl HasWorkingDirectoryConfiguration
-        + HasEthRpcConfiguration
-        + HasWalletConfiguration
-        + HasReviveDevNodeConfiguration
-        + Clone,
+        working_directory_configuration: &WorkingDirectoryConfiguration,
+        eth_rpc_configuration: &EthRpcConfiguration,
+        wallet_configuration: &WalletConfiguration,
+        revive_dev_node_configuration: &ReviveDevNodeConfiguration,
     ) -> Result<Self> {
-        let workdir_config = context.as_working_directory_configuration();
-        let wallet_config = context.as_wallet_configuration();
-        let node_config = context.as_revive_dev_node_configuration();
-        let rpc_config = context.as_eth_rpc_configuration();
-
         let id = NodeId::for_node("revive-dev-node");
         let directories = NodeDirectories::new(
-            workdir_config.working_directory.as_path(),
+            working_directory_configuration.working_directory.as_path(),
             "revive-dev-node",
             id.0,
         )
         .context("Failed to initialize node directories")?;
         let chainspec_path = directories.base_directory().join("chainspec.json");
 
-        let wallet = wallet_config.wallet();
+        let wallet = wallet_configuration.wallet();
         Self::init_chainspec(
-            node_config.path.as_path(),
+            revive_dev_node_configuration.path.as_path(),
             &wallet,
             chainspec_path.as_path(),
         )
         .context("Failed to initialize the chainspec file")?;
 
         let revive_dev_node_process = ReviveDevNodeProcess::new(
-            node_config.path.as_path(),
+            revive_dev_node_configuration.path.as_path(),
             chainspec_path,
-            node_config.consensus.as_str(),
+            revive_dev_node_configuration.consensus.as_str(),
             directories.data_directory(),
             directories.logs_directory(),
-            node_config.logging_level.as_str(),
-            &node_config.environment_variables,
-            node_config.start_timeout_ms,
+            revive_dev_node_configuration.logging_level.as_str(),
+            &revive_dev_node_configuration.environment_variables,
+            revive_dev_node_configuration.start_timeout_ms,
         )
         .inspect_err(|err| error!(error = ?err, "Failed to spawn revive-dev-node"))?;
 
         let eth_rpc_process = EthRpcProcess::new(
-            rpc_config.path.as_path(),
+            eth_rpc_configuration.path.as_path(),
             directories.logs_directory(),
             revive_dev_node_process.url(),
-            rpc_config.logging_level.as_str(),
-            &rpc_config.environment_variables,
-            rpc_config.start_timeout_ms,
+            eth_rpc_configuration.logging_level.as_str(),
+            &eth_rpc_configuration.environment_variables,
+            eth_rpc_configuration.start_timeout_ms,
         )
         .inspect_err(|err| error!(error = ?err, "Failed to spawn eth-rpc"))?;
 

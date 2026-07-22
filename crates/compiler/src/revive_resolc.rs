@@ -39,11 +39,9 @@ pub enum ResolcRuntimeTarget {
 
 impl Resolc {
     pub fn new(
-        context: impl HasSolcConfiguration
-        + HasResolcConfiguration
-        + HasWorkingDirectoryConfiguration
-        + Send
-        + 'static,
+        solc_configuration: SolcConfiguration,
+        resolc_configuration: ResolcConfiguration,
+        working_directory_configuration: WorkingDirectoryConfiguration,
         version: impl Into<Option<VersionOrRequirement>> + Send + 'static,
     ) -> StaticFuture<Result<Self>> {
         Box::pin(async move {
@@ -51,7 +49,6 @@ impl Resolc {
             static COMPILERS_CACHE: LazyLock<DashMap<ResolcInner, Resolc>> =
                 LazyLock::new(Default::default);
 
-            let resolc_configuration = context.as_resolc_configuration();
             let resolc_path = resolc_configuration.path.clone();
             let pvm_heap_size = resolc_configuration
                 .heap_size
@@ -63,8 +60,12 @@ impl Resolc {
             let resolc_version = runtime_target.execute_version_command(&resolc_path).await?;
             let override_to_new_york = resolc_configuration.use_new_york;
             let solc = match runtime_target {
-                ResolcRuntimeTarget::Native => Solc::new_native(context, version),
-                ResolcRuntimeTarget::Wasm => Solc::new_wasm(context, version),
+                ResolcRuntimeTarget::Native => {
+                    Solc::new_native(solc_configuration, working_directory_configuration, version)
+                }
+                ResolcRuntimeTarget::Wasm => {
+                    Solc::new_wasm(solc_configuration, working_directory_configuration, version)
+                }
             }
             .await
             .context("Failed to create the solc compiler frontend for resolc")?;

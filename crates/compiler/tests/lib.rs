@@ -8,7 +8,7 @@ use revive_dt_compiler::{
     solc::{Solc, SolcRuntimeTarget},
 };
 use revive_dt_config::{
-    Compile, HasResolcConfiguration, HasSolcConfiguration, HasWorkingDirectoryConfiguration, Test,
+    Compile, ResolcConfiguration, SolcConfiguration, Test, WorkingDirectoryConfiguration,
 };
 use semver::Version;
 
@@ -46,9 +46,8 @@ async fn contracts_can_be_compiled_with_solc() {
     // Arrange
     let args = Test::default();
     let solc = Solc::new_native(
-        // Clone args because this function takes ownership and drops it, which
-        // would delete the temporary directory before the compiled binary is used.
-        args.clone(),
+        args.solc.clone(),
+        args.working_directory.clone(),
         VersionOrRequirement::Version(Version::new(0, 8, 30)),
     )
     .await
@@ -90,19 +89,16 @@ async fn contracts_can_be_compiled_with_solc() {
 }
 
 async fn assert_contracts_can_be_compiled_with_resolc(
-    context: impl HasSolcConfiguration
-    + HasResolcConfiguration
-    + HasWorkingDirectoryConfiguration
-    + Clone
-    + Send
-    + 'static,
+    solc_configuration: SolcConfiguration,
+    resolc_configuration: ResolcConfiguration,
+    working_directory_configuration: WorkingDirectoryConfiguration,
     expected_runtime_target: ResolcRuntimeTarget,
     expected_pipeline: ModePipeline,
 ) {
     let resolc = Resolc::new(
-        // Clone context because this function takes ownership and drops it, which
-        // would delete the temporary directory before the compiled binary is used.
-        context.clone(),
+        solc_configuration,
+        resolc_configuration,
+        working_directory_configuration,
         VersionOrRequirement::Version(Version::new(0, 8, 30)),
     )
     .await
@@ -156,8 +152,11 @@ async fn assert_contracts_can_be_compiled_with_resolc(
 #[tokio::test]
 async fn contracts_can_be_compiled_with_resolc_native() {
     for pipeline in [ModePipeline::ViaYulIR, ModePipeline::ViaNewYorkIR] {
+        let context = Compile::default();
         assert_contracts_can_be_compiled_with_resolc(
-            Compile::default(),
+            context.solc.clone(),
+            context.resolc.clone(),
+            context.working_directory.clone(),
             ResolcRuntimeTarget::Native,
             pipeline,
         )
@@ -170,8 +169,14 @@ async fn contracts_can_be_compiled_with_resolc_wasm() {
     for pipeline in [ModePipeline::ViaYulIR, ModePipeline::ViaNewYorkIR] {
         let mut context = Compile::default();
         context.resolc.path = get_resolc_js_path();
-        assert_contracts_can_be_compiled_with_resolc(context, ResolcRuntimeTarget::Wasm, pipeline)
-            .await;
+        assert_contracts_can_be_compiled_with_resolc(
+            context.solc.clone(),
+            context.resolc.clone(),
+            context.working_directory.clone(),
+            ResolcRuntimeTarget::Wasm,
+            pipeline,
+        )
+        .await;
     }
 }
 
@@ -181,7 +186,9 @@ async fn contracts_can_be_compiled_with_resolc_wasm() {
 async fn bytecode_differs_across_optimization_modes() {
     let context = Test::default();
     let resolc = Resolc::new(
-        context.clone(),
+        context.solc.clone(),
+        context.resolc.clone(),
+        context.working_directory.clone(),
         VersionOrRequirement::Version(Version::new(0, 8, 30)),
     )
     .await
@@ -228,7 +235,9 @@ async fn bytecode_differs_across_optimization_modes() {
 async fn bytecode_is_source_path_independent_when_calling_external_library() {
     let context = Test::default();
     let resolc = Resolc::new(
-        context.clone(),
+        context.solc.clone(),
+        context.resolc.clone(),
+        context.working_directory.clone(),
         VersionOrRequirement::Version(Version::new(0, 8, 30)),
     )
     .await

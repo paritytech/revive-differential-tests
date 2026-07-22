@@ -10,52 +10,47 @@ pub struct ZombienetNode {
 
 impl ZombienetNode {
     pub fn new(
-        context: impl HasWorkingDirectoryConfiguration
-        + HasEthRpcConfiguration
-        + HasWalletConfiguration
-        + HasZombienetConfiguration,
+        working_directory_configuration: &WorkingDirectoryConfiguration,
+        eth_rpc_configuration: &EthRpcConfiguration,
+        wallet_configuration: &WalletConfiguration,
+        zombienet_configuration: &ZombienetConfiguration,
     ) -> Result<Self> {
-        let workdir_config = context.as_working_directory_configuration();
-        let wallet_config = context.as_wallet_configuration();
-        let zombienet_config = context.as_zombienet_configuration();
-        let rpc_config = context.as_eth_rpc_configuration();
-
         let id = NodeId::for_node("zombienet");
         let instance_id = Self::instance_id(id)?;
         let directories = NodeDirectories::new(
-            workdir_config.working_directory.as_path(),
+            working_directory_configuration.working_directory.as_path(),
             "zombienet",
             instance_id.as_str(),
         )
         .context("Failed to initialize node directories")?;
 
-        let wallet = wallet_config.wallet();
+        let wallet = wallet_configuration.wallet();
         let network_config = Self::init_zombienet_config(
-            zombienet_config
+            zombienet_configuration
                 .config_path
                 .as_ref()
                 .context("Zombienet requires a config path")?,
             &wallet,
             instance_id.as_str(),
             directories.base_directory(),
-            &zombienet_config.environment_variables,
+            &zombienet_configuration.environment_variables,
         )
         .context("Failed to initialize the zombienet config")?;
 
         let zombienet_process = ZombienetProcess::new(
             network_config,
-            zombienet_config.block_production_timeout_ms,
-            zombienet_config.use_kubernetes,
+            zombienet_configuration.block_production_timeout_ms,
+            zombienet_configuration.use_kubernetes,
         )
         .inspect_err(|err| error!(error = ?err, "Failed to spawn zombienet"))?;
 
         let eth_rpc_process = EthRpcProcess::new(
-            rpc_config.path.as_path(),
+            eth_rpc_configuration.path.as_path(),
             directories.logs_directory(),
             zombienet_process.url(),
-            rpc_config.logging_level.as_str(),
-            &rpc_config.environment_variables,
-            rpc_config.start_timeout_ms,
+            eth_rpc_configuration.logging_level.as_str(),
+            &eth_rpc_configuration.environment_variables,
+            eth_rpc_configuration.start_timeout_ms,
         )
         .inspect_err(|err| error!(error = ?err, "Failed to spawn eth-rpc"))?;
 

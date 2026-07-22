@@ -5,10 +5,6 @@ use quote::quote;
 use syn::{Ident, ItemMod};
 
 use super::{
-    codegen_as_ref::{
-        compute_config_membership, gen_context_as_ref_impls, gen_default_statics,
-        gen_has_config_traits, gen_subcommand_as_ref_impls,
-    },
     parse::type_ident,
     types::{ContextArgs, ValidatedModule},
     validate::validate,
@@ -52,22 +48,6 @@ pub(crate) fn handler(attr: TokenStream, module: ItemMod) -> syn::Result<TokenSt
         .iter()
         .map(|item| &item.type_def)
         .collect::<Vec<_>>();
-
-    // Compute config membership (which subcommands have which configs).
-    let memberships = compute_config_membership(&subcommands, &configurations)?;
-
-    // Generate default statics for configs missing from some subcommands.
-    let default_statics = gen_default_statics(&memberships);
-
-    // Generate AsRef impls on subcommands.
-    let subcommand_as_ref_impls = gen_subcommand_as_ref_impls(&memberships);
-
-    // Generate AsRef impls on the context enum.
-    let context_as_ref_impls =
-        gen_context_as_ref_impls(context_type_ident, &subcommands, &memberships);
-
-    // Generate Has<Config> traits and impls on subcommands + context enum.
-    let has_config_traits = gen_has_config_traits(context_type_ident, &subcommands, &memberships);
 
     // Collect just the idents for IsConfig assertions.
     let configuration_type_idents = configurations
@@ -134,21 +114,9 @@ pub(crate) fn handler(attr: TokenStream, module: ItemMod) -> syn::Result<TokenSt
         // 4b. Auto-generated Default impls for subcommands without user-provided ones
         #(#generated_defaults)*
 
-        // 4c. Has<Config> traits and impls (must be outside const block for visibility)
-        #has_config_traits
-
-        // 5. All macro-generated impls, statics, and assertions live in a const block
-        //    so that their context is separate from user code.
+        // 5. All macro-generated assertions live in a const block so that their
+        //    context is separate from user code.
         const _: () = {
-            // Default statics for configs missing from some subcommands
-            #default_statics
-
-            // AsRef on subcommands (ALL subcommands × ALL configs)
-            #subcommand_as_ref_impls
-
-            // AsRef on context enum (pure delegation)
-            #context_as_ref_impls
-
             /// A trait which we implement on all configuration items to ensure that only configs
             /// are used as fields in the subcommand struct fields.
             trait IsConfig {};
