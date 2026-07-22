@@ -23,7 +23,7 @@ on:
         description: Whether to build the polkadot-sdk with JIT enabled (--cfg revive_jit).
         required: true
         type: boolean
-        default: false
+        default: true
       runtimes-repository:
         description: The repository containing the runtimes and their spec generator
         required: true
@@ -49,14 +49,6 @@ on:
         required: false
         default: ""
         type: string
-      network:
-        description: The Asset Hub network configuration to benchmark against
-        required: true
-        type: choice
-        default: westend
-        options:
-          - polkadot
-          - westend
       additional-keys:
         description: Number of additional wallet keys to pre-seed at genesis
         required: true
@@ -78,12 +70,6 @@ on:
         required: false
         type: string
         default: ""
-      platform-filters:
-        description: Optional comma or newline-separated substrings for benchmark platform identifiers. Empty runs all platforms.
-        required: false
-        type: string
-        default: ""
-
 env:
   CARGO_TERM_COLOR: always
   RUST_LOG: ${{ inputs.rust-log }}
@@ -220,7 +206,6 @@ jobs:
         env:
           RUST_LOG: "off"
           TEST_SPECIFIER_FILTERS: ${{ inputs.test-specifier-filters }}
-          PLATFORM_FILTERS: ${{ inputs.platform-filters }}
         run: |
           set -euo pipefail
 
@@ -238,7 +223,6 @@ jobs:
           }
 
           TEST_FILTERS=$(parse_filters "$TEST_SPECIFIER_FILTERS")
-          PLATFORM_FILTERS_JSON=$(parse_filters "$PLATFORM_FILTERS")
 
           # Filter the generated matrix so that it only contains modes allowed to run.
           ALLOWED_MODE_ARGS=()
@@ -254,7 +238,7 @@ jobs:
           ALL_TESTS=$(retester export-test-specifiers \
             --test ./compiler-tests/fixtures/solidity/workloads \
             "${ALLOWED_MODE_ARGS[@]}")
-          ALL_PLATFORMS='["zombienet-revm-solc","zombienet-polkavm-resolc","lighthouse-geth-evm-solc"]'
+          PLATFORMS=$(jq -c '.platforms | keys_unsorted' ./.github/benchmark-platforms.json)
 
           TESTS=$(jq -c --argjson filters "$TEST_FILTERS" '
             if ($filters | length) == 0 then
@@ -264,15 +248,6 @@ jobs:
                 any($filters[]; . as $filter | $specifier | contains($filter))))
             end
           ' <<< "$ALL_TESTS")
-          PLATFORMS=$(jq -c --argjson filters "$PLATFORM_FILTERS_JSON" '
-            if ($filters | length) == 0 then
-              .
-            else
-              map(select(. as $platform |
-                any($filters[]; . as $filter | $platform | contains($filter))))
-            end
-          ' <<< "$ALL_PLATFORMS")
-
           TEST_COUNT=$(jq 'length' <<< "$TESTS")
           PLATFORM_COUNT=$(jq 'length' <<< "$PLATFORMS")
           BENCHMARK_COUNT=$((TEST_COUNT * PLATFORM_COUNT))
@@ -300,7 +275,7 @@ jobs:
           echo "  benchmark jobs: $BENCHMARK_COUNT"
 
           echo "::group::Platforms"
-          jq . <<< "$PLATFORMS"
+          jq -r '.[]' <<< "$PLATFORMS"
           echo "::endgroup::"
 
           echo "::group::Test specifiers"
@@ -312,7 +287,7 @@ jobs:
   # ============================================
 
   benchmark:
-    name: "${{ matrix.platform }} - ${{ matrix.test.name }}"
+    name: "${{ matrix.platform }} ${{ matrix.test.name }}"
     runs-on: parity-large-t2d
     timeout-minutes: 120
     needs:
@@ -412,6 +387,16 @@ jobs:
           sudo mount -t tmpfs -o size=48G,mode=1777,nodev,nosuid tmpfs "$WORKDIR"
           df -h "$WORKDIR"
           findmnt "$WORKDIR"
+      - name: Write platform configuration
+        env:
+          PLATFORM: ${{ matrix.platform }}
+        run: |
+          set -euo pipefail
+
+          jq --arg platform "$PLATFORM" \
+            '.platforms |= with_entries(select(.key == $platform))' \
+            ./.github/benchmark-platforms.json \
+            | tee ./workdir/platforms.json
       - name: Print benchmark versions
         env:
           GITHUB_INPUTS: ${{ toJSON(inputs) }}
@@ -455,14 +440,6 @@ jobs:
             additional_args+=(--benchmark.repetition-count-override "$OVERRIDE_REPETITION_COUNT")
           fi
 
-          # JIT currently exposes an eth_estimate_gas issue where binary-search dry runs can
-          # reuse warm pricing after the first cold run, underestimating gas for workloads like
-          # erc20-transfers. Force retester to use non-binary-search estimation on zombienet JIT.
-          # TODO: remove once polkadot-sdk eth_estimate_gas keeps each search attempt cold.
-          if [[ "${{ inputs.use-jit }}" == "true" && "${{ matrix.platform }}" == zombienet-* ]]; then
-            additional_args+=(--zombienet.connector-configurations '{"substrate_provider_configuration":{"allowed_estimation_methods":"ETH_TRANSACT_WITH_CONFIG | ETH_TRANSACT"}}')
-          fi
-
           export POLKAVM_CORE_PINNING="disabled"
 
           # TODO: Add the `--zombienet.use-kubernetes` flag when we have K8s support.
@@ -470,15 +447,12 @@ jobs:
           retester benchmark \
             --log-format json \
             --test "$TEST_SPECIFIER" \
-            --platform ${{ matrix.platform }} \
+            --platforms ./workdir/platforms.json \
             --working-directory ./workdir \
             --concurrency.number-of-nodes 1 \
             --concurrency.number-of-threads 12 \
             --concurrency.number-of-concurrent-tasks 1000 \
-            --zombienet.config-path ./assets/${{ inputs.network }}-assethub-zombienet.toml \
-            --zombienet.block-production-timeout-ms 300000 \
             --wallet.additional-keys ${{ inputs.additional-keys }} \
-            --eth-rpc.logging-level info \
             --report.file-name report.json \
             --report.include-compiler-input \
             "${additional_args[@]}" \

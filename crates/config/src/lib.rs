@@ -380,6 +380,7 @@ mod context {
         /// sufficient. Without it, the onboarding process takes significantly longer and a
         /// timeout of several hours may be needed.
         #[clap(default_value = "300000", value_parser = parse_duration)]
+        #[serde(with = "duration_milliseconds")]
         pub block_production_timeout_ms: Duration,
 
         /// Configures if kubernetes should be used as the provider for zombienet or not. If this is
@@ -411,6 +412,7 @@ mod context {
 
         /// The amount of time to wait upon startup before considering that the node timed out.
         #[clap(default_value = "30000", value_parser = parse_duration)]
+        #[serde(with = "duration_milliseconds")]
         pub start_timeout_ms: Duration,
 
         /// The logging configuration to pass to the binary when it's being started.
@@ -440,6 +442,7 @@ mod context {
 
         /// The amount of time to wait upon startup before considering that the node timed out.
         #[clap(default_value = "900000", value_parser = parse_duration)]
+        #[serde(with = "duration_milliseconds")]
         pub start_timeout_ms: Duration,
 
         /// JSON node connector configuration augmenting the default lighthouse/geth connector
@@ -465,6 +468,7 @@ mod context {
 
         /// The amount of time to wait upon startup before considering that the node timed out.
         #[clap(default_value = "30000", value_parser = parse_duration)]
+        #[serde(with = "duration_milliseconds")]
         pub start_timeout_ms: Duration,
 
         /// The consensus to use for the spawned revive-dev-node.
@@ -498,10 +502,12 @@ mod context {
 
         /// The amount of time to wait upon startup before considering that the node timed out.
         #[clap(default_value = "90000", value_parser = parse_duration)]
+        #[serde(with = "duration_milliseconds")]
         pub start_timeout_ms: Duration,
 
         /// Defines how often blocks will be sealed by the node in milliseconds.
         #[clap(default_value = "200", value_parser = parse_duration)]
+        #[serde(with = "duration_milliseconds")]
         pub block_time_ms: Duration,
 
         /// The path of the chainspec of the chain that we're spawning
@@ -539,6 +545,7 @@ mod context {
 
         /// The amount of time to wait upon startup before considering that the node timed out.
         #[clap(default_value = "30000", value_parser = parse_duration)]
+        #[serde(with = "duration_milliseconds")]
         pub start_timeout_ms: Duration,
 
         /// The logging configuration to pass to the binary when it's being started.
@@ -954,6 +961,31 @@ fn parse_duration(s: &str) -> anyhow::Result<Duration> {
     u64::from_str(s)
         .map(Duration::from_millis)
         .map_err(Into::into)
+}
+
+mod duration_milliseconds {
+    use super::*;
+
+    /// Serializes a duration as a string containing its total milliseconds.
+    pub(super) fn serialize<S>(duration: &Duration, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let milliseconds =
+            u64::try_from(duration.as_millis()).map_err(serde::ser::Error::custom)?;
+        serializer.collect_str(&milliseconds)
+    }
+
+    /// Deserializes a duration from a string containing milliseconds.
+    pub(super) fn deserialize<'de, D>(deserializer: D) -> Result<Duration, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        String::deserialize(deserializer)?
+            .parse::<u64>()
+            .map(Duration::from_millis)
+            .map_err(serde::de::Error::custom)
+    }
 }
 
 /// A JSON value loaded from a file while parsing command-line arguments.
