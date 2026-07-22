@@ -8710,6 +8710,7 @@ dependencies = [
  "alloy",
  "anyhow",
  "clap",
+ "indexmap 2.13.0",
  "revive-dt-common",
  "revive-dt-proc-macros",
  "semver 1.0.27",

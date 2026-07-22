@@ -20,8 +20,10 @@ use alloy::{
 };
 use anyhow::Context as _;
 use clap::{Parser, ValueEnum, ValueHint};
-use revive_dt_common::types::{
-    ParsedCompilationSpecifier, ParsedMode, ParsedTestSpecifier, PlatformIdentifier,
+use indexmap::IndexMap;
+use revive_dt_common::{
+    define_wrapper_type,
+    types::{ParsedCompilationSpecifier, ParsedMode, ParsedTestSpecifier, PlatformIdentifier},
 };
 use semver::Version;
 use serde::{Deserialize, Serialize, Serializer};
@@ -922,4 +924,46 @@ fn parse_duration(s: &str) -> anyhow::Result<Duration> {
     u64::from_str(s)
         .map(Duration::from_millis)
         .map_err(Into::into)
+}
+
+/// The structure of the configuration JSON file that the retester tools accepts.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ConfigurationFile {
+    /// A mapping from the platform name (a human readable easy to understand name) to a platform
+    /// descriptor.
+    pub platforms: IndexMap<PlatformName, PlatformDescriptor>,
+}
+
+define_wrapper_type! {
+    /// A Rust newtype for the platform name
+    #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+    pub struct PlatformName(String);
+}
+
+/// The descriptor of the platform which defines everything about the platform.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct PlatformDescriptor {
+    pub node: AnyNodeConfiguration,
+    pub eth_rpc: Option<EthRpcConfiguration>,
+    pub compiler: AnyCompilerConfiguration,
+}
+
+/// The set of nodes which the tool supports
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(tag = "type")]
+pub enum AnyNodeConfiguration {
+    Zombienet(ZombienetConfiguration),
+    PolkadotParachain(PolkadotParachainConfiguration),
+    Geth(GethConfiguration),
+    Kurtosis(KurtosisConfiguration),
+    ReviveDevNode(ReviveDevNodeConfiguration),
+    PolkadotOmnichainNode(PolkadotOmnichainNodeConfiguration),
+}
+
+/// The set of compilers which the tool supports
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(tag = "type")]
+pub enum AnyCompilerConfiguration {
+    Solc(SolcConfiguration),
+    Resolc(ResolcConfiguration),
 }
