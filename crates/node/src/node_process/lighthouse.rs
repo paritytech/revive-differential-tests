@@ -19,6 +19,7 @@ impl LighthouseNodeProcess {
         wrapper_directory: impl AsRef<Path>,
         args_file: impl AsRef<Path>,
         logs_directory: impl AsRef<Path>,
+        environment_variables: &BTreeMap<String, Option<String>>,
         start_timeout: Duration,
     ) -> Result<Self> {
         let process = NodeProcess::builder(kurtosis_binary_path.as_ref())
@@ -29,6 +30,7 @@ impl LighthouseNodeProcess {
             .arg("--args-file")
             .arg(args_file.as_ref())
             .log("kurtosis", logs_directory)
+            .environment_variables(environment_variables)
             .wait_for_startup(
                 WaitForStartupSentinel::new(start_timeout, Self::READY_MARKER)
                     .with_failed_startup_if_encountered(Self::ERROR_MARKER),

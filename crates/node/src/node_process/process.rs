@@ -99,6 +99,15 @@ impl<'a, 'b> NodeProcessBuilder<'a, 'b> {
         self
     }
 
+    pub fn environment_variables(
+        mut self,
+        environment_variables: &BTreeMap<String, Option<String>>,
+    ) -> Self {
+        self.command
+            .apply_environment_variables(environment_variables);
+        self
+    }
+
     pub fn wait_for_startup<'c, 'd>(
         self,
         sentinel_information: WaitForStartupSentinel<'c, 'd>,

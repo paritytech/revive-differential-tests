@@ -46,6 +46,7 @@ impl ReviveDevNode {
             directories.data_directory(),
             directories.logs_directory(),
             node_config.logging_level.as_str(),
+            &node_config.environment_variables,
             node_config.start_timeout_ms,
         )
         .inspect_err(|err| error!(error = ?err, "Failed to spawn revive-dev-node"))?;
@@ -55,6 +56,7 @@ impl ReviveDevNode {
             directories.logs_directory(),
             revive_dev_node_process.url(),
             rpc_config.logging_level.as_str(),
+            &rpc_config.environment_variables,
             rpc_config.start_timeout_ms,
         )
         .inspect_err(|err| error!(error = ?err, "Failed to spawn eth-rpc"))?;

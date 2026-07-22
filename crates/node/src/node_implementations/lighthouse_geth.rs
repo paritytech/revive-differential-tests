@@ -50,6 +50,7 @@ impl LighthouseGethNode {
             wrapper_directory.as_path(),
             config_path.as_path(),
             directories.logs_directory(),
+            &kurtosis_config.environment_variables,
             kurtosis_config.start_timeout_ms,
         )
         .inspect_err(|err| error!(error = ?err, "Failed to spawn lighthouse"))?;

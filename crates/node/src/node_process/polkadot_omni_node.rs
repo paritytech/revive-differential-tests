@@ -9,6 +9,7 @@ pub struct PolkadotOmniNodeProcess {
 impl PolkadotOmniNodeProcess {
     const READY_MARKER: &str = "Running JSON-RPC server";
 
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         binary_path: impl AsRef<Path>,
         block_time: Duration,
@@ -16,6 +17,7 @@ impl PolkadotOmniNodeProcess {
         base_directory: impl AsRef<Path>,
         logs_directory: impl AsRef<Path>,
         logging_level: impl AsRef<OsStr>,
+        environment_variables: &BTreeMap<String, Option<String>>,
         start_timeout: Duration,
     ) -> Result<Self> {
         let node_port = AllocatedPort::allocate()
@@ -35,6 +37,7 @@ impl PolkadotOmniNodeProcess {
             .arg("--authoring")
             .arg("slot-based")
             .log("polkadot_omni_node", logs_directory)
+            .environment_variables(environment_variables)
             .wait_for_startup(WaitForStartupSentinel::new(
                 start_timeout,
                 Self::READY_MARKER,

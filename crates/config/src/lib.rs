@@ -5,6 +5,7 @@ pub mod prelude {
 }
 
 use std::{
+    collections::BTreeMap,
     fmt::Display,
     ops::Deref,
     path::{Path, PathBuf},
@@ -386,6 +387,13 @@ mod context {
         /// JSON node connector configuration augmenting the default zombienet
         /// connector behavior and overriding it on conflicts.
         pub connector_configurations: Option<String>,
+
+        /// Environment variables applied to the Zombienet configuration when
+        /// starting the network. The configuration is walked so they are set or
+        /// unset for every configured node process. They have no other use.
+        #[clap(skip)]
+        #[serde(default)]
+        pub environment_variables: BTreeMap<String, Option<String>>,
     }
 
     /// A set of configuration parameters for Polkadot Parachain.
@@ -401,6 +409,12 @@ mod context {
         /// The amount of time to wait upon startup before considering that the node timed out.
         #[clap(default_value = "5000", value_parser = parse_duration)]
         pub start_timeout_ms: Duration,
+
+        /// Environment variables set or unset when starting the node process.
+        /// They are not used after startup.
+        #[clap(skip)]
+        #[serde(default)]
+        pub environment_variables: BTreeMap<String, Option<String>>,
     }
 
     /// A set of configuration parameters for Geth.
@@ -424,6 +438,12 @@ mod context {
         /// JSON node connector configuration augmenting the default geth connector behavior and
         /// overriding it on conflicts.
         pub connector_configurations: Option<String>,
+
+        /// Environment variables set or unset when starting the node process.
+        /// They are not used after startup.
+        #[clap(skip)]
+        #[serde(default)]
+        pub environment_variables: BTreeMap<String, Option<String>>,
     }
 
     /// A set of configuration parameters for kurtosis.
@@ -443,6 +463,12 @@ mod context {
         /// JSON node connector configuration augmenting the default lighthouse/geth connector
         /// behavior and overriding it on conflicts.
         pub connector_configurations: Option<String>,
+
+        /// Environment variables set or unset when starting Kurtosis. They are
+        /// not used after startup.
+        #[clap(skip)]
+        #[serde(default)]
+        pub environment_variables: BTreeMap<String, Option<String>>,
     }
 
     /// A set of configuration parameters for the revive dev node.
@@ -470,6 +496,12 @@ mod context {
         /// JSON node connector configuration augmenting the default revive dev node connector
         /// behavior and overriding it on conflicts.
         pub connector_configurations: Option<String>,
+
+        /// Environment variables set or unset when starting the node process.
+        /// They are not used after startup.
+        #[clap(skip)]
+        #[serde(default)]
+        pub environment_variables: BTreeMap<String, Option<String>>,
     }
 
     /// A set of configuration parameters for the polkadot-omni-node.
@@ -505,6 +537,12 @@ mod context {
         /// JSON node connector configuration augmenting the default polkadot-omni-node connector
         /// behavior and overriding it on conflicts.
         pub connector_configurations: Option<String>,
+
+        /// Environment variables set or unset when starting the node process.
+        /// They are not used after startup.
+        #[clap(skip)]
+        #[serde(default)]
+        pub environment_variables: BTreeMap<String, Option<String>>,
     }
 
     /// A set of configuration parameters for the ETH RPC.
@@ -524,6 +562,12 @@ mod context {
         /// The logging configuration to pass to the binary when it's being started.
         #[clap(default_value = "info,eth-rpc=debug")]
         pub logging_level: String,
+
+        /// Environment variables set or unset when starting the ETH RPC
+        /// process. They are not used after startup.
+        #[clap(skip)]
+        #[serde(default)]
+        pub environment_variables: BTreeMap<String, Option<String>>,
     }
 
     /// A set of configuration parameters for the wallet.

@@ -38,6 +38,7 @@ impl ZombienetNode {
             &wallet,
             instance_id.as_str(),
             directories.base_directory(),
+            &zombienet_config.environment_variables,
         )
         .context("Failed to initialize the zombienet config")?;
 
@@ -53,6 +54,7 @@ impl ZombienetNode {
             directories.logs_directory(),
             zombienet_process.url(),
             rpc_config.logging_level.as_str(),
+            &rpc_config.environment_variables,
             rpc_config.start_timeout_ms,
         )
         .inspect_err(|err| error!(error = ?err, "Failed to spawn eth-rpc"))?;
@@ -79,6 +81,7 @@ impl ZombienetNode {
         wallet: &EthereumWallet,
         instance_id: impl AsRef<str>,
         base_directory: impl AsRef<Path>,
+        environment_variables: &BTreeMap<String, Option<String>>,
     ) -> Result<NetworkConfig> {
         let source_config = std::fs::read_to_string(source_config_path.as_ref())
             .context("Failed to read zombienet config file")?;
@@ -87,6 +90,7 @@ impl ZombienetNode {
 
         Self::inject_prefunded_chainspec(&mut config, wallet, base_directory.as_ref())
             .context("Failed to inject prefunded chainspec")?;
+        Self::inject_environment_variables(&mut config, environment_variables);
         Self::make_node_names_unique(&mut config, instance_id);
 
         let modified_config_path = base_directory.as_ref().join("zombienet.toml");
@@ -102,6 +106,70 @@ impl ZombienetNode {
                 .context("Modified zombienet config path is not valid UTF-8")?,
         )
         .context("Failed to load zombienet config")
+    }
+
+    fn inject_environment_variables(
+        config: &mut toml::Value,
+        environment_variables: &BTreeMap<String, Option<String>>,
+    ) {
+        let inject = |node: &mut toml::Value| {
+            let Some(node) = node.as_table_mut() else {
+                return;
+            };
+            let Some(environment) = node
+                .entry("env")
+                .or_insert_with(|| toml::Value::Array(Vec::new()))
+                .as_array_mut()
+            else {
+                return;
+            };
+
+            environment.retain(|variable| {
+                variable
+                    .get("name")
+                    .and_then(toml::Value::as_str)
+                    .is_none_or(|name| !environment_variables.contains_key(name))
+            });
+            environment.extend(environment_variables.iter().filter_map(|(name, value)| {
+                value.as_ref().map(|value| {
+                    toml::Value::Table(toml::map::Map::from_iter([
+                        ("name".to_owned(), toml::Value::String(name.clone())),
+                        ("value".to_owned(), toml::Value::String(value.clone())),
+                    ]))
+                })
+            }));
+        };
+
+        if let Some(relaychain) = config
+            .get_mut("relaychain")
+            .and_then(toml::Value::as_table_mut)
+        {
+            for key in ["nodes", "node_groups"] {
+                if let Some(nodes) = relaychain.get_mut(key).and_then(toml::Value::as_array_mut) {
+                    nodes.iter_mut().for_each(&inject);
+                }
+            }
+        }
+
+        if let Some(parachains) = config
+            .get_mut("parachains")
+            .and_then(toml::Value::as_array_mut)
+        {
+            for parachain in parachains {
+                let Some(parachain) = parachain.as_table_mut() else {
+                    continue;
+                };
+                for key in ["collators", "collator_groups"] {
+                    if let Some(nodes) = parachain.get_mut(key).and_then(toml::Value::as_array_mut)
+                    {
+                        nodes.iter_mut().for_each(&inject);
+                    }
+                }
+                if let Some(node) = parachain.get_mut("collator") {
+                    inject(node);
+                }
+            }
+        }
     }
 
     fn inject_prefunded_chainspec(

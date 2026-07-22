@@ -14,6 +14,7 @@ impl EthRpcProcess {
         logs_directory: impl AsRef<Path>,
         substrate_rpc_url: impl AsRef<OsStr>,
         logging_level: impl AsRef<OsStr>,
+        environment_variables: &BTreeMap<String, Option<String>>,
         start_timeout: Duration,
     ) -> Result<Self> {
         let eth_rpc_port =
@@ -34,6 +35,7 @@ impl EthRpcProcess {
             .arg("archive")
             .log("eth_rpc", logs_directory)
             .env("RUST_LOG", logging_level)
+            .environment_variables(environment_variables)
             .wait_for_startup(WaitForStartupSentinel::new(
                 start_timeout,
                 Self::READY_MARKER,

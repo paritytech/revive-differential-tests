@@ -52,6 +52,7 @@ impl GethNode {
             directories.data_directory(),
             directories.logs_directory(),
             geth_config.logging_level.as_str(),
+            &geth_config.environment_variables,
             geth_config.start_timeout_ms,
         )
         .inspect_err(|err| error!(error = ?err, "Failed to spawn geth"))?;

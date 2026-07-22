@@ -48,6 +48,7 @@ impl PolkadotOmnichainNode {
             directories.data_directory(),
             directories.logs_directory(),
             node_config.logging_level.as_str(),
+            &node_config.environment_variables,
             node_config.start_timeout_ms,
         )
         .inspect_err(|err| error!(error = ?err, "Failed to spawn polkadot-omni-node"))?;
@@ -57,6 +58,7 @@ impl PolkadotOmnichainNode {
             directories.logs_directory(),
             polkadot_omnichain_node_process.url(),
             rpc_config.logging_level.as_str(),
+            &rpc_config.environment_variables,
             rpc_config.start_timeout_ms,
         )
         .inspect_err(|err| error!(error = ?err, "Failed to spawn eth-rpc"))?;
