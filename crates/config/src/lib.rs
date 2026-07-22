@@ -415,8 +415,8 @@ mod context {
         #[clap(default_value = "3")]
         pub logging_level: String,
 
-        /// JSON node connector configuration augmenting the default geth connector
-        /// behavior and overriding it on conflicts.
+        /// JSON node connector configuration augmenting the default geth connector behavior and
+        /// overriding it on conflicts.
         pub connector_configurations: Option<String>,
     }
 
@@ -434,8 +434,8 @@ mod context {
         #[clap(default_value = "900000", value_parser = parse_duration)]
         pub start_timeout_ms: Duration,
 
-        /// JSON node connector configuration augmenting the default lighthouse/geth
-        /// connector behavior and overriding it on conflicts.
+        /// JSON node connector configuration augmenting the default lighthouse/geth connector
+        /// behavior and overriding it on conflicts.
         pub connector_configurations: Option<String>,
     }
 
@@ -461,8 +461,8 @@ mod context {
         #[clap(default_value = "error,evm=debug,sc_rpc_server=info,runtime::revive=debug")]
         pub logging_level: String,
 
-        /// JSON node connector configuration augmenting the default revive dev
-        /// node connector behavior and overriding it on conflicts.
+        /// JSON node connector configuration augmenting the default revive dev node connector
+        /// behavior and overriding it on conflicts.
         pub connector_configurations: Option<String>,
     }
 
@@ -496,8 +496,8 @@ mod context {
         #[clap(default_value = "error,evm=debug,sc_rpc_server=info,runtime::revive=debug")]
         pub logging_level: String,
 
-        /// JSON node connector configuration augmenting the default
-        /// polkadot-omni-node connector behavior and overriding it on conflicts.
+        /// JSON node connector configuration augmenting the default polkadot-omni-node connector
+        /// behavior and overriding it on conflicts.
         pub connector_configurations: Option<String>,
     }
 
