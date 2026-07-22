@@ -5,7 +5,7 @@
 
 pub mod prelude {
     pub use crate::{
-        GethEvmSolcPlatform, LighthouseGethEvmSolcPlatform, Platform,
+        GethEvmSolcPlatform, LighthouseGethEvmSolcPlatform, Platform, PlatformDescriptorWithName,
         PolkadotOmniNodePolkavmResolcPlatform, PolkadotOmniNodeRevmSolcPlatform,
         ReviveDevNodePolkavmResolcPlatform, ReviveDevNodeRevmSolcPlatform,
         ZombienetPolkavmResolcPlatform, ZombienetRevmSolcPlatform,
@@ -92,6 +92,184 @@ pub trait Platform {
             CompilerIdentifier::Resolc => new_resolc_compiler(
                 solc_configuration.clone(),
                 resolc_configuration.clone(),
+                working_directory_configuration.clone(),
+                version,
+            ),
+        }
+    }
+}
+
+/// A configured platform paired with the name used to identify it.
+#[derive(Clone, Debug)]
+pub struct PlatformDescriptorWithName {
+    /// The name used to identify the platform.
+    pub name: PlatformName,
+    /// The node and compiler configuration for the platform.
+    pub descriptor: PlatformDescriptor,
+}
+
+impl Platform for PlatformDescriptorWithName {
+    fn platform_name(&self) -> &PlatformName {
+        &self.name
+    }
+
+    fn node_identifier(&self) -> NodeIdentifier {
+        match &self.descriptor.node {
+            AnyNodeConfiguration::Zombienet(_) => NodeIdentifier::Zombienet,
+            AnyNodeConfiguration::Geth(_) => NodeIdentifier::Geth,
+            AnyNodeConfiguration::Kurtosis(_) => NodeIdentifier::LighthouseGeth,
+            AnyNodeConfiguration::ReviveDevNode(_) => NodeIdentifier::ReviveDevNode,
+            AnyNodeConfiguration::PolkadotOmnichainNode(_) => NodeIdentifier::PolkadotOmniNode,
+        }
+    }
+
+    fn vm_identifier(&self) -> VmIdentifier {
+        match &self.descriptor.compiler {
+            AnyCompilerConfiguration::Solc(_) => VmIdentifier::Evm,
+            AnyCompilerConfiguration::Resolc { .. } => VmIdentifier::PolkaVM,
+        }
+    }
+
+    fn compiler_identifier(&self) -> CompilerIdentifier {
+        match &self.descriptor.compiler {
+            AnyCompilerConfiguration::Solc(_) => CompilerIdentifier::Solc,
+            AnyCompilerConfiguration::Resolc { .. } => CompilerIdentifier::Resolc,
+        }
+    }
+
+    fn new_node(&self, context: Context) -> StaticFuture<Result<NodeConnector>> {
+        let node_configuration = self.descriptor.node.clone();
+        let eth_rpc_configuration = self.descriptor.eth_rpc.clone();
+
+        Box::pin(async move {
+            let (working_directory_configuration, wallet_configuration, subscription_kind) =
+                match &context {
+                    Context::Test(context) => (
+                        &context.working_directory,
+                        &context.wallet,
+                        BlockProvisioningSubscriptionKind::BestBlocks,
+                    ),
+                    Context::Benchmark(context) => (
+                        &context.working_directory,
+                        &context.wallet,
+                        BlockProvisioningSubscriptionKind::FinalizedBlocks,
+                    ),
+                    Context::ExportJsonSchema(_)
+                    | Context::ExportTestSpecifiers(_)
+                    | Context::Compile(_) => {
+                        anyhow::bail!("Nodes can only be created for tests and benchmarks")
+                    }
+                };
+            let connector_configurations = match &node_configuration {
+                AnyNodeConfiguration::Zombienet(configuration) => {
+                    configuration.connector_configurations.as_deref()
+                }
+                AnyNodeConfiguration::Geth(configuration) => {
+                    configuration.connector_configurations.as_deref()
+                }
+                AnyNodeConfiguration::Kurtosis(configuration) => {
+                    configuration.connector_configurations.as_deref()
+                }
+                AnyNodeConfiguration::ReviveDevNode(configuration) => {
+                    configuration.connector_configurations.as_deref()
+                }
+                AnyNodeConfiguration::PolkadotOmnichainNode(configuration) => {
+                    configuration.connector_configurations.as_deref()
+                }
+            };
+            let node_configurations =
+                node_configurations(subscription_kind, connector_configurations)
+                    .context("Failed to parse the platform's node connector configuration")?;
+            let wallet = wallet_configuration.wallet();
+
+            match node_configuration {
+                AnyNodeConfiguration::Zombienet(zombienet_configuration) => {
+                    #[cfg(unix)]
+                    {
+                        let eth_rpc_configuration = eth_rpc_configuration
+                            .as_ref()
+                            .context("Zombienet requires an eth-rpc configuration")?;
+                        let node = ZombienetNode::new(
+                            working_directory_configuration,
+                            eth_rpc_configuration,
+                            wallet_configuration,
+                            &zombienet_configuration,
+                        )
+                        .context("Failed to spawn zombienet")?;
+                        NodeConnector::new(node, wallet, node_configurations).await
+                    }
+                    #[cfg(not(unix))]
+                    {
+                        let _ = zombienet_configuration;
+                        anyhow::bail!("Zombienet is not supported on this platform")
+                    }
+                }
+                AnyNodeConfiguration::Geth(geth_configuration) => {
+                    let node = GethNode::new(
+                        working_directory_configuration,
+                        wallet_configuration,
+                        &geth_configuration,
+                    )
+                    .context("Failed to spawn geth node")?;
+                    NodeConnector::new(node, wallet, node_configurations).await
+                }
+                AnyNodeConfiguration::Kurtosis(kurtosis_configuration) => {
+                    let node = LighthouseGethNode::new(
+                        working_directory_configuration,
+                        wallet_configuration,
+                        &kurtosis_configuration,
+                    )
+                    .context("Failed to spawn lighthouse node")?;
+                    NodeConnector::new(node, wallet, node_configurations).await
+                }
+                AnyNodeConfiguration::ReviveDevNode(revive_dev_node_configuration) => {
+                    let eth_rpc_configuration = eth_rpc_configuration
+                        .as_ref()
+                        .context("revive-dev-node requires an eth-rpc configuration")?;
+                    let node = ReviveDevNode::new(
+                        working_directory_configuration,
+                        eth_rpc_configuration,
+                        wallet_configuration,
+                        &revive_dev_node_configuration,
+                    )
+                    .context("Failed to spawn revive-dev-node")?;
+                    NodeConnector::new(node, wallet, node_configurations).await
+                }
+                AnyNodeConfiguration::PolkadotOmnichainNode(
+                    polkadot_omnichain_node_configuration,
+                ) => {
+                    let eth_rpc_configuration = eth_rpc_configuration
+                        .as_ref()
+                        .context("polkadot-omni-node requires an eth-rpc configuration")?;
+                    let node = PolkadotOmnichainNode::new(
+                        working_directory_configuration,
+                        eth_rpc_configuration,
+                        wallet_configuration,
+                        &polkadot_omnichain_node_configuration,
+                    )
+                    .context("Failed to spawn polkadot-omni-node")?;
+                    NodeConnector::new(node, wallet, node_configurations).await
+                }
+            }
+        })
+    }
+
+    fn new_compiler(
+        &self,
+        _: &SolcConfiguration,
+        _: &ResolcConfiguration,
+        working_directory_configuration: &WorkingDirectoryConfiguration,
+        version: Option<VersionOrRequirement>,
+    ) -> StaticFuture<Result<Box<dyn SolidityCompiler + Send + Sync>>> {
+        match &self.descriptor.compiler {
+            AnyCompilerConfiguration::Solc(configuration) => new_solc_compiler(
+                configuration.clone(),
+                working_directory_configuration.clone(),
+                version,
+            ),
+            AnyCompilerConfiguration::Resolc { solc, resolc } => new_resolc_compiler(
+                solc.clone(),
+                resolc.clone(),
                 working_directory_configuration.clone(),
                 version,
             ),

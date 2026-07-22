@@ -52,7 +52,6 @@ mod context {
         pub fail_fast: FailFastConfiguration,
         pub solc: SolcConfiguration,
         pub resolc: ResolcConfiguration,
-        pub polkadot_parachain: PolkadotParachainConfiguration,
         pub geth: GethConfiguration,
         pub kurtosis: KurtosisConfiguration,
         pub revive_dev_node: ReviveDevNodeConfiguration,
@@ -77,7 +76,6 @@ mod context {
         pub corpus: CorpusExecutionConfiguration,
         pub solc: SolcConfiguration,
         pub resolc: ResolcConfiguration,
-        pub polkadot_parachain: PolkadotParachainConfiguration,
         pub geth: GethConfiguration,
         pub kurtosis: KurtosisConfiguration,
         pub revive_dev_node: ReviveDevNodeConfiguration,
@@ -391,27 +389,6 @@ mod context {
         /// Environment variables applied to the Zombienet configuration when
         /// starting the network. The configuration is walked so they are set or
         /// unset for every configured node process. They have no other use.
-        #[clap(skip)]
-        #[serde(default)]
-        pub environment_variables: BTreeMap<String, Option<String>>,
-    }
-
-    /// A set of configuration parameters for Polkadot Parachain.
-    #[configuration(key = "polkadot-parachain")]
-    pub struct PolkadotParachainConfiguration {
-        /// Specifies the path of the polkadot-parachain node to be used by the tool.
-        ///
-        /// If this is not specified, then the tool assumes that it should use the
-        /// polkadot-parachain binary that's provided in the user's $PATH.
-        #[clap(default_value = "polkadot-parachain")]
-        pub path: PathBuf,
-
-        /// The amount of time to wait upon startup before considering that the node timed out.
-        #[clap(default_value = "5000", value_parser = parse_duration)]
-        pub start_timeout_ms: Duration,
-
-        /// Environment variables set or unset when starting the node process.
-        /// They are not used after startup.
         #[clap(skip)]
         #[serde(default)]
         pub environment_variables: BTreeMap<String, Option<String>>,
@@ -995,7 +972,6 @@ pub struct PlatformDescriptor {
 #[serde(tag = "type")]
 pub enum AnyNodeConfiguration {
     Zombienet(ZombienetConfiguration),
-    PolkadotParachain(PolkadotParachainConfiguration),
     Geth(GethConfiguration),
     Kurtosis(KurtosisConfiguration),
     ReviveDevNode(ReviveDevNodeConfiguration),
@@ -1007,5 +983,8 @@ pub enum AnyNodeConfiguration {
 #[serde(tag = "type")]
 pub enum AnyCompilerConfiguration {
     Solc(SolcConfiguration),
-    Resolc(ResolcConfiguration),
+    Resolc {
+        solc: SolcConfiguration,
+        resolc: ResolcConfiguration,
+    },
 }
