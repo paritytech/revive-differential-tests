@@ -20,7 +20,7 @@
         "config_path": "./assets/westend-assethub-zombienet.toml",
         "block_production_timeout_ms": "300000",
         "use_kubernetes": false,
-        "connector_configurations": null,
+        "connector_configurations": "{\"substrate_provider_configuration\":{\"allowed_estimation_methods\":\"ETH_TRANSACT_WITH_CONFIG | ETH_TRANSACT\"}}",
         "environment_variables": {
           "POLKAVM_BACKEND": "interpreter"
         }
@@ -50,7 +50,7 @@
         "config_path": "./assets/westend-assethub-zombienet.toml",
         "block_production_timeout_ms": "300000",
         "use_kubernetes": false,
-        "connector_configurations": null,
+        "connector_configurations": "{\"substrate_provider_configuration\":{\"allowed_estimation_methods\":\"ETH_TRANSACT_WITH_CONFIG | ETH_TRANSACT\"}}",
         "environment_variables": {
           "POLKAVM_BACKEND": "interpreter"
         }
