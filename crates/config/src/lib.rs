@@ -350,6 +350,10 @@ mod context {
         ///
         /// If unspecified, the revive compiler default is used
         pub stack_size: Option<u32>,
+
+        /// A boolean which allows for the New York compiler to be used even when the mode is not
+        /// set to be `NY` which allows for a simpler way to run the benchmarks.
+        pub use_new_york: bool,
     }
 
     /// A set of configuration parameters for Zombienet.
