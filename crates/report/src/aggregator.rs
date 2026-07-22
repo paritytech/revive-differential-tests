@@ -616,10 +616,69 @@ impl ReportAggregator {
     }
 }
 
+/// The command which produced a report.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ReportContextKind {
+    /// A differential test run.
+    Test,
+    /// A benchmark run.
+    Benchmark,
+    /// A JSON schema export.
+    ExportJsonSchema,
+    /// A test specifier export.
+    ExportTestSpecifiers,
+    /// A compiler-only run.
+    Compile,
+}
+
+/// The configuration snapshot stored in a report.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum ReportContext {
+    /// A serialized snapshot loaded without resolving its external paths.
+    Serialized(serde_json::Value),
+    /// The parsed context retained while a report is being produced.
+    Runtime(Context),
+}
+
+impl ReportContext {
+    /// Returns the command which produced the report when it is recognized.
+    #[must_use]
+    pub fn kind(&self) -> Option<ReportContextKind> {
+        match self {
+            Self::Runtime(context) => match context {
+                Context::Test(_) => Some(ReportContextKind::Test),
+                Context::Benchmark(_) => Some(ReportContextKind::Benchmark),
+                Context::ExportJsonSchema(_) => Some(ReportContextKind::ExportJsonSchema),
+                Context::ExportTestSpecifiers(_) => Some(ReportContextKind::ExportTestSpecifiers),
+                Context::Compile(_) => Some(ReportContextKind::Compile),
+            },
+            Self::Serialized(context) => context
+                .as_object()
+                .filter(|context| context.len() == 1)
+                .and_then(|context| context.keys().next())
+                .and_then(|command| match command.as_str() {
+                    "Test" => Some(ReportContextKind::Test),
+                    "Benchmark" => Some(ReportContextKind::Benchmark),
+                    "ExportJsonSchema" => Some(ReportContextKind::ExportJsonSchema),
+                    "ExportTestSpecifiers" => Some(ReportContextKind::ExportTestSpecifiers),
+                    "Compile" => Some(ReportContextKind::Compile),
+                    _ => None,
+                }),
+        }
+    }
+}
+
+impl From<Context> for ReportContext {
+    fn from(context: Context) -> Self {
+        Self::Runtime(context)
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Report {
     /// The context that the tool was started up with.
-    pub context: Context,
+    pub context: ReportContext,
     /// The list of metadata files that were found by the tool.
     pub metadata_files: BTreeSet<MetadataFilePath>,
     /// Information relating to each metadata file after executing the tool.
@@ -630,7 +689,7 @@ pub struct Report {
 impl Report {
     pub fn new(context: Context) -> Self {
         Self {
-            context,
+            context: context.into(),
             metadata_files: Default::default(),
             execution_information: Default::default(),
         }

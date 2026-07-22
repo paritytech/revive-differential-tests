@@ -8859,7 +8859,6 @@ dependencies = [
  "clap",
  "flate2",
  "revive-dt-common",
- "revive-dt-config",
  "revive-dt-report",
  "serde",
  "serde_json",

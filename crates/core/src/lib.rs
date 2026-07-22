@@ -189,12 +189,14 @@ impl Platform for PlatformDescriptorWithName {
                         let eth_rpc_configuration = eth_rpc_configuration
                             .as_ref()
                             .context("Zombienet requires an eth-rpc configuration")?;
-                        let node = ZombienetNode::new(
-                            working_directory_configuration,
-                            eth_rpc_configuration,
-                            wallet_configuration,
-                            &zombienet_configuration,
-                        )
+                        let node = tokio::task::block_in_place(|| {
+                            ZombienetNode::new(
+                                working_directory_configuration,
+                                eth_rpc_configuration,
+                                wallet_configuration,
+                                &zombienet_configuration,
+                            )
+                        })
                         .context("Failed to spawn zombienet")?;
                         NodeConnector::new(node, wallet, node_configurations).await
                     }
@@ -689,12 +691,14 @@ fn new_zombienet_node(context: Context) -> StaticFuture<Result<NodeConnector>> {
             zombienet_configuration.connector_configurations.as_deref(),
         )
         .context("Failed to parse --zombienet.connector-configurations as a JSON node connector configuration")?;
-        let node = ZombienetNode::new(
-            working_directory_configuration,
-            eth_rpc_configuration,
-            wallet_configuration,
-            zombienet_configuration,
-        )
+        let node = tokio::task::block_in_place(|| {
+            ZombienetNode::new(
+                working_directory_configuration,
+                eth_rpc_configuration,
+                wallet_configuration,
+                zombienet_configuration,
+            )
+        })
         .context("Failed to spawn zombienet")?;
         NodeConnector::new(node, wallet, node_configurations).await
     })
