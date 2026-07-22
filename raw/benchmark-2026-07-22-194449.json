@@ -1,0 +1,506 @@
+{
+  "context": {
+    "Benchmark": {
+      "profile": {
+        "profile": "Default"
+      },
+      "log": {
+        "log_format": "Json"
+      },
+      "platforms": {
+        "platform": [
+          "geth-evm-solc",
+          "revive-dev-node-polkavm-resolc"
+        ],
+        "platforms": "./workdir/platforms.json"
+      },
+      "working_directory": {
+        "working_directory": "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/workdir"
+      },
+      "benchmark_run": {
+        "default_repetition_count": 1000,
+        "repetition_count_override": 1
+      },
+      "corpus": {
+        "test_specifiers": [
+          "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/erc20-transfers/test.json::0::Y Mz S+"
+        ],
+        "allowed_modes": []
+      },
+      "solc": {
+        "version": "0.8.29"
+      },
+      "resolc": {
+        "path": "resolc",
+        "heap_size": null,
+        "stack_size": null,
+        "use_new_york": false
+      },
+      "geth": {
+        "path": "geth",
+        "start_timeout_ms": "30000",
+        "logging_level": "3",
+        "connector_configurations": null,
+        "environment_variables": {}
+      },
+      "kurtosis": {
+        "path": "kurtosis",
+        "start_timeout_ms": "900000",
+        "connector_configurations": null,
+        "environment_variables": {}
+      },
+      "revive_dev_node": {
+        "path": "revive-dev-node",
+        "start_timeout_ms": "30000",
+        "consensus": "instant-seal",
+        "logging_level": "error,evm=debug,sc_rpc_server=info,runtime::revive=debug",
+        "connector_configurations": null,
+        "environment_variables": {}
+      },
+      "polkadot_omnichain_node": {
+        "path": "polkadot-omni-node",
+        "start_timeout_ms": "90000",
+        "block_time_ms": "200",
+        "chain_spec_path": null,
+        "parachain_id": null,
+        "logging_level": "error,evm=debug,sc_rpc_server=info,runtime::revive=debug",
+        "connector_configurations": null,
+        "environment_variables": {}
+      },
+      "zombienet": {
+        "config_path": null,
+        "block_production_timeout_ms": "300000",
+        "use_kubernetes": false,
+        "connector_configurations": null,
+        "environment_variables": {}
+      },
+      "eth_rpc": {
+        "path": "eth-rpc",
+        "start_timeout_ms": "30000",
+        "logging_level": "info,eth-rpc=debug",
+        "environment_variables": {}
+      },
+      "wallet": {
+        "default_private_key": "0x4f3edf983ac636a65a842ce7c78d9aa706d3b113bce9c46f30d7d21715b23b1d",
+        "additional_keys": 201000
+      },
+      "concurrency": {
+        "number_of_nodes": 1,
+        "number_of_threads": 12,
+        "number_of_concurrent_tasks": 1000
+      },
+      "compilation": {
+        "invalidate_cache": false
+      },
+      "report": {
+        "include_compiler_input": true,
+        "include_compiler_output": false,
+        "file_name": "report.json"
+      },
+      "shutdown": {
+        "keep_alive_on_failures": false,
+        "keep_alive": false
+      }
+    }
+  },
+  "metadata_files": [
+    "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/erc20-transfers/test.json"
+  ],
+  "execution_information": {
+    "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/erc20-transfers/test.json": {
+      "case_reports": {
+        "0": {
+          "mode_execution_reports": {
+            "Y Mz S+": {
+              "metrics_information": {
+                "Geth": [
+                  {
+                    "block_number": 6,
+                    "relative_block_number": 0,
+                    "block_timestamp_seconds": 1784749038,
+                    "relative_block_timestamp_seconds": 0,
+                    "observation_time_seconds": 1784749038,
+                    "relative_observation_time_seconds": 0,
+                    "transaction_count": 2,
+                    "step_count": {
+                      "1.1": 1,
+                      "1.2.0": 1
+                    },
+                    "block_gas_mined": 119164,
+                    "block_gas_limit": 60000000,
+                    "block_gas_fullness": 0,
+                    "additional_tx_capacity_gas": 1005,
+                    "pending_transaction_count": 0
+                  }
+                ],
+                "PolkaVM Int NY": [
+                  {
+                    "block_number": 108,
+                    "relative_block_number": 0,
+                    "block_timestamp_seconds": 1784749320,
+                    "relative_block_timestamp_seconds": 0,
+                    "observation_time_seconds": 1784749345,
+                    "relative_observation_time_seconds": 0,
+                    "transaction_count": 2,
+                    "step_count": {
+                      "1.1": 1,
+                      "1.2.0": 1
+                    },
+                    "block_gas_mined": 19994645,
+                    "block_gas_limit": 18446744073709551615,
+                    "block_gas_fullness": 0,
+                    "block_ref_time": 16524589385,
+                    "block_ref_time_limit": 1399875000000,
+                    "block_ref_time_fullness": 1,
+                    "block_proof_size": 285537,
+                    "block_proof_size_limit": 7340032,
+                    "block_proof_size_fullness": 3,
+                    "additional_tx_capacity_gas": 1845168543504,
+                    "additional_tx_capacity_ref_time": 167,
+                    "additional_tx_capacity_proof_size": 49,
+                    "additional_tx_capacity_pre_dispatch_ref_time": 96,
+                    "additional_tx_capacity_pre_dispatch_proof_size": 94,
+                    "pending_transaction_count": 0
+                  }
+                ],
+                "PolkaVM Int Yul": [
+                  {
+                    "block_number": 95,
+                    "relative_block_number": 0,
+                    "block_timestamp_seconds": 1784749344,
+                    "relative_block_timestamp_seconds": 0,
+                    "observation_time_seconds": 1784749361,
+                    "relative_observation_time_seconds": 0,
+                    "transaction_count": 2,
+                    "step_count": {
+                      "1.1": 1,
+                      "1.2.0": 1
+                    },
+                    "block_gas_mined": 21713670,
+                    "block_gas_limit": 18446744073709551615,
+                    "block_gas_fullness": 0,
+                    "block_ref_time": 16498737838,
+                    "block_ref_time_limit": 1399875000000,
+                    "block_ref_time_fullness": 1,
+                    "block_proof_size": 296812,
+                    "block_proof_size_limit": 7340032,
+                    "block_proof_size_fullness": 4,
+                    "additional_tx_capacity_gas": 1699090395468,
+                    "additional_tx_capacity_ref_time": 167,
+                    "additional_tx_capacity_proof_size": 47,
+                    "additional_tx_capacity_pre_dispatch_ref_time": 82,
+                    "additional_tx_capacity_pre_dispatch_proof_size": 80,
+                    "pending_transaction_count": 0
+                  }
+                ],
+                "PolkaVM JIT NY": [
+                  {
+                    "block_number": 101,
+                    "relative_block_number": 0,
+                    "block_timestamp_seconds": 1784749368,
+                    "relative_block_timestamp_seconds": 0,
+                    "observation_time_seconds": 1784749391,
+                    "relative_observation_time_seconds": 0,
+                    "transaction_count": 2,
+                    "step_count": {
+                      "1.1": 1,
+                      "1.2.0": 1
+                    },
+                    "block_gas_mined": 19994056,
+                    "block_gas_limit": 18446744073709551615,
+                    "block_gas_fullness": 0,
+                    "block_ref_time": 16480338385,
+                    "block_ref_time_limit": 1399875000000,
+                    "block_ref_time_fullness": 1,
+                    "block_proof_size": 285537,
+                    "block_proof_size_limit": 7340032,
+                    "block_proof_size_fullness": 3,
+                    "additional_tx_capacity_gas": 1845222807587,
+                    "additional_tx_capacity_ref_time": 167,
+                    "additional_tx_capacity_proof_size": 49,
+                    "additional_tx_capacity_pre_dispatch_ref_time": 96,
+                    "additional_tx_capacity_pre_dispatch_proof_size": 94,
+                    "pending_transaction_count": 0
+                  }
+                ],
+                "PolkaVM JIT Yul": [
+                  {
+                    "block_number": 112,
+                    "relative_block_number": 0,
+                    "block_timestamp_seconds": 1784749320,
+                    "relative_block_timestamp_seconds": 0,
+                    "observation_time_seconds": 1784749345,
+                    "relative_observation_time_seconds": 0,
+                    "transaction_count": 2,
+                    "step_count": {
+                      "1.1": 1,
+                      "1.2.0": 1
+                    },
+                    "block_gas_mined": 21715096,
+                    "block_gas_limit": 18446744073709551615,
+                    "block_gas_fullness": 0,
+                    "block_ref_time": 16542988838,
+                    "block_ref_time_limit": 1399875000000,
+                    "block_ref_time_fullness": 1,
+                    "block_proof_size": 296812,
+                    "block_proof_size_limit": 7340032,
+                    "block_proof_size_fullness": 4,
+                    "additional_tx_capacity_gas": 1698978818577,
+                    "additional_tx_capacity_ref_time": 167,
+                    "additional_tx_capacity_proof_size": 47,
+                    "additional_tx_capacity_pre_dispatch_ref_time": 82,
+                    "additional_tx_capacity_pre_dispatch_proof_size": 80,
+                    "pending_transaction_count": 0
+                  }
+                ]
+              },
+              "platform_execution": {
+                "Geth": {
+                  "node": {
+                    "id": 0,
+                    "platform_name": "Geth"
+                  },
+                  "pre_link_compilation_status": {
+                    "status": "Success",
+                    "is_cached": false,
+                    "compiler_version": "0.8.28",
+                    "compiler_frontend_version": "0.8.28",
+                    "compiler_path": "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/workdir/solc/0.8.28/linux-amd64",
+                    "compiler_input": {
+                      "pipeline": "ViaYulIR",
+                      "optimization": {
+                        "solc_optimizer_enabled": true,
+                        "level": "Mz"
+                      },
+                      "evm_version": null,
+                      "allow_paths": [
+                        "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/erc20-transfers"
+                      ],
+                      "base_path": "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/erc20-transfers",
+                      "sources": {
+                        "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/erc20-transfers/main.sol": "// SPDX-License-Identifier: MIT\npragma solidity ^0.8.20;\n\ncontract ERC20 {\n    string public name;\n    string public symbol;\n\n    function decimals() public pure returns (uint8) {\n        return 18;\n    }\n\n    uint256 public totalSupply;\n    mapping(address => uint256) public balanceOf;\n    mapping(address => mapping(address => uint256)) public allowance;\n\n    event Transfer(address indexed from, address indexed to, uint256 value);\n    event Approval(\n        address indexed owner,\n        address indexed spender,\n        uint256 value\n    );\n\n    constructor(string memory name_, string memory symbol_) {\n        name = name_;\n        symbol = symbol_;\n    }\n\n    function transfer(address to, uint256 amount) external returns (bool) {\n        require(to != address(0), \"ERC20: transfer to zero\");\n        uint256 bal = balanceOf[msg.sender];\n        require(bal >= amount, \"ERC20: balance\");\n        unchecked {\n            balanceOf[msg.sender] = bal - amount;\n            balanceOf[to] += amount;\n        }\n        emit Transfer(msg.sender, to, amount);\n        return true;\n    }\n\n    function approve(address spender, uint256 amount) external returns (bool) {\n        allowance[msg.sender][spender] = amount;\n        emit Approval(msg.sender, spender, amount);\n        return true;\n    }\n\n    function transferFrom(\n        address from,\n        address to,\n        uint256 amount\n    ) external returns (bool) {\n        require(to != address(0), \"ERC20: transfer to zero\");\n        uint256 bal = balanceOf[from];\n        require(bal >= amount, \"ERC20: balance\");\n\n        uint256 allowed = allowance[from][msg.sender];\n        require(allowed >= amount, \"ERC20: allowance\");\n        if (allowed != type(uint256).max) {\n            allowance[from][msg.sender] = allowed - amount;\n        }\n\n        unchecked {\n            balanceOf[from] = bal - amount;\n            balanceOf[to] += amount;\n        }\n        emit Transfer(from, to, amount);\n        return true;\n    }\n\n    function mint(address to, uint256 amount) external returns (bool) {\n        require(to != address(0), \"ERC20: mint to zero\");\n        totalSupply += amount;\n        balanceOf[to] += amount;\n        emit Transfer(address(0), to, amount);\n        return true;\n    }\n}\n"
+                      },
+                      "libraries": {},
+                      "revert_string_handling": null
+                    },
+                    "compiled_contracts_info": {
+                      "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/erc20-transfers/main.sol": {
+                        "ERC20": {
+                          "bytecode_hash": "0x83b8d491ba21373803b8bab4313ae769bcd9e13e8ce77733cef57df3a09873fe"
+                        }
+                      }
+                    }
+                  },
+                  "deployed_contracts": {
+                    "ERC20": "0x51a240271ab8ab9f9a21c82d9a85396b704e164d"
+                  }
+                },
+                "PolkaVM Int NY": {
+                  "node": {
+                    "id": 0,
+                    "platform_name": "PolkaVM Int NY"
+                  },
+                  "pre_link_compilation_status": {
+                    "status": "Success",
+                    "is_cached": false,
+                    "compiler_version": "1.4.0+commit.ca3c770.llvm-22.1.5",
+                    "compiler_frontend_version": "0.8.28",
+                    "compiler_path": "resolc",
+                    "compiler_input": {
+                      "pipeline": "ViaYulIR",
+                      "optimization": {
+                        "solc_optimizer_enabled": true,
+                        "level": "Mz"
+                      },
+                      "evm_version": null,
+                      "allow_paths": [
+                        "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/erc20-transfers"
+                      ],
+                      "base_path": "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/erc20-transfers",
+                      "sources": {
+                        "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/erc20-transfers/main.sol": "// SPDX-License-Identifier: MIT\npragma solidity ^0.8.20;\n\ncontract ERC20 {\n    string public name;\n    string public symbol;\n\n    function decimals() public pure returns (uint8) {\n        return 18;\n    }\n\n    uint256 public totalSupply;\n    mapping(address => uint256) public balanceOf;\n    mapping(address => mapping(address => uint256)) public allowance;\n\n    event Transfer(address indexed from, address indexed to, uint256 value);\n    event Approval(\n        address indexed owner,\n        address indexed spender,\n        uint256 value\n    );\n\n    constructor(string memory name_, string memory symbol_) {\n        name = name_;\n        symbol = symbol_;\n    }\n\n    function transfer(address to, uint256 amount) external returns (bool) {\n        require(to != address(0), \"ERC20: transfer to zero\");\n        uint256 bal = balanceOf[msg.sender];\n        require(bal >= amount, \"ERC20: balance\");\n        unchecked {\n            balanceOf[msg.sender] = bal - amount;\n            balanceOf[to] += amount;\n        }\n        emit Transfer(msg.sender, to, amount);\n        return true;\n    }\n\n    function approve(address spender, uint256 amount) external returns (bool) {\n        allowance[msg.sender][spender] = amount;\n        emit Approval(msg.sender, spender, amount);\n        return true;\n    }\n\n    function transferFrom(\n        address from,\n        address to,\n        uint256 amount\n    ) external returns (bool) {\n        require(to != address(0), \"ERC20: transfer to zero\");\n        uint256 bal = balanceOf[from];\n        require(bal >= amount, \"ERC20: balance\");\n\n        uint256 allowed = allowance[from][msg.sender];\n        require(allowed >= amount, \"ERC20: allowance\");\n        if (allowed != type(uint256).max) {\n            allowance[from][msg.sender] = allowed - amount;\n        }\n\n        unchecked {\n            balanceOf[from] = bal - amount;\n            balanceOf[to] += amount;\n        }\n        emit Transfer(from, to, amount);\n        return true;\n    }\n\n    function mint(address to, uint256 amount) external returns (bool) {\n        require(to != address(0), \"ERC20: mint to zero\");\n        totalSupply += amount;\n        balanceOf[to] += amount;\n        emit Transfer(address(0), to, amount);\n        return true;\n    }\n}\n"
+                      },
+                      "libraries": {},
+                      "revert_string_handling": null
+                    },
+                    "compiled_contracts_info": {
+                      "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/erc20-transfers/main.sol": {
+                        "ERC20": {
+                          "bytecode_hash": "0x38dd0a52e8daa2b2e369572760846a0df4e9aab3a62bb2199633d545c636bb3b"
+                        }
+                      }
+                    }
+                  },
+                  "deployed_contracts": {
+                    "ERC20": "0xb9816fc57977d5a786e654c7cf76767be63b966e"
+                  }
+                },
+                "PolkaVM Int Yul": {
+                  "node": {
+                    "id": 0,
+                    "platform_name": "PolkaVM Int Yul"
+                  },
+                  "pre_link_compilation_status": {
+                    "status": "Success",
+                    "is_cached": false,
+                    "compiler_version": "1.4.0+commit.ca3c770.llvm-22.1.5",
+                    "compiler_frontend_version": "0.8.28",
+                    "compiler_path": "resolc",
+                    "compiler_input": {
+                      "pipeline": "ViaYulIR",
+                      "optimization": {
+                        "solc_optimizer_enabled": true,
+                        "level": "Mz"
+                      },
+                      "evm_version": null,
+                      "allow_paths": [
+                        "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/erc20-transfers"
+                      ],
+                      "base_path": "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/erc20-transfers",
+                      "sources": {
+                        "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/erc20-transfers/main.sol": "// SPDX-License-Identifier: MIT\npragma solidity ^0.8.20;\n\ncontract ERC20 {\n    string public name;\n    string public symbol;\n\n    function decimals() public pure returns (uint8) {\n        return 18;\n    }\n\n    uint256 public totalSupply;\n    mapping(address => uint256) public balanceOf;\n    mapping(address => mapping(address => uint256)) public allowance;\n\n    event Transfer(address indexed from, address indexed to, uint256 value);\n    event Approval(\n        address indexed owner,\n        address indexed spender,\n        uint256 value\n    );\n\n    constructor(string memory name_, string memory symbol_) {\n        name = name_;\n        symbol = symbol_;\n    }\n\n    function transfer(address to, uint256 amount) external returns (bool) {\n        require(to != address(0), \"ERC20: transfer to zero\");\n        uint256 bal = balanceOf[msg.sender];\n        require(bal >= amount, \"ERC20: balance\");\n        unchecked {\n            balanceOf[msg.sender] = bal - amount;\n            balanceOf[to] += amount;\n        }\n        emit Transfer(msg.sender, to, amount);\n        return true;\n    }\n\n    function approve(address spender, uint256 amount) external returns (bool) {\n        allowance[msg.sender][spender] = amount;\n        emit Approval(msg.sender, spender, amount);\n        return true;\n    }\n\n    function transferFrom(\n        address from,\n        address to,\n        uint256 amount\n    ) external returns (bool) {\n        require(to != address(0), \"ERC20: transfer to zero\");\n        uint256 bal = balanceOf[from];\n        require(bal >= amount, \"ERC20: balance\");\n\n        uint256 allowed = allowance[from][msg.sender];\n        require(allowed >= amount, \"ERC20: allowance\");\n        if (allowed != type(uint256).max) {\n            allowance[from][msg.sender] = allowed - amount;\n        }\n\n        unchecked {\n            balanceOf[from] = bal - amount;\n            balanceOf[to] += amount;\n        }\n        emit Transfer(from, to, amount);\n        return true;\n    }\n\n    function mint(address to, uint256 amount) external returns (bool) {\n        require(to != address(0), \"ERC20: mint to zero\");\n        totalSupply += amount;\n        balanceOf[to] += amount;\n        emit Transfer(address(0), to, amount);\n        return true;\n    }\n}\n"
+                      },
+                      "libraries": {},
+                      "revert_string_handling": null
+                    },
+                    "compiled_contracts_info": {
+                      "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/erc20-transfers/main.sol": {
+                        "ERC20": {
+                          "bytecode_hash": "0x1cebec0321fac056977b75756ebcf88502b9fa1cc1f03de2a0edb4dcb81f1d72"
+                        }
+                      }
+                    }
+                  },
+                  "deployed_contracts": {
+                    "ERC20": "0xb9816fc57977d5a786e654c7cf76767be63b966e"
+                  }
+                },
+                "PolkaVM JIT NY": {
+                  "node": {
+                    "id": 0,
+                    "platform_name": "PolkaVM JIT NY"
+                  },
+                  "pre_link_compilation_status": {
+                    "status": "Success",
+                    "is_cached": false,
+                    "compiler_version": "1.4.0+commit.ca3c770.llvm-22.1.5",
+                    "compiler_frontend_version": "0.8.28",
+                    "compiler_path": "resolc",
+                    "compiler_input": {
+                      "pipeline": "ViaYulIR",
+                      "optimization": {
+                        "solc_optimizer_enabled": true,
+                        "level": "Mz"
+                      },
+                      "evm_version": null,
+                      "allow_paths": [
+                        "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/erc20-transfers"
+                      ],
+                      "base_path": "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/erc20-transfers",
+                      "sources": {
+                        "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/erc20-transfers/main.sol": "// SPDX-License-Identifier: MIT\npragma solidity ^0.8.20;\n\ncontract ERC20 {\n    string public name;\n    string public symbol;\n\n    function decimals() public pure returns (uint8) {\n        return 18;\n    }\n\n    uint256 public totalSupply;\n    mapping(address => uint256) public balanceOf;\n    mapping(address => mapping(address => uint256)) public allowance;\n\n    event Transfer(address indexed from, address indexed to, uint256 value);\n    event Approval(\n        address indexed owner,\n        address indexed spender,\n        uint256 value\n    );\n\n    constructor(string memory name_, string memory symbol_) {\n        name = name_;\n        symbol = symbol_;\n    }\n\n    function transfer(address to, uint256 amount) external returns (bool) {\n        require(to != address(0), \"ERC20: transfer to zero\");\n        uint256 bal = balanceOf[msg.sender];\n        require(bal >= amount, \"ERC20: balance\");\n        unchecked {\n            balanceOf[msg.sender] = bal - amount;\n            balanceOf[to] += amount;\n        }\n        emit Transfer(msg.sender, to, amount);\n        return true;\n    }\n\n    function approve(address spender, uint256 amount) external returns (bool) {\n        allowance[msg.sender][spender] = amount;\n        emit Approval(msg.sender, spender, amount);\n        return true;\n    }\n\n    function transferFrom(\n        address from,\n        address to,\n        uint256 amount\n    ) external returns (bool) {\n        require(to != address(0), \"ERC20: transfer to zero\");\n        uint256 bal = balanceOf[from];\n        require(bal >= amount, \"ERC20: balance\");\n\n        uint256 allowed = allowance[from][msg.sender];\n        require(allowed >= amount, \"ERC20: allowance\");\n        if (allowed != type(uint256).max) {\n            allowance[from][msg.sender] = allowed - amount;\n        }\n\n        unchecked {\n            balanceOf[from] = bal - amount;\n            balanceOf[to] += amount;\n        }\n        emit Transfer(from, to, amount);\n        return true;\n    }\n\n    function mint(address to, uint256 amount) external returns (bool) {\n        require(to != address(0), \"ERC20: mint to zero\");\n        totalSupply += amount;\n        balanceOf[to] += amount;\n        emit Transfer(address(0), to, amount);\n        return true;\n    }\n}\n"
+                      },
+                      "libraries": {},
+                      "revert_string_handling": null
+                    },
+                    "compiled_contracts_info": {
+                      "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/erc20-transfers/main.sol": {
+                        "ERC20": {
+                          "bytecode_hash": "0x38dd0a52e8daa2b2e369572760846a0df4e9aab3a62bb2199633d545c636bb3b"
+                        }
+                      }
+                    }
+                  },
+                  "deployed_contracts": {
+                    "ERC20": "0xb9816fc57977d5a786e654c7cf76767be63b966e"
+                  }
+                },
+                "PolkaVM JIT Yul": {
+                  "node": {
+                    "id": 0,
+                    "platform_name": "PolkaVM JIT Yul"
+                  },
+                  "pre_link_compilation_status": {
+                    "status": "Success",
+                    "is_cached": false,
+                    "compiler_version": "1.4.0+commit.ca3c770.llvm-22.1.5",
+                    "compiler_frontend_version": "0.8.28",
+                    "compiler_path": "resolc",
+                    "compiler_input": {
+                      "pipeline": "ViaYulIR",
+                      "optimization": {
+                        "solc_optimizer_enabled": true,
+                        "level": "Mz"
+                      },
+                      "evm_version": null,
+                      "allow_paths": [
+                        "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/erc20-transfers"
+                      ],
+                      "base_path": "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/erc20-transfers",
+                      "sources": {
+                        "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/erc20-transfers/main.sol": "// SPDX-License-Identifier: MIT\npragma solidity ^0.8.20;\n\ncontract ERC20 {\n    string public name;\n    string public symbol;\n\n    function decimals() public pure returns (uint8) {\n        return 18;\n    }\n\n    uint256 public totalSupply;\n    mapping(address => uint256) public balanceOf;\n    mapping(address => mapping(address => uint256)) public allowance;\n\n    event Transfer(address indexed from, address indexed to, uint256 value);\n    event Approval(\n        address indexed owner,\n        address indexed spender,\n        uint256 value\n    );\n\n    constructor(string memory name_, string memory symbol_) {\n        name = name_;\n        symbol = symbol_;\n    }\n\n    function transfer(address to, uint256 amount) external returns (bool) {\n        require(to != address(0), \"ERC20: transfer to zero\");\n        uint256 bal = balanceOf[msg.sender];\n        require(bal >= amount, \"ERC20: balance\");\n        unchecked {\n            balanceOf[msg.sender] = bal - amount;\n            balanceOf[to] += amount;\n        }\n        emit Transfer(msg.sender, to, amount);\n        return true;\n    }\n\n    function approve(address spender, uint256 amount) external returns (bool) {\n        allowance[msg.sender][spender] = amount;\n        emit Approval(msg.sender, spender, amount);\n        return true;\n    }\n\n    function transferFrom(\n        address from,\n        address to,\n        uint256 amount\n    ) external returns (bool) {\n        require(to != address(0), \"ERC20: transfer to zero\");\n        uint256 bal = balanceOf[from];\n        require(bal >= amount, \"ERC20: balance\");\n\n        uint256 allowed = allowance[from][msg.sender];\n        require(allowed >= amount, \"ERC20: allowance\");\n        if (allowed != type(uint256).max) {\n            allowance[from][msg.sender] = allowed - amount;\n        }\n\n        unchecked {\n            balanceOf[from] = bal - amount;\n            balanceOf[to] += amount;\n        }\n        emit Transfer(from, to, amount);\n        return true;\n    }\n\n    function mint(address to, uint256 amount) external returns (bool) {\n        require(to != address(0), \"ERC20: mint to zero\");\n        totalSupply += amount;\n        balanceOf[to] += amount;\n        emit Transfer(address(0), to, amount);\n        return true;\n    }\n}\n"
+                      },
+                      "libraries": {},
+                      "revert_string_handling": null
+                    },
+                    "compiled_contracts_info": {
+                      "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/erc20-transfers/main.sol": {
+                        "ERC20": {
+                          "bytecode_hash": "0x1cebec0321fac056977b75756ebcf88502b9fa1cc1f03de2a0edb4dcb81f1d72"
+                        }
+                      }
+                    }
+                  },
+                  "deployed_contracts": {
+                    "ERC20": "0xb9816fc57977d5a786e654c7cf76767be63b966e"
+                  }
+                }
+              },
+              "compiled_contracts": {
+                "/home/runner/actions-runner/_work/revive-differential-tests/revive-differential-tests/compiler-tests/fixtures/solidity/workloads/erc20-transfers/main.sol": {
+                  "ERC20": {
+                    "contract_size": {
+                      "Geth": 2842,
+                      "PolkaVM Int NY": 13786,
+                      "PolkaVM Int Yul": 25059,
+                      "PolkaVM JIT NY": 13786,
+                      "PolkaVM JIT Yul": 25059
+                    }
+                  }
+                }
+              },
+              "contract_addresses": {
+                "ERC20": {
+                  "Geth": [
+                    "0x51a240271ab8ab9f9a21c82d9a85396b704e164d"
+                  ],
+                  "PolkaVM Int NY": [
+                    "0xb9816fc57977d5a786e654c7cf76767be63b966e"
+                  ],
+                  "PolkaVM Int Yul": [
+                    "0xb9816fc57977d5a786e654c7cf76767be63b966e"
+                  ],
+                  "PolkaVM JIT NY": [
+                    "0xb9816fc57977d5a786e654c7cf76767be63b966e"
+                  ],
+                  "PolkaVM JIT Yul": [
+                    "0xb9816fc57977d5a786e654c7cf76767be63b966e"
+                  ]
+                }
+              },
+              "mined_block_information": {},
+              "steps": {
+                "1.1": {
+                  "transactions": {}
+                },
+                "1.2.0": {
+                  "transactions": {}
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
