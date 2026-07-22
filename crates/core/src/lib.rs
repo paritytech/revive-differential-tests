@@ -86,11 +86,6 @@ pub trait Platform {
             CompilerIdentifier::Resolc => new_resolc_compiler(context, version),
         }
     }
-
-    /// Describes if the platform allows for the gas fees to be cached.
-    fn allow_caching_gas_limit(&self) -> bool {
-        true
-    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Default, Hash)]
