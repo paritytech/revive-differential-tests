@@ -58,7 +58,7 @@
         },
         "resolc": {
           "path": "resolc",
-          "heap_size": null,
+          "heap_size": 500000,
           "stack_size": null,
           "use_new_york": false
         }
@@ -88,7 +88,7 @@
         },
         "resolc": {
           "path": "resolc",
-          "heap_size": null,
+          "heap_size": 500000,
           "stack_size": null,
           "use_new_york": true
         }
@@ -118,7 +118,7 @@
         },
         "resolc": {
           "path": "resolc",
-          "heap_size": null,
+          "heap_size": 500000,
           "stack_size": null,
           "use_new_york": false
         }
@@ -148,7 +148,7 @@
         },
         "resolc": {
           "path": "resolc",
-          "heap_size": null,
+          "heap_size": 500000,
           "stack_size": null,
           "use_new_york": true
         }
