@@ -14,6 +14,26 @@
         "version": "0.8.28"
       }
     },
+    "REVM": {
+      "node": {
+        "type": "Zombienet",
+        "config_path": "./assets/westend-assethub-zombienet.toml",
+        "block_production_timeout_ms": "300000",
+        "use_kubernetes": false,
+        "connector_configurations": null,
+        "environment_variables": {}
+      },
+      "eth_rpc": {
+        "path": "eth-rpc",
+        "start_timeout_ms": "30000",
+        "logging_level": "info",
+        "environment_variables": {}
+      },
+      "compiler": {
+        "type": "Solc",
+        "version": "0.8.28"
+      }
+    },
     "PolkaVM Int Yul": {
       "node": {
         "type": "Zombienet",
