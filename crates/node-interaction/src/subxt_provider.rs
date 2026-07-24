@@ -71,6 +71,7 @@ pub fn new_substrate_client(
     Box::pin(async move {
         validate_url_is_secure(&url).context("The substrate RPC URL is insecure")?;
         let inner = reconnecting_rpc_client::RpcClient::builder()
+            .max_response_size(512 * 1024 * 1024)
             .build(&url)
             .await
             .context("Failed to build the reconnecting substrate RPC client")?;
