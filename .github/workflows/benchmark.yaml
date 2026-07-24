@@ -19,19 +19,6 @@ on:
         description: The branch, tag, or commit hash to use for the polkadot-sdk repository.
         required: true
         default: 22e63b740b6943b4e39a3c6b779ca9e5408ca00c
-      use-jit:
-        description: Whether to build the polkadot-sdk with JIT enabled (--cfg revive_jit).
-        required: true
-        type: boolean
-        default: true
-      runtimes-repository:
-        description: The repository containing the runtimes and their spec generator
-        required: true
-        default: polkadot-fellows/runtimes
-      runtimes-ref:
-        description: The branch, tag, or commit hash to use for the runtimes repository.
-        required: true
-        default: 80e121412d9787a56c7f63cfdc65fb2c54989dbc
       solc-version:
         description: Solc compiler version (e.g. v0.8.28)
         required: true
@@ -103,8 +90,8 @@ jobs:
             revive-dt-core
             revive-dt-report-processor
 
-  build-chainspec-generator:
-    name: Build and Cache Runtime's Chainspec Generator
+  build-polkadot-sdk-interpreter:
+    name: Build and Cache the Polkadot SDK Dependencies Without JIT
     runs-on: parity-large-t2d
     steps:
       - name: Checkout This Repository
@@ -113,33 +100,7 @@ jobs:
         uses: ./.github/actions/setup-benchmark-machine
         with:
           rust-toolchain: ${{ inputs.rust-toolchain }}
-      - name: Build chain-spec-generator
-        uses: ./.github/actions/require-binary
-        with:
-          binary-name: chain-spec-generator
-          repository: ${{ inputs.runtimes-repository }}
-          ref: ${{ inputs.runtimes-ref }}
-          profile: production
-          packages: chain-spec-generator
-          features: |
-            polkadot
-            asset-hub-polkadot
-          no-default-features: true
-          env: |
-            RUSTFLAGS=-Awarnings
-            WASM_BUILD_RUSTFLAGS=-Clink-arg=--allow-undefined
-
-  build-polkadot-sdk:
-    name: Build and Cache the Polkadot SDK Dependencies
-    runs-on: parity-large-t2d
-    steps:
-      - name: Checkout This Repository
-        uses: actions/checkout@v4
-      - name: Setup the Machine
-        uses: ./.github/actions/setup-benchmark-machine
-        with:
-          rust-toolchain: ${{ inputs.rust-toolchain }}
-      - name: Build polkadot
+      - name: Build Polkadot SDK binaries without JIT
         uses: ./.github/actions/require-binary
         with:
           binary-name: polkadot
@@ -151,7 +112,32 @@ jobs:
             polkadot-parachain-bin
             pallet-revive-eth-rpc
           env: |
-            ${{ inputs.use-jit && 'RUSTFLAGS=-Awarnings --cfg revive_jit' || 'RUSTFLAGS=-Awarnings' }}
+            RUSTFLAGS=-Awarnings
+            WASM_BUILD_RUSTFLAGS=-Clink-arg=--allow-undefined
+
+  build-polkadot-sdk-jit:
+    name: Build and Cache the Polkadot SDK Dependencies With JIT
+    runs-on: parity-large-t2d
+    steps:
+      - name: Checkout This Repository
+        uses: actions/checkout@v4
+      - name: Setup the Machine
+        uses: ./.github/actions/setup-benchmark-machine
+        with:
+          rust-toolchain: ${{ inputs.rust-toolchain }}
+      - name: Build Polkadot SDK binaries with JIT
+        uses: ./.github/actions/require-binary
+        with:
+          binary-name: polkadot
+          repository: ${{ inputs.polkadot-sdk-repository }}
+          ref: ${{ inputs.polkadot-sdk-ref }}
+          profile: production
+          packages: |
+            polkadot
+            polkadot-parachain-bin
+            pallet-revive-eth-rpc
+          env: |
+            RUSTFLAGS=-Awarnings --cfg revive_jit
             WASM_BUILD_RUSTFLAGS=-Clink-arg=--allow-undefined
 
   build-resolc:
@@ -238,7 +224,25 @@ jobs:
           ALL_TESTS=$(retester export-test-specifiers \
             --test ./compiler-tests/fixtures/solidity/workloads \
             "${ALLOWED_MODE_ARGS[@]}")
-          PLATFORMS=$(jq -c '.platforms | keys_unsorted' ./.github/benchmark-platforms.json)
+          if ! jq -e '
+            ([
+              .platforms[].polkadot_sdk_build
+              | select(. != "none" and . != "interpreter" and . != "jit")
+            ] | length == 0)
+          ' ./.github/benchmark-platforms.json > /dev/null; then
+            echo "::error::Every platform must have a valid Polkadot SDK build type"
+            exit 1
+          fi
+          PLATFORMS=$(jq -c '
+            [
+              .platforms
+              | to_entries[]
+              | {
+                  name: .key,
+                  polkadot_sdk_build: .value.polkadot_sdk_build
+                }
+            ]
+          ' ./.github/benchmark-platforms.json)
 
           TESTS=$(jq -c --argjson filters "$TEST_FILTERS" '
             if ($filters | length) == 0 then
@@ -275,7 +279,7 @@ jobs:
           echo "  benchmark jobs: $BENCHMARK_COUNT"
 
           echo "::group::Platforms"
-          jq -r '.[]' <<< "$PLATFORMS"
+          jq -r '.[] | "\(.name) [polkadot-sdk: \(.polkadot_sdk_build)]"' <<< "$PLATFORMS"
           echo "::endgroup::"
 
           echo "::group::Test specifiers"
@@ -287,21 +291,21 @@ jobs:
   # ============================================
 
   benchmark:
-    name: "${{ matrix.platform }} ${{ matrix.test.name }}"
+    name: "${{ matrix.platform.name }} ${{ matrix.test.name }}"
     runs-on: parity-large-t2d
     timeout-minutes: 120
     needs:
       [
         generate-matrix,
-        build-chainspec-generator,
-        build-polkadot-sdk,
+        build-polkadot-sdk-interpreter,
+        build-polkadot-sdk-jit,
         build-resolc,
       ]
     if: >-
       !cancelled() &&
       needs.generate-matrix.result == 'success' &&
-      needs.build-chainspec-generator.result == 'success' &&
-      needs.build-polkadot-sdk.result == 'success' &&
+      needs.build-polkadot-sdk-interpreter.result == 'success' &&
+      needs.build-polkadot-sdk-jit.result == 'success' &&
       needs.build-resolc.result == 'success' &&
       needs.generate-matrix.outputs.benchmark-count != '0'
     strategy:
@@ -335,23 +339,8 @@ jobs:
           packages: |
             revive-dt-core
             revive-dt-report-processor
-      - name: Get Runtimes Binaries
-        uses: ./.github/actions/require-binary
-        with:
-          get-all-binaries: true
-          binary-name: chain-spec-generator
-          repository: ${{ inputs.runtimes-repository }}
-          ref: ${{ inputs.runtimes-ref }}
-          profile: production
-          packages: chain-spec-generator
-          features: |
-            polkadot
-            asset-hub-polkadot
-          no-default-features: true
-          env: |
-            RUSTFLAGS=-Awarnings
-            WASM_BUILD_RUSTFLAGS=-Clink-arg=--allow-undefined
-      - name: Get Polkadot Binaries
+      - name: Get Polkadot SDK Binaries
+        if: matrix.platform.polkadot_sdk_build != 'none'
         uses: ./.github/actions/require-binary
         with:
           get-all-binaries: true
@@ -364,14 +353,14 @@ jobs:
             polkadot-parachain-bin
             pallet-revive-eth-rpc
           env: |
-            ${{ inputs.use-jit && 'RUSTFLAGS=-Awarnings --cfg revive_jit' || 'RUSTFLAGS=-Awarnings' }}
+            ${{ matrix.platform.polkadot_sdk_build == 'jit' && 'RUSTFLAGS=-Awarnings --cfg revive_jit' || 'RUSTFLAGS=-Awarnings' }}
             WASM_BUILD_RUSTFLAGS=-Clink-arg=--allow-undefined
       - name: Set artifact name
         id: names
         env:
           TEST_NAME: ${{ matrix.test.name }}
         run: |
-          NAME="${{ matrix.platform }}--${TEST_NAME}"
+          NAME="${{ matrix.platform.name }}--${TEST_NAME}"
           NAME="${NAME//\//-}"
           NAME="${NAME// /-}"
           NAME="${NAME//+/plus}"
@@ -389,17 +378,18 @@ jobs:
           findmnt "$WORKDIR"
       - name: Write platform configuration
         env:
-          PLATFORM: ${{ matrix.platform }}
+          PLATFORM: ${{ matrix.platform.name }}
         run: |
           set -euo pipefail
 
           jq --arg platform "$PLATFORM" \
-            '.platforms |= with_entries(select(.key == $platform))' \
+            '{platforms: {($platform): .platforms[$platform]}}' \
             ./.github/benchmark-platforms.json \
             | tee ./workdir/platforms.json
       - name: Print benchmark versions
         env:
           GITHUB_INPUTS: ${{ toJSON(inputs) }}
+          POLKADOT_SDK_BUILD: ${{ matrix.platform.polkadot_sdk_build }}
         run: |
           set -euo pipefail
 
@@ -416,12 +406,14 @@ jobs:
           echo "# Installed binaries:"
           print_version retester
           print_version report-processor
-          print_version chain-spec-generator
-          print_version polkadot
-          print_version polkadot-parachain
-          print_version polkadot-prepare-worker
-          print_version polkadot-execute-worker
-          print_version eth-rpc
+          echo "polkadot-sdk-build=$POLKADOT_SDK_BUILD"
+          if [[ "$POLKADOT_SDK_BUILD" != "none" ]]; then
+            print_version polkadot
+            print_version polkadot-parachain
+            print_version polkadot-prepare-worker
+            print_version polkadot-execute-worker
+            print_version eth-rpc
+          fi
           print_version resolc
           print_version solc
 

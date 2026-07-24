@@ -1,6 +1,7 @@
 {
   "platforms": {
     "Geth": {
+      "polkadot_sdk_build": "none",
       "node": {
         "type": "Kurtosis",
         "path": "kurtosis",
@@ -15,6 +16,7 @@
       }
     },
     "REVM": {
+      "polkadot_sdk_build": "interpreter",
       "node": {
         "type": "Zombienet",
         "config_path": "./assets/westend-assethub-zombienet.toml",
@@ -35,15 +37,14 @@
       }
     },
     "PolkaVM Int Yul": {
+      "polkadot_sdk_build": "interpreter",
       "node": {
         "type": "Zombienet",
         "config_path": "./assets/westend-assethub-zombienet.toml",
         "block_production_timeout_ms": "300000",
         "use_kubernetes": false,
         "connector_configurations": "{\"substrate_provider_configuration\":{\"allowed_estimation_methods\":\"ETH_TRANSACT_WITH_CONFIG | ETH_TRANSACT\"}}",
-        "environment_variables": {
-          "POLKAVM_BACKEND": "interpreter"
-        }
+        "environment_variables": {}
       },
       "eth_rpc": {
         "path": "eth-rpc",
@@ -65,15 +66,14 @@
       }
     },
     "PolkaVM Int NY": {
+      "polkadot_sdk_build": "interpreter",
       "node": {
         "type": "Zombienet",
         "config_path": "./assets/westend-assethub-zombienet.toml",
         "block_production_timeout_ms": "300000",
         "use_kubernetes": false,
         "connector_configurations": "{\"substrate_provider_configuration\":{\"allowed_estimation_methods\":\"ETH_TRANSACT_WITH_CONFIG | ETH_TRANSACT\"}}",
-        "environment_variables": {
-          "POLKAVM_BACKEND": "interpreter"
-        }
+        "environment_variables": {}
       },
       "eth_rpc": {
         "path": "eth-rpc",
@@ -95,15 +95,14 @@
       }
     },
     "PolkaVM JIT Yul": {
+      "polkadot_sdk_build": "jit",
       "node": {
         "type": "Zombienet",
         "config_path": "./assets/westend-assethub-zombienet.toml",
         "block_production_timeout_ms": "300000",
         "use_kubernetes": false,
         "connector_configurations": "{\"substrate_provider_configuration\":{\"allowed_estimation_methods\":\"ETH_TRANSACT_WITH_CONFIG | ETH_TRANSACT\"}}",
-        "environment_variables": {
-          "POLKAVM_BACKEND": "compiler"
-        }
+        "environment_variables": {}
       },
       "eth_rpc": {
         "path": "eth-rpc",
@@ -125,15 +124,14 @@
       }
     },
     "PolkaVM JIT NY": {
+      "polkadot_sdk_build": "jit",
       "node": {
         "type": "Zombienet",
         "config_path": "./assets/westend-assethub-zombienet.toml",
         "block_production_timeout_ms": "300000",
         "use_kubernetes": false,
         "connector_configurations": "{\"substrate_provider_configuration\":{\"allowed_estimation_methods\":\"ETH_TRANSACT_WITH_CONFIG | ETH_TRANSACT\"}}",
-        "environment_variables": {
-          "POLKAVM_BACKEND": "compiler"
-        }
+        "environment_variables": {}
       },
       "eth_rpc": {
         "path": "eth-rpc",
