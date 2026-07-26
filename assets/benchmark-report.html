@@ -3545,9 +3545,13 @@ function renderStepOpcodeBreakdownChart(chartId, txProfiles, topN = 8, metric = 
 }
 
 /**
- * Cross-platform grouped bar chart by **category**. Single-VM categories
- * (Memory/Stack/Arith/ControlFlow on EVM; VM overhead/Immutables on PVM)
+ * Cross-platform grouped bar chart by **category**. Single-VM compute
+ * categories (Memory/Stack/Arith/ControlFlow on EVM; VM overhead on PVM)
  * are folded into a `VM-exclusive` bucket so the comparison is symmetric.
+ * Immutables is deliberately NOT folded: it is storage-backed on PVM
+ * (get_immutable_data reads ImmutableDataOf — real proof_size), with no
+ * traceable EVM counterpart (immutables are PUSH32 constants there), so it
+ * gets its own row instead of polluting the compute bucket.
  * Categories with zero contribution from every platform are omitted.
  */
 function renderCrossPlatformOpcodeComparison(chartId, platformsData, metric = 'ref_time', forcedLabels = null) {
@@ -3558,7 +3562,7 @@ function renderCrossPlatformOpcodeComparison(chartId, platformsData, metric = 'r
 
   const VM_EXCLUSIVE_CATEGORIES = new Set([
     'Memory', 'Stack', 'Arithmetic & Logic', 'Control flow',
-    'VM overhead', 'Immutables',
+    'VM overhead',
   ]);
   const VM_EXCLUSIVE_LABEL = 'VM-exclusive';
 
@@ -3762,7 +3766,10 @@ function hydrateOpcodeTable(table) {
 function renderCoverageBlock(profile) {
   const tps = (profile.tx_profiles || []).filter(t => Number(t.weight_consumed_ref_time || 0) > 0);
   if (!tps.length) return '';
-  const cap = reportData?.context?.Benchmark?.benchmark_run?.profile_step_limit ?? null;
+  // profile_step_limit = 0 means "cap disabled" (the retester passes limit: None
+  // to the tracer), so treat it like an absent cap rather than a 0-step limit.
+  const rawCap = reportData?.context?.Benchmark?.benchmark_run?.profile_step_limit ?? null;
+  const cap = rawCap != null && Number(rawCap) > 0 ? Number(rawCap) : null;
   // Per-sample captured step counts, so we can report how many of the N samples
   // actually hit the cap — an average would hide a partial truncation (some
   // samples truncated, some not).
@@ -3951,7 +3958,7 @@ function renderOpcodeProfileSection(modeData, enabledPlatforms) {
     // charts row-aligned so bar widths match.
     const VM_EXCLUSIVE_CATEGORIES = new Set([
       'Memory', 'Stack', 'Arithmetic & Logic', 'Control flow',
-      'VM overhead', 'Immutables',
+      'VM overhead',
     ]);
     const VM_EXCLUSIVE_LABEL = 'VM-exclusive';
     const seen = new Set();
