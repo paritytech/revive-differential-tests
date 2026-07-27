@@ -297,7 +297,7 @@ impl<'a> TestDefinition<'a> {
         };
 
         let mut is_allowed = true;
-        for (_, platform_information) in self.platforms.iter() {
+        for platform_information in self.platforms.values() {
             let is_allowed_for_platform =
                 targets.contains(&platform_information.platform.vm_identifier());
             is_allowed &= is_allowed_for_platform;
@@ -327,7 +327,7 @@ impl<'a> TestDefinition<'a> {
             "test_desired_evm_version".to_owned() => json!(self.metadata.required_evm_version),
         };
         let mut is_allowed = true;
-        for (_, platform_information) in self.platforms.iter() {
+        for platform_information in self.platforms.values() {
             let is_allowed_for_platform =
                 evm_version_requirement.matches(&platform_information.connector.evm_version());
             is_allowed &= is_allowed_for_platform;
@@ -353,7 +353,7 @@ impl<'a> TestDefinition<'a> {
             "test_desired_evm_version".to_owned() => json!(self.metadata.required_evm_version),
         };
         let mut is_allowed = true;
-        for (_, platform_information) in self.platforms.iter() {
+        for platform_information in self.platforms.values() {
             let is_allowed_for_platform = platform_information.compiler.supports_mode(&self.mode);
             is_allowed &= is_allowed_for_platform;
             error_map.insert(
