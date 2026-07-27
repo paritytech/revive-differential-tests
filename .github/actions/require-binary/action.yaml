@@ -81,7 +81,7 @@ runs:
         REPOSITORY: ${{ inputs.repository }}
         RUNNER_ARCH: ${{ runner.arch }}
         RUNNER_OS: ${{ runner.os }}
-        SOURCE_HASH: ${{ hashFiles(format('{0}/**/src/**/*.rs', steps.repository-path.outputs.repository-directory), format('{0}/**/*.toml', steps.repository-path.outputs.repository-directory), format('{0}/**/Cargo.lock', steps.repository-path.outputs.repository-directory), format('{0}/**/build.rs', steps.repository-path.outputs.repository-directory), format('{0}/**/rust-toolchain', steps.repository-path.outputs.repository-directory), format('{0}/**/rust-toolchain.toml', steps.repository-path.outputs.repository-directory)) }}
+        SOURCE_HASH: ${{ hashFiles(format('{0}/**/src/**/*.rs', steps.repository-path.outputs.repository-directory), format('{0}/**/*.toml', steps.repository-path.outputs.repository-directory), format('{0}/**/Cargo.lock', steps.repository-path.outputs.repository-directory), format('{0}/**/build.rs', steps.repository-path.outputs.repository-directory), format('{0}/**/rust-toolchain', steps.repository-path.outputs.repository-directory), format('{0}/**/rust-toolchain.toml', steps.repository-path.outputs.repository-directory), format('{0}/**/assets/**', steps.repository-path.outputs.repository-directory)) }}
       run: |
         set -euo pipefail
 
