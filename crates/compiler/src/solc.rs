@@ -1,4 +1,4 @@
-//! Implements the [SolidityCompiler] trait with solc for
+//! Implements the [ContractCompiler] trait with solc for
 //! compiling contracts to EVM bytecode.
 
 use crate::internal_prelude::*;
@@ -111,7 +111,7 @@ impl Solc {
     }
 }
 
-impl SolidityCompiler for Solc {
+impl ContractCompiler for Solc {
     fn version(&self) -> &Version {
         &self.0.solc_version
     }
@@ -138,6 +138,7 @@ impl SolidityCompiler for Solc {
     fn build(
         &self,
         CompilerInput {
+            metadata_file_path: _,
             pipeline,
             optimization,
             evm_version,

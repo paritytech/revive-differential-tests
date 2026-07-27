@@ -78,12 +78,17 @@ pub trait Platform {
     /// Creates a new compiler for the provided platform.
     fn new_compiler(
         &self,
+        cargo_configuration: &CargoConfiguration,
         solc_configuration: &SolcConfiguration,
         resolc_configuration: &ResolcConfiguration,
         working_directory_configuration: &WorkingDirectoryConfiguration,
         version: Option<VersionOrRequirement>,
-    ) -> StaticFuture<Result<Box<dyn SolidityCompiler + Send + Sync>>> {
+    ) -> StaticFuture<Result<Box<dyn ContractCompiler + Send + Sync>>> {
         match self.compiler_identifier() {
+            CompilerIdentifier::Cargo => new_cargo_compiler(
+                cargo_configuration.clone(),
+                working_directory_configuration.clone(),
+            ),
             CompilerIdentifier::Solc => new_solc_compiler(
                 solc_configuration.clone(),
                 working_directory_configuration.clone(),
@@ -126,12 +131,15 @@ impl Platform for PlatformDescriptorWithName {
     fn vm_identifier(&self) -> VmIdentifier {
         match &self.descriptor.compiler {
             AnyCompilerConfiguration::Solc(_) => VmIdentifier::Evm,
-            AnyCompilerConfiguration::Resolc { .. } => VmIdentifier::PolkaVM,
+            AnyCompilerConfiguration::Cargo(_) | AnyCompilerConfiguration::Resolc { .. } => {
+                VmIdentifier::PolkaVM
+            }
         }
     }
 
     fn compiler_identifier(&self) -> CompilerIdentifier {
         match &self.descriptor.compiler {
+            AnyCompilerConfiguration::Cargo(_) => CompilerIdentifier::Cargo,
             AnyCompilerConfiguration::Solc(_) => CompilerIdentifier::Solc,
             AnyCompilerConfiguration::Resolc { .. } => CompilerIdentifier::Resolc,
         }
@@ -258,12 +266,17 @@ impl Platform for PlatformDescriptorWithName {
 
     fn new_compiler(
         &self,
+        _: &CargoConfiguration,
         _: &SolcConfiguration,
         _: &ResolcConfiguration,
         working_directory_configuration: &WorkingDirectoryConfiguration,
         version: Option<VersionOrRequirement>,
-    ) -> StaticFuture<Result<Box<dyn SolidityCompiler + Send + Sync>>> {
+    ) -> StaticFuture<Result<Box<dyn ContractCompiler + Send + Sync>>> {
         match &self.descriptor.compiler {
+            AnyCompilerConfiguration::Cargo(configuration) => new_cargo_compiler(
+                configuration.clone(),
+                working_directory_configuration.clone(),
+            ),
             AnyCompilerConfiguration::Solc(configuration) => new_solc_compiler(
                 configuration.clone(),
                 working_directory_configuration.clone(),
@@ -773,7 +786,7 @@ fn new_solc_compiler(
     solc_configuration: SolcConfiguration,
     working_directory_configuration: WorkingDirectoryConfiguration,
     version: Option<VersionOrRequirement>,
-) -> StaticFuture<Result<Box<dyn SolidityCompiler + Send + Sync>>> {
+) -> StaticFuture<Result<Box<dyn ContractCompiler + Send + Sync>>> {
     Box::pin(async move {
         let compiler =
             Solc::new_native(solc_configuration, working_directory_configuration, version).await;
@@ -786,7 +799,7 @@ fn new_resolc_compiler(
     resolc_configuration: ResolcConfiguration,
     working_directory_configuration: WorkingDirectoryConfiguration,
     version: Option<VersionOrRequirement>,
-) -> StaticFuture<Result<Box<dyn SolidityCompiler + Send + Sync>>> {
+) -> StaticFuture<Result<Box<dyn ContractCompiler + Send + Sync>>> {
     Box::pin(async move {
         let compiler = Resolc::new(
             solc_configuration,
@@ -795,6 +808,18 @@ fn new_resolc_compiler(
             version,
         )
         .await;
+        compiler.map(|compiler| Box::new(compiler) as _)
+    })
+}
+
+/// Creates a Cargo compiler using the configured Rust toolchain.
+fn new_cargo_compiler(
+    cargo_configuration: CargoConfiguration,
+    working_directory_configuration: WorkingDirectoryConfiguration,
+) -> StaticFuture<Result<Box<dyn ContractCompiler + Send + Sync>>> {
+    Box::pin(async move {
+        let compiler =
+            CargoCompiler::new(cargo_configuration, working_directory_configuration).await;
         compiler.map(|compiler| Box::new(compiler) as _)
     })
 }

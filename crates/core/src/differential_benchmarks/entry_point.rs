@@ -98,6 +98,7 @@ pub async fn handle_differential_benchmarks(
     // Preparing test definitions for the execution.
     let allowed_modes = ModeAllowList::from_parsed_modes(context.corpus.allowed_modes.iter());
     let test_definitions = create_test_definitions_stream(
+        &context.cargo,
         &context.solc,
         &context.resolc,
         &context.working_directory,

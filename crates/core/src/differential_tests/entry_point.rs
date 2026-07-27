@@ -190,6 +190,7 @@ pub async fn handle_differential_tests(context: Test, reporter: Reporter) -> any
     let test_case_ignore_configuration =
         TestCaseIgnoreResolvedConfiguration::try_from(context.ignore.clone())?;
     let test_definitions = create_test_definitions_stream(
+        &context.cargo,
         &context.solc,
         &context.resolc,
         &context.working_directory,

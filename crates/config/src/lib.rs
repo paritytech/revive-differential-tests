@@ -50,6 +50,7 @@ mod context {
         pub working_directory: WorkingDirectoryConfiguration,
         pub corpus: CorpusExecutionConfiguration,
         pub fail_fast: FailFastConfiguration,
+        pub cargo: CargoConfiguration,
         pub solc: SolcConfiguration,
         pub resolc: ResolcConfiguration,
         pub geth: GethConfiguration,
@@ -74,6 +75,7 @@ mod context {
         pub working_directory: WorkingDirectoryConfiguration,
         pub benchmark_run: BenchmarkRunConfiguration,
         pub corpus: CorpusExecutionConfiguration,
+        pub cargo: CargoConfiguration,
         pub solc: SolcConfiguration,
         pub resolc: ResolcConfiguration,
         pub geth: GethConfiguration,
@@ -320,6 +322,18 @@ mod context {
             verbatim_doc_comment
         )]
         pub modes: Vec<ParsedMode>,
+    }
+
+    /// Configuration for compiling Rust contracts through Cargo.
+    #[configuration(key = "cargo")]
+    pub struct CargoConfiguration {
+        /// The Cargo command used to compile Rust contracts.
+        #[clap(default_value = "cargo")]
+        pub command: PathBuf,
+
+        /// The Rust toolchain argument passed to Cargo before its subcommand.
+        #[clap(default_value = "+stable")]
+        pub toolchain: String,
     }
 
     /// A set of configuration parameters for Solc.
@@ -1081,6 +1095,8 @@ pub enum AnyNodeConfiguration {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum AnyCompilerConfiguration {
+    /// A Cargo toolchain that compiles Rust contracts for PolkaVM.
+    Cargo(CargoConfiguration),
     Solc(SolcConfiguration),
     Resolc {
         solc: SolcConfiguration,

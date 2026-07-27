@@ -37,7 +37,7 @@ impl<'a> CachedCompiler<'a> {
         metadata_file_path: &'a Path,
         mode: Cow<'a, Mode>,
         deployed_libraries: Option<&HashMap<ContractInstance, (ContractIdent, Address, JsonAbi)>>,
-        compiler: &dyn SolidityCompiler,
+        compiler: &dyn ContractCompiler,
         compiler_identifier: CompilerIdentifier,
         reporter: &CompilationReporter<'_>,
     ) -> Result<CompilerOutput> {
@@ -53,6 +53,7 @@ impl<'a> CachedCompiler<'a> {
         let compilation_callback = || {
             async move {
                 compile_contracts(
+                    metadata_file_path,
                     metadata
                         .directory()
                         .context("Failed to get metadata directory while preparing compilation")?,
@@ -158,11 +159,12 @@ impl<'a> CachedCompiler<'a> {
 }
 
 async fn compile_contracts(
+    metadata_file_path: impl AsRef<Path>,
     metadata_directory: impl AsRef<Path>,
     mut files_to_compile: impl Iterator<Item = PathBuf>,
     mode: &Mode,
     deployed_libraries: Option<&HashMap<ContractInstance, (ContractIdent, Address, JsonAbi)>>,
-    compiler: &dyn SolidityCompiler,
+    compiler: &dyn ContractCompiler,
     reporter: &CompilationReporter<'_>,
 ) -> Result<CompilerOutput> {
     static COMPILATION_SEMAPHORE: LazyLock<Arc<Semaphore>> =
@@ -180,6 +182,7 @@ async fn compile_contracts(
         .collect::<Vec<_>>();
 
     let compilation = Compiler::new()
+        .with_metadata_file_path(metadata_file_path.as_ref())
         .with_allow_path(&metadata_directory)
         .with_base_path(metadata_directory.as_ref().to_path_buf())
         // Handling the modes

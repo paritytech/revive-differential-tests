@@ -70,6 +70,13 @@ pub struct Metadata {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub contracts: Option<IndexMap<ContractInstance, ContractPathAndIdent>>,
 
+    /// Rust implementations of the contract instances declared in `contracts`.
+    ///
+    /// A Cargo platform can execute this workload only when every contract instance has a
+    /// corresponding entry in this map.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rust_contracts: Option<IndexMap<ContractInstance, ContractPathAndIdent>>,
+
     /// The set of libraries that this metadata file requires.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub libraries: Option<IndexMap<PathBuf, IndexMap<ContractIdent, ContractInstance>>>,
@@ -101,6 +108,18 @@ pub struct Metadata {
 }
 
 impl Metadata {
+    /// Returns whether every declared contract has a Rust implementation.
+    pub fn has_rust_contracts(&self) -> bool {
+        let Some(rust_contracts) = &self.rust_contracts else {
+            return false;
+        };
+        self.contracts.as_ref().is_none_or(|contracts| {
+            contracts
+                .keys()
+                .all(|instance| rust_contracts.contains_key(instance))
+        })
+    }
+
     /// Returns the modes that we should test from this metadata.
     pub fn compiler_modes(&self) -> Vec<Mode> {
         match &self.modes {
@@ -122,11 +141,21 @@ impl Metadata {
     /// Returns the contract sources with canonicalized paths for the files
     pub fn contract_sources(
         &self,
+        compiler_identifier: CompilerIdentifier,
     ) -> anyhow::Result<BTreeMap<ContractInstance, ContractPathAndIdent>> {
         let directory = self.directory()?;
         let mut sources = BTreeMap::new();
-        let Some(contracts) = &self.contracts else {
-            return Ok(sources);
+        let contracts = match compiler_identifier {
+            CompilerIdentifier::Cargo => self
+                .rust_contracts
+                .as_ref()
+                .context("The metadata does not define Rust contracts")?,
+            CompilerIdentifier::Solc | CompilerIdentifier::Resolc => {
+                let Some(contracts) = &self.contracts else {
+                    return Ok(sources);
+                };
+                contracts
+            }
         };
 
         for (
