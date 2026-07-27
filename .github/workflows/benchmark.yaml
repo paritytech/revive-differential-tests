@@ -222,7 +222,7 @@ jobs:
           fi
 
           ALL_TESTS=$(retester export-test-specifiers \
-            --test ./compiler-tests/fixtures/solidity/workloads/ed25519/test.json \
+            --test ./compiler-tests/fixtures/solidity/workloads \
             "${ALLOWED_MODE_ARGS[@]}")
           if ! jq -e '
             ([
