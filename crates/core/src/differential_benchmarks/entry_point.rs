@@ -38,13 +38,30 @@ pub async fn handle_differential_benchmarks(
     );
 
     // Discover the list of platforms that the tests should run on based on the context.
-    let platforms = context
-        .platforms
-        .platforms
-        .iter()
-        .copied()
-        .map(Into::<&dyn Platform>::into)
-        .collect::<Vec<_>>();
+    let configured_platforms = context.platforms.platforms.as_ref().map(|configuration| {
+        configuration
+            .as_ref()
+            .platforms
+            .iter()
+            .map(|(name, descriptor)| PlatformDescriptorWithName {
+                name: name.clone(),
+                descriptor: descriptor.clone(),
+            })
+            .collect::<Vec<_>>()
+    });
+    let platforms = match configured_platforms.as_ref() {
+        Some(platforms) => platforms
+            .iter()
+            .map(|platform| platform as &dyn Platform)
+            .collect::<Vec<_>>(),
+        None => context
+            .platforms
+            .platform
+            .iter()
+            .copied()
+            .map(Into::<&dyn Platform>::into)
+            .collect::<Vec<_>>(),
+    };
 
     // Starting the nodes of the various platforms specified in the context. Note that we use the
     // node pool since it contains all of the code needed to spawn nodes from A to Z and therefore
@@ -56,20 +73,22 @@ pub async fn handle_differential_benchmarks(
         let mut map = BTreeMap::new();
 
         for platform in platforms.iter() {
-            let platform_identifier = platform.platform_identifier();
+            let platform_name = platform.platform_name();
 
-            let node_pool = NodePool::new(full_context.clone(), *platform)
-                .await
-                .inspect_err(|err| {
-                    error!(
-                        ?err,
-                        %platform_identifier,
-                        "Failed to initialize the node pool for the platform."
-                    )
-                })
-                .context("Failed to initialize the node pool")?;
+            let node_pool = NodePool::new(context.concurrency.number_of_nodes, async || {
+                platform.new_node(full_context.clone()).await
+            })
+            .await
+            .inspect_err(|err| {
+                error!(
+                    ?err,
+                    %platform_name,
+                    "Failed to initialize the node pool for the platform."
+                )
+            })
+            .context("Failed to initialize the node pool")?;
 
-            map.insert(platform_identifier, (*platform, node_pool));
+            map.insert(platform_name.to_owned(), (*platform, node_pool));
         }
 
         map
@@ -79,7 +98,9 @@ pub async fn handle_differential_benchmarks(
     // Preparing test definitions for the execution.
     let allowed_modes = ModeAllowList::from_parsed_modes(context.corpus.allowed_modes.iter());
     let test_definitions = create_test_definitions_stream(
-        &full_context,
+        &context.solc,
+        &context.resolc,
+        &context.working_directory,
         &corpus,
         &platforms_and_nodes,
         &allowed_modes,
@@ -109,9 +130,9 @@ pub async fn handle_differential_benchmarks(
     // like to run all of the workloads for one platform, and then the next sequentially as we'd
     // like for the effect of concurrency to be minimized when we're doing the benchmarking.
     for platform in platforms.iter() {
-        let platform_identifier = platform.platform_identifier();
+        let platform_name = platform.platform_name();
 
-        let span = info_span!("Benchmarking for the platform", %platform_identifier);
+        let span = info_span!("Benchmarking for the platform", %platform_name);
         let _guard = span.enter();
 
         let private_key_allocator = Arc::new(Mutex::new(PrivateKeyAllocator::new(
@@ -119,7 +140,7 @@ pub async fn handle_differential_benchmarks(
         )));
 
         for test_definition in test_definitions.iter() {
-            let platform_information = &test_definition.platforms[&platform_identifier];
+            let platform_information = &test_definition.platforms[platform_name];
 
             let span = info_span!(
                 "Executing workload",
@@ -135,7 +156,7 @@ pub async fn handle_differential_benchmarks(
                 platform_information.connector.clone(),
                 test_definition
                     .reporter
-                    .execution_specific_reporter(0usize, platform_identifier),
+                    .execution_specific_reporter(0usize, platform_name.to_owned()),
             );
             let steps = test_definition
                 .case
@@ -160,7 +181,7 @@ pub async fn handle_differential_benchmarks(
 
             let watcher_task = tokio::spawn(watcher.run().instrument(info_span!(
                 "Running Watcher",
-                %platform_identifier,
+                %platform_name,
                 case_name = %test_definition.case.name.clone().unwrap_or_default()
             )))
             .map(|rtn| rtn.context("Watcher failed").flatten());
@@ -168,7 +189,7 @@ pub async fn handle_differential_benchmarks(
                 .run_to_completion()
                 .instrument(info_span!(
                     "Executing Benchmarks",
-                    %platform_identifier,
+                    %platform_name,
                     case_name = %test_definition.case.name.clone().unwrap_or_default()
                 ))
                 .inspect_ok(|_| info!("Workload Execution Succeeded"))

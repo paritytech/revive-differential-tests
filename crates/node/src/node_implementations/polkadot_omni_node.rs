@@ -10,54 +10,51 @@ pub struct PolkadotOmnichainNode {
 
 impl PolkadotOmnichainNode {
     pub fn new(
-        context: impl HasWorkingDirectoryConfiguration
-        + HasEthRpcConfiguration
-        + HasWalletConfiguration
-        + HasPolkadotOmnichainNodeConfiguration,
+        working_directory_configuration: &WorkingDirectoryConfiguration,
+        eth_rpc_configuration: &EthRpcConfiguration,
+        wallet_configuration: &WalletConfiguration,
+        polkadot_omnichain_node_configuration: &PolkadotOmnichainNodeConfiguration,
     ) -> Result<Self> {
-        let workdir_config = context.as_working_directory_configuration();
-        let wallet_config = context.as_wallet_configuration();
-        let node_config = context.as_polkadot_omnichain_node_configuration();
-        let rpc_config = context.as_eth_rpc_configuration();
-
-        let source_chainspec_path = node_config
+        let source_chainspec_path = polkadot_omnichain_node_configuration
             .chain_spec_path
             .as_ref()
             .context("No chain spec path provided for the polkadot-omni-node")?;
-        node_config
+        polkadot_omnichain_node_configuration
             .parachain_id
             .context("No argument provided for the parachain-id")?;
 
         let id = NodeId::for_node("polkadot-omni-node");
         let directories = NodeDirectories::new(
-            workdir_config.working_directory.as_path(),
+            working_directory_configuration.working_directory.as_path(),
             "polkadot-omni-node",
             id.0,
         )
         .context("Failed to initialize node directories")?;
         let chainspec_path = directories.base_directory().join("chainspec.json");
 
-        let wallet = wallet_config.wallet();
+        let wallet = wallet_configuration.wallet();
         Self::init_chainspec(&wallet, source_chainspec_path, chainspec_path.as_path())
             .context("Failed to initialize the chainspec file")?;
 
         let polkadot_omnichain_node_process = PolkadotOmniNodeProcess::new(
-            node_config.path.as_path(),
-            node_config.block_time_ms,
+            polkadot_omnichain_node_configuration.path.as_path(),
+            polkadot_omnichain_node_configuration.block_time_ms,
             chainspec_path,
             directories.data_directory(),
             directories.logs_directory(),
-            node_config.logging_level.as_str(),
-            node_config.start_timeout_ms,
+            polkadot_omnichain_node_configuration.logging_level.as_str(),
+            &polkadot_omnichain_node_configuration.environment_variables,
+            polkadot_omnichain_node_configuration.start_timeout_ms,
         )
         .inspect_err(|err| error!(error = ?err, "Failed to spawn polkadot-omni-node"))?;
 
         let eth_rpc_process = EthRpcProcess::new(
-            rpc_config.path.as_path(),
+            eth_rpc_configuration.path.as_path(),
             directories.logs_directory(),
             polkadot_omnichain_node_process.url(),
-            rpc_config.logging_level.as_str(),
-            rpc_config.start_timeout_ms,
+            eth_rpc_configuration.logging_level.as_str(),
+            &eth_rpc_configuration.environment_variables,
+            eth_rpc_configuration.start_timeout_ms,
         )
         .inspect_err(|err| error!(error = ?err, "Failed to spawn eth-rpc"))?;
 

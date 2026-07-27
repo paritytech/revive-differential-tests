@@ -9,17 +9,13 @@ pub struct LighthouseGethNode {
 
 impl LighthouseGethNode {
     pub fn new(
-        context: impl HasWorkingDirectoryConfiguration
-        + HasWalletConfiguration
-        + HasKurtosisConfiguration,
+        working_directory_configuration: &WorkingDirectoryConfiguration,
+        wallet_configuration: &WalletConfiguration,
+        kurtosis_configuration: &KurtosisConfiguration,
     ) -> Result<Self> {
-        let workdir_config = context.as_working_directory_configuration();
-        let wallet_config = context.as_wallet_configuration();
-        let kurtosis_config = context.as_kurtosis_configuration();
-
         let id = NodeId::for_node("lighthouse");
         let directories = NodeDirectories::new(
-            workdir_config.working_directory.as_path(),
+            working_directory_configuration.working_directory.as_path(),
             "lighthouse",
             id.0,
         )
@@ -29,7 +25,7 @@ impl LighthouseGethNode {
         create_dir_all(wrapper_directory.as_path())
             .context("Failed to create the wrapper directory")?;
 
-        let wallet = wallet_config.wallet();
+        let wallet = wallet_configuration.wallet();
         Self::init_kurtosis_config_file(config_path.as_path())
             .context("Failed to initialize the config file")?;
         Self::init_kurtosis_wrapper(wrapper_directory.as_path(), wallet.as_ref())
@@ -45,12 +41,13 @@ impl LighthouseGethNode {
         );
 
         let process = LighthouseNodeProcess::new(
-            kurtosis_config.path.as_path(),
+            kurtosis_configuration.path.as_path(),
             enclave_name.as_str(),
             wrapper_directory.as_path(),
             config_path.as_path(),
             directories.logs_directory(),
-            kurtosis_config.start_timeout_ms,
+            &kurtosis_configuration.environment_variables,
+            kurtosis_configuration.start_timeout_ms,
         )
         .inspect_err(|err| error!(error = ?err, "Failed to spawn lighthouse"))?;
 

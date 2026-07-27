@@ -5,6 +5,7 @@ pub mod prelude {
 }
 
 use std::{
+    collections::BTreeMap,
     fmt::Display,
     ops::Deref,
     path::{Path, PathBuf},
@@ -20,6 +21,8 @@ use alloy::{
 };
 use anyhow::Context as _;
 use clap::{Parser, ValueEnum, ValueHint};
+use indexmap::IndexMap;
+pub use revive_dt_common::types::PlatformName;
 use revive_dt_common::types::{
     ParsedCompilationSpecifier, ParsedMode, ParsedTestSpecifier, PlatformIdentifier,
 };
@@ -49,7 +52,6 @@ mod context {
         pub fail_fast: FailFastConfiguration,
         pub solc: SolcConfiguration,
         pub resolc: ResolcConfiguration,
-        pub polkadot_parachain: PolkadotParachainConfiguration,
         pub geth: GethConfiguration,
         pub kurtosis: KurtosisConfiguration,
         pub revive_dev_node: ReviveDevNodeConfiguration,
@@ -74,7 +76,6 @@ mod context {
         pub corpus: CorpusExecutionConfiguration,
         pub solc: SolcConfiguration,
         pub resolc: ResolcConfiguration,
-        pub polkadot_parachain: PolkadotParachainConfiguration,
         pub geth: GethConfiguration,
         pub kurtosis: KurtosisConfiguration,
         pub revive_dev_node: ReviveDevNodeConfiguration,
@@ -125,7 +126,7 @@ mod context {
     #[configuration]
     pub struct LogConfiguration {
         /// The log output format.
-        #[arg(long = "log-format", default_value_t = LogFormat::Pretty)]
+        #[arg(long = "log-format", default_value_t = Default::default())]
         pub log_format: LogFormat,
     }
 
@@ -147,10 +148,15 @@ mod context {
         #[arg(
             short = 'p',
             long = "platform",
-            id = "platforms",
+            id = "platform",
             default_values = ["geth-evm-solc", "revive-dev-node-polkavm-resolc"]
         )]
-        pub platforms: Vec<PlatformIdentifier>,
+        pub platform: Vec<PlatformIdentifier>,
+
+        /// A JSON file defining the platforms that the tool should use. When
+        /// provided, these platforms replace those selected with `--platform`.
+        #[arg(long, value_hint = ValueHint::FilePath)]
+        pub platforms: Option<JsonFilePath<ConfigurationFile>>,
     }
 
     /// Configuration for the working directory.
@@ -348,6 +354,10 @@ mod context {
         ///
         /// If unspecified, the revive compiler default is used
         pub stack_size: Option<u32>,
+
+        /// A boolean which allows for the New York compiler to be used even when the mode is not
+        /// set to be `NY` which allows for a simpler way to run the benchmarks.
+        pub use_new_york: bool,
     }
 
     /// A set of configuration parameters for Zombienet.
@@ -370,6 +380,7 @@ mod context {
         /// sufficient. Without it, the onboarding process takes significantly longer and a
         /// timeout of several hours may be needed.
         #[clap(default_value = "300000", value_parser = parse_duration)]
+        #[serde(with = "duration_milliseconds")]
         pub block_production_timeout_ms: Duration,
 
         /// Configures if kubernetes should be used as the provider for zombienet or not. If this is
@@ -380,21 +391,13 @@ mod context {
         /// JSON node connector configuration augmenting the default zombienet
         /// connector behavior and overriding it on conflicts.
         pub connector_configurations: Option<String>,
-    }
 
-    /// A set of configuration parameters for Polkadot Parachain.
-    #[configuration(key = "polkadot-parachain")]
-    pub struct PolkadotParachainConfiguration {
-        /// Specifies the path of the polkadot-parachain node to be used by the tool.
-        ///
-        /// If this is not specified, then the tool assumes that it should use the
-        /// polkadot-parachain binary that's provided in the user's $PATH.
-        #[clap(default_value = "polkadot-parachain")]
-        pub path: PathBuf,
-
-        /// The amount of time to wait upon startup before considering that the node timed out.
-        #[clap(default_value = "5000", value_parser = parse_duration)]
-        pub start_timeout_ms: Duration,
+        /// Environment variables applied to the Zombienet configuration when
+        /// starting the network. The configuration is walked so they are set or
+        /// unset for every configured node process. They have no other use.
+        #[clap(skip)]
+        #[serde(default)]
+        pub environment_variables: BTreeMap<String, Option<String>>,
     }
 
     /// A set of configuration parameters for Geth.
@@ -409,15 +412,22 @@ mod context {
 
         /// The amount of time to wait upon startup before considering that the node timed out.
         #[clap(default_value = "30000", value_parser = parse_duration)]
+        #[serde(with = "duration_milliseconds")]
         pub start_timeout_ms: Duration,
 
         /// The logging configuration to pass to the binary when it's being started.
         #[clap(default_value = "3")]
         pub logging_level: String,
 
-        /// JSON node connector configuration augmenting the default geth connector
-        /// behavior and overriding it on conflicts.
+        /// JSON node connector configuration augmenting the default geth connector behavior and
+        /// overriding it on conflicts.
         pub connector_configurations: Option<String>,
+
+        /// Environment variables set or unset when starting the node process.
+        /// They are not used after startup.
+        #[clap(skip)]
+        #[serde(default)]
+        pub environment_variables: BTreeMap<String, Option<String>>,
     }
 
     /// A set of configuration parameters for kurtosis.
@@ -432,11 +442,18 @@ mod context {
 
         /// The amount of time to wait upon startup before considering that the node timed out.
         #[clap(default_value = "900000", value_parser = parse_duration)]
+        #[serde(with = "duration_milliseconds")]
         pub start_timeout_ms: Duration,
 
-        /// JSON node connector configuration augmenting the default lighthouse/geth
-        /// connector behavior and overriding it on conflicts.
+        /// JSON node connector configuration augmenting the default lighthouse/geth connector
+        /// behavior and overriding it on conflicts.
         pub connector_configurations: Option<String>,
+
+        /// Environment variables set or unset when starting Kurtosis. They are
+        /// not used after startup.
+        #[clap(skip)]
+        #[serde(default)]
+        pub environment_variables: BTreeMap<String, Option<String>>,
     }
 
     /// A set of configuration parameters for the revive dev node.
@@ -451,6 +468,7 @@ mod context {
 
         /// The amount of time to wait upon startup before considering that the node timed out.
         #[clap(default_value = "30000", value_parser = parse_duration)]
+        #[serde(with = "duration_milliseconds")]
         pub start_timeout_ms: Duration,
 
         /// The consensus to use for the spawned revive-dev-node.
@@ -461,9 +479,15 @@ mod context {
         #[clap(default_value = "error,evm=debug,sc_rpc_server=info,runtime::revive=debug")]
         pub logging_level: String,
 
-        /// JSON node connector configuration augmenting the default revive dev
-        /// node connector behavior and overriding it on conflicts.
+        /// JSON node connector configuration augmenting the default revive dev node connector
+        /// behavior and overriding it on conflicts.
         pub connector_configurations: Option<String>,
+
+        /// Environment variables set or unset when starting the node process.
+        /// They are not used after startup.
+        #[clap(skip)]
+        #[serde(default)]
+        pub environment_variables: BTreeMap<String, Option<String>>,
     }
 
     /// A set of configuration parameters for the polkadot-omni-node.
@@ -478,10 +502,12 @@ mod context {
 
         /// The amount of time to wait upon startup before considering that the node timed out.
         #[clap(default_value = "90000", value_parser = parse_duration)]
+        #[serde(with = "duration_milliseconds")]
         pub start_timeout_ms: Duration,
 
         /// Defines how often blocks will be sealed by the node in milliseconds.
         #[clap(default_value = "200", value_parser = parse_duration)]
+        #[serde(with = "duration_milliseconds")]
         pub block_time_ms: Duration,
 
         /// The path of the chainspec of the chain that we're spawning
@@ -496,9 +522,15 @@ mod context {
         #[clap(default_value = "error,evm=debug,sc_rpc_server=info,runtime::revive=debug")]
         pub logging_level: String,
 
-        /// JSON node connector configuration augmenting the default
-        /// polkadot-omni-node connector behavior and overriding it on conflicts.
+        /// JSON node connector configuration augmenting the default polkadot-omni-node connector
+        /// behavior and overriding it on conflicts.
         pub connector_configurations: Option<String>,
+
+        /// Environment variables set or unset when starting the node process.
+        /// They are not used after startup.
+        #[clap(skip)]
+        #[serde(default)]
+        pub environment_variables: BTreeMap<String, Option<String>>,
     }
 
     /// A set of configuration parameters for the ETH RPC.
@@ -513,11 +545,18 @@ mod context {
 
         /// The amount of time to wait upon startup before considering that the node timed out.
         #[clap(default_value = "30000", value_parser = parse_duration)]
+        #[serde(with = "duration_milliseconds")]
         pub start_timeout_ms: Duration,
 
         /// The logging configuration to pass to the binary when it's being started.
         #[clap(default_value = "info,eth-rpc=debug")]
         pub logging_level: String,
+
+        /// Environment variables set or unset when starting the ETH RPC
+        /// process. They are not used after startup.
+        #[clap(skip)]
+        #[serde(default)]
+        pub environment_variables: BTreeMap<String, Option<String>>,
     }
 
     /// A set of configuration parameters for the wallet.
@@ -922,4 +961,129 @@ fn parse_duration(s: &str) -> anyhow::Result<Duration> {
     u64::from_str(s)
         .map(Duration::from_millis)
         .map_err(Into::into)
+}
+
+mod duration_milliseconds {
+    use super::*;
+
+    /// Serializes a duration as a string containing its total milliseconds.
+    pub(super) fn serialize<S>(duration: &Duration, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let milliseconds =
+            u64::try_from(duration.as_millis()).map_err(serde::ser::Error::custom)?;
+        serializer.collect_str(&milliseconds)
+    }
+
+    /// Deserializes a duration from a string containing milliseconds.
+    pub(super) fn deserialize<'de, D>(deserializer: D) -> Result<Duration, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        String::deserialize(deserializer)?
+            .parse::<u64>()
+            .map(Duration::from_millis)
+            .map_err(serde::de::Error::custom)
+    }
+}
+
+/// A JSON value loaded from a file while parsing command-line arguments.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(
+    try_from = "PathBuf",
+    into = "PathBuf",
+    bound(
+        serialize = "T: Clone",
+        deserialize = "T: for<'value> Deserialize<'value>"
+    )
+)]
+pub struct JsonFilePath<T> {
+    path: PathBuf,
+    #[serde(skip)]
+    value: T,
+}
+
+impl<T> AsRef<T> for JsonFilePath<T> {
+    fn as_ref(&self) -> &T {
+        &self.value
+    }
+}
+
+impl<T> Deref for JsonFilePath<T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        &self.value
+    }
+}
+
+impl<T> FromStr for JsonFilePath<T>
+where
+    T: for<'de> Deserialize<'de>,
+{
+    type Err = anyhow::Error;
+
+    fn from_str(path: &str) -> Result<Self, Self::Err> {
+        Self::try_from(PathBuf::from(path))
+    }
+}
+
+impl<T> TryFrom<PathBuf> for JsonFilePath<T>
+where
+    T: for<'de> Deserialize<'de>,
+{
+    type Error = anyhow::Error;
+
+    fn try_from(path: PathBuf) -> Result<Self, Self::Error> {
+        let file = std::fs::File::open(&path)
+            .with_context(|| format!("Failed to open JSON file `{}`", path.display()))?;
+        let value = serde_json::from_reader::<_, T>(file)
+            .with_context(|| format!("Failed to deserialize JSON file `{}`", path.display()))?;
+        Ok(Self { path, value })
+    }
+}
+
+impl<T> From<JsonFilePath<T>> for PathBuf {
+    fn from(path: JsonFilePath<T>) -> Self {
+        path.path
+    }
+}
+
+/// The structure of the configuration JSON file that the retester tool accepts.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ConfigurationFile {
+    /// A mapping from the platform name (a human readable easy to understand name) to a platform
+    /// descriptor.
+    pub platforms: IndexMap<PlatformName, PlatformDescriptor>,
+}
+
+/// The descriptor of the platform which defines everything about the platform.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct PlatformDescriptor {
+    pub node: AnyNodeConfiguration,
+    pub eth_rpc: Option<EthRpcConfiguration>,
+    pub compiler: AnyCompilerConfiguration,
+}
+
+/// The set of nodes which the tool supports
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(tag = "type")]
+pub enum AnyNodeConfiguration {
+    Zombienet(ZombienetConfiguration),
+    Geth(GethConfiguration),
+    Kurtosis(KurtosisConfiguration),
+    ReviveDevNode(ReviveDevNodeConfiguration),
+    PolkadotOmnichainNode(PolkadotOmnichainNodeConfiguration),
+}
+
+/// The set of compilers which the tool supports
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(tag = "type")]
+pub enum AnyCompilerConfiguration {
+    Solc(SolcConfiguration),
+    Resolc {
+        solc: SolcConfiguration,
+        resolc: ResolcConfiguration,
+    },
 }

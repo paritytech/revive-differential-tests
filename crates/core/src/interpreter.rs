@@ -154,6 +154,12 @@ impl<'a> Interpreter<'a> {
                 code,
             )
             .from(deployer);
+            let gas_estimate = self
+                .connector
+                .estimate_gas(tx.clone())
+                .await
+                .context("Failed to estimate gas for library deployment")?;
+            let tx = tx.gas_limit(gas_estimate * 130 / 100);
             let (tx_hash, receipt) = self
                 .execute_transaction(tx)
                 .await
@@ -471,7 +477,7 @@ impl<'a> Interpreter<'a> {
                         variable_assignment: step.variable_assignments,
                         gas_override: step
                             .gas_overrides
-                            .get(&self.platform_information.platform.platform_identifier())
+                            .get(self.platform_information.platform.platform_name())
                             .copied(),
                     }
                     .into()
@@ -699,11 +705,9 @@ impl<'a> InterpreterApi for Interpreter<'a> {
     }
 
     async fn allocate_account(&mut self) -> LazyFutureValue<'static, Result<Address>> {
-        let allocator = self.private_key_allocator.clone();
-        LazyFutureValue::new(move || async move {
-            let mut allocator = allocator.lock().await;
-            allocator.allocate().map(|key| key.address())
-        })
+        let mut allocator = self.private_key_allocator.lock().await;
+        let account = allocator.allocate().map(|key| key.address());
+        LazyFutureValue::new(move || ready(account))
     }
 
     async fn resolve_variable_name(&mut self, raw_name: &str) -> Result<String> {

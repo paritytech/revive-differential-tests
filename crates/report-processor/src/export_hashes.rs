@@ -7,8 +7,7 @@ use anyhow::{Result, bail};
 use revive_dt_common::fs::normalize_path;
 #[allow(unused_imports, reason = "only used in documentation")]
 use revive_dt_common::types::Mode;
-use revive_dt_config::Context;
-use revive_dt_report::{CompilationStatus, CompiledContractInformation, Report};
+use revive_dt_report::{CompilationStatus, CompiledContractInformation, Report, ReportContextKind};
 use serde::{Deserialize, Serialize};
 
 /// The bytecode hashes at a single mode, keyed by normalized source path and contract name.
@@ -52,8 +51,8 @@ pub fn extract_hashes(
 ) -> Result<HashData> {
     let mut hashes: BTreeMap<String, ModeHashData> = BTreeMap::new();
 
-    match &report.context {
-        Context::Compile(_) => {
+    match report.context.kind() {
+        Some(ReportContextKind::Compile) => {
             for metadata_file_report in report.execution_information.values() {
                 for (mode, compilation_report) in &metadata_file_report.compilation_reports {
                     if let Some(CompilationStatus::Success {
@@ -71,7 +70,7 @@ pub fn extract_hashes(
                 }
             }
         }
-        Context::Test(_) | Context::Benchmark(_) => {
+        Some(ReportContextKind::Test | ReportContextKind::Benchmark) => {
             for metadata_file_report in report.execution_information.values() {
                 for case_report in metadata_file_report.case_reports.values() {
                     for (mode, execution_report) in &case_report.mode_execution_reports {
@@ -94,7 +93,8 @@ pub fn extract_hashes(
                 }
             }
         }
-        _ => bail!(
+        Some(ReportContextKind::ExportJsonSchema | ReportContextKind::ExportTestSpecifiers)
+        | None => bail!(
             "Extracting hashes is not supported for the context the report was generated with"
         ),
     }

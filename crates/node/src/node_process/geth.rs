@@ -10,6 +10,7 @@ impl GethProcess {
     const READY_MARKER: &str = "IPC endpoint opened";
     const ERROR_MARKER: &str = "Fatal:";
 
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         binary_path: impl AsRef<Path>,
         genesis_path: impl AsRef<Path>,
@@ -17,6 +18,7 @@ impl GethProcess {
         data_directory: impl AsRef<Path>,
         logs_directory: impl AsRef<Path>,
         logging_level: impl AsRef<OsStr>,
+        environment_variables: &BTreeMap<String, Option<String>>,
         start_timeout: Duration,
     ) -> Result<Self> {
         Command::new(binary_path.as_ref())
@@ -53,6 +55,7 @@ impl GethProcess {
             .arg("--rpc.batch-request-limit")
             .arg("0")
             .log("geth", logs_directory)
+            .environment_variables(environment_variables)
             .wait_for_startup(
                 WaitForStartupSentinel::new(start_timeout, Self::READY_MARKER)
                     .with_failed_startup_if_encountered(Self::ERROR_MARKER),

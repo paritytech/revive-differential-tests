@@ -46,18 +46,6 @@ impl TypeDef {
             Self::Enum(item) => &mut item.attrs,
         }
     }
-
-    /// Returns (field_ident, field_type) pairs for named struct fields.
-    pub(crate) fn named_fields(&self) -> Vec<(&Ident, &syn::Type)> {
-        match self {
-            Self::Struct(item) => item
-                .fields
-                .iter()
-                .filter_map(|f| f.ident.as_ref().map(|id| (id, &f.ty)))
-                .collect(),
-            Self::Enum(_) => Vec::new(),
-        }
-    }
 }
 
 impl ToTokens for TypeDef {
@@ -101,16 +89,4 @@ impl ContextArgs {
     pub(crate) fn context_type_ident(&self) -> &Ident {
         &self.context_type_ident
     }
-}
-
-/// For a configuration type, which subcommands have it as a field and which don't.
-pub(crate) struct ConfigMembership<'a> {
-    pub(crate) config_ident: &'a Ident,
-    pub(crate) present_in: Vec<SubcommandConfigField<'a>>,
-    pub(crate) absent_from: Vec<&'a Ident>,
-}
-
-pub(crate) struct SubcommandConfigField<'a> {
-    pub(crate) subcommand_ident: &'a Ident,
-    pub(crate) field_ident: &'a Ident,
 }
