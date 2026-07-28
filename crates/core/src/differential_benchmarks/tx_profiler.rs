@@ -156,9 +156,8 @@ pub async fn run_profiling(
     aggregate_to_summary(profiles, block_count)
 }
 
-/// Maximum number of distinct opcode rows kept in the aggregated rollup.
-/// Anything beyond rolls into an "Other" bucket. Keeps report.json bounded
-/// (a single trace can have hundreds of distinct PVM syscalls + EVM opcodes).
+/// Max opcode rows in the `summary` rollup; the rest roll into "Other". Caps only
+/// the summary; per-tx `tx_profiles` keep their full opcode lists.
 const OPCODE_TOP_N: usize = 64;
 
 /// Aggregate a workload's `Vec<TxProfile>` into a wire-ready

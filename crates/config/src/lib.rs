@@ -201,8 +201,7 @@ mod context {
         #[arg(long = "benchmark.profile-samples-per-step-path", default_value_t = 5)]
         pub profile_samples_per_step_path: usize,
 
-        /// Trace every watched transaction instead of sampling. Significantly
-        /// heavier; useful when investigating a small workload in depth.
+        /// Trace every watched transaction instead of sampling.
         #[arg(long = "benchmark.profile-all", default_value_t = false)]
         pub profile_all: bool,
 
