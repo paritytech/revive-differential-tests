@@ -16,7 +16,7 @@
       }
     },
     "REVM": {
-      "polkadot_sdk_build": "interpreter",
+      "polkadot_sdk_build": "jit",
       "node": {
         "type": "Zombienet",
         "config_path": "./assets/westend-assethub-zombienet.toml",
