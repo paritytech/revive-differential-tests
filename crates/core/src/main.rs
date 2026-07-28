@@ -94,13 +94,13 @@ mod internal_prelude {
 use crate::internal_prelude::*;
 
 #[cfg(feature = "tokio-debug")]
-fn setup_tracing(_: &LogConfiguration) -> Result<()> {
+fn setup_tracing(_: LogFormat) -> Result<()> {
     console_subscriber::init();
     Ok(())
 }
 
 #[cfg(not(feature = "tokio-debug"))]
-fn setup_tracing(log_config: &LogConfiguration) -> Result<WorkerGuard> {
+fn setup_tracing(log_format: LogFormat) -> Result<WorkerGuard> {
     let (writer, guard) = tracing_appender::non_blocking::NonBlockingBuilder::default()
         .lossy(false)
         // Assuming that each line contains 255 characters and that each character is one byte, then
@@ -109,8 +109,7 @@ fn setup_tracing(log_config: &LogConfiguration) -> Result<WorkerGuard> {
         .thread_name("buffered writer")
         .finish(std::io::stdout());
 
-    let fmt_layer: Box<dyn tracing_subscriber::Layer<_> + Send + Sync> = match log_config.log_format
-    {
+    let fmt_layer: Box<dyn tracing_subscriber::Layer<_> + Send + Sync> = match log_format {
         LogFormat::Json => Box::new(
             tracing_subscriber::fmt::layer()
                 .with_writer(writer)
@@ -147,22 +146,37 @@ fn main() -> anyhow::Result<()> {
     let mut context = Context::try_parse()?;
     context.update_for_profile();
 
+    let log_format = match &context {
+        Context::Test(context) => context.log.log_format,
+        Context::Benchmark(context) => context.log.log_format,
+        Context::Compile(context) => context.log.log_format,
+        Context::ExportJsonSchema(_) | Context::ExportTestSpecifiers(_) => LogFormat::default(),
+    };
+
     // The `tokio-debug` variant returns `()`, but the default variant returns a `WorkerGuard`
     // that must be held until `main` exits to keep the non-blocking tracing writer alive.
     #[allow(clippy::let_unit_value)]
-    let _guard = setup_tracing(context.as_log_configuration())?;
+    let _guard = setup_tracing(log_format)?;
 
     info!("Differential testing tool is starting");
 
-    let (reporter, report_aggregator_task) = ReportAggregator::new(context.clone()).into_task();
-
-    match context {
-        Context::Test(context) => tokio::runtime::Builder::new_multi_thread()
-            .worker_threads(context.concurrency.number_of_threads)
+    let build_runtime = |number_of_threads| {
+        tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(number_of_threads)
             .enable_all()
             .build()
-            .expect("Failed building the Runtime")
-            .block_on(async move {
+            .expect("Failed building the runtime")
+    };
+
+    match context {
+        Context::Test(context) => {
+            let (reporter, report_aggregator_task) = ReportAggregator::new(
+                Context::Test(context.clone()),
+                &context.working_directory,
+                &context.report,
+            )
+            .into_task();
+            build_runtime(context.concurrency.number_of_threads).block_on(async move {
                 let differential_tests_handling_task =
                     handle_differential_tests(*context, reporter);
 
@@ -184,13 +198,16 @@ fn main() -> anyhow::Result<()> {
                 }
 
                 Ok(())
-            }),
-        Context::Benchmark(context) => tokio::runtime::Builder::new_multi_thread()
-            .worker_threads(context.concurrency.number_of_threads)
-            .enable_all()
-            .build()
-            .expect("Failed building the Runtime")
-            .block_on(async move {
+            })
+        }
+        Context::Benchmark(context) => {
+            let (reporter, report_aggregator_task) = ReportAggregator::new(
+                Context::Benchmark(context.clone()),
+                &context.working_directory,
+                &context.report,
+            )
+            .into_task();
+            build_runtime(context.concurrency.number_of_threads).block_on(async move {
                 let differential_benchmarks_handling_task =
                     handle_differential_benchmarks(*context, reporter);
 
@@ -212,7 +229,8 @@ fn main() -> anyhow::Result<()> {
                 }
 
                 Ok(())
-            }),
+            })
+        }
         Context::ExportJsonSchema(_) => {
             let schema = schema_for!(Metadata);
             println!(
@@ -223,12 +241,14 @@ fn main() -> anyhow::Result<()> {
 
             Ok(())
         }
-        Context::Compile(context) => tokio::runtime::Builder::new_multi_thread()
-            .worker_threads(context.concurrency.number_of_threads)
-            .enable_all()
-            .build()
-            .expect("Failed building the Runtime")
-            .block_on(async move {
+        Context::Compile(context) => {
+            let (reporter, report_aggregator_task) = ReportAggregator::new(
+                Context::Compile(context.clone()),
+                &context.working_directory,
+                &context.report,
+            )
+            .into_task();
+            build_runtime(context.concurrency.number_of_threads).block_on(async move {
                 let compilations_handling_task = handle_compilations(*context, reporter);
 
                 let (_, report) =
@@ -248,7 +268,8 @@ fn main() -> anyhow::Result<()> {
                 }
 
                 Ok(())
-            }),
+            })
+        }
         Context::ExportTestSpecifiers(context) => {
             let allowed_modes =
                 ModeAllowList::from_parsed_modes(context.corpus.allowed_modes.iter());

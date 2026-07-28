@@ -1,11 +1,12 @@
 use crate::internal_prelude::*;
 
+#[allow(clippy::too_many_arguments)]
 pub async fn create_test_definitions_stream<'a>(
-    // This is only required for creating the compiler objects and is not used anywhere else in the
-    // function.
-    context: &Context,
+    solc_configuration: &SolcConfiguration,
+    resolc_configuration: &ResolcConfiguration,
+    working_directory_configuration: &WorkingDirectoryConfiguration,
     corpus: &'a Corpus,
-    platforms_and_nodes: &'a BTreeMap<PlatformIdentifier, (&dyn Platform, NodePool)>,
+    platforms_and_nodes: &'a BTreeMap<PlatformName, (&dyn Platform, NodePool)>,
     allowed_modes: &ModeAllowList,
     test_case_ignore_configuration: &TestCaseIgnoreResolvedConfiguration,
     reporter: Reporter,
@@ -58,14 +59,19 @@ pub async fn create_test_definitions_stream<'a>(
             for (platform, node_pool) in platforms_and_nodes.values() {
                 let node = node_pool.round_robbin();
                 let compiler = match platform
-                    .new_compiler(context.clone(), mode.solc_version.clone().map(Into::into))
+                    .new_compiler(
+                        solc_configuration,
+                        resolc_configuration,
+                        working_directory_configuration,
+                        mode.solc_version.clone().map(Into::into),
+                    )
                     .await
                 {
                     Ok(compiler) => compiler,
                     Err(err) => {
                         error!(
                             ?err,
-                            platform_identifier = %platform.platform_identifier(),
+                            platform_name = %platform.platform_name(),
                             "Failed to instantiate the compiler"
                         );
                         // Without a terminal status this case never leaves `remaining_cases`,
@@ -80,14 +86,16 @@ pub async fn create_test_definitions_stream<'a>(
                 };
 
                 reporter
-                    .report_node_assigned_event(node.node_id(), platform.platform_identifier())
+                    .report_node_assigned_event(node.node_id(), platform.platform_name().to_owned())
                     .expect("Can't fail");
 
-                let reporter = reporter
-                    .execution_specific_reporter(node.node_id(), platform.platform_identifier());
+                let reporter = reporter.execution_specific_reporter(
+                    node.node_id(),
+                    platform.platform_name().to_owned(),
+                );
 
                 platforms.insert(
-                    platform.platform_identifier(),
+                    platform.platform_name().to_owned(),
                     TestPlatformInformation {
                         platform: *platform,
                         connector: node,
@@ -132,13 +140,7 @@ pub async fn create_test_definitions_stream<'a>(
                     "Ignoring Test Case"
                 );
                 test.reporter
-                    .report_test_ignored_event(
-                        reason.to_string(),
-                        additional_information
-                            .into_iter()
-                            .map(|(k, v)| (k.into(), v))
-                            .collect::<IndexMap<_, _>>(),
-                    )
+                    .report_test_ignored_event(reason.to_string(), additional_information)
                     .expect("Can't fail");
                 None
             }
@@ -234,7 +236,7 @@ pub struct TestDefinition<'a> {
     pub case: &'a Case,
 
     /* Platform and Node Assignment Information */
-    pub platforms: BTreeMap<PlatformIdentifier, TestPlatformInformation<'a>>,
+    pub platforms: BTreeMap<PlatformName, TestPlatformInformation<'a>>,
 
     /* Reporter */
     pub reporter: TestSpecificReporter,
@@ -291,16 +293,16 @@ impl<'a> TestDefinition<'a> {
         };
 
         let mut error_map = indexmap! {
-            "test_desired_targets" => json!(targets),
+            "test_desired_targets".to_owned() => json!(targets),
         };
 
         let mut is_allowed = true;
-        for (_, platform_information) in self.platforms.iter() {
+        for platform_information in self.platforms.values() {
             let is_allowed_for_platform =
                 targets.contains(&platform_information.platform.vm_identifier());
             is_allowed &= is_allowed_for_platform;
             error_map.insert(
-                platform_information.platform.platform_identifier().into(),
+                platform_information.platform.platform_name().to_string(),
                 json!(is_allowed_for_platform),
             );
         }
@@ -322,15 +324,15 @@ impl<'a> TestDefinition<'a> {
         };
 
         let mut error_map = indexmap! {
-            "test_desired_evm_version" => json!(self.metadata.required_evm_version),
+            "test_desired_evm_version".to_owned() => json!(self.metadata.required_evm_version),
         };
         let mut is_allowed = true;
-        for (_, platform_information) in self.platforms.iter() {
+        for platform_information in self.platforms.values() {
             let is_allowed_for_platform =
                 evm_version_requirement.matches(&platform_information.connector.evm_version());
             is_allowed &= is_allowed_for_platform;
             error_map.insert(
-                platform_information.platform.platform_identifier().into(),
+                platform_information.platform.platform_name().to_string(),
                 json!(is_allowed_for_platform),
             );
         }
@@ -348,14 +350,14 @@ impl<'a> TestDefinition<'a> {
     /// Checks if the platforms compilers support the mode that the test is for.
     fn check_compiler_compatibility(&self) -> TestCheckFunctionResult {
         let mut error_map = indexmap! {
-            "test_desired_evm_version" => json!(self.metadata.required_evm_version),
+            "test_desired_evm_version".to_owned() => json!(self.metadata.required_evm_version),
         };
         let mut is_allowed = true;
-        for (_, platform_information) in self.platforms.iter() {
+        for platform_information in self.platforms.values() {
             let is_allowed_for_platform = platform_information.compiler.supports_mode(&self.mode);
             is_allowed &= is_allowed_for_platform;
             error_map.insert(
-                platform_information.platform.platform_identifier().into(),
+                platform_information.platform.platform_name().to_string(),
                 json!(is_allowed_for_platform),
             );
         }
@@ -378,8 +380,8 @@ impl<'a> TestDefinition<'a> {
             Err((
                 "Compiler mode is not allowed by the allow list, specified via `--allowed-mode`.",
                 indexmap! {
-                    "mode" => json!(self.mode.to_string()),
-                    "allowed_modes" => json!(allowed_modes.to_string())
+                    "mode".to_owned() => json!(self.mode.to_string()),
+                    "allowed_modes".to_owned() => json!(allowed_modes.to_string())
                 },
             ))
         }
@@ -440,4 +442,4 @@ pub struct TestPlatformInformation<'a> {
     pub reporter: ExecutionSpecificReporter,
 }
 
-type TestCheckFunctionResult = Result<(), (&'static str, IndexMap<&'static str, Value>)>;
+type TestCheckFunctionResult = Result<(), (&'static str, IndexMap<String, Value>)>;

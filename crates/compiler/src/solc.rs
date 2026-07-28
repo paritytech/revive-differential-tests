@@ -29,7 +29,8 @@ pub enum SolcRuntimeTarget {
 
 impl Solc {
     fn new(
-        context: impl HasSolcConfiguration + HasWorkingDirectoryConfiguration + Send + 'static,
+        solc_configuration: SolcConfiguration,
+        working_directory_configuration: WorkingDirectoryConfiguration,
         version: impl Into<Option<VersionOrRequirement>> + Send + 'static,
         runtime_target: SolcRuntimeTarget,
     ) -> StaticFuture<Result<Self>> {
@@ -39,9 +40,6 @@ impl Solc {
             // compiler around.
             static COMPILERS_CACHE: LazyLock<DashMap<SolcInner, Solc>> =
                 LazyLock::new(Default::default);
-
-            let working_directory_configuration = context.as_working_directory_configuration();
-            let solc_configuration = context.as_solc_configuration();
 
             // We attempt to download the solc binary. Note the following: this call does the version
             // resolution for us. Therefore, even if the download didn't proceed, this function will
@@ -87,17 +85,29 @@ impl Solc {
     }
 
     pub fn new_native(
-        context: impl HasSolcConfiguration + HasWorkingDirectoryConfiguration + Send + 'static,
+        solc_configuration: SolcConfiguration,
+        working_directory_configuration: WorkingDirectoryConfiguration,
         version: impl Into<Option<VersionOrRequirement>> + Send + 'static,
     ) -> StaticFuture<Result<Self>> {
-        Self::new(context, version, SolcRuntimeTarget::Native)
+        Self::new(
+            solc_configuration,
+            working_directory_configuration,
+            version,
+            SolcRuntimeTarget::Native,
+        )
     }
 
     pub fn new_wasm(
-        context: impl HasSolcConfiguration + HasWorkingDirectoryConfiguration + Send + 'static,
+        solc_configuration: SolcConfiguration,
+        working_directory_configuration: WorkingDirectoryConfiguration,
         version: impl Into<Option<VersionOrRequirement>> + Send + 'static,
     ) -> StaticFuture<Result<Self>> {
-        Self::new(context, version, SolcRuntimeTarget::Wasm)
+        Self::new(
+            solc_configuration,
+            working_directory_configuration,
+            version,
+            SolcRuntimeTarget::Wasm,
+        )
     }
 }
 

@@ -10,50 +10,47 @@ pub struct ZombienetNode {
 
 impl ZombienetNode {
     pub fn new(
-        context: impl HasWorkingDirectoryConfiguration
-        + HasEthRpcConfiguration
-        + HasWalletConfiguration
-        + HasZombienetConfiguration,
+        working_directory_configuration: &WorkingDirectoryConfiguration,
+        eth_rpc_configuration: &EthRpcConfiguration,
+        wallet_configuration: &WalletConfiguration,
+        zombienet_configuration: &ZombienetConfiguration,
     ) -> Result<Self> {
-        let workdir_config = context.as_working_directory_configuration();
-        let wallet_config = context.as_wallet_configuration();
-        let zombienet_config = context.as_zombienet_configuration();
-        let rpc_config = context.as_eth_rpc_configuration();
-
         let id = NodeId::for_node("zombienet");
         let instance_id = Self::instance_id(id)?;
         let directories = NodeDirectories::new(
-            workdir_config.working_directory.as_path(),
+            working_directory_configuration.working_directory.as_path(),
             "zombienet",
             instance_id.as_str(),
         )
         .context("Failed to initialize node directories")?;
 
-        let wallet = wallet_config.wallet();
+        let wallet = wallet_configuration.wallet();
         let network_config = Self::init_zombienet_config(
-            zombienet_config
+            zombienet_configuration
                 .config_path
                 .as_ref()
                 .context("Zombienet requires a config path")?,
             &wallet,
             instance_id.as_str(),
             directories.base_directory(),
+            &zombienet_configuration.environment_variables,
         )
         .context("Failed to initialize the zombienet config")?;
 
         let zombienet_process = ZombienetProcess::new(
             network_config,
-            zombienet_config.block_production_timeout_ms,
-            zombienet_config.use_kubernetes,
+            zombienet_configuration.block_production_timeout_ms,
+            zombienet_configuration.use_kubernetes,
         )
         .inspect_err(|err| error!(error = ?err, "Failed to spawn zombienet"))?;
 
         let eth_rpc_process = EthRpcProcess::new(
-            rpc_config.path.as_path(),
+            eth_rpc_configuration.path.as_path(),
             directories.logs_directory(),
             zombienet_process.url(),
-            rpc_config.logging_level.as_str(),
-            rpc_config.start_timeout_ms,
+            eth_rpc_configuration.logging_level.as_str(),
+            &eth_rpc_configuration.environment_variables,
+            eth_rpc_configuration.start_timeout_ms,
         )
         .inspect_err(|err| error!(error = ?err, "Failed to spawn eth-rpc"))?;
 
@@ -79,6 +76,7 @@ impl ZombienetNode {
         wallet: &EthereumWallet,
         instance_id: impl AsRef<str>,
         base_directory: impl AsRef<Path>,
+        environment_variables: &BTreeMap<String, Option<String>>,
     ) -> Result<NetworkConfig> {
         let source_config = std::fs::read_to_string(source_config_path.as_ref())
             .context("Failed to read zombienet config file")?;
@@ -87,6 +85,7 @@ impl ZombienetNode {
 
         Self::inject_prefunded_chainspec(&mut config, wallet, base_directory.as_ref())
             .context("Failed to inject prefunded chainspec")?;
+        Self::inject_environment_variables(&mut config, environment_variables);
         Self::make_node_names_unique(&mut config, instance_id);
 
         let modified_config_path = base_directory.as_ref().join("zombienet.toml");
@@ -102,6 +101,70 @@ impl ZombienetNode {
                 .context("Modified zombienet config path is not valid UTF-8")?,
         )
         .context("Failed to load zombienet config")
+    }
+
+    fn inject_environment_variables(
+        config: &mut toml::Value,
+        environment_variables: &BTreeMap<String, Option<String>>,
+    ) {
+        let inject = |node: &mut toml::Value| {
+            let Some(node) = node.as_table_mut() else {
+                return;
+            };
+            let Some(environment) = node
+                .entry("env")
+                .or_insert_with(|| toml::Value::Array(Vec::new()))
+                .as_array_mut()
+            else {
+                return;
+            };
+
+            environment.retain(|variable| {
+                variable
+                    .get("name")
+                    .and_then(toml::Value::as_str)
+                    .is_none_or(|name| !environment_variables.contains_key(name))
+            });
+            environment.extend(environment_variables.iter().filter_map(|(name, value)| {
+                value.as_ref().map(|value| {
+                    toml::Value::Table(toml::map::Map::from_iter([
+                        ("name".to_owned(), toml::Value::String(name.clone())),
+                        ("value".to_owned(), toml::Value::String(value.clone())),
+                    ]))
+                })
+            }));
+        };
+
+        if let Some(relaychain) = config
+            .get_mut("relaychain")
+            .and_then(toml::Value::as_table_mut)
+        {
+            for key in ["nodes", "node_groups"] {
+                if let Some(nodes) = relaychain.get_mut(key).and_then(toml::Value::as_array_mut) {
+                    nodes.iter_mut().for_each(&inject);
+                }
+            }
+        }
+
+        if let Some(parachains) = config
+            .get_mut("parachains")
+            .and_then(toml::Value::as_array_mut)
+        {
+            for parachain in parachains {
+                let Some(parachain) = parachain.as_table_mut() else {
+                    continue;
+                };
+                for key in ["collators", "collator_groups"] {
+                    if let Some(nodes) = parachain.get_mut(key).and_then(toml::Value::as_array_mut)
+                    {
+                        nodes.iter_mut().for_each(&inject);
+                    }
+                }
+                if let Some(node) = parachain.get_mut("collator") {
+                    inject(node);
+                }
+            }
+        }
     }
 
     fn inject_prefunded_chainspec(

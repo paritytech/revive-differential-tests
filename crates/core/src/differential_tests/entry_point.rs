@@ -24,13 +24,12 @@ impl CorpusDefinitionProcessor for TestDefinitionProcessor {
         state: Self::State,
     ) -> anyhow::Result<Self::ProcessResult> {
         let mut interpreters = futures::future::try_join_all(definition.platforms.iter().map(
-            |(identifier, information)| {
+            |(platform_name, information)| {
                 let private_key_allocator = state.private_key_allocator.clone();
                 async move {
-                    let platform_identifier = *identifier;
                     let node_id = information.connector.node_id();
                     let platform_span =
-                        info_span!("On Platform", node_id = %node_id, %platform_identifier);
+                        info_span!("On Platform", node_id = %node_id, %platform_name);
 
                     let steps = definition
                         .case
@@ -51,7 +50,7 @@ impl CorpusDefinitionProcessor for TestDefinitionProcessor {
                     .instrument(platform_span.clone())
                     .instrument(info_span!("Initializing the interpreter"))
                     .await
-                    .context(format!("Failed to create interpreter for {identifier}"))
+                    .context(format!("Failed to create interpreter for {platform_name}"))
                     .map(|interpreter| (interpreter, platform_span))
                 }
             },
@@ -132,34 +131,54 @@ pub async fn handle_differential_tests(context: Test, reporter: Reporter) -> any
     );
 
     // Discover the list of platforms that the tests should run on based on the context.
-    let platforms = context
-        .platforms
-        .platforms
-        .iter()
-        .copied()
-        .map(Into::<&dyn Platform>::into)
-        .collect::<Vec<_>>();
+    let configured_platforms = context.platforms.platforms.as_ref().map(|configuration| {
+        configuration
+            .as_ref()
+            .platforms
+            .iter()
+            .map(|(name, descriptor)| PlatformDescriptorWithName {
+                name: name.clone(),
+                descriptor: descriptor.clone(),
+            })
+            .collect::<Vec<_>>()
+    });
+    let platforms = match configured_platforms.as_ref() {
+        Some(platforms) => platforms
+            .iter()
+            .map(|platform| platform as &dyn Platform)
+            .collect::<Vec<_>>(),
+        None => context
+            .platforms
+            .platform
+            .iter()
+            .copied()
+            .map(Into::<&dyn Platform>::into)
+            .collect::<Vec<_>>(),
+    };
 
     // Starting the nodes of the various platforms specified in the context.
     let platforms_and_nodes = {
         let mut map = BTreeMap::new();
 
         for platform in platforms.iter() {
-            let platform_identifier = platform.platform_identifier();
+            let platform_name = platform.platform_name();
 
-            let context = Context::Test(Box::new(context.clone()));
-            let node_pool = NodePool::new(context, *platform)
-                .await
-                .inspect_err(|err| {
-                    error!(
-                        ?err,
-                        %platform_identifier,
-                        "Failed to initialize the node pool for the platform."
-                    )
-                })
-                .context("Failed to initialize the node pool")?;
+            let node_pool = NodePool::new(context.concurrency.number_of_nodes, async || {
+                platform
+                    .new_node(Context::Test(Box::new(context.clone())))
+                    .await
+            })
+            .await
+            .inspect_err(|err| {
+                error!(
+                    ?err,
+                    %platform_name,
+                    "Failed to initialize the node pool for the platform."
+                )
+            })
+            .context("Failed to initialize the node pool")?;
 
-            map.insert(platform_identifier, (*platform, node_pool));
+            map.insert(platform_name.to_owned(), (*platform, node_pool));
         }
 
         map
@@ -170,9 +189,10 @@ pub async fn handle_differential_tests(context: Test, reporter: Reporter) -> any
     let allowed_modes = ModeAllowList::from_parsed_modes(context.corpus.allowed_modes.iter());
     let test_case_ignore_configuration =
         TestCaseIgnoreResolvedConfiguration::try_from(context.ignore.clone())?;
-    let full_context = Context::Test(Box::new(context.clone()));
     let test_definitions = create_test_definitions_stream(
-        &full_context,
+        &context.solc,
+        &context.resolc,
+        &context.working_directory,
         &corpus,
         &platforms_and_nodes,
         &allowed_modes,

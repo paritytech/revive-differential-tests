@@ -303,10 +303,7 @@ mod tests {
     use pallet_revive::Weight;
 
     fn weight(ref_time: u64, proof_size: u64) -> Weight {
-        Weight {
-            ref_time,
-            proof_size,
-        }
+        Weight::from_parts(ref_time, proof_size)
     }
 
     fn evm_step(op: u8, ref_time: u64, proof_size: u64) -> ExecutionStep {

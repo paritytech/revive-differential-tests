@@ -88,8 +88,8 @@ revive_dt_proc_macros::define_runner_event! {
             NodeAssigned {
                 /// The ID of the node that this case is being executed on.
                 id: usize,
-                /// The identifier of the platform used.
-                platform_identifier: PlatformIdentifier,
+                /// The name of the platform used.
+                platform_name: PlatformName,
             },
         },
 
@@ -220,14 +220,14 @@ impl TestSpecificReporter {
     pub fn execution_specific_reporter(
         &self,
         node_id: impl Into<usize>,
-        platform_identifier: impl Into<PlatformIdentifier>,
+        platform_name: impl Into<PlatformName>,
     ) -> ExecutionSpecificReporter {
         ExecutionSpecificReporter {
             reporter: self.reporter.clone(),
             execution_specifier: Arc::new(ExecutionSpecifier {
                 test_specifier: self.test_specifier.clone(),
                 node_id: node_id.into(),
-                platform_identifier: platform_identifier.into(),
+                platform_name: platform_name.into(),
             }),
         }
     }

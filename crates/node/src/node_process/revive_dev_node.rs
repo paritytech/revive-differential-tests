@@ -9,6 +9,7 @@ pub struct ReviveDevNodeProcess {
 impl ReviveDevNodeProcess {
     const READY_MARKER: &str = "Running JSON-RPC server";
 
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         binary_path: impl AsRef<Path>,
         chainspec_path: impl AsRef<Path>,
@@ -16,6 +17,7 @@ impl ReviveDevNodeProcess {
         base_directory: impl AsRef<Path>,
         logs_directory: impl AsRef<Path>,
         logging_level: impl AsRef<OsStr>,
+        environment_variables: &BTreeMap<String, Option<String>>,
         start_timeout: Duration,
     ) -> Result<Self> {
         let node_port =
@@ -36,6 +38,7 @@ impl ReviveDevNodeProcess {
             .arg("--consensus")
             .arg(consensus)
             .log("revive_dev_node", logs_directory)
+            .environment_variables(environment_variables)
             .wait_for_startup(WaitForStartupSentinel::new(
                 start_timeout,
                 Self::READY_MARKER,

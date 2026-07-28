@@ -44,6 +44,14 @@ pub enum PlatformIdentifier {
     PolkadotOmniNodeRevmSolc,
 }
 
+define_wrapper_type! {
+    /// A human-readable name that uniquely identifies a platform.
+    #[rustfmt::skip]
+    #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, JsonSchema, DeriveMoreDisplay)]
+    #[serde(transparent)]
+    pub struct PlatformName(String);
+}
+
 /// An enum of the platform identifiers of all of the platforms supported by this framework.
 #[derive(
     Clone,

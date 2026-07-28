@@ -1,0 +1,156 @@
+{
+  "platforms": {
+    "Geth": {
+      "polkadot_sdk_build": "none",
+      "node": {
+        "type": "Kurtosis",
+        "path": "kurtosis",
+        "start_timeout_ms": "900000",
+        "connector_configurations": null,
+        "environment_variables": {}
+      },
+      "eth_rpc": null,
+      "compiler": {
+        "type": "Solc",
+        "version": "0.8.28"
+      }
+    },
+    "REVM": {
+      "polkadot_sdk_build": "interpreter",
+      "node": {
+        "type": "Zombienet",
+        "config_path": "./assets/westend-assethub-zombienet.toml",
+        "block_production_timeout_ms": "300000",
+        "use_kubernetes": false,
+        "connector_configurations": null,
+        "environment_variables": {}
+      },
+      "eth_rpc": {
+        "path": "eth-rpc",
+        "start_timeout_ms": "30000",
+        "logging_level": "info",
+        "environment_variables": {}
+      },
+      "compiler": {
+        "type": "Solc",
+        "version": "0.8.28"
+      }
+    },
+    "PolkaVM Int Yul": {
+      "polkadot_sdk_build": "interpreter",
+      "node": {
+        "type": "Zombienet",
+        "config_path": "./assets/westend-assethub-zombienet.toml",
+        "block_production_timeout_ms": "300000",
+        "use_kubernetes": false,
+        "connector_configurations": "{\"substrate_provider_configuration\":{\"allowed_estimation_methods\":\"ETH_TRANSACT_WITH_CONFIG | ETH_TRANSACT\"}}",
+        "environment_variables": {}
+      },
+      "eth_rpc": {
+        "path": "eth-rpc",
+        "start_timeout_ms": "30000",
+        "logging_level": "info",
+        "environment_variables": {}
+      },
+      "compiler": {
+        "type": "Resolc",
+        "solc": {
+          "version": "0.8.28"
+        },
+        "resolc": {
+          "path": "resolc",
+          "heap_size": 500000,
+          "stack_size": null,
+          "use_new_york": false
+        }
+      }
+    },
+    "PolkaVM Int NY": {
+      "polkadot_sdk_build": "interpreter",
+      "node": {
+        "type": "Zombienet",
+        "config_path": "./assets/westend-assethub-zombienet.toml",
+        "block_production_timeout_ms": "300000",
+        "use_kubernetes": false,
+        "connector_configurations": "{\"substrate_provider_configuration\":{\"allowed_estimation_methods\":\"ETH_TRANSACT_WITH_CONFIG | ETH_TRANSACT\"}}",
+        "environment_variables": {}
+      },
+      "eth_rpc": {
+        "path": "eth-rpc",
+        "start_timeout_ms": "30000",
+        "logging_level": "info",
+        "environment_variables": {}
+      },
+      "compiler": {
+        "type": "Resolc",
+        "solc": {
+          "version": "0.8.28"
+        },
+        "resolc": {
+          "path": "resolc",
+          "heap_size": 500000,
+          "stack_size": null,
+          "use_new_york": true
+        }
+      }
+    },
+    "PolkaVM JIT Yul": {
+      "polkadot_sdk_build": "jit",
+      "node": {
+        "type": "Zombienet",
+        "config_path": "./assets/westend-assethub-zombienet.toml",
+        "block_production_timeout_ms": "300000",
+        "use_kubernetes": false,
+        "connector_configurations": "{\"substrate_provider_configuration\":{\"allowed_estimation_methods\":\"ETH_TRANSACT_WITH_CONFIG | ETH_TRANSACT\"}}",
+        "environment_variables": {}
+      },
+      "eth_rpc": {
+        "path": "eth-rpc",
+        "start_timeout_ms": "30000",
+        "logging_level": "info",
+        "environment_variables": {}
+      },
+      "compiler": {
+        "type": "Resolc",
+        "solc": {
+          "version": "0.8.28"
+        },
+        "resolc": {
+          "path": "resolc",
+          "heap_size": 500000,
+          "stack_size": null,
+          "use_new_york": false
+        }
+      }
+    },
+    "PolkaVM JIT NY": {
+      "polkadot_sdk_build": "jit",
+      "node": {
+        "type": "Zombienet",
+        "config_path": "./assets/westend-assethub-zombienet.toml",
+        "block_production_timeout_ms": "300000",
+        "use_kubernetes": false,
+        "connector_configurations": "{\"substrate_provider_configuration\":{\"allowed_estimation_methods\":\"ETH_TRANSACT_WITH_CONFIG | ETH_TRANSACT\"}}",
+        "environment_variables": {}
+      },
+      "eth_rpc": {
+        "path": "eth-rpc",
+        "start_timeout_ms": "30000",
+        "logging_level": "info",
+        "environment_variables": {}
+      },
+      "compiler": {
+        "type": "Resolc",
+        "solc": {
+          "version": "0.8.28"
+        },
+        "resolc": {
+          "path": "resolc",
+          "heap_size": 500000,
+          "stack_size": null,
+          "use_new_york": true
+        }
+      }
+    }
+  }
+}

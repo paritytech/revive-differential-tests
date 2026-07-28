@@ -14,19 +14,24 @@ pub struct ReportAggregator {
     listener_tx: Sender<ReporterEvent>,
     /* Context */
     file_name: Option<String>,
+    working_directory: WorkingDirectoryPath,
+    include_compiler_input: bool,
+    include_compiler_output: bool,
 }
 
 impl ReportAggregator {
-    pub fn new(context: Context) -> Self {
+    pub fn new(
+        context: Context,
+        working_directory_configuration: &WorkingDirectoryConfiguration,
+        report_configuration: &ReportConfiguration,
+    ) -> Self {
         let (runner_tx, runner_rx) = unbounded_channel::<RunnerEvent>();
         let (listener_tx, _) = channel::<ReporterEvent>(0xFFFF);
         Self {
-            file_name: match context {
-                Context::Test(ref context) => context.report.file_name.clone(),
-                Context::Benchmark(ref context) => context.report.file_name.clone(),
-                Context::Compile(ref context) => context.report.file_name.clone(),
-                Context::ExportJsonSchema(_) | Context::ExportTestSpecifiers(..) => None,
-            },
+            file_name: report_configuration.file_name.clone(),
+            working_directory: working_directory_configuration.working_directory.clone(),
+            include_compiler_input: report_configuration.include_compiler_input,
+            include_compiler_output: report_configuration.include_compiler_output,
             report: Report::new(context),
             remaining_cases: Default::default(),
             remaining_compilation_modes: Default::default(),
@@ -126,13 +131,7 @@ impl ReportAggregator {
                 file_name
             };
             let file_name = self.file_name.unwrap_or(default_file_name);
-            let file_path = self
-                .report
-                .context
-                .as_working_directory_configuration()
-                .working_directory
-                .as_path()
-                .join(file_name);
+            let file_path = self.working_directory.as_path().join(file_name);
             let writer = OpenOptions::new()
                 .create(true)
                 .write(true)
@@ -265,11 +264,11 @@ impl ReportAggregator {
         let execution_information = self.execution_information(&ExecutionSpecifier {
             test_specifier: event.test_specifier,
             node_id: event.id,
-            platform_identifier: event.platform_identifier,
+            platform_name: event.platform_name.clone(),
         });
         execution_information.node = Some(TestCaseNodeInformation {
             id: event.id,
-            platform_identifier: event.platform_identifier,
+            platform_name: event.platform_name,
         });
     }
 
@@ -277,8 +276,7 @@ impl ReportAggregator {
         &mut self,
         event: PreLinkContractsCompilationSucceededEvent,
     ) {
-        let report_configuration = self.report.context.as_report_configuration();
-        let compiler_input = if report_configuration.include_compiler_input {
+        let compiler_input = if self.include_compiler_input {
             event.compiler_input
         } else {
             None
@@ -292,7 +290,7 @@ impl ReportAggregator {
             compiler_input,
             compiled_contracts_info: Self::generate_compiled_contracts_info(
                 event.compiler_output,
-                report_configuration.include_compiler_output,
+                self.include_compiler_output,
             ),
         };
 
@@ -304,8 +302,7 @@ impl ReportAggregator {
         &mut self,
         event: PostLinkContractsCompilationSucceededEvent,
     ) {
-        let report_configuration = self.report.context.as_report_configuration();
-        let compiler_input = if report_configuration.include_compiler_input {
+        let compiler_input = if self.include_compiler_input {
             event.compiler_input
         } else {
             None
@@ -319,7 +316,7 @@ impl ReportAggregator {
             compiler_input,
             compiled_contracts_info: Self::generate_compiled_contracts_info(
                 event.compiler_output,
-                report_configuration.include_compiler_output,
+                self.include_compiler_output,
             ),
         };
 
@@ -451,7 +448,7 @@ impl ReportAggregator {
             .contract_addresses
             .entry(event.contract_instance)
             .or_default()
-            .entry(event.execution_specifier.platform_identifier)
+            .entry(event.execution_specifier.platform_name.clone())
             .or_default()
             .push(event.address);
     }
@@ -465,7 +462,7 @@ impl ReportAggregator {
         for report in self.report.execution_information.values_mut() {
             for report in report.case_reports.values_mut() {
                 for report in report.mode_execution_reports.values_mut() {
-                    for (platform_identifier, block_information) in
+                    for (platform_name, block_information) in
                         report.mined_block_information.iter_mut()
                     {
                         block_information.sort_by(|a, b| {
@@ -478,7 +475,7 @@ impl ReportAggregator {
                         if !metrics.is_empty() {
                             report
                                 .metrics_information
-                                .insert(*platform_identifier, metrics);
+                                .insert(platform_name.clone(), metrics);
                         }
                     }
                 }
@@ -492,7 +489,7 @@ impl ReportAggregator {
             .entry(event.step_path)
             .or_default()
             .transactions
-            .entry(event.execution_specifier.platform_identifier)
+            .entry(event.execution_specifier.platform_name.clone())
             .or_default()
             .push(event.transaction_information);
     }
@@ -506,7 +503,7 @@ impl ReportAggregator {
             .or_default()
             .contract_size
             .insert(
-                event.execution_specifier.platform_identifier,
+                event.execution_specifier.platform_name.clone(),
                 event.contract_size,
             );
     }
@@ -514,7 +511,7 @@ impl ReportAggregator {
     fn handle_block_mined(&mut self, event: BlockMinedEvent) {
         self.test_case_report(&event.execution_specifier.test_specifier)
             .mined_block_information
-            .entry(event.execution_specifier.platform_identifier)
+            .entry(event.execution_specifier.platform_name.clone())
             .or_default()
             .push(event.mined_block_information);
     }
@@ -544,7 +541,7 @@ impl ReportAggregator {
         let test_case_report = self.test_case_report(&specifier.test_specifier);
         test_case_report
             .platform_execution
-            .entry(specifier.platform_identifier)
+            .entry(specifier.platform_name.clone())
             .or_default()
             .get_or_insert_default()
     }
@@ -627,10 +624,69 @@ impl ReportAggregator {
     }
 }
 
+/// The command which produced a report.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ReportContextKind {
+    /// A differential test run.
+    Test,
+    /// A benchmark run.
+    Benchmark,
+    /// A JSON schema export.
+    ExportJsonSchema,
+    /// A test specifier export.
+    ExportTestSpecifiers,
+    /// A compiler-only run.
+    Compile,
+}
+
+/// The configuration snapshot stored in a report.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum ReportContext {
+    /// A serialized snapshot loaded without resolving its external paths.
+    Serialized(serde_json::Value),
+    /// The parsed context retained while a report is being produced.
+    Runtime(Context),
+}
+
+impl ReportContext {
+    /// Returns the command which produced the report when it is recognized.
+    #[must_use]
+    pub fn kind(&self) -> Option<ReportContextKind> {
+        match self {
+            Self::Runtime(context) => match context {
+                Context::Test(_) => Some(ReportContextKind::Test),
+                Context::Benchmark(_) => Some(ReportContextKind::Benchmark),
+                Context::ExportJsonSchema(_) => Some(ReportContextKind::ExportJsonSchema),
+                Context::ExportTestSpecifiers(_) => Some(ReportContextKind::ExportTestSpecifiers),
+                Context::Compile(_) => Some(ReportContextKind::Compile),
+            },
+            Self::Serialized(context) => context
+                .as_object()
+                .filter(|context| context.len() == 1)
+                .and_then(|context| context.keys().next())
+                .and_then(|command| match command.as_str() {
+                    "Test" => Some(ReportContextKind::Test),
+                    "Benchmark" => Some(ReportContextKind::Benchmark),
+                    "ExportJsonSchema" => Some(ReportContextKind::ExportJsonSchema),
+                    "ExportTestSpecifiers" => Some(ReportContextKind::ExportTestSpecifiers),
+                    "Compile" => Some(ReportContextKind::Compile),
+                    _ => None,
+                }),
+        }
+    }
+}
+
+impl From<Context> for ReportContext {
+    fn from(context: Context) -> Self {
+        Self::Runtime(context)
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Report {
     /// The context that the tool was started up with.
-    pub context: Context,
+    pub context: ReportContext,
     /// The list of metadata files that were found by the tool.
     pub metadata_files: BTreeSet<MetadataFilePath>,
     /// Information relating to each metadata file after executing the tool.
@@ -641,7 +697,7 @@ pub struct Report {
 impl Report {
     pub fn new(context: Context) -> Self {
         Self {
-            context,
+            context: context.into(),
             metadata_files: Default::default(),
             execution_information: Default::default(),
         }
@@ -724,7 +780,7 @@ pub struct TestCaseNodeInformation {
     /// The ID of the node that this case is being executed on.
     pub id: usize,
     /// The platform of the node.
-    pub platform_identifier: PlatformIdentifier,
+    pub platform_name: PlatformName,
 }
 
 /// Execution information tied to the platform.
@@ -1105,8 +1161,8 @@ pub struct ContractInformation {
     pub contract_size: PlatformKeyedInformation<usize>,
 }
 
-/// Information keyed by the platform identifier.
-pub type PlatformKeyedInformation<T> = BTreeMap<PlatformIdentifier, T>;
+/// Information keyed by the platform name.
+pub type PlatformKeyedInformation<T> = BTreeMap<PlatformName, T>;
 
 #[cfg(test)]
 mod tests {

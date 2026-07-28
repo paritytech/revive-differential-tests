@@ -21,6 +21,8 @@ struct ResolcInner {
     pvm_heap_size: u32,
     /// The PVM stack size in bytes.
     pvm_stack_size: u32,
+    /// Controls if the compiler should be overridden to use new-york or not.
+    override_to_new_york: bool,
     /// Hex-encoded sha256 over the resolc binary, the inner solc's fingerprint, and the
     /// PVM heap/stack sizes — all of which influence compiled output.
     fingerprint: String,
@@ -37,11 +39,9 @@ pub enum ResolcRuntimeTarget {
 
 impl Resolc {
     pub fn new(
-        context: impl HasSolcConfiguration
-        + HasResolcConfiguration
-        + HasWorkingDirectoryConfiguration
-        + Send
-        + 'static,
+        solc_configuration: SolcConfiguration,
+        resolc_configuration: ResolcConfiguration,
+        working_directory_configuration: WorkingDirectoryConfiguration,
         version: impl Into<Option<VersionOrRequirement>> + Send + 'static,
     ) -> StaticFuture<Result<Self>> {
         Box::pin(async move {
@@ -49,7 +49,6 @@ impl Resolc {
             static COMPILERS_CACHE: LazyLock<DashMap<ResolcInner, Resolc>> =
                 LazyLock::new(Default::default);
 
-            let resolc_configuration = context.as_resolc_configuration();
             let resolc_path = resolc_configuration.path.clone();
             let pvm_heap_size = resolc_configuration
                 .heap_size
@@ -59,9 +58,14 @@ impl Resolc {
                 .unwrap_or(PolkaVMDefaultStackMemorySize);
             let runtime_target = ResolcRuntimeTarget::from_path(&resolc_path);
             let resolc_version = runtime_target.execute_version_command(&resolc_path).await?;
+            let override_to_new_york = resolc_configuration.use_new_york;
             let solc = match runtime_target {
-                ResolcRuntimeTarget::Native => Solc::new_native(context, version),
-                ResolcRuntimeTarget::Wasm => Solc::new_wasm(context, version),
+                ResolcRuntimeTarget::Native => {
+                    Solc::new_native(solc_configuration, working_directory_configuration, version)
+                }
+                ResolcRuntimeTarget::Wasm => {
+                    Solc::new_wasm(solc_configuration, working_directory_configuration, version)
+                }
             }
             .await
             .context("Failed to create the solc compiler frontend for resolc")?;
@@ -90,6 +94,7 @@ impl Resolc {
                 resolc_version,
                 pvm_heap_size,
                 pvm_stack_size,
+                override_to_new_york,
                 fingerprint,
             };
             Ok(COMPILERS_CACHE
@@ -112,6 +117,7 @@ impl Resolc {
         pipeline: Option<ModePipeline>,
         pvm_heap_size: u32,
         pvm_stack_size: u32,
+        override_to_new_york: bool,
     ) -> SolcStandardJsonInputSettingsPolkaVM {
         let mut settings = SolcStandardJsonInputSettingsPolkaVM::new(
             Some(SolcStandardJsonInputSettingsPolkaVMMemory::new(
@@ -120,7 +126,8 @@ impl Resolc {
             )),
             false,
         );
-        settings.newyork = Some(pipeline == Some(ModePipeline::ViaNewYorkIR));
+        settings.newyork =
+            Some(pipeline == Some(ModePipeline::ViaNewYorkIR) || override_to_new_york);
         settings
     }
 
@@ -242,6 +249,7 @@ impl SolidityCompiler for Resolc {
                         pipeline,
                         this.0.pvm_heap_size,
                         this.0.pvm_stack_size,
+                        this.0.override_to_new_york,
                     ),
                     metadata: SolcStandardJsonInputSettingsMetadata::default(),
                     detect_missing_libraries: false,
@@ -405,7 +413,15 @@ impl SolidityCompiler for Resolc {
 
     fn supports_mode(&self, mode: &Mode) -> bool {
         match mode.pipeline {
-            ModePipeline::ViaYulIR => self.0.solc.supports_mode(mode),
+            ModePipeline::ViaYulIR => {
+                if !self.0.override_to_new_york {
+                    self.0.solc.supports_mode(mode)
+                } else {
+                    let mut mode_with_yul = mode.clone();
+                    mode_with_yul.pipeline = ModePipeline::ViaYulIR;
+                    self.supports_newyork() && self.0.solc.supports_mode(&mode_with_yul)
+                }
+            }
             ModePipeline::ViaNewYorkIR => {
                 let mut mode_with_yul = mode.clone();
                 mode_with_yul.pipeline = ModePipeline::ViaYulIR;
@@ -601,7 +617,12 @@ mod tests {
                     optimizer_level.to_mode_char(),
                     SolcOptimizerDetails::default(),
                 ),
-                polkavm: Resolc::polkavm_settings(Some(pipeline), pvm_heap_size, pvm_stack_size),
+                polkavm: Resolc::polkavm_settings(
+                    Some(pipeline),
+                    pvm_heap_size,
+                    pvm_stack_size,
+                    false,
+                ),
                 metadata: Default::default(),
                 detect_missing_libraries: false,
             },
