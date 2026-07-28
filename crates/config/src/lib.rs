@@ -361,7 +361,7 @@ mod context {
 
         /// Specifies the PVM heap size in bytes.
         ///
-        /// If unspecified, the revive compiler default is used
+        /// If unspecified, the revive compiler default is used.
         pub heap_size: Option<u32>,
 
         /// Specifies the PVM stack size in bytes.
