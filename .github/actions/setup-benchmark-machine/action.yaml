@@ -26,6 +26,7 @@ runs:
         cache: false
         target: wasm32-unknown-unknown,wasm32v1-none
         components: rust-src
+        rustflags: ""
 
     - name: Setup Binary Directory
       shell: bash
