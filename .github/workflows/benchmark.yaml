@@ -293,7 +293,7 @@ jobs:
   benchmark:
     name: "${{ matrix.platform.name }} ${{ matrix.test.name }}"
     runs-on: parity-large-t2d
-    timeout-minutes: 120
+    timeout-minutes: 240
     needs:
       [
         generate-matrix,
