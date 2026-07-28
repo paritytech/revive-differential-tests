@@ -760,6 +760,11 @@ impl NodeConnector {
         })
     }
 
+    /// Whether this connector can produce execution traces (substrate platforms only).
+    pub fn supports_execution_tracing(&self) -> bool {
+        self.substrate_providers.is_some()
+    }
+
     /// Trace one already-included transaction with the execution (opcode/syscall)
     /// tracer, for post-run profiling. Substrate nodes only; returns `Ok(None)`
     /// on eth-rpc nodes or when the returned trace isn't an execution trace.
@@ -786,7 +791,6 @@ impl NodeConnector {
                 .expect("qed; this is a substrate transaction")
                 as u32;
             let parent_hash = substrate_block_information.runtime_block.header.parent_hash;
-            let block_hash = substrate_block_information.block_hash;
             let block = substrate_block_information.runtime_block.clone();
 
             let config = pallet_revive::evm::ExecutionTracerConfig {
@@ -806,8 +810,14 @@ impl NodeConnector {
             // proof_size accumulates past the block limit, and `CheckWeight` rejects the tail
             // extrinsics with `ExhaustsResources` — those then yield empty "phantom" traces. Fall
             // back to the recorder-less runtime-API replay on nodes that don't serve the RPC.
-            let trace = match trace_tx_recorded(&provider, block_hash, extrinsic_index, &tracer_type)
-                .await
+            let trace = match trace_tx_recorded(
+                &provider,
+                &block,
+                parent_hash,
+                extrinsic_index,
+                &tracer_type,
+            )
+            .await
             {
                 Ok(trace) => trace,
                 Err(err) => {
@@ -1886,33 +1896,28 @@ impl std::ops::DerefMut for SubstrateProviders {
     }
 }
 
-/// Trace a transaction via the node's `state_callRecorded` RPC (polkadot-sdk #12374).
-///
-/// Unlike a plain runtime-API call (which crosses the wire as `state_call`), this replays the
-/// containing block with a proof-size recorder registered, so `StorageWeightReclaim` stays faithful
-/// and the block's tail transactions aren't spuriously rejected with `ExhaustsResources` — the
-/// cause of empty "phantom" traces. The node sources the block by `block_hash` and SCALE-prepends
-/// it to `extra_args`, so we encode only the trailing `trace_tx` arguments
-/// `(extrinsic_index, tracer_type)`. `Hash`/`Bytes` RPC params travel as `0x`-hex strings.
+/// Trace a transaction via `state_callRecorded`
 async fn trace_tx_recorded(
     provider: &SubstrateProviders,
-    block_hash: [u8; 32],
+    block: &RuntimeSubxtBlock,
+    parent_hash: H256,
     extrinsic_index: u32,
     tracer_type: &pallet_revive::evm::TracerType,
 ) -> Result<Option<pallet_revive::evm::Trace>> {
     use subxt::ext::subxt_rpcs::client::rpc_params;
 
-    let mut extra_args = extrinsic_index.encode();
-    extra_args.extend_from_slice(&tracer_type.encode());
+    let mut call_data = block.encode();
+    call_data.extend_from_slice(&extrinsic_index.encode());
+    call_data.extend_from_slice(&tracer_type.encode());
 
-    let block_hex = format!("0x{}", alloy::hex::encode(block_hash));
-    let extra_args_hex = format!("0x{}", alloy::hex::encode(&extra_args));
+    let call_data_hex = format!("0x{}", alloy::hex::encode(&call_data));
+    let parent_hash_hex = format!("0x{}", alloy::hex::encode(parent_hash.as_bytes()));
 
     let result_hex: String = provider
         .submission_rpc()
         .request(
             "state_callRecorded",
-            rpc_params![block_hex, "ReviveApi_trace_tx", extra_args_hex],
+            rpc_params!["ReviveApi_trace_tx", call_data_hex, parent_hash_hex],
         )
         .await
         .map_err(|err| anyhow!("state_callRecorded RPC call failed: {err:?}"))?;

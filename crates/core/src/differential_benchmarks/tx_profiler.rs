@@ -96,18 +96,16 @@ fn sample_one_group(group: &[TxHash], k: usize, out: &mut Vec<TxHash>) {
     }
 }
 
-/// Drive one execution trace per sample against the connector, aggregating the
-/// successful traces into an [`OpcodeProfileSummary`]. Samples that fail to
-/// trace (non-substrate platforms, node errors) are logged and skipped, so the
-/// summary reflects whatever succeeded.
+/// Trace each sample and aggregate the successful traces into an [`OpcodeProfileSummary`].
 pub async fn run_profiling(
     connector: &NodeConnector,
     samples: Vec<(TxHash, StepPath)>,
-    block_count: u32,
+    sample_block_numbers: HashMap<TxHash, BlockNumber>,
     step_limit: u64,
     concurrency: usize,
 ) -> OpcodeProfileSummary {
     let concurrency = concurrency.max(1);
+    let selected = samples.len();
 
     let profiles = stream::iter(samples.into_iter().map(|(tx_hash, step_path)| {
         let trace_future = connector.trace_execution_tx(tx_hash, step_limit);
@@ -133,6 +131,27 @@ pub async fn run_profiling(
     .filter_map(|opt| async move { opt })
     .collect::<Vec<_>>()
     .await;
+
+    let block_count = profiles
+        .iter()
+        .filter_map(|profile| sample_block_numbers.get(&profile.tx_hash))
+        .collect::<HashSet<_>>()
+        .len() as u32;
+    if profiles.len() < selected {
+        warn!(
+            selected,
+            traced = profiles.len(),
+            block_count,
+            "Some sampled txs failed to trace; the profile covers fewer txs than were selected"
+        );
+    } else {
+        info!(
+            selected,
+            traced = profiles.len(),
+            block_count,
+            "Profiling traces complete"
+        );
+    }
 
     aggregate_to_summary(profiles, block_count)
 }

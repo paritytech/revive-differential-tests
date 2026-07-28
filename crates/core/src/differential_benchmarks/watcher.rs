@@ -315,11 +315,8 @@ impl Watcher {
                     .expect("qed; can't fail")
             }
 
-            // Watched-tx opcode profiling. Sample a subset of the submitted
-            // transactions, re-execute each under the execution tracer, and
-            // report the aggregated per-opcode weight breakdown. Non-substrate
-            // platforms trace to `None` and are skipped inside `run_profiling`.
-            if profile_config.enabled {
+            // Watched-tx opcode profiling; skipped on non-substrate platforms, which can't trace.
+            if profile_config.enabled && connector.supports_execution_tracing() {
                 let profile_view = tx_information
                     .iter()
                     .map(|(hash, info)| (*hash, (info.step_path.clone(), ())))
@@ -332,21 +329,18 @@ impl Watcher {
                             .map(|info| (hash, info.step_path.clone()))
                     })
                     .collect::<Vec<_>>();
-                // How many distinct blocks the sampled txs were included in — the coverage the
-                // profile actually reflects, not the whole run's block count.
-                let block_count = samples
+                let sample_block_numbers = samples
                     .iter()
-                    .filter_map(|(hash, _)| tx_block_numbers.get(hash))
-                    .collect::<HashSet<_>>()
-                    .len() as u32;
+                    .filter_map(|(hash, _)| tx_block_numbers.get(hash).map(|n| (*hash, *n)))
+                    .collect::<HashMap<TxHash, BlockNumber>>();
                 info!(
                     sample_count = samples.len(),
-                    block_count, "Profiling watched transactions"
+                    "Profiling watched transactions"
                 );
                 let summary = run_profiling(
                     &connector,
                     samples,
-                    block_count,
+                    sample_block_numbers,
                     profile_config.step_limit,
                     profile_config.concurrency,
                 )

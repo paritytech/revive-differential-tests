@@ -196,10 +196,8 @@ mod context {
         #[arg(long = "benchmark.profile-watched-txs", default_value_t = false)]
         pub profile_watched_txs: bool,
 
-        /// Number of samples to trace per unique step path. Samples are picked
-        /// at evenly-spaced iteration indices and tend to co-locate in the same
-        /// blocks, so the effective number of `trace_block` calls is roughly
-        /// this value times the number of top-level Repeat blocks.
+        /// Number of transactions to trace per unique step path, picked at
+        /// evenly-spaced iteration indices.
         #[arg(long = "benchmark.profile-samples-per-step-path", default_value_t = 5)]
         pub profile_samples_per_step_path: usize,
 
@@ -208,7 +206,7 @@ mod context {
         #[arg(long = "benchmark.profile-all", default_value_t = false)]
         pub profile_all: bool,
 
-        /// Maximum in-flight `trace_block` runtime API calls per platform.
+        /// Maximum in-flight per-transaction `trace_tx` calls per platform.
         #[arg(long = "benchmark.profile-concurrency", default_value_t = 4)]
         pub profile_concurrency: usize,
 

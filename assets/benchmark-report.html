@@ -1602,10 +1602,7 @@
         </button>
       </div>
       <div class="collapsible-content" id="opcodeProfileContent">
-        <div class="opcode-profile-caption">
-          Values are sums over <code>K × steps</code> sampled txs
-          (<code>K = 3</code>, <code>steps = 13</code>).
-        </div>
+        <div class="opcode-profile-caption" id="opcodeProfileCaption"></div>
         <div class="opcode-profile-grid" id="opcodeProfileGrid"></div>
       </div>
     </div>
@@ -3469,6 +3466,10 @@ function renderStepOpcodeBreakdownChart(chartId, txProfiles, topN = 8, metric = 
   // "Not profiled" residual (weight_consumed − Σ steps) as a final hatched
   // segment, so each bar totals the step's consumed ref_time and the profiling
   // gap reads inline. Hatched (not just gray) to stay distinct from "Other".
+  //
+  // The residual is signed: Σ step weights can exceed weight_consumed (refunds),
+  // and a negative segment would render left of zero and break the tooltip's
+  // percentage math — so clamp plotted values to >= 0.
   const anyUnattr = rollups.some(r => (r.unattributed || 0) > 0);
   if (anyUnattr) {
     series.push({
@@ -3485,7 +3486,7 @@ function renderStepOpcodeBreakdownChart(chartId, txProfiles, topN = 8, metric = 
           rotation: -Math.PI / 4,
         },
       },
-      data: rollups.map(r => r.unattributed || 0),
+      data: rollups.map(r => Math.max(0, r.unattributed || 0)),
       emphasis: { focus: 'series' },
     });
   }
@@ -3824,6 +3825,19 @@ function renderOpcodeProfileSection(modeData, enabledPlatforms) {
   }
   group.classList.remove('hidden');
 
+  const captionEl = document.getElementById('opcodeProfileCaption');
+  if (captionEl) {
+    const run = reportData?.context?.Benchmark?.benchmark_run;
+    const k = run?.profile_samples_per_step_path;
+    const scope = run?.profile_all
+      ? 'every watched transaction (<code>--benchmark.profile-all</code>)'
+      : k != null
+        ? `the sampled transactions (up to <code>K = ${Number(k)}</code> per unique step path)`
+        : 'the sampled transactions';
+    captionEl.innerHTML =
+      `Values are sums over ${scope}. Per-platform transaction and block counts are shown on each card.`;
+  }
+
   // Catalog is identical across platforms; install from the first that has one.
   const firstWithCatalog = platformsWithProfile
     .map(p => platformExecution[p].opcode_profile.opcode_catalog)
@@ -3839,16 +3853,17 @@ function renderOpcodeProfileSection(modeData, enabledPlatforms) {
   }));
   const anyRollups = platformRollups.some(p => p.rollups.length > 0);
 
-  const slugify = s => String(s).replace(/[^a-zA-Z0-9_-]/g, '_');
   const stackedChartIds = [];   // [{platform, chartId, tx_profiles}]
 
-  const cards = platformsWithProfile.map(platform => {
+  // Chart ids are keyed on the platform's index, not its name — custom platform
+  // names can differ only in punctuation and would otherwise collide into one id.
+  const cards = platformsWithProfile.map((platform, platformIdx) => {
     const profile = platformExecution[platform].opcode_profile;
     const color = getColor(modeData.platforms.indexOf(platform));
     const total = profile.opcodes.reduce((s, o) => s + Number(o.total_ref_time || 0), 0);
     const rollupsForPlatform = platformRollups.find(p => p.platform === platform).rollups;
-    const stackedId = `opcodeStackedByStep_${slugify(platform)}`;
-    const stackedPsId = `opcodeStackedByStepPs_${slugify(platform)}`;
+    const stackedId = `opcodeStackedByStep_${platformIdx}`;
+    const stackedPsId = `opcodeStackedByStepPs_${platformIdx}`;
     if ((profile.tx_profiles || []).length > 0) {
       stackedChartIds.push({ platform, chartId: stackedId, txProfiles: profile.tx_profiles, metric: 'ref_time' });
       stackedChartIds.push({ platform, chartId: stackedPsId, txProfiles: profile.tx_profiles, metric: 'proof_size' });
