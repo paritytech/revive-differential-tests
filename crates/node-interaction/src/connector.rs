@@ -791,6 +791,7 @@ impl NodeConnector {
                 .expect("qed; this is a substrate transaction")
                 as u32;
             let parent_hash = substrate_block_information.runtime_block.header.parent_hash;
+            let block_hash = H256(substrate_block_information.block_hash);
             let block = substrate_block_information.runtime_block.clone();
 
             let config = pallet_revive::evm::ExecutionTracerConfig {
@@ -813,7 +814,7 @@ impl NodeConnector {
             let trace = match trace_tx_recorded(
                 &provider,
                 &block,
-                parent_hash,
+                block_hash,
                 extrinsic_index,
                 &tracer_type,
             )
@@ -1900,7 +1901,7 @@ impl std::ops::DerefMut for SubstrateProviders {
 async fn trace_tx_recorded(
     provider: &SubstrateProviders,
     block: &RuntimeSubxtBlock,
-    parent_hash: H256,
+    block_hash: H256,
     extrinsic_index: u32,
     tracer_type: &pallet_revive::evm::TracerType,
 ) -> Result<Option<pallet_revive::evm::Trace>> {
@@ -1911,13 +1912,13 @@ async fn trace_tx_recorded(
     call_data.extend_from_slice(&tracer_type.encode());
 
     let call_data_hex = format!("0x{}", alloy::hex::encode(&call_data));
-    let parent_hash_hex = format!("0x{}", alloy::hex::encode(parent_hash.as_bytes()));
+    let block_hash_hex = format!("0x{}", alloy::hex::encode(block_hash.as_bytes()));
 
     let result_hex: String = provider
         .submission_rpc()
         .request(
             "state_callRecorded",
-            rpc_params!["ReviveApi_trace_tx", call_data_hex, parent_hash_hex],
+            rpc_params!["ReviveApi_trace_tx", call_data_hex, block_hash_hex],
         )
         .await
         .map_err(|err| anyhow!("state_callRecorded RPC call failed: {err:?}"))?;
