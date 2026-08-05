@@ -299,8 +299,8 @@ mod tests {
         assert_eq!(catalog.category_order.last().copied(), Some("Other"));
     }
 
-    use pallet_revive::evm::{Bytes, ExecutionStep, ExecutionStepKind, ExecutionTrace};
     use pallet_revive::Weight;
+    use pallet_revive::evm::{Bytes, ExecutionStep, ExecutionStepKind, ExecutionTrace};
 
     fn weight(ref_time: u64, proof_size: u64) -> Weight {
         Weight::from_parts(ref_time, proof_size)

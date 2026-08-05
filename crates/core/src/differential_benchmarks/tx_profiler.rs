@@ -117,7 +117,10 @@ pub async fn run_profiling(
                     &execution_trace,
                 )),
                 Ok(None) => {
-                    warn!(?tx_hash, "trace_execution_tx returned None; skipping sample");
+                    warn!(
+                        ?tx_hash,
+                        "trace_execution_tx returned None; skipping sample"
+                    );
                     None
                 }
                 Err(err) => {

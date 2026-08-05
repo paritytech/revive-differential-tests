@@ -1,4 +1,6 @@
-use crate::differential_benchmarks::tx_profiler::{ProfileConfig, run_profiling, sample_watched_txs};
+use crate::differential_benchmarks::tx_profiler::{
+    ProfileConfig, run_profiling, sample_watched_txs,
+};
 use crate::internal_prelude::*;
 use pallet_revive::Weight;
 
