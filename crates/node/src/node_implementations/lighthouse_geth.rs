@@ -78,7 +78,7 @@ impl LighthouseGethNode {
         let main_star = wrapper_directory.as_ref().join("main.star");
 
         let balances = NetworkWallet::<Ethereum>::signer_addresses(wallet)
-            .map(|address| (address, GenesisAccount::default().with_balance(U256::MAX)))
+            .map(|address| (address, GenesisAccount::default().with_balance(U256::MAX >> 1)))
             .collect::<BTreeMap<_, _>>();
         File::create(accounts_file)
             .context("Failed to open the prefunded accounts file")
