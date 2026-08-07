@@ -156,7 +156,7 @@ pub async fn handle_differential_benchmarks(
                 context
                     .benchmark_run
                     .profile_watched_txs
-                    .then(|| ProfilerConfig {
+                    .then_some(ProfilerConfig {
                         mode: if context.benchmark_run.profile_all {
                             SamplingMode::All
                         } else {
