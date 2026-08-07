@@ -37,41 +37,44 @@ pub struct ProfileConfig {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SamplingMode {
     /// Pick at most `sample_size` transactions per unique `StepPath`, at
-    /// evenly-spaced indices through that step path's submission order.
+    /// evenly-spaced indices through that step path's inclusion order.
     Sample(usize),
     /// Use every watched transaction (CPU-heavy; opt-in via `--benchmark.profile-all`).
     All,
 }
 
-/// Sample tx hashes for profiling from the watcher's per-workload submission map.
+/// Sample tx hashes for profiling from an inclusion-ordered per-workload list.
 ///
-/// The map preserves submission order. We:
-/// 1. Group hashes by `StepPath`, preserving submission order within each group.
+/// The caller passes txs in inclusion order (block order, then in-block order),
+/// so first/middle/last map to the execution lifecycle. We:
+/// 1. Group hashes by `StepPath`, preserving that order within each group.
 /// 2. For `Sample(sample_size)`: pick `sample_size` evenly-spaced indices per
 ///    group — positions `⌊(group_size − 1) · i / (sample_size − 1)⌋` for
 ///    `i ∈ 0..sample_size`. Captures cold (i=0), steady-state (middle), and
 ///    end-state (i=group_size−1). If `group_size ≤ sample_size`, return all.
-/// 3. For `All`: return every key.
-pub fn sample_watched_txs<V>(
-    transactions: &IndexMap<TxHash, (StepPath, V)>,
+/// 3. For `All`: return every tx unchanged.
+pub fn sample_watched_txs(
+    txs: &[(TxHash, StepPath)],
     mode: SamplingMode,
-) -> Vec<TxHash> {
+) -> Vec<(TxHash, StepPath)> {
     let sample_size = match mode {
-        SamplingMode::All => return transactions.keys().copied().collect(),
+        SamplingMode::All => return txs.to_vec(),
         SamplingMode::Sample(sample_size) => sample_size,
     };
-    if sample_size == 0 || transactions.is_empty() {
+    if sample_size == 0 || txs.is_empty() {
         return Vec::new();
     }
 
     let mut by_step: IndexMap<&StepPath, Vec<TxHash>> = IndexMap::new();
-    for (tx_hash, (step_path, _)) in transactions {
+    for (tx_hash, step_path) in txs {
         by_step.entry(step_path).or_default().push(*tx_hash);
     }
 
     let mut out = Vec::new();
-    for (_, group) in by_step {
-        sample_one_group(&group, sample_size, &mut out);
+    for (step_path, group) in by_step {
+        let mut picks = Vec::new();
+        sample_one_group(&group, sample_size, &mut picks);
+        out.extend(picks.into_iter().map(|hash| (hash, step_path.clone())));
     }
     out
 }
@@ -296,39 +299,46 @@ mod tests {
         )
     }
 
-    fn submissions(items: Vec<(u8, &[usize])>) -> IndexMap<TxHash, (StepPath, ())> {
-        let mut m = IndexMap::new();
-        for (tag, p) in items {
-            m.insert(mk_hash(tag), (path(p), ()));
-        }
-        m
+    fn submissions(items: Vec<(u8, &[usize])>) -> Vec<(TxHash, StepPath)> {
+        items
+            .into_iter()
+            .map(|(tag, p)| (mk_hash(tag), path(p)))
+            .collect()
+    }
+
+    // Run the sampler and drop the step path for hash-only assertions.
+    fn sampled_hashes(txs: &[(TxHash, StepPath)], mode: SamplingMode) -> Vec<TxHash> {
+        sample_watched_txs(txs, mode)
+            .into_iter()
+            .map(|(hash, _)| hash)
+            .collect()
     }
 
     #[test]
     fn all_mode_returns_every_key_in_order() {
         let m = submissions(vec![(1, &[0]), (2, &[0]), (3, &[1])]);
-        let out = sample_watched_txs(&m, SamplingMode::All);
+        let out = sampled_hashes(&m, SamplingMode::All);
         assert_eq!(out, vec![mk_hash(1), mk_hash(2), mk_hash(3)]);
     }
 
     #[test]
     fn k_zero_returns_empty() {
         let m = submissions(vec![(1, &[0]), (2, &[0])]);
-        assert!(sample_watched_txs(&m, SamplingMode::Sample(0)).is_empty());
+        assert!(sampled_hashes(&m, SamplingMode::Sample(0)).is_empty());
     }
 
     #[test]
     fn smaller_than_k_returns_all_for_group() {
         // Group has 3 entries, sample_size=5 → return all 3
         let m = submissions(vec![(1, &[0]), (2, &[0]), (3, &[0])]);
-        let out = sample_watched_txs(&m, SamplingMode::Sample(5));
+        let out = sampled_hashes(&m, SamplingMode::Sample(5));
         assert_eq!(out, vec![mk_hash(1), mk_hash(2), mk_hash(3)]);
     }
 
     #[test]
     fn k_one_picks_first_per_group() {
         let m = submissions(vec![(1, &[0]), (2, &[0]), (3, &[0]), (4, &[1]), (5, &[1])]);
-        let out = sample_watched_txs(&m, SamplingMode::Sample(1));
+        let out = sampled_hashes(&m, SamplingMode::Sample(1));
         assert_eq!(out, vec![mk_hash(1), mk_hash(4)]);
     }
 
@@ -338,7 +348,7 @@ mod tests {
         // Expected positions: ⌊(8 * i) / 4⌋ for i ∈ 0..5 = 0, 2, 4, 6, 8
         let entries: Vec<(u8, &[usize])> = (1u8..=9).map(|i| (i, &[0usize] as &[usize])).collect();
         let m = submissions(entries);
-        let out = sample_watched_txs(&m, SamplingMode::Sample(5));
+        let out = sampled_hashes(&m, SamplingMode::Sample(5));
         assert_eq!(
             out,
             vec![
@@ -360,7 +370,7 @@ mod tests {
             .chain((6..=10).map(|i| (i, &[1usize] as &[usize])))
             .collect();
         let m = submissions(entries);
-        let out = sample_watched_txs(&m, SamplingMode::Sample(3));
+        let out = sampled_hashes(&m, SamplingMode::Sample(3));
         assert_eq!(
             out,
             vec![

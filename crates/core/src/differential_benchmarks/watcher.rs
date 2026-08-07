@@ -234,6 +234,21 @@ impl Watcher {
                 HashMap::new()
             };
 
+            let ordered_watched_txs: Vec<(TxHash, StepPath)> =
+                if profile_config.enabled && connector.supports_execution_tracing() {
+                    observed_blocks
+                        .iter()
+                        .flat_map(|block_info| block_info.block.evm_block.transactions.hashes())
+                        .filter_map(|hash| {
+                            tx_information
+                                .get(&hash)
+                                .map(|info| (hash, info.step_path.clone()))
+                        })
+                        .collect()
+                } else {
+                    Vec::new()
+                };
+
             for block_info in observed_blocks {
                 for hash in block_info.block.evm_block.transactions.hashes() {
                     let Some(info) = tx_information.get(&hash) else {
@@ -319,18 +334,7 @@ impl Watcher {
 
             // Watched-tx opcode profiling; skipped on non-substrate platforms, which can't trace.
             if profile_config.enabled && connector.supports_execution_tracing() {
-                let profile_view = tx_information
-                    .iter()
-                    .map(|(hash, info)| (*hash, (info.step_path.clone(), ())))
-                    .collect::<IndexMap<TxHash, (StepPath, ())>>();
-                let samples = sample_watched_txs(&profile_view, profile_config.mode)
-                    .into_iter()
-                    .filter_map(|hash| {
-                        tx_information
-                            .get(&hash)
-                            .map(|info| (hash, info.step_path.clone()))
-                    })
-                    .collect::<Vec<_>>();
+                let samples = sample_watched_txs(&ordered_watched_txs, profile_config.mode);
                 let sample_block_numbers = samples
                     .iter()
                     .filter_map(|(hash, _)| tx_block_numbers.get(hash).map(|n| (*hash, *n)))
