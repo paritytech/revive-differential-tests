@@ -1,8 +1,6 @@
 //! Serializable opcode-profile types. Decoupled from `revive_dt_node_interaction`'s
 //! `TxProfile` (which embeds subxt-generated, non-`Serialize` types).
 
-use std::collections::BTreeMap;
-
 use crate::internal_prelude::*;
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]

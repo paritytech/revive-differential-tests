@@ -8,7 +8,6 @@
 //!    (returned by [`NodeApi::trace_execution_tx`](crate::NodeApi)) into
 //!    per-opcode weight buckets + the unattributed-weight residual.
 
-use std::cmp::Ordering;
 use std::collections::{BTreeMap, HashMap};
 
 use alloy::primitives::TxHash;
@@ -142,7 +141,7 @@ impl OpcodeCatalog {
 
 /// Identifier of one opcode kind, distinguishing EVM opcodes from PVM
 /// syscalls.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum OpKey {
     EvmOpcode(u8),
     PvmSyscall(u8),
@@ -155,23 +154,6 @@ impl OpKey {
             OpKey::EvmOpcode(b) => format!("EVMOpcode:0x{:02x}", b),
             OpKey::PvmSyscall(b) => format!("PVMSyscall:0x{:02x}", b),
         }
-    }
-}
-
-impl Ord for OpKey {
-    fn cmp(&self, other: &Self) -> Ordering {
-        match (self, other) {
-            (OpKey::EvmOpcode(a), OpKey::EvmOpcode(b)) => a.cmp(b),
-            (OpKey::PvmSyscall(a), OpKey::PvmSyscall(b)) => a.cmp(b),
-            (OpKey::EvmOpcode(_), OpKey::PvmSyscall(_)) => Ordering::Less,
-            (OpKey::PvmSyscall(_), OpKey::EvmOpcode(_)) => Ordering::Greater,
-        }
-    }
-}
-
-impl PartialOrd for OpKey {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
     }
 }
 

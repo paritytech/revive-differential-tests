@@ -36,8 +36,8 @@ pub struct ProfileConfig {
 /// How to choose which watched transactions become profiler input.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SamplingMode {
-    /// Pick at most `k` transactions per unique `StepPath`, at evenly-spaced
-    /// indices through that step path's submission order.
+    /// Pick at most `sample_size` transactions per unique `StepPath`, at
+    /// evenly-spaced indices through that step path's submission order.
     Sample(usize),
     /// Use every watched transaction (CPU-heavy; opt-in via `--benchmark.profile-all`).
     All,
@@ -47,21 +47,20 @@ pub enum SamplingMode {
 ///
 /// The map preserves submission order. We:
 /// 1. Group hashes by `StepPath`, preserving submission order within each group.
-/// 2. For `Sample(k)`: pick `k` evenly-spaced indices per group — positions
-///    `⌊(N − 1) · i / (k − 1)⌋` for `i ∈ 0..k`. Captures cold (i=0),
-///    steady-state (middle), and end-state (i=N−1). If `N ≤ k`, return all.
+/// 2. For `Sample(sample_size)`: pick `sample_size` evenly-spaced indices per
+///    group — positions `⌊(group_size − 1) · i / (sample_size − 1)⌋` for
+///    `i ∈ 0..sample_size`. Captures cold (i=0), steady-state (middle), and
+///    end-state (i=group_size−1). If `group_size ≤ sample_size`, return all.
 /// 3. For `All`: return every key.
 pub fn sample_watched_txs<V>(
     transactions: &IndexMap<TxHash, (StepPath, V)>,
     mode: SamplingMode,
 ) -> Vec<TxHash> {
-    if let SamplingMode::All = mode {
-        return transactions.keys().copied().collect();
-    }
-    let SamplingMode::Sample(k) = mode else {
-        unreachable!()
+    let sample_size = match mode {
+        SamplingMode::All => return transactions.keys().copied().collect(),
+        SamplingMode::Sample(sample_size) => sample_size,
     };
-    if k == 0 || transactions.is_empty() {
+    if sample_size == 0 || transactions.is_empty() {
         return Vec::new();
     }
 
@@ -72,26 +71,26 @@ pub fn sample_watched_txs<V>(
 
     let mut out = Vec::new();
     for (_, group) in by_step {
-        sample_one_group(&group, k, &mut out);
+        sample_one_group(&group, sample_size, &mut out);
     }
     out
 }
 
-fn sample_one_group(group: &[TxHash], k: usize, out: &mut Vec<TxHash>) {
-    let n = group.len();
-    if n == 0 {
+fn sample_one_group(group: &[TxHash], sample_size: usize, out: &mut Vec<TxHash>) {
+    let group_size = group.len();
+    if group_size == 0 {
         return;
     }
-    if n <= k {
+    if group_size <= sample_size {
         out.extend_from_slice(group);
         return;
     }
-    if k == 1 {
+    if sample_size == 1 {
         out.push(group[0]);
         return;
     }
-    for i in 0..k {
-        let idx = (n - 1) * i / (k - 1);
+    for i in 0..sample_size {
+        let idx = (group_size - 1) * i / (sample_size - 1);
         out.push(group[idx]);
     }
 }
@@ -320,7 +319,7 @@ mod tests {
 
     #[test]
     fn smaller_than_k_returns_all_for_group() {
-        // Group has 3 entries, k=5 → return all 3
+        // Group has 3 entries, sample_size=5 → return all 3
         let m = submissions(vec![(1, &[0]), (2, &[0]), (3, &[0])]);
         let out = sample_watched_txs(&m, SamplingMode::Sample(5));
         assert_eq!(out, vec![mk_hash(1), mk_hash(2), mk_hash(3)]);
@@ -335,7 +334,7 @@ mod tests {
 
     #[test]
     fn evenly_spaced_indices() {
-        // Group of 9 entries (indices 0..=8), k=5
+        // Group of 9 entries (indices 0..=8), sample_size=5
         // Expected positions: ⌊(8 * i) / 4⌋ for i ∈ 0..5 = 0, 2, 4, 6, 8
         let entries: Vec<(u8, &[usize])> = (1u8..=9).map(|i| (i, &[0usize] as &[usize])).collect();
         let m = submissions(entries);
@@ -355,7 +354,7 @@ mod tests {
     #[test]
     fn multiple_groups_each_sampled_independently() {
         // step_path [0]: 5 entries (1..=5), step_path [1]: 5 entries (6..=10)
-        // k=3 → positions ⌊(4 * i) / 2⌋ = 0, 2, 4
+        // sample_size=3 → positions ⌊(4 * i) / 2⌋ = 0, 2, 4
         let entries: Vec<(u8, &[usize])> = (1..=5)
             .map(|i| (i, &[0usize] as &[usize]))
             .chain((6..=10).map(|i| (i, &[1usize] as &[usize])))

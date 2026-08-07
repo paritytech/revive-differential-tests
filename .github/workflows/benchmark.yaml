@@ -60,22 +60,22 @@ on:
       profile-watched-txs:
         description: Enable per-opcode profiling of sampled watched txs. Builds the polkadot-sdk with `--cfg revive_debug` so the execution-trace runtime API is available. Substrate platforms only; non-substrate platforms are skipped at runtime.
         type: boolean
-        default: false
+        default: true
       profile-samples-per-step-path:
         description: Profiler — number of transactions to trace per unique step path (K). Each is traced individually.
         required: false
-        type: string
-        default: "5"
+        type: number
+        default: 5
       profile-concurrency:
         description: Profiler — maximum in-flight per-transaction `trace_tx` calls.
         required: false
-        type: string
-        default: "4"
+        type: number
+        default: 4
       profile-step-limit:
         description: Profiler — per-tx tracer step cap. 0 disables the cap.
         required: false
-        type: string
-        default: "0"
+        type: number
+        default: 0
 env:
   CARGO_TERM_COLOR: always
   RUST_LOG: ${{ inputs.rust-log }}

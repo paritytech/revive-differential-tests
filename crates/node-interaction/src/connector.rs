@@ -842,9 +842,9 @@ impl NodeConnector {
                 }
             };
 
-            Ok(trace.and_then(|trace| match trace {
-                pallet_revive::evm::Trace::Execution(execution_trace) => Some(execution_trace),
-                _ => None,
+            Ok(trace.map(|trace| match trace {
+                pallet_revive::evm::Trace::Execution(execution_trace) => execution_trace,
+                _ => unreachable!("expected an execution trace for an ExecutionTracer request"),
             }))
         })
     }
