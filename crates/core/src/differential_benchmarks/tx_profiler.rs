@@ -10,21 +10,15 @@
 //! `(substrate_block, extrinsic_index)` internally, so there's no separate
 //! per-block job-building pass — we just drive one trace per sample.
 
-use futures::{StreamExt, stream};
-use indexmap::IndexMap;
 use revive_dt_node_interaction::opcode_profile::{OpcodeCatalog, OpcodeEntry, TxProfile};
-use revive_dt_report::{
-    AggregatedOpcode, OpcodeCatalogWire, OpcodeEntryWire, OpcodeProfileSummary, TxProfileWire,
-};
 
 use crate::internal_prelude::*;
 
-/// The profiling configuration relevant to a single workload's watcher, derived
-/// from the benchmark run configuration.
+/// The profiling configuration for a single workload's watcher, derived from the
+/// benchmark run configuration. The watcher holds this as `Option<ProfilerConfig>`;
+/// `None` means profiling is disabled.
 #[derive(Debug, Clone, Copy)]
-pub struct ProfileConfig {
-    /// Whether opcode profiling is enabled at all.
-    pub enabled: bool,
+pub struct ProfilerConfig {
     /// How watched transactions are chosen for profiling.
     pub mode: SamplingMode,
     /// The tracer step cap. `0` disables the cap.

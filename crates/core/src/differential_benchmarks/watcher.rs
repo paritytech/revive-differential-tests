@@ -1,6 +1,3 @@
-use crate::differential_benchmarks::tx_profiler::{
-    ProfileConfig, run_profiling, sample_watched_txs,
-};
 use crate::internal_prelude::*;
 use pallet_revive::Weight;
 
@@ -19,14 +16,14 @@ pub struct Watcher {
     reporter: ExecutionSpecificReporter,
 
     /// Configuration for the watched-tx opcode profiler.
-    profile_config: ProfileConfig,
+    profile_config: Option<ProfilerConfig>,
 }
 
 impl Watcher {
     pub fn new(
         connector: Arc<NodeConnector>,
         reporter: ExecutionSpecificReporter,
-        profile_config: ProfileConfig,
+        profile_config: Option<ProfilerConfig>,
     ) -> (Self, UnboundedSender<WatcherEvent>) {
         let (tx, rx) = unbounded_channel::<WatcherEvent>();
         (
@@ -217,7 +214,7 @@ impl Watcher {
 
             // Map each observed tx to its block number so the profiler can report how many
             // distinct blocks its sampled txs actually span (built only when profiling is on).
-            let tx_block_numbers: HashMap<TxHash, BlockNumber> = if profile_config.enabled {
+            let tx_block_numbers: HashMap<TxHash, BlockNumber> = if profile_config.is_some() {
                 observed_blocks
                     .iter()
                     .flat_map(|block_info| {
@@ -235,7 +232,7 @@ impl Watcher {
             };
 
             let ordered_watched_txs: Vec<(TxHash, StepPath)> =
-                if profile_config.enabled && connector.supports_execution_tracing() {
+                if profile_config.is_some() && connector.supports_execution_tracing() {
                     observed_blocks
                         .iter()
                         .flat_map(|block_info| block_info.block.evm_block.transactions.hashes())
@@ -333,7 +330,9 @@ impl Watcher {
             }
 
             // Watched-tx opcode profiling; skipped on non-substrate platforms, which can't trace.
-            if profile_config.enabled && connector.supports_execution_tracing() {
+            if let Some(profile_config) =
+                profile_config.filter(|_| connector.supports_execution_tracing())
+            {
                 let samples = sample_watched_txs(&ordered_watched_txs, profile_config.mode);
                 let sample_block_numbers = samples
                     .iter()

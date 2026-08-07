@@ -2,7 +2,6 @@
 
 use crate::internal_prelude::*;
 
-use crate::differential_benchmarks::tx_profiler::{ProfileConfig, SamplingMode};
 use crate::interpreter::Interpreter;
 
 /// Handles the differential testing executing it according to the information defined in the
@@ -153,16 +152,21 @@ pub async fn handle_differential_benchmarks(
 
             // Initializing all of the components requires to execute this particular workload.
             let private_key_allocator = private_key_allocator.clone();
-            let profile_config = ProfileConfig {
-                enabled: context.benchmark_run.profile_watched_txs,
-                mode: if context.benchmark_run.profile_all {
-                    SamplingMode::All
-                } else {
-                    SamplingMode::Sample(context.benchmark_run.profile_samples_per_step_path)
-                },
-                step_limit: context.benchmark_run.profile_step_limit,
-                concurrency: context.benchmark_run.profile_concurrency,
-            };
+            let profile_config =
+                context
+                    .benchmark_run
+                    .profile_watched_txs
+                    .then(|| ProfilerConfig {
+                        mode: if context.benchmark_run.profile_all {
+                            SamplingMode::All
+                        } else {
+                            SamplingMode::Sample(
+                                context.benchmark_run.profile_samples_per_step_path,
+                            )
+                        },
+                        step_limit: context.benchmark_run.profile_step_limit,
+                        concurrency: context.benchmark_run.profile_concurrency,
+                    });
             let (watcher, watcher_tx) = Watcher::new(
                 platform_information.connector.clone(),
                 test_definition
