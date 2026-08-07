@@ -10,7 +10,7 @@
 //! `(substrate_block, extrinsic_index)` internally, so there's no separate
 //! per-block job-building pass — we just drive one trace per sample.
 
-use revive_dt_node_interaction::opcode_profile::{OpcodeCatalog, OpcodeEntry, TxProfile};
+use revive_dt_node_interaction::opcode_profile;
 
 use crate::internal_prelude::*;
 
@@ -96,7 +96,6 @@ fn sample_one_group(group: &[TxHash], sample_size: usize, out: &mut Vec<TxHash>)
 pub async fn run_profiling(
     connector: &NodeConnector,
     samples: Vec<(TxHash, StepPath)>,
-    sample_block_numbers: HashMap<TxHash, BlockNumber>,
     step_limit: u64,
     concurrency: usize,
 ) -> OpcodeProfileSummary {
@@ -108,11 +107,15 @@ pub async fn run_profiling(
         async move {
             let trace_future = trace_future?;
             match trace_future.await {
-                Ok(Some(execution_trace)) => Some(TxProfile::from_execution_trace(
-                    tx_hash,
-                    step_path,
-                    &execution_trace,
-                )),
+                Ok(Some((block_number, extrinsic_index, execution_trace))) => {
+                    Some(opcode_profile::from_execution_trace(
+                        tx_hash,
+                        step_path,
+                        block_number,
+                        extrinsic_index,
+                        &execution_trace,
+                    ))
+                }
                 Ok(None) => {
                     warn!(
                         ?tx_hash,
@@ -134,7 +137,7 @@ pub async fn run_profiling(
 
     let block_count = profiles
         .iter()
-        .filter_map(|profile| sample_block_numbers.get(&profile.tx_hash))
+        .map(|profile| profile.block_number)
         .collect::<HashSet<_>>()
         .len() as u32;
     if profiles.len() < selected {
@@ -160,118 +163,69 @@ pub async fn run_profiling(
 /// the summary; per-tx `tx_profiles` keep their full opcode lists.
 const OPCODE_TOP_N: usize = 64;
 
-/// Aggregate a workload's `Vec<TxProfile>` into a wire-ready
-/// `OpcodeProfileSummary` for the report.
+/// Aggregate a workload's `Vec<TxProfile>` into an `OpcodeProfileSummary` for
+/// the report: a top-N cross-tx rollup plus the per-tx profiles embedded as-is.
 pub fn aggregate_to_summary(profiles: Vec<TxProfile>, block_count: u32) -> OpcodeProfileSummary {
     let sampled_tx_count = profiles.len();
     let failed_count = profiles.iter().filter(|p| p.failed).count();
 
-    let mut by_op: HashMap<String, (u64, u128, u128)> = HashMap::new();
+    #[derive(Default)]
+    struct OpcodeTotals {
+        count: u64,
+        ref_time: u128,
+        proof_size: u128,
+    }
+
+    let mut by_op = HashMap::<String, OpcodeTotals>::new();
     for profile in &profiles {
         for opcode in &profile.opcodes {
-            let key = opcode.op_key.as_string();
-            let entry = by_op.entry(key).or_insert((0, 0, 0));
-            entry.0 += opcode.count;
-            entry.1 += opcode.total_ref_time;
-            entry.2 += opcode.total_proof_size;
+            let totals = by_op.entry(opcode.op.to_string()).or_default();
+            totals.count += opcode.count;
+            totals.ref_time += opcode.weight.ref_time() as u128;
+            totals.proof_size += opcode.weight.proof_size() as u128;
         }
     }
 
-    let mut sorted: Vec<(String, u64, u128, u128)> = by_op
-        .into_iter()
-        .map(|(k, (c, rt, ps))| (k, c, rt, ps))
-        .collect();
-    sorted.sort_by(|a, b| b.2.cmp(&a.2).then_with(|| a.0.cmp(&b.0)));
+    let mut sorted = by_op.into_iter().collect::<Vec<_>>();
+    sorted.sort_by(|(a_op, a), (b_op, b)| b.ref_time.cmp(&a.ref_time).then_with(|| a_op.cmp(b_op)));
 
-    let mut opcodes: Vec<AggregatedOpcode> = sorted
+    let mut opcodes = sorted
         .iter()
         .take(OPCODE_TOP_N)
-        .map(|(op_key, count, rt, ps)| AggregatedOpcode {
-            op_key: op_key.clone(),
-            sample_count: *count,
-            total_ref_time: *rt,
-            total_proof_size: *ps,
+        .map(|(op, t)| AggregatedOpcode {
+            op: op.clone(),
+            count: t.count,
+            total_ref_time: t.ref_time,
+            total_proof_size: t.proof_size,
         })
-        .collect();
+        .collect::<Vec<_>>();
 
     if sorted.len() > OPCODE_TOP_N {
-        let (count, rt, ps) = sorted
-            .iter()
-            .skip(OPCODE_TOP_N)
-            .fold((0u64, 0u128, 0u128), |acc, (_, c, rt, ps)| {
-                (acc.0 + c, acc.1 + rt, acc.2 + ps)
-            });
+        let other =
+            sorted
+                .iter()
+                .skip(OPCODE_TOP_N)
+                .fold(OpcodeTotals::default(), |mut acc, (_, t)| {
+                    acc.count += t.count;
+                    acc.ref_time += t.ref_time;
+                    acc.proof_size += t.proof_size;
+                    acc
+                });
         opcodes.push(AggregatedOpcode {
-            op_key: "Other".to_string(),
-            sample_count: count,
-            total_ref_time: rt,
-            total_proof_size: ps,
+            op: "Other".to_string(),
+            count: other.count,
+            total_ref_time: other.ref_time,
+            total_proof_size: other.proof_size,
         });
     }
-
-    let tx_profiles: Vec<TxProfileWire> = profiles
-        .into_iter()
-        .map(|p| {
-            let opcodes = p
-                .opcodes
-                .into_iter()
-                .map(|o| AggregatedOpcode {
-                    op_key: o.op_key.as_string(),
-                    sample_count: o.count,
-                    total_ref_time: o.total_ref_time,
-                    total_proof_size: o.total_proof_size,
-                })
-                .collect();
-            TxProfileWire {
-                tx_hash: p.tx_hash,
-                step_path: p.step_path,
-                failed: p.failed,
-                gas_used: p.gas_used,
-                weight_consumed_ref_time: p.weight_consumed_ref_time,
-                weight_consumed_proof_size: p.weight_consumed_proof_size,
-                base_call_weight_ref_time: p.base_call_weight_ref_time,
-                base_call_weight_proof_size: p.base_call_weight_proof_size,
-                unattributed_ref_time: p.unattributed_ref_time,
-                unattributed_proof_size: p.unattributed_proof_size,
-                opcodes,
-            }
-        })
-        .collect();
 
     OpcodeProfileSummary {
         sampled_tx_count,
         block_count,
         failed_count,
         opcodes,
-        tx_profiles,
-        opcode_catalog: opcode_catalog_wire(),
-    }
-}
-
-fn opcode_catalog_wire() -> OpcodeCatalogWire {
-    let catalog = OpcodeCatalog::current();
-    let to_wire =
-        |m: std::collections::BTreeMap<u8, OpcodeEntry>| -> BTreeMap<u8, OpcodeEntryWire> {
-            m.into_iter()
-                .map(|(byte, entry)| {
-                    (
-                        byte,
-                        OpcodeEntryWire {
-                            name: entry.name,
-                            category: entry.category.to_string(),
-                        },
-                    )
-                })
-                .collect()
-        };
-    OpcodeCatalogWire {
-        evm: to_wire(catalog.evm),
-        pvm: to_wire(catalog.pvm),
-        category_order: catalog
-            .category_order
-            .iter()
-            .map(|s| s.to_string())
-            .collect(),
+        tx_profiles: profiles,
+        opcode_catalog: opcode_profile::current_catalog(),
     }
 }
 

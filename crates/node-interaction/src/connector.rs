@@ -771,13 +771,16 @@ impl NodeConnector {
     /// The nested return type, outside-in: `None` if this connector can't trace
     /// (eth-rpc / non-substrate nodes); otherwise a future resolving to `Err` if
     /// the runtime-API call fails, `Ok(None)` if the tx produced no execution
-    /// trace, or `Ok(Some(trace))`.
+    /// trace, or `Ok(Some((block_number, extrinsic_index, trace)))`. The block
+    /// number and extrinsic index are resolved here (they aren't in the trace)
+    /// so the caller can record where the tx was included.
     #[allow(clippy::type_complexity)]
     pub fn trace_execution_tx(
         &self,
         tx_hash: TxHash,
         step_limit: u64,
-    ) -> Option<StaticFuture<Result<Option<pallet_revive::evm::ExecutionTrace>>>> {
+    ) -> Option<StaticFuture<Result<Option<(BlockNumber, u32, pallet_revive::evm::ExecutionTrace)>>>>
+    {
         let substrate_provider = self.substrate_providers.as_ref()?;
         let provider = substrate_provider.clone();
         let inclusion_future = self.indexed_transactions.get(tx_hash);
@@ -793,6 +796,7 @@ impl NodeConnector {
                 .extrinsic_index
                 .expect("qed; this is a substrate transaction")
                 as u32;
+            let block_number = indexed_transaction.block_pair.evm_block.number();
             let parent_hash = substrate_block_information.runtime_block.header.parent_hash;
             let block_hash = H256(substrate_block_information.block_hash);
             let block = substrate_block_information.runtime_block.clone();
@@ -841,9 +845,14 @@ impl NodeConnector {
                 }
             };
 
-            Ok(trace.map(|trace| match trace {
-                pallet_revive::evm::Trace::Execution(execution_trace) => execution_trace,
-                _ => unreachable!("expected an execution trace for an ExecutionTracer request"),
+            Ok(trace.map(|trace| {
+                let execution_trace = match trace {
+                    pallet_revive::evm::Trace::Execution(execution_trace) => execution_trace,
+                    _ => {
+                        unreachable!("expected an execution trace for an ExecutionTracer request")
+                    }
+                };
+                (block_number, extrinsic_index, execution_trace)
             }))
         }))
     }

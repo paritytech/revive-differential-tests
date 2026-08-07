@@ -3159,7 +3159,7 @@ function fmtOpcodeProofSize(ps) {
 
 /**
  * Group tx_profiles by step_path and compute min/mean/max for ref_time +
- * proof_size, plus the dominant opcode (by summed total_ref_time across the
+ * proof_size, plus the dominant opcode (by summed ref_time across the
  * K samples for that step). Returns a list sorted by step_path.
  */
 function computeStepRollups(txProfiles) {
@@ -3176,12 +3176,12 @@ function computeStepRollups(txProfiles) {
       };
     }
     const g = byStep[sp];
-    g.ref_times.push(Number(t.weight_consumed_ref_time || 0));
-    g.proof_sizes.push(Number(t.weight_consumed_proof_size || 0));
+    g.ref_times.push(Number(t.weights?.consumed?.ref_time || 0));
+    g.proof_sizes.push(Number(t.weights?.consumed?.proof_size || 0));
     g.failedAny = g.failedAny || !!t.failed;
     for (const op of (t.opcodes || [])) {
-      if (!g.opcodeAcc[op.op_key]) g.opcodeAcc[op.op_key] = 0;
-      g.opcodeAcc[op.op_key] += Number(op.total_ref_time || 0);
+      if (!g.opcodeAcc[op.op]) g.opcodeAcc[op.op] = 0;
+      g.opcodeAcc[op.op] += Number(op.weight?.ref_time || 0);
     }
   }
   const minMaxMean = arr => {
@@ -3369,17 +3369,16 @@ function renderMultiPlatformStepBandChart(chartId, platformRollups, axis) {
  * Group a single platform's per-tx opcode breakdowns by step_path, picking
  * the workload-wide top-N opcodes as named series and rolling the rest into
  * an "Other" bucket. Returns:
- *   { topOps: [op_key, ...],
- *     rollups: [{ step_path, byOp: { op_key → ref_time }, other: ref_time }, ...] }
+ *   { topOps: [opKey, ...],
+ *     rollups: [{ step_path, byOp: { opKey → ref_time }, other: ref_time }, ...] }
  */
 function computeStepOpcodeRollups(txProfiles, topN, metric = 'ref_time') {
-  const totKey = 'total_' + metric;
-  const unKey = 'unattributed_' + metric;
+  // `metric` is exactly the weight sub-field name (`ref_time` / `proof_size`).
   // Pass 1 — workload-wide opcode totals to pick the named series.
   const opcodeTotals = {};
   for (const t of txProfiles || []) {
     for (const op of (t.opcodes || [])) {
-      opcodeTotals[op.op_key] = (opcodeTotals[op.op_key] || 0) + Number(op[totKey] || 0);
+      opcodeTotals[op.op] = (opcodeTotals[op.op] || 0) + Number(op.weight?.[metric] || 0);
     }
   }
   const topOps = Object.entries(opcodeTotals)
@@ -3396,11 +3395,11 @@ function computeStepOpcodeRollups(txProfiles, topN, metric = 'ref_time') {
     const g = byStep[sp];
     // Weight consumed but not attributed to any captured step (residual) — so the
     // stacked bar totals weight_consumed and the coverage gap is visible inline.
-    g.unattributed += Number(t[unKey] || 0);
+    g.unattributed += Number(t.weights?.unattributed?.[metric] || 0);
     for (const op of (t.opcodes || [])) {
-      const v = Number(op[totKey] || 0);
-      if (topSet.has(op.op_key)) {
-        g.byOp[op.op_key] = (g.byOp[op.op_key] || 0) + v;
+      const v = Number(op.weight?.[metric] || 0);
+      if (topSet.has(op.op)) {
+        g.byOp[op.op] = (g.byOp[op.op] || 0) + v;
       } else {
         g.other += v;
       }
@@ -3557,7 +3556,6 @@ function renderStepOpcodeBreakdownChart(chartId, txProfiles, topN = 8, metric = 
  */
 function renderCrossPlatformOpcodeComparison(chartId, platformsData, metric = 'ref_time', forcedLabels = null) {
   const chart = getOrInitChart(chartId, null);
-  const field = metric === 'proof_size' ? 'total_proof_size' : 'total_ref_time';
   const fmtFn = metric === 'proof_size' ? fmtOpcodeProofSize : fmtOpcodeRefTime;
   const axisName = metric === 'proof_size' ? 'proof_size' : 'ref_time';
 
@@ -3578,13 +3576,13 @@ function renderCrossPlatformOpcodeComparison(chartId, platformsData, metric = 'r
     const catContribs = {};  // cat → { name → metric value }
     for (const tx of (txProfiles || [])) {
       for (const op of (tx.opcodes || [])) {
-        let cat = categoryFor(op.op_key);
+        let cat = categoryFor(op.op);
         if (VM_EXCLUSIVE_CATEGORIES.has(cat)) cat = VM_EXCLUSIVE_LABEL;
-        const v = Number(op[field] || 0);
+        const v = Number(op.weight?.[axisName] || 0);
         catTotals[cat] = (catTotals[cat] || 0) + v;
         seenCats.add(cat);
         if (!catContribs[cat]) catContribs[cat] = {};
-        const name = opKeyToName(op.op_key);
+        const name = opKeyToName(op.op);
         catContribs[cat][name] = (catContribs[cat][name] || 0) + v;
       }
     }
@@ -3701,9 +3699,9 @@ function hydrateOpcodeTable(table) {
   function compareBy(key, dir) {
     return (a, b) => {
       let av, bv;
-      if (key === 'op_key') {
-        av = opKeyToName(a.op_key);
-        bv = opKeyToName(b.op_key);
+      if (key === 'op') {
+        av = opKeyToName(a.op);
+        bv = opKeyToName(b.op);
       } else {
         av = Number(a[key] || 0);
         bv = Number(b[key] || 0);
@@ -3719,14 +3717,14 @@ function hydrateOpcodeTable(table) {
     const sorted = [...opcodes].sort(compareBy(sortKey, sortDir));
 
     tbody.innerHTML = sorted.slice(0, OPCODE_TABLE_TOP_N).map(op => {
-      const name = opKeyToName(op.op_key);
+      const name = opKeyToName(op.op);
       const rt = Number(op.total_ref_time || 0);
       const ps = Number(op.total_proof_size || 0);
       const rtPct = totalRt > 0 ? (rt / totalRt * 100).toFixed(2) : '0.00';
       const psPct = totalPs > 0 ? (ps / totalPs * 100).toFixed(2) : '0.00';
       return `<tr>
         <td class="opcode-name">${escapeHtml(name)}</td>
-        <td class="opcode-num">${Number(op.sample_count || 0).toLocaleString()}</td>
+        <td class="opcode-num">${Number(op.count || 0).toLocaleString()}</td>
         <td class="opcode-num">${fmtOpcodeRefTime(rt)} <span class="opcode-share-pct">(${rtPct}%)</span></td>
         <td class="opcode-num">${fmtOpcodeProofSize(ps)} <span class="opcode-share-pct">(${psPct}%)</span></td>
       </tr>`;
@@ -3748,7 +3746,7 @@ function hydrateOpcodeTable(table) {
         table.dataset.sortDir = table.dataset.sortDir === 'asc' ? 'desc' : 'asc';
       } else {
         table.dataset.sortKey = k;
-        table.dataset.sortDir = (k === 'op_key') ? 'asc' : 'desc';
+        table.dataset.sortDir = (k === 'op') ? 'asc' : 'desc';
       }
       renderRows();
     });
@@ -3765,7 +3763,7 @@ function hydrateOpcodeTable(table) {
  * per-step stacked bars (the "Not profiled" segment), so this only builds the chip.
  */
 function renderCoverageBlock(profile) {
-  const tps = (profile.tx_profiles || []).filter(t => Number(t.weight_consumed_ref_time || 0) > 0);
+  const tps = (profile.tx_profiles || []).filter(t => Number(t.weights?.consumed?.ref_time || 0) > 0);
   if (!tps.length) return '';
   // profile_step_limit = 0 means "cap disabled" (the retester passes limit: None
   // to the tracer), so treat it like an absent cap rather than a 0-step limit.
@@ -3774,7 +3772,7 @@ function renderCoverageBlock(profile) {
   // Per-sample captured step counts, so we can report how many of the N samples
   // actually hit the cap — an average would hide a partial truncation (some
   // samples truncated, some not).
-  const capsHit = tps.map(t => (t.opcodes || []).reduce((s, o) => s + Number(o.sample_count || 0), 0));
+  const capsHit = tps.map(t => (t.opcodes || []).reduce((s, o) => s + Number(o.count || 0), 0));
   const nSamples = capsHit.length;
   const maxC = Math.max(...capsHit);
   const hitCount = cap != null ? capsHit.filter(c => c >= cap).length : 0;
@@ -3916,8 +3914,8 @@ function renderOpcodeProfileSection(modeData, enabledPlatforms) {
              data-sort-key="total_ref_time"
              data-sort-dir="desc">
         <thead><tr>
-          <th scope="col" data-sort-key="op_key">Opcode<span class="sort-arrow"></span></th>
-          <th scope="col" class="opcode-num" data-sort-key="sample_count">Count<span class="sort-arrow"></span></th>
+          <th scope="col" data-sort-key="op">Opcode<span class="sort-arrow"></span></th>
+          <th scope="col" class="opcode-num" data-sort-key="count">Count<span class="sort-arrow"></span></th>
           <th scope="col" class="opcode-num" data-sort-key="total_ref_time">Σ ref_time<span class="sort-arrow">▼</span></th>
           <th scope="col" class="opcode-num" data-sort-key="total_proof_size">Σ proof_size<span class="sort-arrow"></span></th>
         </tr></thead>
@@ -3980,10 +3978,10 @@ function renderOpcodeProfileSection(modeData, enabledPlatforms) {
     for (const { txProfiles } of crossData) {
       for (const tx of (txProfiles || [])) {
         for (const op of (tx.opcodes || [])) {
-          let cat = categoryFor(op.op_key);
+          let cat = categoryFor(op.op);
           if (VM_EXCLUSIVE_CATEGORIES.has(cat)) cat = VM_EXCLUSIVE_LABEL;
-          const rt = Number(op.total_ref_time || 0);
-          const ps = Number(op.total_proof_size || 0);
+          const rt = Number(op.weight?.ref_time || 0);
+          const ps = Number(op.weight?.proof_size || 0);
           if (rt > 0 || ps > 0) seen.add(cat);
         }
       }

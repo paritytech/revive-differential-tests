@@ -37,7 +37,7 @@ pub(crate) mod internal_prelude {
         network::{
             AnyNetwork, BlockResponse, Ethereum, EthereumWallet, Network, TransactionBuilder,
         },
-        primitives::{Address, BlockHash, TxHash, U256, address, keccak256},
+        primitives::{Address, BlockHash, BlockNumber, TxHash, U256, address, keccak256},
         providers::{
             Identity, Provider, ProviderBuilder, RootProvider,
             ext::DebugApi,

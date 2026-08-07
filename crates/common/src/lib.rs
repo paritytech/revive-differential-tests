@@ -6,11 +6,14 @@ pub mod fs;
 pub mod futures;
 pub mod iterators;
 pub mod macros;
+pub mod profile;
 pub mod subscriptions;
 pub mod types;
 
 pub mod prelude {
-    pub use crate::{cached_fs::*, fs::*, futures::*, iterators::*, subscriptions::*, types::*};
+    pub use crate::{
+        cached_fs::*, fs::*, futures::*, iterators::*, profile::*, subscriptions::*, types::*,
+    };
 }
 
 pub(crate) mod internal_prelude {

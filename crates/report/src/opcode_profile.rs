@@ -1,5 +1,6 @@
-//! Serializable opcode-profile types. Decoupled from `revive_dt_node_interaction`'s
-//! `TxProfile` (which embeds subxt-generated, non-`Serialize` types).
+//! The opcode-profile summary embedded in the report. Per-tx profiles and the
+//! opcode catalog reuse the shared `revive_dt_common::profile` types directly;
+//! only the cross-tx rollup (`AggregatedOpcode`) is report-specific.
 
 use crate::internal_prelude::*;
 
@@ -16,53 +17,15 @@ pub struct OpcodeProfileSummary {
     /// collapse into a single `"Other"` entry.
     pub opcodes: Vec<AggregatedOpcode>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub tx_profiles: Vec<TxProfileWire>,
-    #[serde(default, skip_serializing_if = "OpcodeCatalogWire::is_empty")]
-    pub opcode_catalog: OpcodeCatalogWire,
-}
-
-/// Wire view of `revive_dt_node_interaction::OpcodeCatalog`
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct OpcodeCatalogWire {
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    pub evm: BTreeMap<u8, OpcodeEntryWire>,
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    pub pvm: BTreeMap<u8, OpcodeEntryWire>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub category_order: Vec<String>,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct OpcodeEntryWire {
-    pub name: String,
-    pub category: String,
-}
-
-impl OpcodeCatalogWire {
-    pub fn is_empty(&self) -> bool {
-        self.evm.is_empty() && self.pvm.is_empty() && self.category_order.is_empty()
-    }
+    pub tx_profiles: Vec<TxProfile>,
+    #[serde(default, skip_serializing_if = "OpcodeCatalog::is_empty")]
+    pub opcode_catalog: OpcodeCatalog,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct AggregatedOpcode {
-    pub op_key: String,
-    pub sample_count: u64,
+    pub op: String,
+    pub count: u64,
     pub total_ref_time: u128,
     pub total_proof_size: u128,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct TxProfileWire {
-    pub tx_hash: TxHash,
-    pub step_path: StepPath,
-    pub failed: bool,
-    pub gas_used: u64,
-    pub weight_consumed_ref_time: u64,
-    pub weight_consumed_proof_size: u64,
-    pub base_call_weight_ref_time: u64,
-    pub base_call_weight_proof_size: u64,
-    pub unattributed_ref_time: i128,
-    pub unattributed_proof_size: i128,
-    pub opcodes: Vec<AggregatedOpcode>,
 }

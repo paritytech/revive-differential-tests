@@ -212,25 +212,6 @@ impl Watcher {
                 bail!("Encountered failing receipts when watching")
             }
 
-            // Map each observed tx to its block number so the profiler can report how many
-            // distinct blocks its sampled txs actually span (built only when profiling is on).
-            let tx_block_numbers: HashMap<TxHash, BlockNumber> = if profile_config.is_some() {
-                observed_blocks
-                    .iter()
-                    .flat_map(|block_info| {
-                        let block_number = block_info.block.evm_block.number();
-                        block_info
-                            .block
-                            .evm_block
-                            .transactions
-                            .hashes()
-                            .map(move |hash| (hash, block_number))
-                    })
-                    .collect()
-            } else {
-                HashMap::new()
-            };
-
             let ordered_watched_txs: Vec<(TxHash, StepPath)> =
                 if profile_config.is_some() && connector.supports_execution_tracing() {
                     observed_blocks
@@ -334,10 +315,6 @@ impl Watcher {
                 profile_config.filter(|_| connector.supports_execution_tracing())
             {
                 let samples = sample_watched_txs(&ordered_watched_txs, profile_config.mode);
-                let sample_block_numbers = samples
-                    .iter()
-                    .filter_map(|(hash, _)| tx_block_numbers.get(hash).map(|n| (*hash, *n)))
-                    .collect::<HashMap<TxHash, BlockNumber>>();
                 info!(
                     sample_count = samples.len(),
                     "Profiling watched transactions"
@@ -345,7 +322,6 @@ impl Watcher {
                 let summary = run_profiling(
                     &connector,
                     samples,
-                    sample_block_numbers,
                     profile_config.step_limit,
                     profile_config.concurrency,
                 )

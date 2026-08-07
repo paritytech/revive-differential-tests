@@ -8676,6 +8676,7 @@ dependencies = [
  "schemars 1.2.0",
  "semver 1.0.27",
  "serde",
+ "sp-weights 34.0.0",
  "strum 0.27.2",
  "tokio",
 ]
