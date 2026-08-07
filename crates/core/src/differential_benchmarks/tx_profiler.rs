@@ -250,19 +250,20 @@ pub fn aggregate_to_summary(profiles: Vec<TxProfile>, block_count: u32) -> Opcod
 
 fn opcode_catalog_wire() -> OpcodeCatalogWire {
     let catalog = OpcodeCatalog::current();
-    let to_wire = |m: std::collections::BTreeMap<u8, OpcodeEntry>| {
-        m.into_iter()
-            .map(|(byte, entry)| {
-                (
-                    byte.to_string(),
-                    OpcodeEntryWire {
-                        name: entry.name,
-                        category: entry.category.to_string(),
-                    },
-                )
-            })
-            .collect()
-    };
+    let to_wire =
+        |m: std::collections::BTreeMap<u8, OpcodeEntry>| -> BTreeMap<u8, OpcodeEntryWire> {
+            m.into_iter()
+                .map(|(byte, entry)| {
+                    (
+                        byte,
+                        OpcodeEntryWire {
+                            name: entry.name,
+                            category: entry.category.to_string(),
+                        },
+                    )
+                })
+                .collect()
+        };
     OpcodeCatalogWire {
         evm: to_wire(catalog.evm),
         pvm: to_wire(catalog.pvm),

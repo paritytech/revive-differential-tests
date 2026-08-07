@@ -21,14 +21,13 @@ pub struct OpcodeProfileSummary {
     pub opcode_catalog: OpcodeCatalogWire,
 }
 
-/// Wire view of `revive_dt_node_interaction::OpcodeCatalog`. Byte keys are
-/// JSON strings (`"0".."255"`).
+/// Wire view of `revive_dt_node_interaction::OpcodeCatalog`
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct OpcodeCatalogWire {
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    pub evm: BTreeMap<String, OpcodeEntryWire>,
+    pub evm: BTreeMap<u8, OpcodeEntryWire>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    pub pvm: BTreeMap<String, OpcodeEntryWire>,
+    pub pvm: BTreeMap<u8, OpcodeEntryWire>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub category_order: Vec<String>,
 }
