@@ -140,13 +140,6 @@ pub struct OpcodeEntry {
     pub category: Category,
 }
 
-/// A signed `(ref_time, proof_size)` weight pair — see [`TxWeights::unattributed`].
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct SignedWeightPair {
-    pub ref_time: i128,
-    pub proof_size: i128,
-}
-
 /// Per-opcode aggregate across one transaction's steps.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct OpcodeStat {
@@ -156,13 +149,12 @@ pub struct OpcodeStat {
 }
 
 /// The weight accounting for one profiled tx. `unattributed = consumed − Σ step
-/// weights`; kept signed so a tracer over-count surfaces instead of being
-/// clamped (hence [`SignedWeightPair`] rather than `Weight`).
+/// weights` — the weight consumed but not attributed to any traced step.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TxWeights {
     pub consumed: Weight,
     pub base_call: Weight,
-    pub unattributed: SignedWeightPair,
+    pub unattributed: Weight,
 }
 
 /// Profile of one watched transaction.

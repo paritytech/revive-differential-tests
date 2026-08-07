@@ -13,8 +13,7 @@ use std::collections::{BTreeMap, HashMap};
 use alloy::primitives::{BlockNumber, TxHash};
 use pallet_revive::evm::{ExecutionStepKind, ExecutionTrace};
 use revive_dt_common::profile::{
-    Category, OpKey, OpcodeCatalog, OpcodeEntry, OpcodeStat, SignedWeightPair, TxProfile,
-    TxWeights, Weight,
+    Category, OpKey, OpcodeCatalog, OpcodeEntry, OpcodeStat, TxProfile, TxWeights, Weight,
 };
 use revive_dt_common::subscriptions::StepPath;
 
@@ -166,11 +165,16 @@ pub fn from_execution_trace(
             .then_with(|| a.op.cmp(&b.op))
     });
 
-    let unattributed = SignedWeightPair {
-        ref_time: i128::from(trace.weight_consumed.ref_time()) - i128::from(step_total_ref_time),
-        proof_size: i128::from(trace.weight_consumed.proof_size())
-            - i128::from(step_total_proof_size),
-    };
+    let consumed = Weight::from_parts(
+        trace.weight_consumed.ref_time(),
+        trace.weight_consumed.proof_size(),
+    );
+    // Weight consumed but not attributed to any traced step. A trace's step
+    // weights never exceed `weight_consumed`, so this is non-negative.
+    let unattributed = consumed.saturating_sub(Weight::from_parts(
+        step_total_ref_time,
+        step_total_proof_size,
+    ));
 
     TxProfile {
         tx_hash,
@@ -180,10 +184,7 @@ pub fn from_execution_trace(
         failed: trace.failed,
         gas_used: trace.gas,
         weights: TxWeights {
-            consumed: Weight::from_parts(
-                trace.weight_consumed.ref_time(),
-                trace.weight_consumed.proof_size(),
-            ),
+            consumed,
             base_call: Weight::from_parts(
                 trace.base_call_weight.ref_time(),
                 trace.base_call_weight.proof_size(),
@@ -343,8 +344,8 @@ mod tests {
             vec![evm_step(0x01, 1000, 20), evm_step(0x52, 500, 15)],
         );
         let p = from_execution_trace(TxHash::ZERO, StepPath::new(vec![]), 0, 0, &t);
-        assert_eq!(p.weights.unattributed.ref_time, 500);
-        assert_eq!(p.weights.unattributed.proof_size, 15);
+        assert_eq!(p.weights.unattributed.ref_time(), 500);
+        assert_eq!(p.weights.unattributed.proof_size(), 15);
     }
 
     #[test]

@@ -3465,10 +3465,6 @@ function renderStepOpcodeBreakdownChart(chartId, txProfiles, topN = 8, metric = 
   // "Not profiled" residual (weight_consumed − Σ steps) as a final hatched
   // segment, so each bar totals the step's consumed ref_time and the profiling
   // gap reads inline. Hatched (not just gray) to stay distinct from "Other".
-  //
-  // The residual is signed: Σ step weights can exceed weight_consumed (refunds),
-  // and a negative segment would render left of zero and break the tooltip's
-  // percentage math — so clamp plotted values to >= 0.
   const anyUnattr = rollups.some(r => (r.unattributed || 0) > 0);
   if (anyUnattr) {
     series.push({
@@ -3485,7 +3481,7 @@ function renderStepOpcodeBreakdownChart(chartId, txProfiles, topN = 8, metric = 
           rotation: -Math.PI / 4,
         },
       },
-      data: rollups.map(r => Math.max(0, r.unattributed || 0)),
+      data: rollups.map(r => r.unattributed || 0),
       emphasis: { focus: 'series' },
     });
   }
