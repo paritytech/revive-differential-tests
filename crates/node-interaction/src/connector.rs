@@ -766,20 +766,23 @@ impl NodeConnector {
     }
 
     /// Trace one already-included transaction with the execution (opcode/syscall)
-    /// tracer, for post-run profiling. Substrate nodes only; returns `Ok(None)`
-    /// on eth-rpc nodes or when the returned trace isn't an execution trace.
+    /// tracer, for post-run profiling.
+    ///
+    /// The nested return type, outside-in: `None` if this connector can't trace
+    /// (eth-rpc / non-substrate nodes); otherwise a future resolving to `Err` if
+    /// the runtime-API call fails, `Ok(None)` if the tx produced no execution
+    /// trace, or `Ok(Some(trace))`.
+    #[allow(clippy::type_complexity)]
     pub fn trace_execution_tx(
         &self,
         tx_hash: TxHash,
         step_limit: u64,
-    ) -> StaticFuture<Result<Option<pallet_revive::evm::ExecutionTrace>>> {
-        let Some(substrate_provider) = self.substrate_providers.as_ref() else {
-            return Box::pin(async move { Ok(None) });
-        };
+    ) -> Option<StaticFuture<Result<Option<pallet_revive::evm::ExecutionTrace>>>> {
+        let substrate_provider = self.substrate_providers.as_ref()?;
         let provider = substrate_provider.clone();
         let inclusion_future = self.indexed_transactions.get(tx_hash);
 
-        Box::pin(async move {
+        Some(Box::pin(async move {
             let indexed_transaction = inclusion_future.await;
             let substrate_block_information = indexed_transaction
                 .block_pair
@@ -806,11 +809,7 @@ impl NodeConnector {
             let tracer_type = pallet_revive::evm::TracerType::ExecutionTracer(Some(config));
 
             // Prefer `state_callRecorded` (polkadot-sdk #12374) so the block is replayed with a
-            // proof-size recorder registered. A plain runtime-API call crosses the wire as
-            // `state_call`, which registers no recorder: `StorageWeightReclaim` is skipped, declared
-            // proof_size accumulates past the block limit, and `CheckWeight` rejects the tail
-            // extrinsics with `ExhaustsResources` — those then yield empty "phantom" traces. Fall
-            // back to the recorder-less runtime-API replay on nodes that don't serve the RPC.
+            // proof-size recorder registered.
             let trace = match trace_tx_recorded(
                 &provider,
                 &block,
@@ -846,7 +845,7 @@ impl NodeConnector {
                 pallet_revive::evm::Trace::Execution(execution_trace) => execution_trace,
                 _ => unreachable!("expected an execution trace for an ExecutionTracer request"),
             }))
-        })
+        }))
     }
 
     pub fn balance_of(&self, address: Address) -> StaticFuture<Result<U256>> {

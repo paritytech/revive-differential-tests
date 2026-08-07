@@ -182,6 +182,14 @@ pub struct TxProfile {
     pub unattributed_proof_size: i128,
 }
 
+/// Per-opcode accumulator used while folding a trace's steps.
+#[derive(Default)]
+struct OpcodeStats {
+    count: u64,
+    ref_time: u128,
+    proof_size: u128,
+}
+
 impl TxProfile {
     /// Pure transform from `ExecutionTrace` to `TxProfile`.
     pub fn from_execution_trace(
@@ -189,7 +197,7 @@ impl TxProfile {
         step_path: StepPath,
         trace: &ExecutionTrace,
     ) -> Self {
-        let mut by_op: HashMap<OpKey, (u64, u128, u128)> = HashMap::new();
+        let mut by_op: HashMap<OpKey, OpcodeStats> = HashMap::new();
         let mut step_total_ref_time: u128 = 0;
         let mut step_total_proof_size: u128 = 0;
 
@@ -198,24 +206,22 @@ impl TxProfile {
                 ExecutionStepKind::EVMOpcode { op, .. } => OpKey::EvmOpcode(op),
                 ExecutionStepKind::PVMSyscall { op, .. } => OpKey::PvmSyscall(op),
             };
-            let entry = by_op.entry(key).or_insert((0, 0, 0));
-            entry.0 += 1;
-            entry.1 += step.weight_cost.ref_time() as u128;
-            entry.2 += step.weight_cost.proof_size() as u128;
+            let entry = by_op.entry(key).or_default();
+            entry.count += 1;
+            entry.ref_time += step.weight_cost.ref_time() as u128;
+            entry.proof_size += step.weight_cost.proof_size() as u128;
             step_total_ref_time += step.weight_cost.ref_time() as u128;
             step_total_proof_size += step.weight_cost.proof_size() as u128;
         }
 
         let mut opcodes: Vec<OpcodeProfile> = by_op
             .into_iter()
-            .map(
-                |(op_key, (count, total_ref_time, total_proof_size))| OpcodeProfile {
-                    op_key,
-                    count,
-                    total_ref_time,
-                    total_proof_size,
-                },
-            )
+            .map(|(op_key, stats)| OpcodeProfile {
+                op_key,
+                count: stats.count,
+                total_ref_time: stats.ref_time,
+                total_proof_size: stats.proof_size,
+            })
             .collect();
         opcodes.sort_by(|a, b| {
             b.total_ref_time

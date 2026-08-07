@@ -106,6 +106,7 @@ pub async fn run_profiling(
     let profiles = stream::iter(samples.into_iter().map(|(tx_hash, step_path)| {
         let trace_future = connector.trace_execution_tx(tx_hash, step_limit);
         async move {
+            let trace_future = trace_future?;
             match trace_future.await {
                 Ok(Some(execution_trace)) => Some(TxProfile::from_execution_trace(
                     tx_hash,
