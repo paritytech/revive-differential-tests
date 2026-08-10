@@ -38,7 +38,7 @@ network_params:
   electra_fork_epoch: 0
   fulu_fork_epoch: 0
   preregistered_validator_keys_mnemonic: giant issue aisle success illegal bike spike question tent bar rely arctic volcano long crawl hungry vocal artwork sniff fantasy very lucky have athlete
-  num_validator_keys_per_node: 64
+  num_validator_keys_per_node: 128
   genesis_delay: 10
   genesis_gaslimit: 60000000
   gas_limit: 60000000
