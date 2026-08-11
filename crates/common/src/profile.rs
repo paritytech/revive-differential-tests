@@ -148,8 +148,14 @@ pub struct OpcodeStat {
     pub weight: Weight,
 }
 
-/// The weight accounting for one profiled tx. `unattributed = consumed − Σ step
-/// weights` — the weight consumed but not attributed to any traced step.
+/// The weight accounting for one profiled tx. The invariant is
+/// `consumed = (sum of per-opcode weights) + unattributed`, so reconstruct the
+/// total from the per-opcode weights plus `unattributed` only.
+///
+/// `base_call` (the base cost of the outermost call) is not a traced step, so it
+/// is already part of `unattributed`. It is surfaced separately as a labeled
+/// slice for visibility; do not add it on top of `unattributed`, or the total
+/// double-counts it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TxWeights {
     pub consumed: Weight,
