@@ -2,6 +2,8 @@
 //! opcode catalog reuse the shared `revive_dt_common::profile` types directly;
 //! only the cross-tx rollup (`AggregatedOpcode`) is report-specific.
 
+use std::fmt;
+
 use crate::internal_prelude::*;
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -22,9 +24,44 @@ pub struct OpcodeProfileSummary {
     pub opcode_catalog: OpcodeCatalog,
 }
 
+/// A rollup row's opcode, or the synthetic `Other` bucket beyond the top-N.
+/// Serializes to the opcode string or `"Other"`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(into = "String", try_from = "String")]
+pub enum AggregatedOpKey {
+    Op(OpKey),
+    Other,
+}
+
+impl fmt::Display for AggregatedOpKey {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            AggregatedOpKey::Op(op) => op.fmt(f),
+            AggregatedOpKey::Other => f.write_str("Other"),
+        }
+    }
+}
+
+impl From<AggregatedOpKey> for String {
+    fn from(key: AggregatedOpKey) -> Self {
+        key.to_string()
+    }
+}
+
+impl TryFrom<String> for AggregatedOpKey {
+    type Error = String;
+
+    fn try_from(s: String) -> Result<Self, Self::Error> {
+        Ok(match s.as_str() {
+            "Other" => AggregatedOpKey::Other,
+            _ => AggregatedOpKey::Op(s.parse()?),
+        })
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct AggregatedOpcode {
-    pub op: String,
+    pub op: AggregatedOpKey,
     pub count: u64,
     pub total_ref_time: u128,
     pub total_proof_size: u128,

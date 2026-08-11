@@ -11,15 +11,16 @@
 use std::collections::{BTreeMap, HashMap};
 
 use alloy::primitives::{BlockNumber, TxHash};
-use pallet_revive::evm::{ExecutionStepKind, ExecutionTrace};
+use pallet_revive_types::runtime_api::{ExecutionStepKindV1, ExecutionTraceV1, PolkavmSyscallV1};
 use revive_dt_common::profile::{
     Category, OpKey, OpcodeCatalog, OpcodeEntry, OpcodeStat, TxProfile, TxWeights, Weight,
 };
 use revive_dt_common::subscriptions::StepPath;
+use strum::VariantArray;
 
-/// Unknown names fall into [`Category::Other`] — surfaces in the UI so a new
-/// opcode upstream is visible until categorized here.
-fn categorize(name: &str) -> Category {
+/// Categorize an EVM opcode by revm name (revm has no opcode enum). Unknown
+/// names fall into [`Category::Other`].
+fn categorize_evm(name: &str) -> Category {
     match name {
         "STOP" | "RETURN" | "REVERT" | "INVALID" | "SELFDESTRUCT" => Category::Returns,
         "ADD" | "MUL" | "SUB" | "DIV" | "SDIV" | "MOD" | "SMOD" | "ADDMOD" | "MULMOD" | "EXP"
@@ -44,26 +45,28 @@ fn categorize(name: &str) -> Category {
             Category::Stack
         }
         n if n.starts_with("LOG") => Category::Logs,
-
-        "set_storage" | "set_storage_or_clear" | "get_storage" | "get_storage_or_zero" => {
-            Category::Storage
-        }
-        "call" | "call_evm" | "delegate_call" | "delegate_call_evm" | "instantiate" => {
-            Category::Calls
-        }
-        "seal_return" | "terminate" | "consume_all_gas" => Category::Returns,
-        "caller" | "origin" | "address" | "balance" | "balance_of" | "chain_id" | "gas_limit"
-        | "value_transferred" | "gas_price" | "base_fee" | "now" | "block_number"
-        | "block_hash" | "block_author" => Category::Context,
-        "call_data_size" | "call_data_copy" | "call_data_load" | "return_data_size"
-        | "return_data_copy" => Category::CalldataReturndata,
-        "code_hash" | "code_size" => Category::Code,
-        "deposit_event" => Category::Logs,
-        "hash_keccak_256" | "ecdsa_to_eth_address" | "sr25519_verify" => Category::Crypto,
-        "get_immutable_data" | "set_immutable_data" => Category::Immutables,
-        "noop" | "pvm_fuel" | "ref_time_left" => Category::VmOverhead,
-
         _ => Category::Other,
+    }
+}
+
+/// Categorize a PVM syscall. Exhaustive over [`PolkavmSyscallV1`], so a new
+/// syscall upstream won't compile until it's categorized here.
+fn categorize_pvm(syscall: &PolkavmSyscallV1) -> Category {
+    use PolkavmSyscallV1::*;
+    match syscall {
+        SetStorage | SetStorageOrClear | GetStorage | GetStorageOrZero => Category::Storage,
+        Call | CallEvm | DelegateCall | DelegateCallEvm | Instantiate => Category::Calls,
+        SealReturn | Terminate | ConsumeAllGas => Category::Returns,
+        Caller | Origin | Address | Balance | BalanceOf | ChainId | GasLimit | ValueTransferred
+        | GasPrice | BaseFee | Now | BlockNumber | BlockHash | BlockAuthor => Category::Context,
+        CallDataSize | CallDataCopy | CallDataLoad | ReturnDataSize | ReturnDataCopy => {
+            Category::CalldataReturndata
+        }
+        CodeHash | CodeSize => Category::Code,
+        DepositEvent => Category::Logs,
+        HashKeccak256 | EcdsaToEthAddress | Sr25519Verify => Category::Crypto,
+        GetImmutableData | SetImmutableData => Category::Immutables,
+        Noop | PvmFuel | RefTimeLeft => Category::VmOverhead,
     }
 }
 
@@ -78,31 +81,25 @@ pub fn current_catalog() -> OpcodeCatalog {
                     byte,
                     OpcodeEntry {
                         name: name.to_string(),
-                        category: categorize(name),
+                        category: categorize_evm(name),
                     },
                 )
             })
         })
         .collect();
 
+    // PVM syscall names come from the typed `PolkavmSyscallV1` enum (strum), keyed
+    // by the enum's discriminant to match the `op` byte in execution traces.
     let mut pvm = BTreeMap::new();
-    for byte in 0..=u8::MAX {
-        let kind = pallet_revive::evm::ExecutionStepKind::PVMSyscall {
-            op: byte,
-            args: Vec::new(),
-            returned: None,
-        };
-        let Ok(value) = serde_json::to_value(&kind) else {
-            break;
-        };
-        let Some(name) = value.get("op").and_then(|v| v.as_str()) else {
-            break;
-        };
+    for syscall in PolkavmSyscallV1::VARIANTS {
+        // Key by the `#[repr(u8)]` discriminant: the `op` byte traces carry.
+        let byte = *syscall as u8;
+        let name: &'static str = syscall.into();
         pvm.insert(
             byte,
             OpcodeEntry {
                 name: name.to_string(),
-                category: categorize(name),
+                category: categorize_pvm(syscall),
             },
         );
     }
@@ -131,16 +128,16 @@ pub fn from_execution_trace(
     step_path: StepPath,
     block_number: BlockNumber,
     extrinsic_index: u32,
-    trace: &ExecutionTrace,
+    trace: &ExecutionTraceV1,
 ) -> TxProfile {
     let mut by_op = HashMap::<OpKey, OpcodeStats>::new();
     let mut step_total_ref_time: u64 = 0;
     let mut step_total_proof_size: u64 = 0;
 
     for step in &trace.struct_logs {
-        let key = match step.kind {
-            ExecutionStepKind::EVMOpcode { op, .. } => OpKey::Evm(op),
-            ExecutionStepKind::PVMSyscall { op, .. } => OpKey::Pvm(op),
+        let key = match &step.kind {
+            ExecutionStepKindV1::EVMOpcode { op, .. } => OpKey::Evm(op.0),
+            ExecutionStepKindV1::PVMSyscall { op, .. } => OpKey::Pvm(*op as u8),
         };
         let entry = by_op.entry(key).or_default();
         entry.count += 1;
@@ -202,7 +199,7 @@ mod tests {
     #[test]
     fn opcode_catalog_resolves_names_and_categories() {
         let catalog = current_catalog();
-        // EVM names from revm-bytecode + categories from `categorize`.
+        // EVM names from revm-bytecode + categories from `categorize_evm`.
         let mstore = catalog.evm.get(&0x52).expect("0x52 in EVM");
         assert_eq!(mstore.name, "MSTORE");
         assert_eq!(mstore.category, Category::Memory);
@@ -236,23 +233,26 @@ mod tests {
     }
 
     use pallet_revive::Weight;
-    use pallet_revive::evm::{Bytes, ExecutionStep, ExecutionStepKind, ExecutionTrace};
+    use pallet_revive_types::common::Bytes;
+    use pallet_revive_types::runtime_api::{
+        EvmOpcodeV1, ExecutionStepKindV1, ExecutionStepV1, ExecutionTraceV1,
+    };
 
     fn weight(ref_time: u64, proof_size: u64) -> Weight {
         Weight::from_parts(ref_time, proof_size)
     }
 
-    fn evm_step(op: u8, ref_time: u64, proof_size: u64) -> ExecutionStep {
-        ExecutionStep {
+    fn evm_step(op: u8, ref_time: u64, proof_size: u64) -> ExecutionStepV1 {
+        ExecutionStepV1 {
             gas: 0,
             gas_cost: 0,
             weight_cost: weight(ref_time, proof_size),
             depth: 1,
             return_data: Bytes(Vec::new()),
             error: None,
-            kind: ExecutionStepKind::EVMOpcode {
+            kind: ExecutionStepKindV1::EVMOpcode {
                 pc: 0,
-                op,
+                op: EvmOpcodeV1(op),
                 stack: Vec::new(),
                 memory: Vec::new(),
                 storage: None,
@@ -260,16 +260,16 @@ mod tests {
         }
     }
 
-    fn pvm_step(op: u8, ref_time: u64, proof_size: u64) -> ExecutionStep {
-        ExecutionStep {
+    fn pvm_step(op: u8, ref_time: u64, proof_size: u64) -> ExecutionStepV1 {
+        ExecutionStepV1 {
             gas: 0,
             gas_cost: 0,
             weight_cost: weight(ref_time, proof_size),
             depth: 1,
             return_data: Bytes(Vec::new()),
             error: None,
-            kind: ExecutionStepKind::PVMSyscall {
-                op,
+            kind: ExecutionStepKindV1::PVMSyscall {
+                op: PolkavmSyscallV1::VARIANTS[op as usize].clone(),
                 args: Vec::new(),
                 returned: None,
             },
@@ -280,9 +280,9 @@ mod tests {
         base: Weight,
         consumed: Weight,
         failed: bool,
-        steps: Vec<ExecutionStep>,
-    ) -> ExecutionTrace {
-        ExecutionTrace {
+        steps: Vec<ExecutionStepV1>,
+    ) -> ExecutionTraceV1 {
+        ExecutionTraceV1 {
             gas: 0,
             weight_consumed: consumed,
             base_call_weight: base,

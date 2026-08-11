@@ -570,7 +570,7 @@ impl NodeConnector {
             if available_methods.estimate_gas {
                 let payload = revive_metadata::apis()
                     .revive_api()
-                    .eth_estimate_gas(tx.into(), pallet_revive::DryRunConfig::default().into())
+                    .eth_estimate_gas(tx.into(), DryRunConfigV1::default().into())
                     .unvalidated();
                 let gas = runtime_api
                     .call(payload)
@@ -582,10 +582,7 @@ impl NodeConnector {
             } else if available_methods.eth_transact_with_config {
                 let payload = revive_metadata::apis()
                     .revive_api()
-                    .eth_transact_with_config(
-                        tx.into(),
-                        pallet_revive::DryRunConfig::default().into(),
-                    )
+                    .eth_transact_with_config(tx.into(), DryRunConfigV1::default().into())
                     .unvalidated();
                 let gas = runtime_api
                     .call(payload)
@@ -594,7 +591,8 @@ impl NodeConnector {
                     .map_err(|err| {
                         anyhow!("ReviveApi_eth_transact_with_config failed: {:?}", err.0)
                     })?
-                    .eth_gas;
+                    .eth_gas
+                    .0;
                 Ok(gas.try_into().expect("qed; gas in revive must fit in u64"))
             } else {
                 let payload = revive_metadata::apis()
@@ -606,7 +604,8 @@ impl NodeConnector {
                     .await
                     .context("Failed to call ReviveApi_eth_transact")?
                     .map_err(|err| anyhow!("ReviveApi_eth_transact failed: {:?}", err.0))?
-                    .eth_gas;
+                    .eth_gas
+                    .0;
                 Ok(gas.try_into().expect("qed; gas in revive must fit in u64"))
             }
         })
@@ -779,8 +778,7 @@ impl NodeConnector {
         &self,
         tx_hash: TxHash,
         step_limit: u64,
-    ) -> Option<StaticFuture<Result<Option<(BlockNumber, u32, pallet_revive::evm::ExecutionTrace)>>>>
-    {
+    ) -> Option<StaticFuture<Result<Option<(BlockNumber, u32, ExecutionTraceV1)>>>> {
         let substrate_provider = self.substrate_providers.as_ref()?;
         let provider = substrate_provider.clone();
         let inclusion_future = self.indexed_transactions.get(tx_hash);
@@ -801,7 +799,7 @@ impl NodeConnector {
             let block_hash = H256(substrate_block_information.block_hash);
             let block = substrate_block_information.runtime_block.clone();
 
-            let config = pallet_revive::evm::ExecutionTracerConfig {
+            let config = ExecutionTracerConfigV1 {
                 enable_memory: false,
                 disable_stack: true,
                 disable_storage: true,
@@ -810,7 +808,7 @@ impl NodeConnector {
                 limit: (step_limit != 0).then_some(step_limit),
                 memory_word_limit: 0,
             };
-            let tracer_type = pallet_revive::evm::TracerType::ExecutionTracer(Some(config));
+            let tracer_type = TracerTypeV1::ExecutionTracer(Some(config));
 
             // Prefer `state_callRecorded` (polkadot-sdk #12374) so the block is replayed with a
             // proof-size recorder registered.
@@ -847,7 +845,7 @@ impl NodeConnector {
 
             Ok(trace.map(|trace| {
                 let execution_trace = match trace {
-                    pallet_revive::evm::Trace::Execution(execution_trace) => execution_trace,
+                    TraceV1::Execution(execution_trace) => execution_trace,
                     _ => {
                         unreachable!("expected an execution trace for an ExecutionTracer request")
                     }
@@ -1334,7 +1332,7 @@ impl NodeConnector {
         let runtime_extrinsics = extrinsics
             .iter()
             .map(|extrinsic| {
-                OpaqueExtrinsic::from_bytes(extrinsic.bytes())
+                OpaqueExtrinsic::try_from_encoded_extrinsic(extrinsic.bytes())
                     .context("Failed to decode the extrinsic into an opaque extrinsic")
             })
             .collect::<Result<Vec<_>>>()?;
@@ -1646,7 +1644,7 @@ impl NodeConnector {
     fn construct_single_receipt(
         block: &BlockPair,
         extrinsic: &EthTransactionExtrinsic,
-        receipt_gas_info: &pallet_revive::ReceiptGasInfo,
+        receipt_gas_info: &ReceiptGasInfoV1,
         log_count: usize,
         cumulative_gas_used: u64,
         index: usize,
@@ -1911,8 +1909,8 @@ async fn trace_tx_recorded(
     block: &RuntimeSubxtBlock,
     block_hash: H256,
     extrinsic_index: u32,
-    tracer_type: &pallet_revive::evm::TracerType,
-) -> Result<Option<pallet_revive::evm::Trace>> {
+    tracer_type: &TracerTypeV1,
+) -> Result<Option<TraceV1>> {
     use subxt::ext::subxt_rpcs::client::rpc_params;
 
     let mut call_data = block.encode();
@@ -1933,7 +1931,7 @@ async fn trace_tx_recorded(
 
     let raw = alloy::hex::decode(result_hex.trim_start_matches("0x"))
         .context("Failed to hex-decode state_callRecorded result")?;
-    Option::<pallet_revive::evm::Trace>::decode(&mut raw.as_slice())
+    Option::<TraceV1>::decode(&mut raw.as_slice())
         .context("Failed to SCALE-decode state_callRecorded trace_tx result")
 }
 
@@ -2173,24 +2171,23 @@ impl MempoolLimiter {
 
 fn geth_trace_options_to_revive_tracer_type(
     trace_options: GethDebugTracingOptions,
-) -> Result<TracerType> {
+) -> Result<TracerTypeV1> {
     let trace_options = serde_json::to_value(trace_options)
         .expect("qed; alloy geth tracing options serialize to JSON");
-    let trace_options = serde_json::from_value::<TracerConfig>(trace_options)
-        .context("Failed to convert geth tracing options into revive tracer config")?;
-    Ok(trace_options.config)
+    serde_json::from_value::<TracerTypeV1>(trace_options)
+        .context("Failed to convert geth tracing options into revive tracer config")
 }
 
 fn transaction_request_to_revive_transaction(
     tx: TransactionRequest,
-) -> Result<pallet_revive::evm::GenericTransaction> {
+) -> Result<GenericTransactionV1> {
     let tx_json =
         serde_json::to_value(tx).expect("qed; alloy transaction request serializes to JSON");
-    serde_json::from_value::<pallet_revive::evm::GenericTransaction>(tx_json)
+    serde_json::from_value::<GenericTransactionV1>(tx_json)
         .context("Failed to convert alloy transaction request into revive transaction")
 }
 
-fn revive_trace_to_geth_trace(trace: pallet_revive::evm::Trace) -> Result<GethTrace> {
+fn revive_trace_to_geth_trace(trace: TraceV1) -> Result<GethTrace> {
     let trace_json =
         serde_json::to_value(trace).expect("qed; pallet-revive trace serializes to JSON");
     serde_json::from_value::<GethTrace>(trace_json)

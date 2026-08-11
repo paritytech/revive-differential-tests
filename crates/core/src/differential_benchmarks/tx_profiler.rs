@@ -176,10 +176,10 @@ pub fn aggregate_to_summary(profiles: Vec<TxProfile>, block_count: u32) -> Opcod
         proof_size: u128,
     }
 
-    let mut by_op = HashMap::<String, OpcodeTotals>::new();
+    let mut by_op = HashMap::<OpKey, OpcodeTotals>::new();
     for profile in &profiles {
         for opcode in &profile.opcodes {
-            let totals = by_op.entry(opcode.op.to_string()).or_default();
+            let totals = by_op.entry(opcode.op).or_default();
             totals.count += opcode.count;
             totals.ref_time += opcode.weight.ref_time() as u128;
             totals.proof_size += opcode.weight.proof_size() as u128;
@@ -193,7 +193,7 @@ pub fn aggregate_to_summary(profiles: Vec<TxProfile>, block_count: u32) -> Opcod
         .iter()
         .take(OPCODE_TOP_N)
         .map(|(op, t)| AggregatedOpcode {
-            op: op.clone(),
+            op: AggregatedOpKey::Op(*op),
             count: t.count,
             total_ref_time: t.ref_time,
             total_proof_size: t.proof_size,
@@ -212,7 +212,7 @@ pub fn aggregate_to_summary(profiles: Vec<TxProfile>, block_count: u32) -> Opcod
                     acc
                 });
         opcodes.push(AggregatedOpcode {
-            op: "Other".to_string(),
+            op: AggregatedOpKey::Other,
             count: other.count,
             total_ref_time: other.ref_time,
             total_proof_size: other.proof_size,

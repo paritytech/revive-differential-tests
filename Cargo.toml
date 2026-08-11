@@ -61,9 +61,9 @@ serde_json = { version = "1.0", default-features = false, features = [
 serde_with = { version = "3.14.0", features = ["hex"] }
 serde_yaml_ng = { version = "0.10.0" }
 sha2 = { version = "0.10.9" }
-sp-core = "38.0.1"
-sp-runtime = "43.0.0"
-sp-weights = { version = "34.0.0", features = ["serde"] }
+sp-core = { git = "https://github.com/paritytech/polkadot-sdk", rev = "cde8a924504c99e768940bf6b600716725c3c438" }
+sp-runtime = { git = "https://github.com/paritytech/polkadot-sdk", rev = "cde8a924504c99e768940bf6b600716725c3c438" }
+sp-weights = { git = "https://github.com/paritytech/polkadot-sdk", rev = "cde8a924504c99e768940bf6b600716725c3c438", features = ["serde"] }
 strum = { version = "0.27.2", features = ["derive"] }
 syn = { version = "2.0.117", features = ["full"] }
 subxt = { version = "0.43.0", features = ["reconnecting-rpc-client"] }
@@ -84,7 +84,7 @@ tower = { version = "0.5.2", features = ["limit"] }
 uuid = { version = "1.8", features = ["v4"] }
 tracing = { version = "0.1.41" }
 tracing-appender = { version = "0.2.3" }
-tracing-subscriber = { version = "0.3.23", default-features = false, features = [
+tracing-subscriber = { version = "=0.3.19", default-features = false, features = [
     "fmt",
     "json",
     "env-filter",
@@ -100,7 +100,8 @@ revive-common = { version = "1.1.0" }
 revive-differential = { version = "0.3.0" }
 
 zombienet-sdk = { version = "0.4.14" }
-pallet-revive = { version = "0.18.0", default-features = true }
+pallet-revive = { git = "https://github.com/paritytech/polkadot-sdk", rev = "cde8a924504c99e768940bf6b600716725c3c438", default-features = true }
+pallet-revive-types = { git = "https://github.com/paritytech/polkadot-sdk", rev = "cde8a924504c99e768940bf6b600716725c3c438" }
 revm-bytecode = { version = "6.2.2", default-features = false, features = ["std"] }
 parity-scale-codec = { version = "3.7.5", features = ["derive"] }
 
