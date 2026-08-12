@@ -4,6 +4,7 @@
 use std::{collections::BTreeMap, fmt, str::FromStr};
 
 use alloy::primitives::{BlockNumber, TxHash};
+use anyhow::{Context, bail};
 use serde::{Deserialize, Serialize};
 use strum::{Display, EnumIter, EnumString, IntoEnumIterator};
 
@@ -40,24 +41,24 @@ impl From<OpKey> for String {
 }
 
 impl FromStr for OpKey {
-    type Err = String;
+    type Err = anyhow::Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let (kind, hex) = s
             .split_once(":0x")
-            .ok_or_else(|| format!("malformed OpKey: {s}"))?;
+            .with_context(|| format!("malformed OpKey: {s}"))?;
         let byte =
-            u8::from_str_radix(hex, 16).map_err(|e| format!("malformed OpKey byte {s}: {e}"))?;
+            u8::from_str_radix(hex, 16).with_context(|| format!("malformed OpKey byte: {s}"))?;
         match kind {
             "EVMOpcode" => Ok(OpKey::Evm(byte)),
             "PVMSyscall" => Ok(OpKey::Pvm(byte)),
-            _ => Err(format!("unknown OpKey kind: {s}")),
+            _ => bail!("unknown OpKey kind: {s}"),
         }
     }
 }
 
 impl TryFrom<String> for OpKey {
-    type Error = String;
+    type Error = anyhow::Error;
 
     fn try_from(s: String) -> Result<Self, Self::Error> {
         s.parse()

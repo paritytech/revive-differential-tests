@@ -115,8 +115,7 @@ pub fn current_catalog() -> OpcodeCatalog {
 #[derive(Default)]
 struct OpcodeStats {
     count: u64,
-    ref_time: u64,
-    proof_size: u64,
+    weight: Weight,
 }
 
 /// Pure transform from `ExecutionTrace` to the shared [`TxProfile`].
@@ -131,8 +130,7 @@ pub fn from_execution_trace(
     trace: &ExecutionTraceV1,
 ) -> TxProfile {
     let mut by_op = HashMap::<OpKey, OpcodeStats>::new();
-    let mut step_total_ref_time: u64 = 0;
-    let mut step_total_proof_size: u64 = 0;
+    let mut step_total = Weight::zero();
 
     for step in &trace.struct_logs {
         let key = match &step.kind {
@@ -141,10 +139,8 @@ pub fn from_execution_trace(
         };
         let entry = by_op.entry(key).or_default();
         entry.count += 1;
-        entry.ref_time += step.weight_cost.ref_time();
-        entry.proof_size += step.weight_cost.proof_size();
-        step_total_ref_time += step.weight_cost.ref_time();
-        step_total_proof_size += step.weight_cost.proof_size();
+        entry.weight += step.weight_cost;
+        step_total += step.weight_cost;
     }
 
     let mut opcodes: Vec<OpcodeStat> = by_op
@@ -152,7 +148,7 @@ pub fn from_execution_trace(
         .map(|(op, stats)| OpcodeStat {
             op,
             count: stats.count,
-            weight: Weight::from_parts(stats.ref_time, stats.proof_size),
+            weight: stats.weight,
         })
         .collect();
     opcodes.sort_by(|a, b| {
@@ -162,16 +158,10 @@ pub fn from_execution_trace(
             .then_with(|| a.op.cmp(&b.op))
     });
 
-    let consumed = Weight::from_parts(
-        trace.weight_consumed.ref_time(),
-        trace.weight_consumed.proof_size(),
-    );
+    let consumed = trace.weight_consumed;
     // Weight consumed but not attributed to any traced step. A trace's step
     // weights never exceed `weight_consumed`, so this is non-negative.
-    let unattributed = consumed.saturating_sub(Weight::from_parts(
-        step_total_ref_time,
-        step_total_proof_size,
-    ));
+    let unattributed = consumed.saturating_sub(step_total);
 
     TxProfile {
         tx_hash,
@@ -182,10 +172,7 @@ pub fn from_execution_trace(
         gas_used: trace.gas,
         weights: TxWeights {
             consumed,
-            base_call: Weight::from_parts(
-                trace.base_call_weight.ref_time(),
-                trace.base_call_weight.proof_size(),
-            ),
+            base_call: trace.base_call_weight,
             unattributed,
         },
         opcodes,

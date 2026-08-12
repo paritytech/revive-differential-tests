@@ -49,7 +49,7 @@ impl From<AggregatedOpKey> for String {
 }
 
 impl TryFrom<String> for AggregatedOpKey {
-    type Error = String;
+    type Error = anyhow::Error;
 
     fn try_from(s: String) -> Result<Self, Self::Error> {
         Ok(match s.as_str() {
