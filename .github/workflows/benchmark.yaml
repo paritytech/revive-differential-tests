@@ -58,7 +58,7 @@ on:
         type: string
         default: ""
       profile-watched-txs:
-        description: Enable per-opcode profiling of sampled watched txs. Builds the polkadot-sdk with `--cfg revive_debug` so the execution-trace runtime API is available. Substrate platforms only; non-substrate platforms are skipped at runtime.
+        description: Enable per-opcode profiling of sampled watched txs at runtime. Substrate platforms only; non-substrate platforms are skipped at runtime.
         type: boolean
         default: true
       profile-samples-per-step-path:
@@ -131,8 +131,8 @@ jobs:
             polkadot-parachain-bin
             pallet-revive-eth-rpc
           env: |
-            RUSTFLAGS=-Awarnings${{ inputs.profile-watched-txs && ' --cfg revive_debug' || '' }}
-            WASM_BUILD_RUSTFLAGS=-Clink-arg=--allow-undefined${{ inputs.profile-watched-txs && ' --cfg revive_debug' || '' }}
+            RUSTFLAGS=-Awarnings --cfg revive_debug
+            WASM_BUILD_RUSTFLAGS=-Clink-arg=--allow-undefined --cfg revive_debug
 
   build-polkadot-sdk-jit:
     name: Build and Cache the Polkadot SDK Dependencies With JIT
@@ -156,8 +156,8 @@ jobs:
             polkadot-parachain-bin
             pallet-revive-eth-rpc
           env: |
-            RUSTFLAGS=-Awarnings --cfg revive_jit${{ inputs.profile-watched-txs && ' --cfg revive_debug' || '' }}
-            WASM_BUILD_RUSTFLAGS=-Clink-arg=--allow-undefined${{ inputs.profile-watched-txs && ' --cfg revive_debug' || '' }}
+            RUSTFLAGS=-Awarnings --cfg revive_jit --cfg revive_debug
+            WASM_BUILD_RUSTFLAGS=-Clink-arg=--allow-undefined --cfg revive_debug
 
   build-resolc:
     name: Build and Cache Resolc Binary
@@ -371,12 +371,12 @@ jobs:
             polkadot
             polkadot-parachain-bin
             pallet-revive-eth-rpc
-          # Must match the build jobs' env EXACTLY (incl. the profiling revive_debug
-          # suffix) — require-binary's cache key hashes this, so any divergence misses
-          # the cache built above and rebuilds from scratch.
+          # Must match the build jobs' env EXACTLY: require-binary's cache key hashes
+          # this, so any divergence misses the cache built above and rebuilds from
+          # scratch.
           env: |
-            ${{ matrix.platform.polkadot_sdk_build == 'jit' && 'RUSTFLAGS=-Awarnings --cfg revive_jit' || 'RUSTFLAGS=-Awarnings' }}${{ inputs.profile-watched-txs && ' --cfg revive_debug' || '' }}
-            WASM_BUILD_RUSTFLAGS=-Clink-arg=--allow-undefined${{ inputs.profile-watched-txs && ' --cfg revive_debug' || '' }}
+            ${{ matrix.platform.polkadot_sdk_build == 'jit' && 'RUSTFLAGS=-Awarnings --cfg revive_jit' || 'RUSTFLAGS=-Awarnings' }} --cfg revive_debug
+            WASM_BUILD_RUSTFLAGS=-Clink-arg=--allow-undefined --cfg revive_debug
       - name: Set artifact name
         id: names
         env:
