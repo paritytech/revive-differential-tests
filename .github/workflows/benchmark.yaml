@@ -18,7 +18,7 @@ on:
       polkadot-sdk-ref:
         description: The branch, tag, or commit hash to use for the polkadot-sdk repository.
         required: true
-        default: 22e63b740b6943b4e39a3c6b779ca9e5408ca00c
+        default: cde8a924504c99e768940bf6b600716725c3c438
       solc-version:
         description: Solc compiler version (e.g. v0.8.28)
         required: true
