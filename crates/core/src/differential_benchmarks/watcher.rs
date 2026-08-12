@@ -213,7 +213,7 @@ impl Watcher {
             }
 
             let ordered_watched_txs =
-                if profile_config.is_some() && connector.supports_execution_tracing() {
+                if profile_config.is_some() && connector.has_substrate_provider() {
                     observed_blocks
                         .iter()
                         .flat_map(|block_info| block_info.block.evm_block.transactions.hashes())
@@ -312,7 +312,7 @@ impl Watcher {
 
             // Watched-tx opcode profiling; skipped on non-substrate platforms, which can't trace.
             if let Some(profile_config) =
-                profile_config.filter(|_| connector.supports_execution_tracing())
+                profile_config.filter(|_| connector.has_substrate_provider())
             {
                 let samples = sample_watched_txs(&ordered_watched_txs, profile_config.mode);
                 info!(

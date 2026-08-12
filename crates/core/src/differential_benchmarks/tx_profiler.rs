@@ -105,15 +105,13 @@ pub async fn run_profiling(
         async move {
             let trace_future = trace_future?;
             match trace_future.await {
-                Ok(Some((block_number, extrinsic_index, execution_trace))) => {
-                    Some(opcode_profile::from_execution_trace(
-                        tx_hash,
-                        step_path,
-                        block_number,
-                        extrinsic_index,
-                        execution_trace,
-                    ))
-                }
+                Ok(Some(result)) => Some(opcode_profile::from_execution_trace(
+                    tx_hash,
+                    step_path,
+                    result.block_number,
+                    result.extrinsic_index,
+                    result.trace,
+                )),
                 Ok(None) => {
                     warn!(
                         ?tx_hash,

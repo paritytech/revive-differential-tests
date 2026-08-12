@@ -14,6 +14,13 @@ type AlloyProvider = FillProvider<
 pub type RuntimeSubxtBlock = GenericBlock<GenericHeader<u32, BlakeTwo256>, OpaqueExtrinsic>;
 type OnlineSubxtBlock = SubxtBlock<PolkadotConfig, OnlineClient<PolkadotConfig>>;
 
+/// An execution trace together with where the traced transaction was included.
+pub struct ExecutionTraceResult {
+    pub block_number: BlockNumber,
+    pub extrinsic_index: u32,
+    pub trace: ExecutionTraceV1,
+}
+
 pub struct NodeConnector {
     eth_providers: SingleOrPool<AlloyProvider>,
     substrate_providers: Option<SubstrateProviders>,
@@ -759,8 +766,9 @@ impl NodeConnector {
         })
     }
 
-    /// Whether this connector can produce execution traces (substrate platforms only).
-    pub fn supports_execution_tracing(&self) -> bool {
+    /// Whether this connector has a substrate provider (substrate platforms only).
+    /// Execution tracing requires one.
+    pub fn has_substrate_provider(&self) -> bool {
         self.substrate_providers.is_some()
     }
 
@@ -770,15 +778,15 @@ impl NodeConnector {
     /// The nested return type, outside-in: `None` if this connector can't trace
     /// (eth-rpc / non-substrate nodes); otherwise a future resolving to `Err` if
     /// the runtime-API call fails, `Ok(None)` if the tx produced no execution
-    /// trace, or `Ok(Some((block_number, extrinsic_index, trace)))`. The block
-    /// number and extrinsic index are resolved here (they aren't in the trace)
-    /// so the caller can record where the tx was included.
+    /// trace, or `Ok(Some(ExecutionTraceResult))`. The block number and extrinsic
+    /// index are resolved here (they aren't in the trace) so the caller can record
+    /// where the tx was included.
     #[allow(clippy::type_complexity)]
     pub fn trace_execution_tx(
         &self,
         tx_hash: TxHash,
         step_limit: u64,
-    ) -> Option<StaticFuture<Result<Option<(BlockNumber, u32, ExecutionTraceV1)>>>> {
+    ) -> Option<StaticFuture<Result<Option<ExecutionTraceResult>>>> {
         let substrate_provider = self.substrate_providers.as_ref()?;
         let provider = substrate_provider.clone();
         let inclusion_future = self.indexed_transactions.get(tx_hash);
@@ -844,13 +852,14 @@ impl NodeConnector {
             };
 
             Ok(trace.map(|trace| {
-                let execution_trace = match trace {
-                    TraceV1::Execution(execution_trace) => execution_trace,
-                    _ => {
-                        unreachable!("expected an execution trace for an ExecutionTracer request")
-                    }
+                let TraceV1::Execution(execution_trace) = trace else {
+                    unreachable!("expected an execution trace for an ExecutionTracer request")
                 };
-                (block_number, extrinsic_index, execution_trace)
+                ExecutionTraceResult {
+                    block_number,
+                    extrinsic_index,
+                    trace: execution_trace,
+                }
             }))
         }))
     }
