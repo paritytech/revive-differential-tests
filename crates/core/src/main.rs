@@ -12,6 +12,7 @@ mod internal_prelude {
     pub use revive_dt_core::prelude::*;
     pub use revive_dt_format::prelude::*;
     pub use revive_dt_node::prelude::*;
+    pub use revive_dt_node_interaction::opcode_profile;
     pub use revive_dt_node_interaction::prelude::*;
     pub use revive_dt_report::prelude::*;
 

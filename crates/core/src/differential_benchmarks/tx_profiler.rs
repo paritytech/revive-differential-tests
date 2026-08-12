@@ -10,8 +10,6 @@
 //! `(substrate_block, extrinsic_index)` internally, so there's no separate
 //! per-block job-building pass — we just drive one trace per sample.
 
-use revive_dt_node_interaction::opcode_profile;
-
 use crate::internal_prelude::*;
 
 /// The profiling configuration for a single workload's watcher, derived from the
@@ -113,7 +111,7 @@ pub async fn run_profiling(
                         step_path,
                         block_number,
                         extrinsic_index,
-                        &execution_trace,
+                        execution_trace,
                     ))
                 }
                 Ok(None) => {

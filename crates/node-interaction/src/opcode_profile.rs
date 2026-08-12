@@ -127,7 +127,7 @@ pub fn from_execution_trace(
     step_path: StepPath,
     block_number: BlockNumber,
     extrinsic_index: u32,
-    trace: &ExecutionTraceV1,
+    trace: ExecutionTraceV1,
 ) -> TxProfile {
     let mut by_op = HashMap::<OpKey, OpcodeStats>::new();
     let mut step_total = Weight::zero();
@@ -291,7 +291,7 @@ mod tests {
                 evm_step(0x01, 100, 10),
             ],
         );
-        let p = from_execution_trace(TxHash::ZERO, StepPath::new(vec![]), 0, 0, &t);
+        let p = from_execution_trace(TxHash::ZERO, StepPath::new(vec![]), 0, 0, t);
         assert_eq!(p.opcodes.len(), 1);
         assert_eq!(p.opcodes[0].count, 3);
         assert_eq!(p.opcodes[0].weight.ref_time(), 300);
@@ -311,7 +311,7 @@ mod tests {
                 pvm_step(0x03, 500, 0), // same PVM syscall again → 1000 total
             ],
         );
-        let p = from_execution_trace(TxHash::ZERO, StepPath::new(vec![]), 0, 0, &t);
+        let p = from_execution_trace(TxHash::ZERO, StepPath::new(vec![]), 0, 0, t);
         assert_eq!(p.opcodes.len(), 3);
         assert_eq!(p.opcodes[0].op, OpKey::Pvm(0x03));
         assert_eq!(p.opcodes[0].count, 2);
@@ -330,7 +330,7 @@ mod tests {
             false,
             vec![evm_step(0x01, 1000, 20), evm_step(0x52, 500, 15)],
         );
-        let p = from_execution_trace(TxHash::ZERO, StepPath::new(vec![]), 0, 0, &t);
+        let p = from_execution_trace(TxHash::ZERO, StepPath::new(vec![]), 0, 0, t);
         assert_eq!(p.weights.unattributed.ref_time(), 500);
         assert_eq!(p.weights.unattributed.proof_size(), 15);
     }
