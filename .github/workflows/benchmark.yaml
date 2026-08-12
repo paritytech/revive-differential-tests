@@ -62,17 +62,17 @@ on:
         type: boolean
         default: true
       profile-samples-per-step-path:
-        description: Profiler — number of transactions to trace per unique step path (K). Each is traced individually.
+        description: Number of transactions to trace per unique step path (K). Each is traced individually.
         required: false
         type: number
         default: 5
       profile-concurrency:
-        description: Profiler — maximum in-flight per-transaction `trace_tx` calls.
+        description: Maximum in-flight per-transaction `trace_tx` calls.
         required: false
         type: number
         default: 4
       profile-step-limit:
-        description: Profiler — per-tx tracer step cap. 0 disables the cap.
+        description: Per-tx tracer step cap. 0 disables the cap.
         required: false
         type: number
         default: 0
@@ -458,10 +458,7 @@ jobs:
             additional_args+=(--benchmark.repetition-count-override "$OVERRIDE_REPETITION_COUNT")
           fi
 
-          # Opcode profiling. The polkadot-sdk was built with --cfg revive_debug above so the
-          # execution-trace runtime API exists; the retester skips non-substrate platforms at
-          # runtime. No network guard needed — every substrate platform in the platforms JSON
-          # is asset-hub-westend based.
+          # Opcode profiling.
           if [ "$PROFILE_ENABLED" = "true" ]; then
             additional_args+=(
               --benchmark.profile-watched-txs

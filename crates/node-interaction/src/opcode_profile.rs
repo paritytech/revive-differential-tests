@@ -3,10 +3,10 @@
 //! Two responsibilities:
 //! 1. [`current_catalog`] snapshots upstream byte→name tables (revm for EVM,
 //!    pallet-revive for PVM) and tags each with an editorial `Category`.
-//! 2. [`from_execution_trace`] aggregates one `ExecutionTrace`
-//!    (returned by [`NodeApi::trace_execution_tx`](crate::NodeApi)) into the
-//!    shared [`TxProfile`] — per-opcode weight buckets + the unattributed-weight
-//!    residual.
+//! 2. [`from_execution_trace`] aggregates one `ExecutionTraceV1`
+//!    (returned by [`NodeConnector::trace_execution_tx`](crate::connector::NodeConnector::trace_execution_tx))
+//!    into the shared [`TxProfile`]: per-opcode weight buckets plus the
+//!    unattributed-weight residual.
 
 use std::collections::{BTreeMap, HashMap};
 
@@ -200,7 +200,7 @@ mod tests {
             !catalog.evm.contains_key(&0x0c),
             "0x0c is unassigned in EVM"
         );
-        // PVM names from pallet-revive's serde adapter.
+        // PVM names come from the typed `PolkavmSyscallV1` enum.
         let set_storage = catalog.pvm.get(&0x01).expect("0x01 in PVM");
         assert_eq!(set_storage.name, "set_storage");
         assert_eq!(set_storage.category, Category::Storage);
@@ -209,7 +209,7 @@ mod tests {
         assert_eq!(pvm_fuel.category, Category::VmOverhead);
         assert!(
             !catalog.pvm.contains_key(&0x2a),
-            "past end of list_trace_ops"
+            "0x2a is past the last PolkavmSyscallV1 variant"
         );
         assert!(catalog.pvm.len() >= 42);
         // Display order ends with the catch-all bucket.
