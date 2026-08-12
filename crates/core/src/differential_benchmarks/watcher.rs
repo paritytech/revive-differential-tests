@@ -212,7 +212,7 @@ impl Watcher {
                 bail!("Encountered failing receipts when watching")
             }
 
-            let ordered_watched_txs: Vec<(TxHash, StepPath)> =
+            let ordered_watched_txs =
                 if profile_config.is_some() && connector.supports_execution_tracing() {
                     observed_blocks
                         .iter()
@@ -222,7 +222,7 @@ impl Watcher {
                                 .get(&hash)
                                 .map(|info| (hash, info.step_path.clone()))
                         })
-                        .collect()
+                        .collect::<Vec<_>>()
                 } else {
                     Vec::new()
                 };

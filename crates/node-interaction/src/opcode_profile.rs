@@ -143,14 +143,14 @@ pub fn from_execution_trace(
         step_total += step.weight_cost;
     }
 
-    let mut opcodes: Vec<OpcodeStat> = by_op
+    let mut opcodes = by_op
         .into_iter()
         .map(|(op, stats)| OpcodeStat {
             op,
             count: stats.count,
             weight: stats.weight,
         })
-        .collect();
+        .collect::<Vec<_>>();
     opcodes.sort_by(|a, b| {
         b.weight
             .ref_time()
@@ -197,7 +197,7 @@ mod tests {
         assert_eq!(push7.name, "PUSH7");
         assert_eq!(push7.category, Category::Stack);
         assert!(
-            catalog.evm.get(&0x0c).is_none(),
+            !catalog.evm.contains_key(&0x0c),
             "0x0c is unassigned in EVM"
         );
         // PVM names from pallet-revive's serde adapter.
@@ -208,7 +208,7 @@ mod tests {
         assert_eq!(pvm_fuel.name, "pvm_fuel");
         assert_eq!(pvm_fuel.category, Category::VmOverhead);
         assert!(
-            catalog.pvm.get(&0x2a).is_none(),
+            !catalog.pvm.contains_key(&0x2a),
             "past end of list_trace_ops"
         );
         assert!(catalog.pvm.len() >= 42);
@@ -256,7 +256,7 @@ mod tests {
             return_data: Bytes(Vec::new()),
             error: None,
             kind: ExecutionStepKindV1::PVMSyscall {
-                op: PolkavmSyscallV1::VARIANTS[op as usize].clone(),
+                op: PolkavmSyscallV1::VARIANTS[op as usize],
                 args: Vec::new(),
                 returned: None,
             },

@@ -296,7 +296,9 @@ mod tests {
     fn evenly_spaced_indices() {
         // Group of 9 entries (indices 0..=8), sample_size=5
         // Expected positions: ⌊(8 * i) / 4⌋ for i ∈ 0..5 = 0, 2, 4, 6, 8
-        let entries: Vec<(u8, &[usize])> = (1u8..=9).map(|i| (i, &[0usize] as &[usize])).collect();
+        let entries = (1u8..=9)
+            .map(|i| (i, &[0usize] as &[usize]))
+            .collect::<Vec<_>>();
         let m = submissions(entries);
         let out = sampled_hashes(&m, SamplingMode::Sample(5));
         assert_eq!(
@@ -315,10 +317,10 @@ mod tests {
     fn multiple_groups_each_sampled_independently() {
         // step_path [0]: 5 entries (1..=5), step_path [1]: 5 entries (6..=10)
         // sample_size=3 → positions ⌊(4 * i) / 2⌋ = 0, 2, 4
-        let entries: Vec<(u8, &[usize])> = (1..=5)
+        let entries = (1..=5)
             .map(|i| (i, &[0usize] as &[usize]))
             .chain((6..=10).map(|i| (i, &[1usize] as &[usize])))
-            .collect();
+            .collect::<Vec<_>>();
         let m = submissions(entries);
         let out = sampled_hashes(&m, SamplingMode::Sample(3));
         assert_eq!(
