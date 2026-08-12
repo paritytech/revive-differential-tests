@@ -192,25 +192,24 @@ pub fn aggregate_to_summary(profiles: Vec<TxProfile>, block_count: u32) -> Opcod
     let mut opcodes = sorted
         .iter()
         .take(OPCODE_TOP_N)
-        .map(|(op, t)| AggregatedOpcode {
+        .map(|(op, totals)| AggregatedOpcode {
             op: AggregatedOpKey::Op(*op),
-            count: t.count,
-            total_ref_time: t.ref_time,
-            total_proof_size: t.proof_size,
+            count: totals.count,
+            total_ref_time: totals.ref_time,
+            total_proof_size: totals.proof_size,
         })
         .collect::<Vec<_>>();
 
     if sorted.len() > OPCODE_TOP_N {
-        let other =
-            sorted
-                .iter()
-                .skip(OPCODE_TOP_N)
-                .fold(OpcodeTotals::default(), |mut acc, (_, t)| {
-                    acc.count += t.count;
-                    acc.ref_time += t.ref_time;
-                    acc.proof_size += t.proof_size;
-                    acc
-                });
+        let other = sorted.iter().skip(OPCODE_TOP_N).fold(
+            OpcodeTotals::default(),
+            |mut acc, (_, totals)| {
+                acc.count += totals.count;
+                acc.ref_time += totals.ref_time;
+                acc.proof_size += totals.proof_size;
+                acc
+            },
+        );
         opcodes.push(AggregatedOpcode {
             op: AggregatedOpKey::Other,
             count: other.count,
