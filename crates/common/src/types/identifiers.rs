@@ -72,6 +72,8 @@ define_wrapper_type! {
     JsonSchema,
 )]
 pub enum CompilerIdentifier {
+    /// The Cargo compiler driver for Rust contracts.
+    Cargo,
     /// The solc compiler.
     Solc,
     /// The resolc compiler.

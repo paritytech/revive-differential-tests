@@ -1,4 +1,4 @@
-//! Implements the [SolidityCompiler] trait with `resolc` for
+//! Implements the [ContractCompiler] trait with `resolc` for
 //! compiling contracts to PolkaVM (PVM) bytecode.
 
 use crate::internal_prelude::*;
@@ -81,7 +81,7 @@ impl Resolc {
                     })?;
                     hasher.update(file_hash.as_bytes());
                 }
-                hasher.update(SolidityCompiler::fingerprint(&solc).as_bytes());
+                hasher.update(ContractCompiler::fingerprint(&solc).as_bytes());
                 hasher.update(pvm_heap_size.to_le_bytes());
                 hasher.update(pvm_stack_size.to_le_bytes());
                 hex::encode(hasher.finalize())
@@ -147,7 +147,7 @@ impl Resolc {
     }
 }
 
-impl SolidityCompiler for Resolc {
+impl ContractCompiler for Resolc {
     fn version(&self) -> &Version {
         &self.0.resolc_version
     }
@@ -180,6 +180,7 @@ impl SolidityCompiler for Resolc {
     fn build(
         &self,
         CompilerInput {
+            metadata_file_path: _,
             pipeline,
             optimization,
             evm_version,

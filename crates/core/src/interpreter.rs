@@ -128,7 +128,7 @@ impl<'a> Interpreter<'a> {
         let mut contract_sources = self
             .test_definition
             .metadata
-            .contract_sources()
+            .contract_sources(self.platform_information.platform.compiler_identifier())
             .context("Failed to get the contract sources")?;
         let library_instances = self
             .test_definition
@@ -962,7 +962,7 @@ impl<'a> InterpreterApi for Interpreter<'a> {
         let contracts = self
             .test_definition
             .metadata
-            .contract_sources()
+            .contract_sources(self.platform_information.platform.compiler_identifier())
             .context("No contracts in the metadata")?;
         let instance = self
             .contract_instance_of_ref(contract_ref)

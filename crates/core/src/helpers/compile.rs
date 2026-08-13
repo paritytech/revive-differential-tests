@@ -7,7 +7,7 @@ pub struct CompilationDefinition<'a> {
     pub metadata_file_path: &'a Path,
     pub mode: Cow<'a, Mode>,
     pub compiler_identifier: CompilerIdentifier,
-    pub compiler: Box<dyn SolidityCompiler + 'static>,
+    pub compiler: Box<dyn ContractCompiler + 'static>,
     pub reporter: PostLinkCompilationSpecificReporter,
 }
 
@@ -179,7 +179,7 @@ pub async fn create_compilation_definitions_stream<'a>(
         )
         .await
         {
-            Ok(compiler) => Box::new(compiler) as Box<dyn SolidityCompiler>,
+            Ok(compiler) => Box::new(compiler) as Box<dyn ContractCompiler>,
             Err(err) => {
                 error!(?err, "Failed to instantiate the compiler");
                 // Without a terminal status this mode never leaves `remaining_compilation_modes`,

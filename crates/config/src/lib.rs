@@ -50,6 +50,7 @@ mod context {
         pub working_directory: WorkingDirectoryConfiguration,
         pub corpus: CorpusExecutionConfiguration,
         pub fail_fast: FailFastConfiguration,
+        pub cargo: CargoConfiguration,
         pub solc: SolcConfiguration,
         pub resolc: ResolcConfiguration,
         pub geth: GethConfiguration,
@@ -74,6 +75,7 @@ mod context {
         pub working_directory: WorkingDirectoryConfiguration,
         pub benchmark_run: BenchmarkRunConfiguration,
         pub corpus: CorpusExecutionConfiguration,
+        pub cargo: CargoConfiguration,
         pub solc: SolcConfiguration,
         pub resolc: ResolcConfiguration,
         pub geth: GethConfiguration,
@@ -322,6 +324,18 @@ mod context {
         pub modes: Vec<ParsedMode>,
     }
 
+    /// Configuration for compiling Rust contracts through Cargo.
+    #[configuration(key = "cargo")]
+    pub struct CargoConfiguration {
+        /// The Cargo command used to compile Rust contracts.
+        #[clap(default_value = "cargo")]
+        pub command: PathBuf,
+
+        /// The Rust toolchain argument passed to Cargo before its subcommand.
+        #[clap(default_value = "+stable")]
+        pub toolchain: String,
+    }
+
     /// A set of configuration parameters for Solc.
     #[configuration(key = "solc")]
     pub struct SolcConfiguration {
@@ -347,7 +361,7 @@ mod context {
 
         /// Specifies the PVM heap size in bytes.
         ///
-        /// If unspecified, the revive compiler default is used
+        /// If unspecified, the revive compiler default is used.
         pub heap_size: Option<u32>,
 
         /// Specifies the PVM stack size in bytes.
@@ -1081,6 +1095,8 @@ pub enum AnyNodeConfiguration {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum AnyCompilerConfiguration {
+    /// A Cargo toolchain that compiles Rust contracts for PolkaVM.
+    Cargo(CargoConfiguration),
     Solc(SolcConfiguration),
     Resolc {
         solc: SolcConfiguration,
