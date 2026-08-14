@@ -1,7 +1,7 @@
-//! This crate provides compiler helpers for all supported Solidity targets:
+//! This crate provides compiler helpers for all supported contract targets:
+//! - Polkadot revive Rust compiler
 //! - Ethereum solc compiler
 //! - Polkadot revive resolc compiler
-//! - Polkadot revive Wasm compiler
 
 use crate::internal_prelude::*;
 
@@ -12,8 +12,8 @@ pub use revive_dt_common::types::{
 
 pub mod prelude {
     pub use crate::{
-        Compiler, CompilerInput, CompilerOutput, Mode, ModeOptimizerLevel, ModeOptimizerSetting,
-        ModePipeline, RevertString, SolidityCompiler,
+        CargoCompiler, Compiler, CompilerInput, CompilerOutput, ContractCompiler, Mode,
+        ModeOptimizerLevel, ModeOptimizerSetting, ModePipeline, RevertString,
         revive_resolc::{Resolc, ResolcRuntimeTarget},
         solc::{Solc, SolcRuntimeTarget},
     };
@@ -21,7 +21,8 @@ pub mod prelude {
 
 pub(crate) mod internal_prelude {
     pub use crate::{
-        is_gte_major_minor_patch, prelude::*, resolve_output_source_path, sha256_file_hex,
+        is_gte_major_minor_patch, prelude::*, resolve_executable_path, resolve_output_source_path,
+        sha256_file_hex,
     };
     pub use revive_dt_config::prelude::*;
 
@@ -35,6 +36,7 @@ pub(crate) mod internal_prelude {
 
     pub use alloy::{json_abi::JsonAbi, primitives::Address};
     pub use anyhow::{Context as _, Result};
+    pub use cargo_metadata::{Metadata, Target, TargetKind};
     pub use dashmap::DashMap;
     pub use foundry_compilers_artifacts::{
         output_selection::{
@@ -58,7 +60,7 @@ pub(crate) mod internal_prelude {
     pub use serde::{Deserialize, Serialize};
     pub use sha2::{Digest, Sha256};
     pub use tokio::{io::AsyncWriteExt, process::Command as AsyncCommand, sync::OnceCell};
-    pub use tracing::{Span, field::display, info};
+    pub use tracing::{Span, field::display, info, warn};
 
     pub use revive_common::EVMVersion;
     pub use revive_dt_common::{
@@ -68,15 +70,18 @@ pub(crate) mod internal_prelude {
     pub use revive_dt_solc_binaries::download_solc;
 }
 
+pub mod cargo;
 pub mod revive_resolc;
 pub mod solc;
 
-/// A common interface for all supported Solidity compilers.
-pub trait SolidityCompiler {
+pub use cargo::CargoCompiler;
+
+/// A common interface for all supported contract compilers.
+pub trait ContractCompiler {
     /// Returns the version of the compiler.
     fn version(&self) -> &Version;
 
-    /// Returns the Solidity frontend version used by the compiler.
+    /// Returns the source-language frontend version used by the compiler.
     fn frontend_version(&self) -> &Version;
 
     /// Returns the path of the compiler executable.
@@ -98,6 +103,7 @@ pub trait SolidityCompiler {
 /// The generic compilation input configuration.
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct CompilerInput {
+    pub metadata_file_path: Option<PathBuf>,
     pub pipeline: Option<ModePipeline>,
     pub optimization: Option<ModeOptimizerSetting>,
     pub evm_version: Option<EVMVersion>,
@@ -126,6 +132,7 @@ impl Compiler {
     pub fn new() -> Self {
         Self {
             input: CompilerInput {
+                metadata_file_path: Default::default(),
                 pipeline: Default::default(),
                 optimization: Default::default(),
                 evm_version: Default::default(),
@@ -140,6 +147,12 @@ impl Compiler {
 
     pub fn with_optimization(mut self, value: impl Into<Option<ModeOptimizerSetting>>) -> Self {
         self.input.optimization = value.into();
+        self
+    }
+
+    /// Associates the compiler input with its workload metadata file.
+    pub fn with_metadata_file_path(mut self, path: impl Into<PathBuf>) -> Self {
+        self.input.metadata_file_path = Some(path.into());
         self
     }
 
@@ -188,7 +201,7 @@ impl Compiler {
         callback(self)
     }
 
-    pub async fn try_build(self, compiler: &dyn SolidityCompiler) -> Result<CompilerOutput> {
+    pub async fn try_build(self, compiler: &dyn ContractCompiler) -> Result<CompilerOutput> {
         compiler.build(self.input).await
     }
 

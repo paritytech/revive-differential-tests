@@ -312,7 +312,7 @@ jobs:
   benchmark:
     name: "${{ matrix.platform.name }} ${{ matrix.test.name }}"
     runs-on: parity-large-t2d
-    timeout-minutes: 120
+    timeout-minutes: 240
     needs:
       [
         generate-matrix,
@@ -444,6 +444,7 @@ jobs:
       - name: Run benchmarks
         env:
           OVERRIDE_REPETITION_COUNT: ${{ inputs.override-repetition-count }}
+          POLKADOT_SDK_BUILD: ${{ matrix.platform.polkadot_sdk_build }}
           TEST_SPECIFIER: ${{ matrix.test.specifier }}
           PROFILE_ENABLED: ${{ inputs.profile-watched-txs }}
           PROFILE_SAMPLES: ${{ inputs.profile-samples-per-step-path }}
@@ -453,6 +454,15 @@ jobs:
           export TMPDIR="$PWD/workdir"
 
           additional_args=()
+
+          # TODO: Remove this override once repetition counts can be configured per platform. The
+          # interpreter cannot finish 25,000 Ed25519 repetitions within four hours, while lowering
+          # the shared workload count makes the JIT benchmark too short to be useful.
+          if [[ -z "$OVERRIDE_REPETITION_COUNT" &&
+                "$TEST_SPECIFIER" == *ed25519* &&
+                "$POLKADOT_SDK_BUILD" == "interpreter" ]]; then
+            OVERRIDE_REPETITION_COUNT=1000
+          fi
 
           if [ -n "$OVERRIDE_REPETITION_COUNT" ]; then
             additional_args+=(--benchmark.repetition-count-override "$OVERRIDE_REPETITION_COUNT")

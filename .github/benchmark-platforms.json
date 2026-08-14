@@ -16,7 +16,7 @@
       }
     },
     "REVM": {
-      "polkadot_sdk_build": "interpreter",
+      "polkadot_sdk_build": "jit",
       "node": {
         "type": "Zombienet",
         "config_path": "./assets/westend-assethub-zombienet.toml",
@@ -150,6 +150,50 @@
           "stack_size": null,
           "use_new_york": true
         }
+      }
+    },
+    "PolkaVM Int Rust": {
+      "polkadot_sdk_build": "interpreter",
+      "node": {
+        "type": "Zombienet",
+        "config_path": "./assets/westend-assethub-zombienet.toml",
+        "block_production_timeout_ms": "300000",
+        "use_kubernetes": false,
+        "connector_configurations": "{\"substrate_provider_configuration\":{\"allowed_estimation_methods\":\"ETH_TRANSACT_WITH_CONFIG | ETH_TRANSACT\"}}",
+        "environment_variables": {}
+      },
+      "eth_rpc": {
+        "path": "eth-rpc",
+        "start_timeout_ms": "30000",
+        "logging_level": "info",
+        "environment_variables": {}
+      },
+      "compiler": {
+        "type": "Cargo",
+        "command": "cargo",
+        "toolchain": "+1.93.0"
+      }
+    },
+    "PolkaVM JIT Rust": {
+      "polkadot_sdk_build": "jit",
+      "node": {
+        "type": "Zombienet",
+        "config_path": "./assets/westend-assethub-zombienet.toml",
+        "block_production_timeout_ms": "300000",
+        "use_kubernetes": false,
+        "connector_configurations": "{\"substrate_provider_configuration\":{\"allowed_estimation_methods\":\"ETH_TRANSACT_WITH_CONFIG | ETH_TRANSACT\"}}",
+        "environment_variables": {}
+      },
+      "eth_rpc": {
+        "path": "eth-rpc",
+        "start_timeout_ms": "30000",
+        "logging_level": "info",
+        "environment_variables": {}
+      },
+      "compiler": {
+        "type": "Cargo",
+        "command": "cargo",
+        "toolchain": "+1.93.0"
       }
     }
   }

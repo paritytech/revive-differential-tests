@@ -2,6 +2,7 @@ use crate::internal_prelude::*;
 
 #[allow(clippy::too_many_arguments)]
 pub async fn create_test_definitions_stream<'a>(
+    cargo_configuration: &CargoConfiguration,
     solc_configuration: &SolcConfiguration,
     resolc_configuration: &ResolcConfiguration,
     working_directory_configuration: &WorkingDirectoryConfiguration,
@@ -60,6 +61,7 @@ pub async fn create_test_definitions_stream<'a>(
                 let node = node_pool.round_robbin();
                 let compiler = match platform
                     .new_compiler(
+                        cargo_configuration,
                         solc_configuration,
                         resolc_configuration,
                         working_directory_configuration,
@@ -347,14 +349,21 @@ impl<'a> TestDefinition<'a> {
         }
     }
 
-    /// Checks if the platforms compilers support the mode that the test is for.
+    /// Checks whether each compiler supports the contract sources and mode.
     fn check_compiler_compatibility(&self) -> TestCheckFunctionResult {
+        let has_rust_contracts = self.metadata.has_rust_contracts();
         let mut error_map = indexmap! {
             "test_desired_evm_version".to_owned() => json!(self.metadata.required_evm_version),
+            "has_rust_contracts".to_owned() => json!(has_rust_contracts),
         };
         let mut is_allowed = true;
         for platform_information in self.platforms.values() {
-            let is_allowed_for_platform = platform_information.compiler.supports_mode(&self.mode);
+            let supports_language = match platform_information.platform.compiler_identifier() {
+                CompilerIdentifier::Cargo => has_rust_contracts,
+                CompilerIdentifier::Solc | CompilerIdentifier::Resolc => true,
+            };
+            let is_allowed_for_platform =
+                supports_language && platform_information.compiler.supports_mode(&self.mode);
             is_allowed &= is_allowed_for_platform;
             error_map.insert(
                 platform_information.platform.platform_name().to_string(),
@@ -366,7 +375,7 @@ impl<'a> TestDefinition<'a> {
             Ok(())
         } else {
             Err((
-                "Compilers do not support this mode either for the provided platforms.",
+                "Compilers do not support this contract language or mode.",
                 error_map,
             ))
         }
@@ -438,7 +447,7 @@ impl<'a> TestDefinition<'a> {
 pub struct TestPlatformInformation<'a> {
     pub platform: &'a dyn Platform,
     pub connector: Arc<NodeConnector>,
-    pub compiler: Box<dyn SolidityCompiler>,
+    pub compiler: Box<dyn ContractCompiler>,
     pub reporter: ExecutionSpecificReporter,
 }
 

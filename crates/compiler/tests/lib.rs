@@ -3,7 +3,7 @@ use std::{collections::HashMap, path::PathBuf};
 use alloy::primitives::Address;
 use revive_dt_common::types::VersionOrRequirement;
 use revive_dt_compiler::{
-    Compiler, Mode, ModeOptimizerLevel, ModeOptimizerSetting, ModePipeline, SolidityCompiler,
+    Compiler, ContractCompiler, Mode, ModeOptimizerLevel, ModeOptimizerSetting, ModePipeline,
     revive_resolc::{Resolc, ResolcRuntimeTarget},
     solc::{Solc, SolcRuntimeTarget},
 };
