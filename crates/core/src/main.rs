@@ -12,6 +12,7 @@ mod internal_prelude {
     pub use revive_dt_core::prelude::*;
     pub use revive_dt_format::prelude::*;
     pub use revive_dt_node::prelude::*;
+    pub use revive_dt_node_interaction::opcode_profile;
     pub use revive_dt_node_interaction::prelude::*;
     pub use revive_dt_report::prelude::*;
 
@@ -81,7 +82,10 @@ mod internal_prelude {
 
     pub use crate::{
         compilations::handle_compilations,
-        differential_benchmarks::{Watcher, WatcherEvent, handle_differential_benchmarks},
+        differential_benchmarks::{
+            ProfilerConfig, SamplingMode, Watcher, WatcherEvent, handle_differential_benchmarks,
+            run_profiling, sample_watched_txs,
+        },
         differential_tests::handle_differential_tests,
         helpers::{
             CachedCompiler, CompilationDefinition, CorpusDefinitionProcessor, NodePool,

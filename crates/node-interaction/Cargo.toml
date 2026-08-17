@@ -18,6 +18,9 @@ anyhow = { workspace = true }
 bitflags = { workspace = true }
 futures = { workspace = true }
 pallet-revive = { workspace = true }
+pallet-revive-types = { workspace = true }
+strum = "0.26.3"
+revm-bytecode = { workspace = true }
 parity-scale-codec = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

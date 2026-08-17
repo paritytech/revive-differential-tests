@@ -192,6 +192,30 @@ mod context {
         ///    which is a case where the benchmark isn't what's being done, but the program is being
         ///    tested in one way or another.
         pub repetition_count_override: Option<usize>,
+
+        /// Profile watched transactions by capturing per-opcode execution traces
+        /// after the benchmark completes. Substrate platforms only.
+        #[arg(long = "benchmark.profile-watched-txs", default_value_t = false)]
+        pub profile_watched_txs: bool,
+
+        /// Number of transactions to trace per unique step path, picked at
+        /// evenly-spaced iteration indices.
+        #[arg(long = "benchmark.profile-samples-per-step-path", default_value_t = 5)]
+        pub profile_samples_per_step_path: usize,
+
+        /// Trace every watched transaction instead of sampling.
+        #[arg(long = "benchmark.profile-all", default_value_t = false)]
+        pub profile_all: bool,
+
+        /// Maximum in-flight per-transaction `trace_tx` calls per platform.
+        #[arg(long = "benchmark.profile-concurrency", default_value_t = 4)]
+        pub profile_concurrency: usize,
+
+        /// Safety cap on the number of `ExecutionStep` entries captured per
+        /// transaction. Maps to `ExecutionTracerConfig::limit`. Set to 0 for
+        /// no cap.
+        #[arg(long = "benchmark.profile-step-limit", default_value_t = 100_000)]
+        pub profile_step_limit: u64,
     }
 
     /// Configuration for the export-genesis target platform.

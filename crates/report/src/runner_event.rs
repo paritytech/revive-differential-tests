@@ -163,6 +163,12 @@ revive_dt_proc_macros::define_runner_event! {
                 /// Information on the mined block.
                 mined_block_information: MinedBlockInformation,
             },
+            /// An event emitted when the watched-tx opcode profiling for a
+            /// (workload, platform) has completed.
+            OpcodeProfileCompleted {
+                /// The aggregated opcode profile summary for this platform.
+                summary: OpcodeProfileSummary,
+            },
         },
 
         // Events on PostLinkCompilationSpecificReporter —

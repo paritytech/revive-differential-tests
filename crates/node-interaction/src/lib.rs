@@ -2,6 +2,7 @@
 
 pub mod config;
 pub mod connector;
+pub mod opcode_profile;
 mod pool;
 mod providers;
 mod subxt_provider;
@@ -36,7 +37,7 @@ pub(crate) mod internal_prelude {
         network::{
             AnyNetwork, BlockResponse, Ethereum, EthereumWallet, Network, TransactionBuilder,
         },
-        primitives::{Address, BlockHash, TxHash, U256, address, keccak256},
+        primitives::{Address, BlockHash, BlockNumber, TxHash, U256, address, keccak256},
         providers::{
             Identity, Provider, ProviderBuilder, RootProvider,
             ext::DebugApi,
@@ -62,9 +63,10 @@ pub(crate) mod internal_prelude {
     pub use bitflags::bitflags;
     pub use dashmap::DashMap;
     pub use futures::{FutureExt, StreamExt, TryFutureExt, TryStreamExt, future::try_join_all};
-    pub use pallet_revive::{
-        EthTransactError, H256, Weight,
-        evm::{TracerConfig, TracerType},
+    pub use pallet_revive::{EthTransactError, H256, Weight};
+    pub use pallet_revive_types::runtime_api::{
+        DryRunConfigV1, ExecutionTraceV1, ExecutionTracerConfigV1, GenericTransactionV1,
+        ReceiptGasInfoV1, TraceV1, TracerTypeV1,
     };
     pub use parity_scale_codec::{Compact, Decode, Encode};
     pub use revive_common::EVMVersion;
@@ -119,28 +121,24 @@ pub(crate) mod internal_prelude {
         >>"
     ),
     substitute_type(
-        path = "pallet_revive::evm::api::debug_rpc_types::Trace",
-        with = "::subxt::utils::Static<::pallet_revive::evm::Trace>"
+        path = "pallet_revive_types::runtime_api::types::traces::TraceV1",
+        with = "::subxt::utils::Static<::pallet_revive_types::runtime_api::TraceV1>"
     ),
     substitute_type(
-        path = "pallet_revive::evm::api::debug_rpc_types::TracerType",
-        with = "::subxt::utils::Static<::pallet_revive::evm::TracerType>"
+        path = "pallet_revive_types::runtime_api::types::tracer::TracerTypeV1",
+        with = "::subxt::utils::Static<::pallet_revive_types::runtime_api::TracerTypeV1>"
     ),
     substitute_type(
-        path = "pallet_revive::evm::api::rpc_types_gen::Block",
-        with = "::subxt::utils::Static<pallet_revive::evm::Block>"
+        path = "pallet_revive_types::runtime_api::types::block::BlockV1",
+        with = "::subxt::utils::Static<::pallet_revive_types::runtime_api::BlockV1>"
     ),
     substitute_type(
-        path = "pallet_revive::evm::api::rpc_types_gen::GenericTransaction",
-        with = "::subxt::utils::Static<::pallet_revive::evm::GenericTransaction>"
+        path = "pallet_revive_types::runtime_api::types::transaction::GenericTransactionV1",
+        with = "::subxt::utils::Static<::pallet_revive_types::runtime_api::GenericTransactionV1>"
     ),
     substitute_type(
-        path = "pallet_revive::evm::api::rpc_types::DryRunConfig<M>",
-        with = "::subxt::utils::Static<::pallet_revive::evm::DryRunConfig<M>>"
-    ),
-    substitute_type(
-        path = "pallet_revive::primitives::EthTransactInfo<B>",
-        with = "::subxt::utils::Static<::pallet_revive::EthTransactInfo<B>>"
+        path = "pallet_revive_types::runtime_api::types::dry_run::DryRunConfigV1<M>",
+        with = "::subxt::utils::Static<::pallet_revive_types::runtime_api::DryRunConfigV1<M>>"
     ),
     substitute_type(
         path = "pallet_revive::primitives::EthTransactError",
@@ -159,8 +157,8 @@ pub(crate) mod internal_prelude {
         with = "::subxt::utils::Static<::pallet_revive::U256>"
     ),
     substitute_type(
-        path = "pallet_revive::evm::block_hash::ReceiptGasInfo",
-        with = "::subxt::utils::Static<::pallet_revive::evm::ReceiptGasInfo>"
+        path = "pallet_revive_types::runtime_api::types::receipt::ReceiptGasInfoV1",
+        with = "::subxt::utils::Static<::pallet_revive_types::runtime_api::ReceiptGasInfoV1>"
     ),
     substitute_type(
         path = "sp_weights::weight_v2::Weight",

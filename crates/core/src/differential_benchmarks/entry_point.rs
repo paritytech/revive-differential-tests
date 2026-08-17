@@ -153,11 +153,27 @@ pub async fn handle_differential_benchmarks(
 
             // Initializing all of the components requires to execute this particular workload.
             let private_key_allocator = private_key_allocator.clone();
+            let profile_config =
+                context
+                    .benchmark_run
+                    .profile_watched_txs
+                    .then_some(ProfilerConfig {
+                        mode: if context.benchmark_run.profile_all {
+                            SamplingMode::All
+                        } else {
+                            SamplingMode::Sample(
+                                context.benchmark_run.profile_samples_per_step_path,
+                            )
+                        },
+                        step_limit: context.benchmark_run.profile_step_limit,
+                        concurrency: context.benchmark_run.profile_concurrency,
+                    });
             let (watcher, watcher_tx) = Watcher::new(
                 platform_information.connector.clone(),
                 test_definition
                     .reporter
                     .execution_specific_reporter(0usize, platform_name.to_owned()),
+                profile_config,
             );
             let steps = test_definition
                 .case

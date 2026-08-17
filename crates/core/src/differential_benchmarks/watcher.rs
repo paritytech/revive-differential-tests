@@ -14,12 +14,16 @@ pub struct Watcher {
 
     /// The reporter used to send events to the report aggregator.
     reporter: ExecutionSpecificReporter,
+
+    /// Configuration for the watched-tx opcode profiler.
+    profile_config: Option<ProfilerConfig>,
 }
 
 impl Watcher {
     pub fn new(
         connector: Arc<NodeConnector>,
         reporter: ExecutionSpecificReporter,
+        profile_config: Option<ProfilerConfig>,
     ) -> (Self, UnboundedSender<WatcherEvent>) {
         let (tx, rx) = unbounded_channel::<WatcherEvent>();
         (
@@ -27,6 +31,7 @@ impl Watcher {
                 rx,
                 connector,
                 reporter,
+                profile_config,
             },
             tx,
         )
@@ -38,6 +43,7 @@ impl Watcher {
                 mut rx,
                 connector,
                 reporter,
+                profile_config,
             } = self;
             let ignore_blocks_before_block_number = loop {
                 let Some(WatcherEvent::StartEvent {
@@ -206,6 +212,21 @@ impl Watcher {
                 bail!("Encountered failing receipts when watching")
             }
 
+            let ordered_watched_txs =
+                if profile_config.is_some() && connector.has_substrate_provider() {
+                    observed_blocks
+                        .iter()
+                        .flat_map(|block_info| block_info.block.evm_block.transactions.hashes())
+                        .filter_map(|hash| {
+                            tx_information
+                                .get(&hash)
+                                .map(|info| (hash, info.step_path.clone()))
+                        })
+                        .collect::<Vec<_>>()
+                } else {
+                    Vec::new()
+                };
+
             for block_info in observed_blocks {
                 for hash in block_info.block.evm_block.transactions.hashes() {
                     let Some(info) = tx_information.get(&hash) else {
@@ -287,6 +308,27 @@ impl Watcher {
                 reporter
                     .report_block_mined_event(mined_block_information)
                     .expect("qed; can't fail")
+            }
+
+            // Watched-tx opcode profiling; skipped on non-substrate platforms, which can't trace.
+            if let Some(profile_config) =
+                profile_config.filter(|_| connector.has_substrate_provider())
+            {
+                let samples = sample_watched_txs(&ordered_watched_txs, profile_config.mode);
+                info!(
+                    sample_count = samples.len(),
+                    "Profiling watched transactions"
+                );
+                let summary = run_profiling(
+                    &connector,
+                    samples,
+                    profile_config.step_limit,
+                    profile_config.concurrency,
+                )
+                .await;
+                reporter
+                    .report_opcode_profile_completed_event(summary)
+                    .expect("qed; can't fail");
             }
 
             Ok(())
