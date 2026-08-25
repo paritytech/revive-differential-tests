@@ -950,7 +950,16 @@ impl NodeConnector {
                 walk.location = resolved;
 
                 let Some(trace) = walk.trace_window(&location, limit).await? else {
-                    return Ok(None);
+                    // Nothing traced at offset 0 is an empty walk. Later it means the rest of the
+                    // execution is unreachable, which the caller must not read as a whole trace.
+                    if walk.cursor.offset == 0 {
+                        return Ok(None);
+                    }
+                    bail!(
+                        "the runtime stopped tracing at step {}, so the rest of the execution is \
+                         unreachable",
+                        walk.cursor.offset
+                    )
                 };
 
                 walk.cursor.advance(trace.struct_logs.len() as u64);
@@ -2085,10 +2094,7 @@ async fn trace_execution_window(
     match output.entry {
         None => Ok(None),
         Some(TraceEntryV1::NotTraced) => {
-            warn!(
-                ?tx_hash,
-                "the runtime reported the transaction as untraced; skipping the rest of the walk"
-            );
+            warn!(?tx_hash, "the runtime reported the transaction as untraced");
             Ok(None)
         }
         Some(TraceEntryV1::Traced(TraceV2::Execution(trace))) => Ok(Some(trace)),

@@ -15,6 +15,10 @@ pub struct OpcodeProfileSummary {
     /// Sampled txs whose tracer reported `failed = true`. Reverted txs are
     /// still aggregated below — they spent metered weight worth profiling.
     pub failed_count: usize,
+    /// Sampled txs whose walk ended early, so their breakdown covers only part of the
+    /// execution and the rest sits in their unattributed weight.
+    #[serde(default)]
+    pub partial_count: usize,
     /// Sorted descending by `total_ref_time`; trailing rows beyond top-N
     /// collapse into a single `"Other"` entry.
     pub opcodes: Vec<AggregatedOpcode>,

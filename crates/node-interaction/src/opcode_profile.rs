@@ -138,6 +138,7 @@ pub struct TxProfileAccumulator {
     by_op: HashMap<OpKey, OpcodeStats>,
     step_total: Weight,
     steps: u64,
+    partial: bool,
     totals: Option<ExecutionTotals>,
 }
 
@@ -171,6 +172,12 @@ impl TxProfileAccumulator {
     /// The number of steps absorbed so far.
     pub fn steps(&self) -> u64 {
         self.steps
+    }
+
+    /// Record that the walk ended before the execution did, so the profile says its
+    /// breakdown covers only part of the execution.
+    pub fn mark_partial(&mut self) {
+        self.partial = true;
     }
 
     /// Build the profile, or `None` if no window was absorbed.
@@ -209,6 +216,8 @@ impl TxProfileAccumulator {
             extrinsic_index: inclusion.extrinsic_index,
             failed: totals.failed,
             gas_used: totals.gas_used,
+            steps_captured: self.steps,
+            partial: self.partial,
             weights: TxWeights {
                 consumed: totals.consumed,
                 base_call: totals.base_call,

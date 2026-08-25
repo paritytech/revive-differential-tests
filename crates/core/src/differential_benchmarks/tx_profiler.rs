@@ -153,12 +153,21 @@ async fn profile_one_tx(
         let window = match window {
             Ok(window) => window,
             Err(err) => {
+                if inclusion.is_none() {
+                    warn!(
+                        ?tx_hash,
+                        ?err,
+                        "The first trace window failed; skipping sample"
+                    );
+                    return None;
+                }
                 warn!(
                     ?tx_hash,
                     ?err,
                     steps = accumulator.steps(),
                     "A trace window failed; profiling this tx from the windows captured so far"
                 );
+                accumulator.mark_partial();
                 break;
             }
         };
@@ -183,6 +192,7 @@ const OPCODE_TOP_N: usize = 64;
 pub fn aggregate_to_summary(profiles: Vec<TxProfile>, block_count: u32) -> OpcodeProfileSummary {
     let sampled_tx_count = profiles.len();
     let failed_count = profiles.iter().filter(|p| p.failed).count();
+    let partial_count = profiles.iter().filter(|p| p.partial).count();
 
     #[derive(Default)]
     struct OpcodeTotals {
@@ -237,6 +247,7 @@ pub fn aggregate_to_summary(profiles: Vec<TxProfile>, block_count: u32) -> Opcod
         sampled_tx_count,
         block_count,
         failed_count,
+        partial_count,
         opcodes,
         tx_profiles: profiles,
         opcode_catalog: opcode_profile::current_catalog(),
