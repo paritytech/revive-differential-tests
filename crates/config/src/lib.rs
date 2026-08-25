@@ -7,6 +7,7 @@ pub mod prelude {
 use std::{
     collections::BTreeMap,
     fmt::Display,
+    num::NonZeroU64,
     ops::Deref,
     path::{Path, PathBuf},
     str::FromStr,
@@ -211,11 +212,12 @@ mod context {
         #[arg(long = "benchmark.profile-concurrency", default_value_t = 4)]
         pub profile_concurrency: usize,
 
-        /// Safety cap on the number of `ExecutionStep` entries captured per
-        /// transaction. Maps to `ExecutionTracerConfig::limit`. Set to 0 for
-        /// no cap.
-        #[arg(long = "benchmark.profile-step-limit", default_value_t = 100_000)]
-        pub profile_step_limit: u64,
+        /// Number of `ExecutionStep` entries captured per `trace_tx` call, passed
+        /// through as `ExecutionTracerConfig::limit`. A trace is walked one window
+        /// of this size at a time, which keeps the runtime from allocating a long
+        /// trace whole.
+        #[arg(long = "benchmark.profile-step-limit", default_value_t = NonZeroU64::new(25_000).expect("qed; non-zero"))]
+        pub profile_step_limit: NonZeroU64,
     }
 
     /// Configuration for the export-genesis target platform.
