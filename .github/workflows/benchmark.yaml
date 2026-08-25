@@ -16,9 +16,9 @@ on:
         required: true
         default: paritytech/polkadot-sdk
       polkadot-sdk-ref:
-        description: The branch, tag, or commit hash to use for the polkadot-sdk repository.
+        description: The branch, tag, or commit hash to use for the polkadot-sdk repository. Opcode profiling needs a runtime exposing ReviveApi v2 with the execution tracer's `step_offset`, so keep this in step with the `pallet-revive` rev pinned in Cargo.toml.
         required: true
-        default: cde8a924504c99e768940bf6b600716725c3c438
+        default: 4695e38c7047d97f1dfc89a4e579ed7c92cbca1f
       solc-version:
         description: Solc compiler version (e.g. v0.8.28)
         required: true
@@ -72,10 +72,10 @@ on:
         type: number
         default: 4
       profile-step-limit:
-        description: Per-tx tracer step cap. 0 disables the cap.
+        description: Steps captured per `trace_tx` call. A trace is walked one window of this size at a time, so the runtime never allocates a long trace whole. Each window replays the tx.
         required: false
         type: number
-        default: 0
+        default: 25000
 env:
   CARGO_TERM_COLOR: always
   RUST_LOG: ${{ inputs.rust-log }}

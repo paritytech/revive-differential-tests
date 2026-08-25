@@ -22,6 +22,7 @@ pub(crate) mod internal_prelude {
         borrow::Cow,
         collections::{HashMap, hash_map::Entry},
         future::{Future, ready},
+        num::NonZeroU64,
         ops::{ControlFlow, Deref},
         result::Result as StdResult,
         sync::{Arc, LazyLock, Mutex as StdMutex, atomic::AtomicUsize},
@@ -65,8 +66,9 @@ pub(crate) mod internal_prelude {
     pub use futures::{FutureExt, StreamExt, TryFutureExt, TryStreamExt, future::try_join_all};
     pub use pallet_revive::{EthTransactError, H256, Weight};
     pub use pallet_revive_types::runtime_api::{
-        DryRunConfigV1, ExecutionTraceV1, ExecutionTracerConfigV1, GenericTransactionV1,
-        ReceiptGasInfoV1, TraceV1, TracerTypeV1,
+        DryRunConfigV1, ExecutionTraceV1, ExecutionTracerConfigV2, GenericTransactionV1,
+        ReceiptGasInfoV1, TraceEntryV1, TraceTxInputPayloadV2, TraceTxVersionedInputPayload,
+        TraceTxVersionedOutputPayload, TraceV1, TraceV2, TracerTypeV1, TracerTypeV2,
     };
     pub use parity_scale_codec::{Compact, Decode, Encode};
     pub use revive_common::EVMVersion;

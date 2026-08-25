@@ -6,6 +6,9 @@
 //! the per-opcode weight breakdown into an [`OpcodeProfileSummary`] for the
 //! report.
 //!
+//! A long trace does not fit in one runtime-API response, so the connector
+//! streams it one window at a time and we fold each into the tx's accumulator.
+//!
 //! Unlike the pre-`#304` fork, the connector resolves a `tx_hash` to its
 //! `(substrate_block, extrinsic_index)` internally, so there's no separate
 //! per-block job-building pass — we just drive one trace per sample.
@@ -19,8 +22,9 @@ use crate::internal_prelude::*;
 pub struct ProfilerConfig {
     /// How watched transactions are chosen for profiling.
     pub mode: SamplingMode,
-    /// The tracer step cap. `0` disables the cap.
-    pub step_limit: u64,
+    /// Steps captured per `trace_tx` call; a trace is walked one window of this
+    /// size at a time.
+    pub step_limit: NonZeroU64,
     /// The number of concurrent traces to run.
     pub concurrency: usize,
 }
@@ -94,37 +98,15 @@ fn sample_one_group(group: &[TxHash], sample_size: usize, out: &mut Vec<TxHash>)
 pub async fn run_profiling(
     connector: &NodeConnector,
     samples: Vec<(TxHash, StepPath)>,
-    step_limit: u64,
+    step_limit: NonZeroU64,
     concurrency: usize,
 ) -> OpcodeProfileSummary {
     let concurrency = concurrency.max(1);
     let selected = samples.len();
 
     let profiles = stream::iter(samples.into_iter().map(|(tx_hash, step_path)| {
-        let trace_future = connector.trace_execution_tx(tx_hash, step_limit);
-        async move {
-            let trace_future = trace_future?;
-            match trace_future.await {
-                Ok(Some(result)) => Some(opcode_profile::from_execution_trace(
-                    tx_hash,
-                    step_path,
-                    result.block_number,
-                    result.extrinsic_index,
-                    result.trace,
-                )),
-                Ok(None) => {
-                    warn!(
-                        ?tx_hash,
-                        "trace_execution_tx returned None; skipping sample"
-                    );
-                    None
-                }
-                Err(err) => {
-                    warn!(?tx_hash, ?err, "trace_execution_tx failed; skipping sample");
-                    None
-                }
-            }
-        }
+        let windows = connector.trace_execution_tx(tx_hash, step_limit);
+        async move { profile_one_tx(tx_hash, step_path, windows?).await }
     }))
     .buffer_unordered(concurrency)
     .filter_map(|opt| async move { opt })
@@ -155,6 +137,52 @@ pub async fn run_profiling(
     aggregate_to_summary(profiles, block_count)
 }
 
+/// Fold one transaction's trace windows into its [`TxProfile`], dropping each
+/// once absorbed. `None` if the transaction produced no trace at all. A window
+/// that fails mid-walk keeps the profile built from the windows before it; the
+/// steps it misses stay in the profile's unattributed weight.
+async fn profile_one_tx(
+    tx_hash: TxHash,
+    step_path: StepPath,
+    mut windows: StaticStream<Result<ExecutionTraceWindow>>,
+) -> Option<TxProfile> {
+    let mut accumulator = opcode_profile::TxProfileAccumulator::new();
+    let mut inclusion = None;
+
+    while let Some(window) = windows.next().await {
+        let window = match window {
+            Ok(window) => window,
+            Err(err) => {
+                if inclusion.is_none() {
+                    warn!(
+                        ?tx_hash,
+                        ?err,
+                        "The first trace window failed; skipping sample"
+                    );
+                    return None;
+                }
+                warn!(
+                    ?tx_hash,
+                    ?err,
+                    steps = accumulator.steps(),
+                    "A trace window failed; profiling this tx from the windows captured so far"
+                );
+                accumulator.mark_partial();
+                break;
+            }
+        };
+
+        inclusion = Some(window.inclusion);
+        accumulator.absorb_window(&window.trace);
+    }
+
+    let Some(inclusion) = inclusion else {
+        warn!(?tx_hash, "No trace window was captured; skipping sample");
+        return None;
+    };
+    accumulator.finish(tx_hash, step_path, inclusion)
+}
+
 /// Max opcode rows in the `summary` rollup; the rest roll into "Other". Caps only
 /// the summary; per-tx `tx_profiles` keep their full opcode lists.
 const OPCODE_TOP_N: usize = 64;
@@ -164,6 +192,7 @@ const OPCODE_TOP_N: usize = 64;
 pub fn aggregate_to_summary(profiles: Vec<TxProfile>, block_count: u32) -> OpcodeProfileSummary {
     let sampled_tx_count = profiles.len();
     let failed_count = profiles.iter().filter(|p| p.failed).count();
+    let partial_count = profiles.iter().filter(|p| p.partial).count();
 
     #[derive(Default)]
     struct OpcodeTotals {
@@ -218,6 +247,7 @@ pub fn aggregate_to_summary(profiles: Vec<TxProfile>, block_count: u32) -> Opcod
         sampled_tx_count,
         block_count,
         failed_count,
+        partial_count,
         opcodes,
         tx_profiles: profiles,
         opcode_catalog: opcode_profile::current_catalog(),

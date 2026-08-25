@@ -14,11 +14,158 @@ type AlloyProvider = FillProvider<
 pub type RuntimeSubxtBlock = GenericBlock<GenericHeader<u32, BlakeTwo256>, OpaqueExtrinsic>;
 type OnlineSubxtBlock = SubxtBlock<PolkadotConfig, OnlineClient<PolkadotConfig>>;
 
-/// An execution trace together with where the traced transaction was included.
-pub struct ExecutionTraceResult {
+/// One window of a segmented execution trace.
+#[derive(Debug)]
+pub struct ExecutionTraceWindow {
+    pub inclusion: TxInclusion,
+    pub trace: ExecutionTraceV1,
+}
+
+/// Where a transaction was included. A trace carries neither field, so the
+/// connector resolves them while tracing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TxInclusion {
     pub block_number: BlockNumber,
     pub extrinsic_index: u32,
-    pub trace: ExecutionTraceV1,
+}
+
+/// Where a walk is in an execution's steps. A whole trace does not fit in one
+/// response, since the runtime allocates every captured step before returning,
+/// so each call captures `step_limit` steps starting at [`Self::offset`] and the
+/// cursor advances by what came back.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct StepCursor {
+    /// Steps per call, passed through as `ExecutionTracerConfig::limit`.
+    step_limit: u64,
+    /// Steps captured so far, which is where the next window starts.
+    offset: u64,
+    /// Whether the previous window was the execution's last.
+    done: bool,
+}
+
+impl StepCursor {
+    fn new(step_limit: NonZeroU64) -> Self {
+        Self {
+            step_limit: step_limit.get(),
+            offset: 0,
+            done: false,
+        }
+    }
+
+    /// The limit for the next window, or `None` once the walk is over.
+    fn limit(&self) -> Option<u64> {
+        (!self.done).then_some(self.step_limit)
+    }
+
+    /// Advance past a window that captured `captured` steps. A window shorter
+    /// than its limit means the execution ran out of steps, so it was the last.
+    fn advance(&mut self, captured: u64) {
+        self.offset = self.offset.saturating_add(captured);
+        self.done = captured < self.step_limit;
+    }
+}
+
+/// Which `state_call`-shaped RPC replays a window.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ReplayMethod {
+    /// Replays with a proof-size recorder registered.
+    Recorded,
+    /// No recorder, so the trace's proof size is not faithful.
+    Plain,
+}
+
+impl ReplayMethod {
+    /// The RPC method and the hash it takes.
+    fn call(&self, location: &TracedTxLocation) -> (&'static str, H256) {
+        match self {
+            Self::Recorded => ("state_callRecorded", location.block_hash),
+            Self::Plain => ("state_call", location.parent_hash),
+        }
+    }
+}
+
+/// What a replay needs, resolved once and reused by every window.
+struct TracedTxLocation {
+    /// The block holding the transaction, replayed on every window.
+    block: RuntimeSubxtBlock,
+    /// Hash of that block; `state_callRecorded` resolves its parent state itself.
+    block_hash: H256,
+    /// State to execute against when replaying without a recorder.
+    parent_hash: H256,
+    inclusion: TxInclusion,
+}
+
+/// A walk's location, which costs an await to obtain and is then reused.
+enum WalkLocation {
+    Pending(StaticFuture<IndexedTransactionInformation>),
+    Resolved(Arc<TracedTxLocation>),
+}
+
+impl WalkLocation {
+    /// The location, awaiting the lookup on the first call, plus the state to
+    /// carry into the next window.
+    async fn resolve(self) -> (Arc<TracedTxLocation>, Self) {
+        let location = match self {
+            Self::Resolved(location) => location,
+            Self::Pending(inclusion) => Arc::new(TracedTxLocation::of(inclusion.await)),
+        };
+        (location.clone(), Self::Resolved(location))
+    }
+}
+
+/// The state a [`NodeConnector::trace_execution_tx`] walk carries between windows.
+struct TraceWalk {
+    provider: SubstrateProviders,
+    tx_hash: TxHash,
+    location: WalkLocation,
+    cursor: StepCursor,
+    method: ReplayMethod,
+}
+
+impl TraceWalk {
+    /// Trace the cursor's window. The recorded replay is preferred, since proof
+    /// size is only faithful with a recorder registered. A node without one says
+    /// so on the first window and the whole walk degrades; a failure after that
+    /// is transient rather than a missing recorder, so it fails the walk instead
+    /// of mixing two kinds of replay into one profile.
+    async fn trace_window(
+        &mut self,
+        location: &TracedTxLocation,
+        limit: u64,
+    ) -> Result<Option<ExecutionTraceV1>> {
+        let offset = self.cursor.offset;
+        let attempt = trace_execution_window(
+            &self.provider,
+            location,
+            offset,
+            limit,
+            self.method,
+            self.tx_hash,
+        )
+        .await;
+
+        match attempt {
+            Err(err) if self.method == ReplayMethod::Recorded && offset == 0 => {
+                warn!(
+                    tx_hash = ?self.tx_hash,
+                    ?err,
+                    "state_callRecorded is unavailable; profiling this tx with a recorder-less \
+                     replay, so its proof size is not faithful"
+                );
+                self.method = ReplayMethod::Plain;
+                trace_execution_window(
+                    &self.provider,
+                    location,
+                    offset,
+                    limit,
+                    ReplayMethod::Plain,
+                    self.tx_hash,
+                )
+                .await
+            }
+            result => result,
+        }
+    }
 }
 
 pub struct NodeConnector {
@@ -773,95 +920,58 @@ impl NodeConnector {
     }
 
     /// Trace one already-included transaction with the execution (opcode/syscall)
-    /// tracer, for post-run profiling.
+    /// tracer, for post-run profiling, `step_limit` steps at a time.
     ///
-    /// The nested return type, outside-in: `None` if this connector can't trace
-    /// (eth-rpc / non-substrate nodes); otherwise a future resolving to `Err` if
-    /// the runtime-API call fails, `Ok(None)` if the tx produced no execution
-    /// trace, or `Ok(Some(ExecutionTraceResult))`. The block number and extrinsic
-    /// index are resolved here (they aren't in the trace) so the caller can record
-    /// where the tx was included.
-    #[allow(clippy::type_complexity)]
+    /// `None` if this connector can't trace (eth-rpc / non-substrate nodes);
+    /// otherwise every window of the execution, in step order, ending after the
+    /// window that reaches the end of it. A failing call yields an `Err` and ends
+    /// the stream; an untraced execution yields nothing.
     pub fn trace_execution_tx(
         &self,
         tx_hash: TxHash,
-        step_limit: u64,
-    ) -> Option<StaticFuture<Result<Option<ExecutionTraceResult>>>> {
-        let substrate_provider = self.substrate_providers.as_ref()?;
-        let provider = substrate_provider.clone();
-        let inclusion_future = self.indexed_transactions.get(tx_hash);
+        step_limit: NonZeroU64,
+    ) -> Option<StaticStream<Result<ExecutionTraceWindow>>> {
+        let provider = self.substrate_providers.as_ref()?.clone();
+        let walk = TraceWalk {
+            provider,
+            tx_hash,
+            location: WalkLocation::Pending(self.indexed_transactions.get(tx_hash)),
+            cursor: StepCursor::new(step_limit),
+            method: ReplayMethod::Recorded,
+        };
 
-        Some(Box::pin(async move {
-            let indexed_transaction = inclusion_future.await;
-            let substrate_block_information = indexed_transaction
-                .block_pair
-                .substrate_block
-                .as_ref()
-                .expect("qed; this is a substrate transaction");
-            let extrinsic_index = indexed_transaction
-                .extrinsic_index
-                .expect("qed; this is a substrate transaction")
-                as u32;
-            let block_number = indexed_transaction.block_pair.evm_block.number();
-            let parent_hash = substrate_block_information.runtime_block.header.parent_hash;
-            let block_hash = H256(substrate_block_information.block_hash);
-            let block = substrate_block_information.runtime_block.clone();
-
-            let config = ExecutionTracerConfigV1 {
-                enable_memory: false,
-                disable_stack: true,
-                disable_storage: true,
-                enable_return_data: false,
-                disable_syscall_details: false,
-                limit: (step_limit != 0).then_some(step_limit),
-                memory_word_limit: 0,
-            };
-            let tracer_type = TracerTypeV1::ExecutionTracer(Some(config));
-
-            // Prefer `state_callRecorded` (polkadot-sdk #12374) so the block is replayed with a
-            // proof-size recorder registered.
-            let trace = match trace_tx_recorded(
-                &provider,
-                &block,
-                block_hash,
-                extrinsic_index,
-                &tracer_type,
-            )
-            .await
-            {
-                Ok(trace) => trace,
-                Err(err) => {
-                    warn!(
-                        ?tx_hash,
-                        ?err,
-                        "state_callRecorded tracing failed; falling back to recorder-less \
-                         runtime-API replay (tail transactions may trace empty)"
-                    );
-                    let payload = revive_metadata::apis()
-                        .revive_api()
-                        .trace_tx(block.into(), extrinsic_index, tracer_type.into())
-                        .unvalidated();
-                    provider
-                        .runtime_api()
-                        .at(parent_hash)
-                        .call(payload)
-                        .await
-                        .context("Failed to run the execution tracer")?
-                        .map(|trace| trace.0)
-                }
-            };
-
-            Ok(trace.map(|trace| {
-                let TraceV1::Execution(execution_trace) = trace else {
-                    unreachable!("expected an execution trace for an ExecutionTracer request")
+        Some(
+            futures::stream::try_unfold(walk, |mut walk| async move {
+                let Some(limit) = walk.cursor.limit() else {
+                    return Ok(None);
                 };
-                ExecutionTraceResult {
-                    block_number,
-                    extrinsic_index,
-                    trace: execution_trace,
-                }
-            }))
-        }))
+
+                let (location, resolved) = walk.location.resolve().await;
+                walk.location = resolved;
+
+                let Some(trace) = walk.trace_window(&location, limit).await? else {
+                    // Nothing traced at offset 0 is an empty walk. Later it means the rest of the
+                    // execution is unreachable, which the caller must not read as a whole trace.
+                    if walk.cursor.offset == 0 {
+                        return Ok(None);
+                    }
+                    bail!(
+                        "the runtime stopped tracing at step {}, so the rest of the execution is \
+                         unreachable",
+                        walk.cursor.offset
+                    )
+                };
+
+                walk.cursor.advance(trace.struct_logs.len() as u64);
+
+                let window = ExecutionTraceWindow {
+                    inclusion: location.inclusion,
+                    trace,
+                };
+                Ok(Some((window, walk)))
+            })
+            .boxed(),
+        )
     }
 
     pub fn balance_of(&self, address: Address) -> StaticFuture<Result<U256>> {
@@ -1912,36 +2022,112 @@ impl std::ops::DerefMut for SubstrateProviders {
     }
 }
 
-/// Trace a transaction via `state_callRecorded`
-async fn trace_tx_recorded(
+impl TracedTxLocation {
+    fn of(indexed_transaction: IndexedTransactionInformation) -> Self {
+        let substrate_block_information = indexed_transaction
+            .block_pair
+            .substrate_block
+            .as_ref()
+            .expect("qed; this is a substrate transaction");
+
+        Self {
+            block: substrate_block_information.runtime_block.clone(),
+            block_hash: H256(substrate_block_information.block_hash),
+            parent_hash: substrate_block_information.runtime_block.header.parent_hash,
+            inclusion: TxInclusion {
+                block_number: indexed_transaction.block_pair.evm_block.number(),
+                extrinsic_index: indexed_transaction
+                    .extrinsic_index
+                    .expect("qed; this is a substrate transaction")
+                    as u32,
+            },
+        }
+    }
+}
+
+/// Replay one transaction under the execution tracer, capturing the `limit`
+/// steps that start at `step_offset`. `Ok(None)` means the runtime produced no
+/// trace, which ends the walk.
+async fn trace_execution_window(
     provider: &SubstrateProviders,
-    block: &RuntimeSubxtBlock,
-    block_hash: H256,
-    extrinsic_index: u32,
-    tracer_type: &TracerTypeV1,
-) -> Result<Option<TraceV1>> {
+    location: &TracedTxLocation,
+    step_offset: u64,
+    limit: u64,
+    method: ReplayMethod,
+    tx_hash: TxHash,
+) -> Result<Option<ExecutionTraceV1>> {
+    let config = ExecutionTracerConfigV2 {
+        enable_memory: false,
+        disable_stack: true,
+        disable_storage: true,
+        enable_return_data: false,
+        disable_syscall_details: false,
+        step_offset,
+        limit: Some(limit),
+        memory_word_limit: 0,
+    };
+
+    // TODO: encoded by hand because the checked-in metadata's `TraceTxInputPayloadV2` still
+    // carries a V1 tracer config, which has no `step_offset`. Use the typed payload once
+    // `assets/revive_metadata.scale` is regenerated.
+    let input = TraceTxVersionedInputPayload::V2(TraceTxInputPayloadV2 {
+        block: location.block.clone(),
+        tx_index: location.inclusion.extrinsic_index,
+        config: TracerTypeV2::ExecutionTracer(Some(config)),
+    });
+    let call_data = input.encode();
+
+    let (rpc_method, at) = method.call(location);
+    let raw = call_trace_tx_versioned(provider, rpc_method, &call_data, at)
+        .await
+        .context(
+            "Failed to run the execution tracer; windowed capture needs a runtime exposing \
+             ReviveApi v2 (trace_tx_versioned)",
+        )?;
+
+    let output = TraceTxVersionedOutputPayload::decode(&mut raw.as_slice())
+        .context("Failed to SCALE-decode the trace_tx_versioned result")?;
+    let TraceTxVersionedOutputPayload::V2(output) = output else {
+        bail!("expected a V2 output for a V2 trace_tx_versioned request")
+    };
+
+    match output.entry {
+        None => Ok(None),
+        Some(TraceEntryV1::NotTraced) => {
+            warn!(?tx_hash, "the runtime reported the transaction as untraced");
+            Ok(None)
+        }
+        Some(TraceEntryV1::Traced(TraceV2::Execution(trace))) => Ok(Some(trace)),
+        Some(TraceEntryV1::Traced(_)) => {
+            unreachable!("expected an execution trace for an ExecutionTracer request")
+        }
+    }
+}
+
+/// Invoke `ReviveApi_trace_tx_versioned` over one of the `state_call`-shaped RPC
+/// methods, against the state `at` selects. See [`ReplayMethod::call`].
+async fn call_trace_tx_versioned(
+    provider: &SubstrateProviders,
+    rpc_method: &str,
+    call_data: &[u8],
+    at: H256,
+) -> Result<Vec<u8>> {
     use subxt::ext::subxt_rpcs::client::rpc_params;
 
-    let mut call_data = block.encode();
-    call_data.extend_from_slice(&extrinsic_index.encode());
-    call_data.extend_from_slice(&tracer_type.encode());
-
-    let call_data_hex = format!("0x{}", alloy::hex::encode(&call_data));
-    let block_hash_hex = format!("0x{}", alloy::hex::encode(block_hash.as_bytes()));
+    let call_data_hex = format!("0x{}", alloy::hex::encode(call_data));
+    let at_hex = format!("0x{}", alloy::hex::encode(at.as_bytes()));
 
     let result_hex: String = provider
         .submission_rpc()
         .request(
-            "state_callRecorded",
-            rpc_params!["ReviveApi_trace_tx", call_data_hex, block_hash_hex],
+            rpc_method,
+            rpc_params!["ReviveApi_trace_tx_versioned", call_data_hex, at_hex],
         )
         .await
-        .map_err(|err| anyhow!("state_callRecorded RPC call failed: {err:?}"))?;
+        .map_err(|err| anyhow!("{rpc_method} RPC call failed: {err:?}"))?;
 
-    let raw = alloy::hex::decode(result_hex.trim_start_matches("0x"))
-        .context("Failed to hex-decode state_callRecorded result")?;
-    Option::<TraceV1>::decode(&mut raw.as_slice())
-        .context("Failed to SCALE-decode state_callRecorded trace_tx result")
+    alloy::hex::decode(result_hex.trim_start_matches("0x"))
+        .with_context(|| format!("Failed to hex-decode the {rpc_method} result"))
 }
 
 #[derive(Clone, Debug, Default)]
@@ -2201,4 +2387,31 @@ fn revive_trace_to_geth_trace(trace: TraceV1) -> Result<GethTrace> {
         serde_json::to_value(trace).expect("qed; pallet-revive trace serializes to JSON");
     serde_json::from_value::<GethTrace>(trace_json)
         .context("Failed to deserialize revive trace into geth trace")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Drive the production cursor over an execution of `total_steps` steps,
+    /// returning the `(offset, limit, captured)` of every call it makes.
+    fn walk(step_limit: u64, total_steps: u64) -> Vec<(u64, u64, u64)> {
+        let mut cursor = StepCursor::new(NonZeroU64::new(step_limit).expect("qed; non-zero"));
+        let mut calls = Vec::new();
+
+        while let Some(limit) = cursor.limit() {
+            let captured = limit.min(total_steps.saturating_sub(cursor.offset));
+            calls.push((cursor.offset, limit, captured));
+            cursor.advance(captured);
+        }
+        calls
+    }
+
+    /// Windows must tile the steps without gap or overlap, since a drifting offset
+    /// would double-count or skip steps and still produce a plausible profile.
+    #[test]
+    fn windows_tile_an_execution_until_a_short_one_ends_the_walk() {
+        assert_eq!(walk(2, 5), [(0, 2, 2), (2, 2, 2), (4, 2, 1)]);
+        assert_eq!(walk(2, 4), [(0, 2, 2), (2, 2, 2), (4, 2, 0)]);
+    }
 }
