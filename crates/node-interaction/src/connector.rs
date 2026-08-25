@@ -65,6 +65,25 @@ impl StepCursor {
     }
 }
 
+/// Which `state_call`-shaped RPC replays a window.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ReplayMethod {
+    /// Replays with a proof-size recorder registered.
+    Recorded,
+    /// No recorder, so the trace's proof size is not faithful.
+    Plain,
+}
+
+impl ReplayMethod {
+    /// The RPC method and the hash it takes.
+    fn call(&self, location: &TracedTxLocation) -> (&'static str, H256) {
+        match self {
+            Self::Recorded => ("state_callRecorded", location.block_hash),
+            Self::Plain => ("state_call", location.parent_hash),
+        }
+    }
+}
+
 /// What a replay needs, resolved once and reused by every window.
 struct TracedTxLocation {
     /// The block holding the transaction, replayed on every window.
@@ -100,6 +119,53 @@ struct TraceWalk {
     tx_hash: TxHash,
     location: WalkLocation,
     cursor: StepCursor,
+    method: ReplayMethod,
+}
+
+impl TraceWalk {
+    /// Trace the cursor's window. The recorded replay is preferred, since proof
+    /// size is only faithful with a recorder registered. A node without one says
+    /// so on the first window and the whole walk degrades; a failure after that
+    /// is transient rather than a missing recorder, so it fails the walk instead
+    /// of mixing two kinds of replay into one profile.
+    async fn trace_window(
+        &mut self,
+        location: &TracedTxLocation,
+        limit: u64,
+    ) -> Result<Option<ExecutionTraceV1>> {
+        let offset = self.cursor.offset;
+        let attempt = trace_execution_window(
+            &self.provider,
+            location,
+            offset,
+            limit,
+            self.method,
+            self.tx_hash,
+        )
+        .await;
+
+        match attempt {
+            Err(err) if self.method == ReplayMethod::Recorded && offset == 0 => {
+                warn!(
+                    tx_hash = ?self.tx_hash,
+                    ?err,
+                    "state_callRecorded is unavailable; profiling this tx with a recorder-less \
+                     replay, so its proof size is not faithful"
+                );
+                self.method = ReplayMethod::Plain;
+                trace_execution_window(
+                    &self.provider,
+                    location,
+                    offset,
+                    limit,
+                    ReplayMethod::Plain,
+                    self.tx_hash,
+                )
+                .await
+            }
+            result => result,
+        }
+    }
 }
 
 pub struct NodeConnector {
@@ -871,6 +937,7 @@ impl NodeConnector {
             tx_hash,
             location: WalkLocation::Pending(self.indexed_transactions.get(tx_hash)),
             cursor: StepCursor::new(step_limit),
+            method: ReplayMethod::Recorded,
         };
 
         Some(
@@ -882,15 +949,7 @@ impl NodeConnector {
                 let (location, resolved) = walk.location.resolve().await;
                 walk.location = resolved;
 
-                let Some(trace) = trace_execution_window(
-                    &walk.provider,
-                    &location,
-                    walk.cursor.offset,
-                    limit,
-                    walk.tx_hash,
-                )
-                .await?
-                else {
+                let Some(trace) = walk.trace_window(&location, limit).await? else {
                     return Ok(None);
                 };
 
@@ -1985,6 +2044,7 @@ async fn trace_execution_window(
     location: &TracedTxLocation,
     step_offset: u64,
     limit: u64,
+    method: ReplayMethod,
     tx_hash: TxHash,
 ) -> Result<Option<ExecutionTraceV1>> {
     let config = ExecutionTracerConfigV2 {
@@ -1998,6 +2058,9 @@ async fn trace_execution_window(
         memory_word_limit: 0,
     };
 
+    // TODO: encoded by hand because the checked-in metadata's `TraceTxInputPayloadV2` still
+    // carries a V1 tracer config, which has no `step_offset`. Use the typed payload once
+    // `assets/revive_metadata.scale` is regenerated.
     let input = TraceTxVersionedInputPayload::V2(TraceTxInputPayloadV2 {
         block: location.block.clone(),
         tx_index: location.inclusion.extrinsic_index,
@@ -2005,32 +2068,13 @@ async fn trace_execution_window(
     });
     let call_data = input.encode();
 
-    // Prefer `state_callRecorded` so the block is replayed with a
-    // proof-size recorder registered.
-    let raw = match call_trace_tx_versioned(
-        provider,
-        "state_callRecorded",
-        &call_data,
-        location.block_hash,
-    )
-    .await
-    {
-        Ok(raw) => raw,
-        Err(err) => {
-            warn!(
-                ?tx_hash,
-                ?err,
-                "state_callRecorded tracing failed; falling back to recorder-less \
-                 runtime-API replay (tail transactions may trace empty)"
-            );
-            call_trace_tx_versioned(provider, "state_call", &call_data, location.parent_hash)
-                .await
-                .context(
-                    "Failed to run the execution tracer; windowed capture needs a runtime \
-                     exposing ReviveApi v2 (trace_tx_versioned)",
-                )?
-        }
-    };
+    let (rpc_method, at) = method.call(location);
+    let raw = call_trace_tx_versioned(provider, rpc_method, &call_data, at)
+        .await
+        .context(
+            "Failed to run the execution tracer; windowed capture needs a runtime exposing \
+             ReviveApi v2 (trace_tx_versioned)",
+        )?;
 
     let output = TraceTxVersionedOutputPayload::decode(&mut raw.as_slice())
         .context("Failed to SCALE-decode the trace_tx_versioned result")?;
@@ -2054,9 +2098,8 @@ async fn trace_execution_window(
     }
 }
 
-/// Invoke `ReviveApi_trace_tx_versioned` over `state_call` or
-/// `state_callRecorded`, which differ in what `at` means: the state to execute
-/// against, versus the block to replay.
+/// Invoke `ReviveApi_trace_tx_versioned` over one of the `state_call`-shaped RPC
+/// methods, against the state `at` selects. See [`ReplayMethod::call`].
 async fn call_trace_tx_versioned(
     provider: &SubstrateProviders,
     rpc_method: &str,
