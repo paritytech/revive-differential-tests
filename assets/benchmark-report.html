@@ -3752,45 +3752,46 @@ function hydrateOpcodeTable(table) {
 }
 
 /**
- * Step-limit status chip for one platform's opcode profile: how many of the N
- * sampled txs hit the `profile-step-limit` cap (a hit truncates the trace tail,
- * whose weight then lands in `unattributed`). Per-sample step counts are in the
+ * Capture-status chip for one platform's opcode profile: how many of the N sampled
+ * txs were profiled to the end of their execution. A trace is walked in windows of
+ * `profile-step-limit` steps; a walk that ends early is flagged `partial`, and the
+ * steps it never captured land in `unattributed`. Per-sample step counts are in the
  * hover title. The profiled-vs-unattributed split itself is shown inline in the
  * per-step stacked bars (the "Not profiled" segment), so this only builds the chip.
  */
 function renderCoverageBlock(profile) {
   const tps = (profile.tx_profiles || []).filter(t => Number(t.weights?.consumed?.ref_time || 0) > 0);
   if (!tps.length) return '';
-  // profile_step_limit = 0 means "cap disabled" (the retester passes limit: None
-  // to the tracer), so treat it like an absent cap rather than a 0-step limit.
-  const rawCap = reportData?.context?.Benchmark?.benchmark_run?.profile_step_limit ?? null;
-  const cap = rawCap != null && Number(rawCap) > 0 ? Number(rawCap) : null;
-  // Per-sample captured step counts, so we can report how many of the N samples
-  // actually hit the cap — an average would hide a partial truncation (some
-  // samples truncated, some not).
-  const capsHit = tps.map(t => (t.opcodes || []).reduce((s, o) => s + Number(o.count || 0), 0));
-  const nSamples = capsHit.length;
-  const maxC = Math.max(...capsHit);
-  const hitCount = cap != null ? capsHit.filter(c => c >= cap).length : 0;
 
-  // Sampled txs can be different transactions with genuinely different step
-  // counts, so the chip reports status + how close the worst sample got to the
-  // cap (max), never a single conflated count. Per-sample counts live in the
-  // hover title.
+  // `steps_captured` and `partial` are recorded per sample. Reports written before
+  // they existed fall back to summing the per-opcode counts, which yields the step
+  // count but says nothing about completeness.
+  const samples = tps.map(t => ({
+    steps: t.steps_captured != null
+      ? Number(t.steps_captured)
+      : (t.opcodes || []).reduce((sum, op) => sum + Number(op.count || 0), 0),
+    partial: t.partial === true,
+    known: t.steps_captured != null,
+  }));
+
+  const nSamples = samples.length;
   const plur = nSamples === 1 ? 'sample' : 'samples';
-  const perSampleTitle = `Steps captured per sample: ${capsHit.map(c => c.toLocaleString()).join(' · ')}`
-    + (cap != null ? ` (limit ${cap.toLocaleString()})` : '');
-  let chip;
-  if (cap == null) {
-    chip = `<span class="cov-chip cov-chip-na" title="${perSampleTitle}">${nSamples} ${plur} · up to ${maxC.toLocaleString()} steps</span>`;
-  } else if (hitCount === 0) {
-    chip = `<span class="cov-chip cov-chip-ok" title="${perSampleTitle}">✓ Complete capture · ${nSamples} ${plur} · max ${maxC.toLocaleString()} / ${cap.toLocaleString()} steps</span>`;
-  } else {
-    const scope = hitCount === nSamples ? `all ${nSamples} ${plur}` : `${hitCount} of ${nSamples} ${plur}`;
-    chip = `<span class="cov-chip cov-chip-hit" title="${perSampleTitle} — weight beyond the cap is unattributed">⚠ Step limit reached · ${scope} truncated · ${cap.toLocaleString()}-step limit</span>`;
-  }
+  const maxSteps = Math.max(...samples.map(s => s.steps));
+  const partialCount = samples.filter(s => s.partial).length;
 
-  return chip;
+  // Sampled txs are different transactions with genuinely different step counts, so
+  // the chip reports status plus the longest execution seen, never a conflated total.
+  const perSampleTitle = 'Steps captured per sample: '
+    + samples.map(s => s.steps.toLocaleString() + (s.partial ? ' (partial)' : '')).join(' · ');
+
+  if (samples.some(s => !s.known)) {
+    return `<span class="cov-chip cov-chip-na" title="${perSampleTitle}">${nSamples} ${plur} · up to ${maxSteps.toLocaleString()} steps</span>`;
+  }
+  if (partialCount === 0) {
+    return `<span class="cov-chip cov-chip-ok" title="${perSampleTitle}">✓ Complete capture · ${nSamples} ${plur} · up to ${maxSteps.toLocaleString()} steps</span>`;
+  }
+  const scope = partialCount === nSamples ? `all ${nSamples} ${plur}` : `${partialCount} of ${nSamples} ${plur}`;
+  return `<span class="cov-chip cov-chip-hit" title="${perSampleTitle} — the steps a partial walk missed are unattributed">⚠ Partial capture · ${scope} cut short · up to ${maxSteps.toLocaleString()} steps</span>`;
 }
 
 function renderOpcodeProfileSection(modeData, enabledPlatforms) {
@@ -3897,6 +3898,7 @@ function renderOpcodeProfileSection(modeData, enabledPlatforms) {
         <span>·</span>
         <span>across <b>${profile.block_count}</b> block${profile.block_count === 1 ? '' : 's'}</span>
         ${profile.failed_count > 0 ? `<span>·</span><span><b>${profile.failed_count}</b> failed</span>` : ''}
+        ${profile.partial_count > 0 ? `<span>·</span><span title="Walks that ended before the execution did; their missing steps are unattributed"><b>${profile.partial_count}</b> partial</span>` : ''}
         <span>·</span>
         <span>Σ ref_time: <b>${fmtOpcodeRefTime(total)}</b></span>
         <span>·</span>
