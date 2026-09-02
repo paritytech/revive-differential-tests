@@ -56,6 +56,14 @@ runs:
         ref: ${{ inputs.ref }}
         path: resolc-source
 
+    - name: Drop Inherited Git Credentials
+      if: ${{ steps.install-release.outputs.installed != 'true' }}
+      shell: bash
+      working-directory: resolc-source
+      run: |
+        set -euo pipefail
+        git config --local --unset-all http.https://github.com/.extraheader || true
+
     - name: Install Resolc LLVM
       if: ${{ steps.install-release.outputs.installed != 'true' }}
       shell: bash
