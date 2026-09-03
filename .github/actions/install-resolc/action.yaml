@@ -56,18 +56,16 @@ runs:
         ref: ${{ inputs.ref }}
         path: resolc-source
 
-    - name: Drop Inherited Git Credentials
-      if: ${{ steps.install-release.outputs.installed != 'true' }}
-      shell: bash
-      working-directory: resolc-source
-      run: |
-        set -euo pipefail
-        git config --local --unset-all http.https://github.com/.extraheader || true
-
     - name: Install Resolc LLVM
       if: ${{ steps.install-release.outputs.installed != 'true' }}
       shell: bash
       working-directory: resolc-source
+      env:
+        # Workaround: anonymous HTTP/2 clones get a 401, breaking make's submodule update.
+        # Drop once GitHub fixes it: https://github.com/orgs/community/discussions/206581
+        GIT_CONFIG_COUNT: "1"
+        GIT_CONFIG_KEY_0: http.version
+        GIT_CONFIG_VALUE_0: HTTP/1.1
       run: |
         set -euo pipefail
 
