@@ -77,6 +77,11 @@ inputs:
     required: false
     default: "100"
     type: number
+  upload-artifact-suffix:
+    description: "Suffix appended to the names of the uploaded artifacts. Artifact names must be unique per workflow run if invoking this action more than once in the same workflow."
+    required: false
+    default: ""
+    type: string
 
 runs:
   using: "composite"
@@ -203,13 +208,13 @@ runs:
     - name: Upload the Report to the CI
       uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
       with:
-        name: ${{ inputs['platform'] }}-report.json
+        name: ${{ inputs['platform'] }}-report${{ inputs['upload-artifact-suffix'] }}.json
         path: ./workdir/report.json
 
-    - name: Upload the Report to the CI
+    - name: Upload the Expectations to the CI
       uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
       with:
-        name: ${{ inputs['platform'] }}.json
+        name: ${{ inputs['platform'] }}${{ inputs['upload-artifact-suffix'] }}.json
         path: ./workdir/expectations.json
 
     - name: Check Expectations
