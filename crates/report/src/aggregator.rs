@@ -631,6 +631,8 @@ pub enum ReportContextKind {
     Test,
     /// A benchmark run.
     Benchmark,
+    /// An EVM workload profiling run.
+    Profile,
     /// A JSON schema export.
     ExportJsonSchema,
     /// A test specifier export.
@@ -657,6 +659,7 @@ impl ReportContext {
             Self::Runtime(context) => match context {
                 Context::Test(_) => Some(ReportContextKind::Test),
                 Context::Benchmark(_) => Some(ReportContextKind::Benchmark),
+                Context::Profile(_) => Some(ReportContextKind::Profile),
                 Context::ExportJsonSchema(_) => Some(ReportContextKind::ExportJsonSchema),
                 Context::ExportTestSpecifiers(_) => Some(ReportContextKind::ExportTestSpecifiers),
                 Context::Compile(_) => Some(ReportContextKind::Compile),
@@ -668,6 +671,7 @@ impl ReportContext {
                 .and_then(|command| match command.as_str() {
                     "Test" => Some(ReportContextKind::Test),
                     "Benchmark" => Some(ReportContextKind::Benchmark),
+                    "Profile" => Some(ReportContextKind::Profile),
                     "ExportJsonSchema" => Some(ReportContextKind::ExportJsonSchema),
                     "ExportTestSpecifiers" => Some(ReportContextKind::ExportTestSpecifiers),
                     "Compile" => Some(ReportContextKind::Compile),

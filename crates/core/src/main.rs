@@ -153,6 +153,7 @@ fn main() -> anyhow::Result<()> {
     let log_format = match &context {
         Context::Test(context) => context.log.log_format,
         Context::Benchmark(context) => context.log.log_format,
+        Context::Profile(context) => context.log.log_format,
         Context::Compile(context) => context.log.log_format,
         Context::ExportJsonSchema(_) | Context::ExportTestSpecifiers(_) => LogFormat::default(),
     };
@@ -235,6 +236,7 @@ fn main() -> anyhow::Result<()> {
                 Ok(())
             })
         }
+        Context::Profile(_) => todo!("Implement EVM workload profiling"),
         Context::ExportJsonSchema(_) => {
             let schema = schema_for!(Metadata);
             println!(

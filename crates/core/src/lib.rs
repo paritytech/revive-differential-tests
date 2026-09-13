@@ -162,7 +162,8 @@ impl Platform for PlatformDescriptorWithName {
                         &context.wallet,
                         BlockProvisioningSubscriptionKind::FinalizedBlocks,
                     ),
-                    Context::ExportJsonSchema(_)
+                    Context::Profile(_)
+                    | Context::ExportJsonSchema(_)
                     | Context::ExportTestSpecifiers(_)
                     | Context::Compile(_) => {
                         anyhow::bail!("Nodes can only be created for tests and benchmarks")
@@ -556,7 +557,8 @@ fn new_geth_node(context: Context) -> StaticFuture<Result<NodeConnector>> {
                 &context.geth,
                 BlockProvisioningSubscriptionKind::FinalizedBlocks,
             ),
-            Context::ExportJsonSchema(_)
+            Context::Profile(_)
+            | Context::ExportJsonSchema(_)
             | Context::ExportTestSpecifiers(_)
             | Context::Compile(_) => {
                 anyhow::bail!("Nodes can only be created for tests and benchmarks")
@@ -598,7 +600,8 @@ fn new_lighthouse_geth_node(context: Context) -> StaticFuture<Result<NodeConnect
                 &context.kurtosis,
                 BlockProvisioningSubscriptionKind::FinalizedBlocks,
             ),
-            Context::ExportJsonSchema(_)
+            Context::Profile(_)
+            | Context::ExportJsonSchema(_)
             | Context::ExportTestSpecifiers(_)
             | Context::Compile(_) => {
                 anyhow::bail!("Nodes can only be created for tests and benchmarks")
@@ -643,7 +646,8 @@ fn new_revive_dev_node(context: Context) -> StaticFuture<Result<NodeConnector>> 
                 &context.revive_dev_node,
                 BlockProvisioningSubscriptionKind::FinalizedBlocks,
             ),
-            Context::ExportJsonSchema(_)
+            Context::Profile(_)
+            | Context::ExportJsonSchema(_)
             | Context::ExportTestSpecifiers(_)
             | Context::Compile(_) => {
                 anyhow::bail!("Nodes can only be created for tests and benchmarks")
@@ -692,7 +696,8 @@ fn new_zombienet_node(context: Context) -> StaticFuture<Result<NodeConnector>> {
                 &context.zombienet,
                 BlockProvisioningSubscriptionKind::FinalizedBlocks,
             ),
-            Context::ExportJsonSchema(_)
+            Context::Profile(_)
+            | Context::ExportJsonSchema(_)
             | Context::ExportTestSpecifiers(_)
             | Context::Compile(_) => {
                 anyhow::bail!("Nodes can only be created for tests and benchmarks")
@@ -740,7 +745,8 @@ fn new_polkadot_omni_node(context: Context) -> StaticFuture<Result<NodeConnector
                 &context.polkadot_omnichain_node,
                 BlockProvisioningSubscriptionKind::FinalizedBlocks,
             ),
-            Context::ExportJsonSchema(_)
+            Context::Profile(_)
+            | Context::ExportJsonSchema(_)
             | Context::ExportTestSpecifiers(_)
             | Context::Compile(_) => {
                 anyhow::bail!("Nodes can only be created for tests and benchmarks")

@@ -93,7 +93,11 @@ pub fn extract_hashes(
                 }
             }
         }
-        Some(ReportContextKind::ExportJsonSchema | ReportContextKind::ExportTestSpecifiers)
+        Some(
+            ReportContextKind::Profile
+            | ReportContextKind::ExportJsonSchema
+            | ReportContextKind::ExportTestSpecifiers,
+        )
         | None => bail!(
             "Extracting hashes is not supported for the context the report was generated with"
         ),

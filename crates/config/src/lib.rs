@@ -31,7 +31,7 @@ use serde::{Deserialize, Serialize, Serializer};
 use strum::{AsRefStr, Display, EnumString, IntoStaticStr};
 use temp_dir::TempDir;
 
-/// The CLI for the differential testing and benchmarking framework.
+/// The CLI for differential testing, benchmarking, and profiling.
 #[revive_dt_proc_macros::context(
     context_type_ident = "Context",
     default_derives = "Clone, Debug, Parser, Serialize, Deserialize"
@@ -91,6 +91,20 @@ mod context {
         pub shutdown: ShutdownConfiguration,
     }
 
+    /// Profiles EVM workloads in a runtime built from polkadot-sdk sources.
+    ///
+    /// Execution is not implemented yet.
+    #[subcommand]
+    pub struct Profile {
+        pub log: LogConfiguration,
+        pub working_directory: WorkingDirectoryConfiguration,
+        pub profiling: ProfilingConfiguration,
+        pub corpus: CorpusExecutionConfiguration,
+        pub solc: SolcConfiguration,
+        pub compilation: CompilationConfiguration,
+        pub report: ReportConfiguration,
+    }
+
     /// Exports the JSON schema of the MatterLabs test format used by the tool.
     #[subcommand]
     pub struct ExportJsonSchema;
@@ -120,8 +134,8 @@ mod context {
     pub struct ProfileConfiguration {
         /// The commandline profile to use. Different profiles change the defaults of the various
         /// cli arguments.
-        #[arg(long = "profile", default_value_t = Profile::Default)]
-        pub profile: Profile,
+        #[arg(long = "profile", default_value_t = CliProfile::Default)]
+        pub profile: CliProfile,
     }
 
     /// Configuration for the log format used by the tracing subscriber.
@@ -216,6 +230,22 @@ mod context {
         /// no cap.
         #[arg(long = "benchmark.profile-step-limit", default_value_t = 100_000)]
         pub profile_step_limit: u64,
+    }
+
+    /// Configuration for EVM workload profiling.
+    #[configuration(key = "profiling")]
+    pub struct ProfilingConfiguration {
+        /// The polkadot-sdk checkout used to build the runtime from source.
+        #[arg(value_hint = ValueHint::DirPath)]
+        pub polkadot_sdk_path: PathBuf,
+    }
+
+    impl ProfilingConfiguration {
+        /// The persistent Cargo target directory for profiling builds.
+        #[must_use]
+        pub fn target_directory(&self) -> PathBuf {
+            self.polkadot_sdk_path.join("target/retester-profile")
+        }
     }
 
     /// Configuration for the export-genesis target platform.
@@ -729,7 +759,10 @@ mod context {
             match self {
                 Self::Test(ctx) => ctx.update_for_profile(),
                 Self::Benchmark(ctx) => ctx.update_for_profile(),
-                Self::ExportJsonSchema(_) | Self::Compile(..) | Self::ExportTestSpecifiers(..) => {}
+                Self::Profile(_)
+                | Self::ExportJsonSchema(_)
+                | Self::Compile(..)
+                | Self::ExportTestSpecifiers(..) => {}
             }
         }
     }
@@ -737,8 +770,8 @@ mod context {
     impl Test {
         pub fn update_for_profile(&mut self) {
             match self.profile.profile {
-                Profile::Default => {}
-                Profile::Debug => {
+                CliProfile::Default => {}
+                CliProfile::Debug => {
                     let default_concurrency_config =
                         ConcurrencyConfiguration::parse_from(["concurrency-configuration"]);
                     let working_directory_config = WorkingDirectoryPath::default();
@@ -780,8 +813,8 @@ mod context {
     impl Benchmark {
         pub fn update_for_profile(&mut self) {
             match self.profile.profile {
-                Profile::Default => {}
-                Profile::Debug => {
+                CliProfile::Default => {}
+                CliProfile::Debug => {
                     let default_concurrency_config =
                         ConcurrencyConfiguration::parse_from(["concurrency-configuration"]);
                     let working_directory_config = WorkingDirectoryPath::default();
@@ -950,7 +983,7 @@ pub enum OutputFormat {
     IntoStaticStr,
 )]
 #[strum(serialize_all = "kebab-case")]
-pub enum Profile {
+pub enum CliProfile {
     /// The default profile used by the framework. This profile is optimized to make the test
     /// and workload execution happen as fast as possible.
     #[default]
