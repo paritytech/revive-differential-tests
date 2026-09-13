@@ -14,16 +14,12 @@ rust-version = "1.91.0"
 revive-dt-common = { version = "0.1.0", path = "crates/common" }
 revive-dt-compiler = { version = "0.1.0", path = "crates/compiler" }
 revive-dt-config = { version = "0.1.0", path = "crates/config" }
-revive-dt-core = { version = "0.1.0", path = "crates/core" }
 revive-dt-format = { version = "0.1.0", path = "crates/format" }
 revive-dt-node = { version = "0.1.0", path = "crates/node" }
 revive-dt-node-interaction = { version = "0.1.0", path = "crates/node-interaction" }
-revive-dt-node-pool = { version = "0.1.0", path = "crates/node-pool" }
 revive-dt-report = { version = "0.1.0", path = "crates/report" }
 revive-dt-solc-binaries = { version = "0.1.0", path = "crates/solc-binaries" }
 revive-dt-proc-macros = { version = "0.1.0", path = "crates/proc-macros" }
-revive-dt-report-processor = { version = "0.1.0", path = "crates/report-processor" }
-revive-dt-runtime-builder = { version = "0.1.0", path = "crates/runtime-builder" }
 
 alloy = { version = "1.4.1", features = [
     "full",
@@ -47,8 +43,8 @@ git2 = { version = "0.21.0", default-features = false, features = ["https"] }
 hex = "0.4.3"
 quote = "1.0.44"
 regex = "1"
+rustc-demangle = "0.1.28"
 moka = "0.12.10"
-paste = "1.0.15"
 polkavm-linker = "0.36.0"
 proc-macro2 = "1.0.106"
 reqwest = { version = "0.12.15", features = ["json"] }
@@ -63,17 +59,20 @@ serde_json = { version = "1.0", default-features = false, features = [
     "preserve_order",
 ] }
 serde_with = { version = "3.14.0", features = ["hex"] }
-serde_yaml_ng = { version = "0.10.0" }
 sha2 = { version = "0.10.9" }
 sp-core = { git = "https://github.com/paritytech/polkadot-sdk", rev = "cde8a924504c99e768940bf6b600716725c3c438" }
 sp-runtime = { git = "https://github.com/paritytech/polkadot-sdk", rev = "cde8a924504c99e768940bf6b600716725c3c438" }
 sp-weights = { git = "https://github.com/paritytech/polkadot-sdk", rev = "cde8a924504c99e768940bf6b600716725c3c438", features = ["serde"] }
+sc-executor = { git = "https://github.com/paritytech/polkadot-sdk", rev = "cde8a924504c99e768940bf6b600716725c3c438" }
+sp-externalities = { git = "https://github.com/paritytech/polkadot-sdk", rev = "cde8a924504c99e768940bf6b600716725c3c438" }
+sp-io = { git = "https://github.com/paritytech/polkadot-sdk", rev = "cde8a924504c99e768940bf6b600716725c3c438" }
+sp-wasm-interface = { git = "https://github.com/paritytech/polkadot-sdk", rev = "cde8a924504c99e768940bf6b600716725c3c438", features = ["wasmtime"] }
+cumulus-primitives-proof-size-hostfunction = { git = "https://github.com/paritytech/polkadot-sdk", rev = "cde8a924504c99e768940bf6b600716725c3c438" }
 strum = { version = "0.27.2", features = ["derive"] }
 syn = { version = "2.0.117", features = ["full"] }
 subxt = { version = "0.43.0", features = ["reconnecting-rpc-client"] }
 temp-dir = { version = "0.1.16" }
 tempfile = "3.3"
-thiserror = "2"
 toml = "0.8"
 tokio = { version = "1.47.0", default-features = false, features = [
     "macros",
@@ -85,7 +84,6 @@ tokio-stream = { version = "0.1.18", default-features = false, features = [
     "sync",
 ] }
 tower = { version = "0.5.2", features = ["limit"] }
-uuid = { version = "1.8", features = ["v4"] }
 tracing = { version = "0.1.41" }
 tracing-appender = { version = "0.2.3" }
 tracing-subscriber = { version = "=0.3.19", default-features = false, features = [
@@ -93,6 +91,9 @@ tracing-subscriber = { version = "=0.3.19", default-features = false, features =
     "json",
     "env-filter",
 ] }
+wasm-encoder = { version = "0.259.0", features = ["wasmparser"] }
+wasmparser = "0.259.0"
+wat = "1.259.0"
 console-subscriber = { version = "0.5.0" }
 indexmap = { version = "2.10.0", default-features = false }
 itertools = { version = "0.14.0" }
@@ -101,7 +102,6 @@ derive_more = { version = "2.1.1" }
 # revive compiler
 revive-solc-json-interface = { version = "1.1.0" }
 revive-common = { version = "1.1.0" }
-revive-differential = { version = "0.3.0" }
 
 zombienet-sdk = { version = "0.4.14" }
 pallet-revive = { git = "https://github.com/paritytech/polkadot-sdk", rev = "cde8a924504c99e768940bf6b600716725c3c438", default-features = true }
