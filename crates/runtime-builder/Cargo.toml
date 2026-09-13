@@ -1,0 +1,19 @@
+[package]
+name = "revive-dt-runtime-builder"
+description = "Build the Asset Hub Westend runtime for profiling"
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+edition.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+anyhow = { workspace = true }
+git2 = { workspace = true }
+revive-dt-common = { workspace = true }
+tokio = { workspace = true, features = ["fs"] }
+tracing = { workspace = true }
+
+[lints]
+workspace = true

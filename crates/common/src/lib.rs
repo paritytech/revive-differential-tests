@@ -4,6 +4,7 @@
 pub mod cached_fs;
 pub mod fs;
 pub mod futures;
+pub mod home_directory;
 pub mod iterators;
 pub mod macros;
 pub mod profile;
@@ -12,7 +13,8 @@ pub mod types;
 
 pub mod prelude {
     pub use crate::{
-        cached_fs::*, fs::*, futures::*, iterators::*, profile::*, subscriptions::*, types::*,
+        cached_fs::*, fs::*, futures::*, home_directory::*, iterators::*, profile::*,
+        subscriptions::*, types::*,
     };
 }
 
@@ -22,13 +24,14 @@ pub(crate) mod internal_prelude {
     pub use std::{
         borrow::Cow,
         collections::{BTreeMap, HashMap, HashSet},
+        env,
         fmt::Display,
         fs,
         hash::Hash,
         io::{Error as IoError, Result as IoResult},
-        path::{Path, PathBuf},
+        path::{Path, PathBuf, absolute},
         str::FromStr,
-        sync::{Arc, LazyLock},
+        sync::{Arc, LazyLock, OnceLock},
         time::SystemTime,
     };
 

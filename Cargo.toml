@@ -23,6 +23,7 @@ revive-dt-report = { version = "0.1.0", path = "crates/report" }
 revive-dt-solc-binaries = { version = "0.1.0", path = "crates/solc-binaries" }
 revive-dt-proc-macros = { version = "0.1.0", path = "crates/proc-macros" }
 revive-dt-report-processor = { version = "0.1.0", path = "crates/report-processor" }
+revive-dt-runtime-builder = { version = "0.1.0", path = "crates/runtime-builder" }
 
 alloy = { version = "1.4.1", features = [
     "full",
@@ -42,6 +43,7 @@ clap = { version = "4", features = ["derive", "wrap_help"] }
 dashmap = { version = "6.1.0" }
 foundry-compilers-artifacts = { version = "0.18.0" }
 futures = { version = "0.3.31" }
+git2 = { version = "0.21.0", default-features = false, features = ["https"] }
 hex = "0.4.3"
 quote = "1.0.44"
 regex = "1"

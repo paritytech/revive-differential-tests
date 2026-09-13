@@ -235,17 +235,9 @@ mod context {
     /// Configuration for EVM workload profiling.
     #[configuration(key = "profiling")]
     pub struct ProfilingConfiguration {
-        /// The polkadot-sdk checkout used to build the runtime from source.
-        #[arg(value_hint = ValueHint::DirPath)]
-        pub polkadot_sdk_path: PathBuf,
-    }
-
-    impl ProfilingConfiguration {
-        /// The persistent Cargo target directory for profiling builds.
-        #[must_use]
-        pub fn target_directory(&self) -> PathBuf {
-            self.polkadot_sdk_path.join("target/retester-profile")
-        }
+        /// The polkadot-sdk branch to build the runtime from.
+        #[arg(default_value = "master")]
+        pub runtime_branch: String,
     }
 
     /// Configuration for the export-genesis target platform.
