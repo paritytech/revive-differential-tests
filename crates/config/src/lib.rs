@@ -101,6 +101,7 @@ mod context {
         pub profiling: ProfilingConfiguration,
         pub corpus: CorpusExecutionConfiguration,
         pub solc: SolcConfiguration,
+        pub wallet: WalletConfiguration,
         pub compilation: CompilationConfiguration,
         pub report: ReportConfiguration,
     }
