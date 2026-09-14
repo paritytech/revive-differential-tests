@@ -20,6 +20,8 @@ revive-dt-node-interaction = { version = "0.1.0", path = "crates/node-interactio
 revive-dt-report = { version = "0.1.0", path = "crates/report" }
 revive-dt-solc-binaries = { version = "0.1.0", path = "crates/solc-binaries" }
 revive-dt-proc-macros = { version = "0.1.0", path = "crates/proc-macros" }
+revive-dt-profiler = { version = "0.1.0", path = "crates/profiler" }
+revive-dt-runtime-builder = { version = "0.1.0", path = "crates/runtime-builder" }
 
 alloy = { version = "1.4.1", features = [
     "full",
@@ -67,6 +69,11 @@ sc-executor = { git = "https://github.com/paritytech/polkadot-sdk", rev = "cde8a
 sp-externalities = { git = "https://github.com/paritytech/polkadot-sdk", rev = "cde8a924504c99e768940bf6b600716725c3c438" }
 sp-io = { git = "https://github.com/paritytech/polkadot-sdk", rev = "cde8a924504c99e768940bf6b600716725c3c438" }
 sp-wasm-interface = { git = "https://github.com/paritytech/polkadot-sdk", rev = "cde8a924504c99e768940bf6b600716725c3c438", features = ["wasmtime"] }
+cumulus-primitives-core = { git = "https://github.com/paritytech/polkadot-sdk", rev = "cde8a924504c99e768940bf6b600716725c3c438" }
+cumulus-primitives-parachain-inherent = { git = "https://github.com/paritytech/polkadot-sdk", rev = "cde8a924504c99e768940bf6b600716725c3c438" }
+sp-inherents = { git = "https://github.com/paritytech/polkadot-sdk", rev = "cde8a924504c99e768940bf6b600716725c3c438" }
+sp-timestamp = { git = "https://github.com/paritytech/polkadot-sdk", rev = "cde8a924504c99e768940bf6b600716725c3c438" }
+cumulus-test-relay-sproof-builder = { git = "https://github.com/paritytech/polkadot-sdk", rev = "cde8a924504c99e768940bf6b600716725c3c438" }
 cumulus-primitives-proof-size-hostfunction = { git = "https://github.com/paritytech/polkadot-sdk", rev = "cde8a924504c99e768940bf6b600716725c3c438" }
 strum = { version = "0.27.2", features = ["derive"] }
 syn = { version = "2.0.117", features = ["full"] }

@@ -1982,6 +1982,7 @@ checksum = "1bc2832c24239b0141d5674bb9174f9d68a8b5b3f2753311927c172ca46f7e9c"
 dependencies = [
  "funty",
  "radium",
+ "serde",
  "tap",
  "wyz",
 ]
@@ -2599,6 +2600,12 @@ checksum = "3d52eff69cd5e647efe296129160853a42795992097e8af39800e1060caeea9b"
 
 [[package]]
 name = "convert_case"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6245d59a3e82a7fc217c5828a6692dbc6dfb63a0c8c90495621f7b9d79704a0e"
+
+[[package]]
+name = "convert_case"
 version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ec182b0ca2f35d8fc196cf3404988fd8b8c739a4d270ff118a398feb0cbec1ca"
@@ -2961,12 +2968,60 @@ dependencies = [
 ]
 
 [[package]]
+name = "cumulus-primitives-core"
+version = "0.7.0"
+source = "git+https://github.com/paritytech/polkadot-sdk?rev=cde8a924504c99e768940bf6b600716725c3c438#cde8a924504c99e768940bf6b600716725c3c438"
+dependencies = [
+ "parity-scale-codec",
+ "polkadot-core-primitives",
+ "polkadot-parachain-primitives",
+ "polkadot-primitives",
+ "scale-info",
+ "sp-api 26.0.0",
+ "sp-runtime 31.0.1",
+ "sp-trie 29.0.0",
+ "staging-xcm",
+ "tracing",
+]
+
+[[package]]
+name = "cumulus-primitives-parachain-inherent"
+version = "0.7.0"
+source = "git+https://github.com/paritytech/polkadot-sdk?rev=cde8a924504c99e768940bf6b600716725c3c438#cde8a924504c99e768940bf6b600716725c3c438"
+dependencies = [
+ "async-trait",
+ "cumulus-primitives-core",
+ "parity-scale-codec",
+ "scale-info",
+ "sp-core 28.0.0",
+ "sp-inherents 26.0.0",
+ "sp-trie 29.0.0",
+]
+
+[[package]]
 name = "cumulus-primitives-proof-size-hostfunction"
 version = "0.2.0"
 source = "git+https://github.com/paritytech/polkadot-sdk?rev=cde8a924504c99e768940bf6b600716725c3c438#cde8a924504c99e768940bf6b600716725c3c438"
 dependencies = [
  "sp-externalities 0.25.0",
  "sp-runtime-interface 24.0.0",
+ "sp-trie 29.0.0",
+]
+
+[[package]]
+name = "cumulus-test-relay-sproof-builder"
+version = "0.7.0"
+source = "git+https://github.com/paritytech/polkadot-sdk?rev=cde8a924504c99e768940bf6b600716725c3c438#cde8a924504c99e768940bf6b600716725c3c438"
+dependencies = [
+ "cumulus-primitives-core",
+ "parity-scale-codec",
+ "polkadot-primitives",
+ "sp-consensus-babe",
+ "sp-core 28.0.0",
+ "sp-io 30.0.0",
+ "sp-keyring",
+ "sp-runtime 31.0.1",
+ "sp-state-machine 0.35.0",
  "sp-trie 29.0.0",
 ]
 
@@ -3205,8 +3260,10 @@ version = "0.99.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6edb4b64a43d977b8e99788fe3a04d483834fba1215a7e02caa415b626497f7f"
 dependencies = [
+ "convert_case 0.4.0",
  "proc-macro2",
  "quote",
+ "rustc_version 0.4.1",
  "syn 2.0.117",
 ]
 
@@ -7713,6 +7770,63 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7edddbd0b52d732b21ad9a5fab5c704c14cd949e5e9a1ec5929a24fded1b904c"
 
 [[package]]
+name = "polkadot-core-primitives"
+version = "7.0.0"
+source = "git+https://github.com/paritytech/polkadot-sdk?rev=cde8a924504c99e768940bf6b600716725c3c438#cde8a924504c99e768940bf6b600716725c3c438"
+dependencies = [
+ "parity-scale-codec",
+ "scale-info",
+ "sp-core 28.0.0",
+ "sp-runtime 31.0.1",
+]
+
+[[package]]
+name = "polkadot-parachain-primitives"
+version = "6.0.0"
+source = "git+https://github.com/paritytech/polkadot-sdk?rev=cde8a924504c99e768940bf6b600716725c3c438#cde8a924504c99e768940bf6b600716725c3c438"
+dependencies = [
+ "array-bytes",
+ "bounded-collections",
+ "derive_more 0.99.20",
+ "parity-scale-codec",
+ "polkadot-core-primitives",
+ "scale-info",
+ "serde",
+ "sp-core 28.0.0",
+ "sp-runtime 31.0.1",
+ "sp-weights 27.0.0",
+]
+
+[[package]]
+name = "polkadot-primitives"
+version = "7.0.0"
+source = "git+https://github.com/paritytech/polkadot-sdk?rev=cde8a924504c99e768940bf6b600716725c3c438#cde8a924504c99e768940bf6b600716725c3c438"
+dependencies = [
+ "bitvec",
+ "bounded-collections",
+ "hex-literal",
+ "log",
+ "parity-scale-codec",
+ "polkadot-core-primitives",
+ "polkadot-parachain-primitives",
+ "scale-info",
+ "serde",
+ "sp-api 26.0.0",
+ "sp-application-crypto 30.0.0",
+ "sp-arithmetic 23.0.0",
+ "sp-authority-discovery",
+ "sp-consensus-slots",
+ "sp-core 28.0.0",
+ "sp-inherents 26.0.0",
+ "sp-io 30.0.0",
+ "sp-keystore 0.34.0",
+ "sp-runtime 31.0.1",
+ "sp-staking",
+ "sp-std 14.0.0 (git+https://github.com/paritytech/polkadot-sdk?rev=cde8a924504c99e768940bf6b600716725c3c438)",
+ "thiserror 1.0.69",
+]
+
+[[package]]
 name = "polkavm"
 version = "0.33.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8855,11 +8969,15 @@ dependencies = [
  "cacache",
  "clap",
  "console-subscriber",
+ "cumulus-primitives-core",
+ "cumulus-primitives-parachain-inherent",
+ "cumulus-test-relay-sproof-builder",
  "dashmap",
  "derive_more 2.1.1",
  "futures",
  "indexmap 2.14.2",
  "pallet-revive",
+ "parity-scale-codec",
  "regex",
  "revive-dt-common",
  "revive-dt-compiler",
@@ -8867,11 +8985,18 @@ dependencies = [
  "revive-dt-format",
  "revive-dt-node",
  "revive-dt-node-interaction",
+ "revive-dt-profiler",
  "revive-dt-report",
+ "revive-dt-runtime-builder",
  "schemars 1.2.0",
  "semver 1.0.27",
  "serde",
  "serde_json",
+ "sp-core 28.0.0",
+ "sp-inherents 26.0.0",
+ "sp-io 30.0.0",
+ "sp-runtime 31.0.1",
+ "sp-timestamp",
  "subxt 0.43.1",
  "tokio",
  "tracing",
@@ -9007,6 +9132,7 @@ dependencies = [
  "revive-dt-report",
  "serde",
  "serde_json",
+ "sp-weights 27.0.0",
  "strum 0.27.2",
 ]
 
@@ -11164,6 +11290,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "sp-authority-discovery"
+version = "26.0.0"
+source = "git+https://github.com/paritytech/polkadot-sdk?rev=cde8a924504c99e768940bf6b600716725c3c438#cde8a924504c99e768940bf6b600716725c3c438"
+dependencies = [
+ "parity-scale-codec",
+ "scale-info",
+ "sp-api 26.0.0",
+ "sp-application-crypto 30.0.0",
+ "sp-runtime 31.0.1",
+]
+
+[[package]]
 name = "sp-blockchain"
 version = "45.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -11546,6 +11684,16 @@ dependencies = [
  "sp-trie 44.0.0",
  "tracing",
  "tracing-core",
+]
+
+[[package]]
+name = "sp-keyring"
+version = "31.0.0"
+source = "git+https://github.com/paritytech/polkadot-sdk?rev=cde8a924504c99e768940bf6b600716725c3c438#cde8a924504c99e768940bf6b600716725c3c438"
+dependencies = [
+ "sp-core 28.0.0",
+ "sp-runtime 31.0.1",
+ "strum 0.26.3",
 ]
 
 [[package]]
@@ -12139,6 +12287,27 @@ dependencies = [
  "libc",
  "psm",
  "windows-sys 0.59.0",
+]
+
+[[package]]
+name = "staging-xcm"
+version = "7.0.1"
+source = "git+https://github.com/paritytech/polkadot-sdk?rev=cde8a924504c99e768940bf6b600716725c3c438#cde8a924504c99e768940bf6b600716725c3c438"
+dependencies = [
+ "array-bytes",
+ "bounded-collections",
+ "derive-where",
+ "environmental",
+ "frame-support",
+ "hex-literal",
+ "impl-trait-for-tuples",
+ "parity-scale-codec",
+ "scale-info",
+ "serde",
+ "sp-runtime 31.0.1",
+ "sp-weights 27.0.0",
+ "tracing",
+ "xcm-procedural",
 ]
 
 [[package]]
@@ -15106,6 +15275,17 @@ checksum = "32e45ad4206f6d2479085147f02bc2ef834ac85886624a23575ae137c8aa8156"
 dependencies = [
  "libc",
  "rustix",
+]
+
+[[package]]
+name = "xcm-procedural"
+version = "7.0.0"
+source = "git+https://github.com/paritytech/polkadot-sdk?rev=cde8a924504c99e768940bf6b600716725c3c438#cde8a924504c99e768940bf6b600716725c3c438"
+dependencies = [
+ "Inflector",
+ "proc-macro2",
+ "quote",
+ "syn 2.0.117",
 ]
 
 [[package]]

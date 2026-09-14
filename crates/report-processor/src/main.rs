@@ -28,11 +28,37 @@ use crate::{
 
 mod compare_hashes;
 mod export_hashes;
+mod profiling;
+
+mod internal_prelude {
+    pub(crate) use crate::profiling::data::ProfilingData;
+    pub use anyhow::{Context as _, Result, ensure};
+    pub use flate2::{Compression, read::GzDecoder, write::GzEncoder};
+    pub use revive_dt_common::types::Mode;
+    pub use serde::{
+        Deserialize, Deserializer, Serialize,
+        de::{Error as _, SeqAccess, Visitor},
+    };
+    pub use sp_weights::Weight;
+    pub use std::{
+        collections::BTreeMap,
+        fmt,
+        fs::{File, read_to_string},
+        io::{BufReader, BufWriter},
+        path::Path,
+        time::Duration,
+    };
+}
 
 fn main() -> Result<()> {
     let cli = Cli::try_parse().context("Failed to parse the CLI arguments")?;
 
     match cli {
+        Cli::GenerateProfilingHtmlReport {
+            report_path,
+            output_path,
+            template_path,
+        } => profiling::generate(report_path, output_path, template_path.as_deref())?,
         Cli::GenerateExpectationsFile {
             report: report_path,
             output_path: output_file,
@@ -393,6 +419,17 @@ type Expectations<'a> = BTreeMap<TestSpecifier<'a>, Status>;
 #[derive(Clone, Debug, Parser)]
 #[command(name = "retester", term_width = 100)]
 pub enum Cli {
+    /// Generates a flame view of transactions inside profiling repeat steps.
+    GenerateProfilingHtmlReport {
+        /// Profiling report, as JSON or gzip-compressed JSON.
+        #[clap(long)]
+        report_path: PathBuf,
+        #[clap(long)]
+        output_path: PathBuf,
+        /// Read an edited HTML template without rebuilding report-processor.
+        #[clap(long)]
+        template_path: Option<PathBuf>,
+    },
     /// Generates an expectation file (containing expected test execution statuses) out of a given report.
     GenerateExpectationsFile {
         /// The path of the report's JSON file to generate the expectation's file for.

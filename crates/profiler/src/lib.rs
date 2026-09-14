@@ -6,7 +6,7 @@ pub mod prelude {
     pub use crate::{
         instrument::instrument_wasm,
         recording::{OpCodeMeasurement, ProcessedEventsAndRawEvents, ProfilingEvent, Recorder},
-        runtime::{ProfiledCall, ProfilingRuntime},
+        runtime::{ProfiledCall, ProfilingRuntime, TransactionOutput},
     };
 }
 
@@ -14,12 +14,15 @@ pub(crate) mod internal_prelude {
     pub use crate::prelude::*;
     pub(crate) use crate::{
         instrument::metadata::Metadata,
-        runtime::{ENTER_CALL, ENTER_OPCODE, EXIT_CALL, EXIT_OPCODE, HOST_FUNCTION_COUNT},
+        runtime::{
+            ENTER_CALL, ENTER_OPCODE, EXIT_CALL, EXIT_OPCODE, HOST_FUNCTION_COUNT,
+            TRANSACTION_RESULT,
+        },
     };
 
     pub use std::{
         cell::RefCell,
-        collections::BTreeMap,
+        collections::{BTreeMap, BTreeSet},
         convert::Infallible,
         mem::take,
         time::{Duration, Instant},
@@ -28,11 +31,14 @@ pub(crate) mod internal_prelude {
     pub use anyhow::{Context as _, Result, bail, ensure};
     pub use rustc_demangle::demangle;
     pub use sc_executor::{RuntimeVersionOf, WasmExecutor};
-    pub use sp_core::traits::{CallContext, CodeExecutor, RuntimeCode, WrappedRuntimeCode};
+    pub use sp_core::{
+        H160,
+        traits::{CallContext, CodeExecutor, RuntimeCode, WrappedRuntimeCode},
+    };
     pub use sp_externalities::Externalities;
     pub use sp_wasm_interface::{
         Function as HostFunction, FunctionContext, HostFunctionRegistry, HostFunctions, Signature,
-        Value, ValueType,
+        Value, ValueType, wasmtime,
     };
     pub use sp_weights::Weight;
     pub use wasm_encoder::{
@@ -41,10 +47,10 @@ pub(crate) mod internal_prelude {
     };
     pub use wasm_encoder::{
         Instruction::{
-            Call, End, GlobalGet, GlobalSet, I32Add, I32Const, I32GeU, I32Load, I32Sub, I64Load,
-            If, LocalGet, LocalSet, LocalTee,
+            Call, End, GlobalGet, GlobalSet, I32Add, I32Const, I32GeU, I32Load, I32Mul, I32Sub,
+            I64Load, If, LocalGet, LocalSet, LocalTee, Select,
         },
         MemArg,
     };
-    pub use wasmparser::{self as parser, Parser, Payload, Validator};
+    pub use wasmparser::{self as parser, Operator as WasmOperator, Parser, Payload, Validator};
 }

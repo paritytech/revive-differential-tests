@@ -16,3 +16,5 @@ workdir*
 !/schema.json
 !/dev-genesis.json
 !/scripts/*
+
+/benchmark-run-*-workdirs/

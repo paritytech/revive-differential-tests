@@ -8,7 +8,7 @@ pub mod prelude {
         GethEvmSolcPlatform, LighthouseGethEvmSolcPlatform, Platform, PlatformDescriptorWithName,
         PolkadotOmniNodePolkavmResolcPlatform, PolkadotOmniNodeRevmSolcPlatform,
         ReviveDevNodePolkavmResolcPlatform, ReviveDevNodeRevmSolcPlatform,
-        ZombienetPolkavmResolcPlatform, ZombienetRevmSolcPlatform,
+        ZombienetPolkavmResolcPlatform, ZombienetRevmSolcPlatform, new_solc_compiler,
     };
 }
 
@@ -788,7 +788,7 @@ fn node_configurations(
     Ok(user_config.into_iter().chain(std::iter::once(core_config)))
 }
 
-fn new_solc_compiler(
+pub fn new_solc_compiler(
     solc_configuration: SolcConfiguration,
     working_directory_configuration: WorkingDirectoryConfiguration,
     version: Option<VersionOrRequirement>,

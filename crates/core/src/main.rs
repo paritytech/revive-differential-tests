@@ -3,22 +3,64 @@ mod differential_benchmarks;
 mod differential_tests;
 mod helpers;
 mod interpreter;
+mod profiling;
 
 #[allow(unused_imports)]
 mod internal_prelude {
+    pub(crate) use crate::profiling::{
+        Profiling, ProfilingReport, TransactionProfilingReport, WorkloadProfilingReport,
+        handle_profiling,
+    };
+    pub use alloy::{
+        consensus::{SignableTransaction, TxEnvelope},
+        eips::Encodable2718,
+        network::TxSignerSync,
+        signers::local::PrivateKeySigner,
+    };
+    pub use cumulus_primitives_core::{PersistedValidationData, relay_chain};
+    pub use cumulus_primitives_parachain_inherent::{
+        INHERENT_IDENTIFIER as PARACHAIN_INHERENT_IDENTIFIER, ParachainInherentData,
+    };
+    pub use cumulus_test_relay_sproof_builder::{
+        RelayStateSproofBuilder, build_relay_parent_descendants, generate_authority_pairs,
+    };
+    pub use parity_scale_codec::{Decode, Encode};
     pub use revive_dt_common::prelude::*;
+    pub use revive_dt_compiler::RevertString as CompilerRevertString;
     pub use revive_dt_compiler::prelude::*;
     pub use revive_dt_config::prelude::*;
     pub use revive_dt_core::prelude::*;
+    pub use revive_dt_format::metadata::RevertString as WorkloadRevertString;
     pub use revive_dt_format::prelude::*;
     pub use revive_dt_node::prelude::*;
     pub use revive_dt_node_interaction::opcode_profile;
     pub use revive_dt_node_interaction::prelude::*;
+    pub use revive_dt_profiler::prelude::*;
     pub use revive_dt_report::prelude::*;
+    pub use revive_dt_runtime_builder::prelude::build_runtime as build_profiling_runtime;
+    pub use sp_core::traits::Externalities as _;
+    pub use sp_core::{
+        H160 as RuntimeAddress, U256 as RuntimeU256,
+        crypto::{AccountId32, Ss58Codec},
+        storage::ChildInfo,
+    };
+    pub use sp_inherents::InherentData;
+    pub use sp_io::TestExternalities;
+    pub use sp_runtime::{
+        ApplyExtrinsicResult, Digest, DigestItem, MultiSignature, OpaqueExtrinsic, Weight,
+        generic::{Header as GenericHeader, UncheckedExtrinsic},
+        traits::{BlakeTwo256, Header as _},
+    };
+    pub use sp_timestamp::INHERENT_IDENTIFIER as TIMESTAMP_INHERENT_IDENTIFIER;
+    pub use subxt::{
+        Metadata as RuntimeMetadata, dynamic::Value as DynamicValue,
+        events::Events as RuntimeEvents, ext::subxt_core, utils::Encoded,
+    };
 
     pub use std::{
         borrow::Cow,
-        collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque},
+        collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque, hash_map::Entry},
+        fs::{File, create_dir_all},
         future::{Future, ready},
         io::{BufWriter, Write, stderr},
         ops::ControlFlow,
@@ -236,7 +278,10 @@ fn main() -> anyhow::Result<()> {
                 Ok(())
             })
         }
-        Context::Profile(_) => todo!("Implement EVM workload profiling"),
+        Context::Profile(context) => tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()?
+            .block_on(handle_profiling(*context)),
         Context::ExportJsonSchema(_) => {
             let schema = schema_for!(Metadata);
             println!(

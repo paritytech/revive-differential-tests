@@ -1,5 +1,6 @@
 use parity_scale_codec::Encode;
 use revive_dt_profiler::prelude::*;
+use sp_core::H160;
 use sp_io::TestExternalities;
 use sp_weights::Weight;
 use std::time::{Duration, Instant};
@@ -61,7 +62,8 @@ fn preserves_results_and_records_nested_opcodes_partial_refunds_and_early_return
         raw[1],
         ProfilingEvent::CallEnter {
             op_code: 0xf1,
-            selector: Some([0x12, 0x34, 0x56, 0x78])
+            selector: Some([0x12, 0x34, 0x56, 0x78]),
+            code_address: H160::repeat_byte(0x22),
         }
     );
     assert_eq!(
@@ -124,7 +126,8 @@ fn records_constructor_and_precompile_frames_and_skips_calls_without_a_frame() {
         constructor.events.raw_events[1],
         ProfilingEvent::CallEnter {
             op_code: 0xf0,
-            selector: None
+            selector: None,
+            code_address: H160::repeat_byte(0x33),
         }
     );
     assert_eq!(
@@ -140,7 +143,8 @@ fn records_constructor_and_precompile_frames_and_skips_calls_without_a_frame() {
         precompile.events.raw_events[1],
         ProfilingEvent::CallEnter {
             op_code: 0xfa,
-            selector: Some([0x12, 0x34, 0x56, 0x78])
+            selector: Some([0x12, 0x34, 0x56, 0x78]),
+            code_address: H160::repeat_byte(0x22),
         }
     );
     assert_eq!(
@@ -226,4 +230,31 @@ fn rejects_reinstrumentation_and_a_missing_dispatch_symbol() {
         changed.to_string(),
         "Missing EVM dispatch or weight getter symbol"
     );
+}
+
+#[test]
+fn captures_successful_and_reverted_transaction_outputs_without_carrying_them_between_calls() {
+    // Arrange
+    let runtime = ProfilingRuntime::new(instrument_wasm(fixture()).unwrap());
+    let mut state = TestExternalities::default();
+
+    // Act
+    let success = runtime
+        .call(&mut state.ext(), "transaction", &[], 1)
+        .unwrap();
+    let revert = runtime
+        .call(&mut state.ext(), "reverted_transaction", &[], 1)
+        .unwrap();
+    let unrelated = runtime.call(&mut state.ext(), "execute", &[], 1).unwrap();
+
+    // Assert
+    assert_eq!(
+        success.transaction_output,
+        Some(TransactionOutput::Returned(vec![0x12, 0x34, 0x56, 0x78]))
+    );
+    assert_eq!(
+        revert.transaction_output,
+        Some(TransactionOutput::Reverted(vec![0x12, 0x34, 0x56, 0x78]))
+    );
+    assert_eq!(unrelated.transaction_output, None);
 }

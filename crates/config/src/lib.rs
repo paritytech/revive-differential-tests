@@ -92,8 +92,6 @@ mod context {
     }
 
     /// Profiles EVM workloads in a runtime built from polkadot-sdk sources.
-    ///
-    /// Execution is not implemented yet.
     #[subcommand]
     pub struct Profile {
         pub log: LogConfiguration,
@@ -643,6 +641,15 @@ mod context {
     }
 
     impl WalletConfiguration {
+        pub fn signers(&self) -> anyhow::Result<Vec<PrivateKeySigner>> {
+            std::iter::once(self.default_private_key)
+                .chain(
+                    (1..=self.additional_keys).map(|id| FixedBytes(U256::from(id).to_be_bytes())),
+                )
+                .map(|key| PrivateKeySigner::from_bytes(&key).map_err(Into::into))
+                .collect()
+        }
+
         pub fn wallet(&self) -> Arc<EthereumWallet> {
             self.wallet
                 .get_or_init(|| {

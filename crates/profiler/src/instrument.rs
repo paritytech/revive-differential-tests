@@ -48,13 +48,32 @@ impl Instrumenter {
         imports.import(
             "env",
             ENTER_CALL,
-            encoder::EntityType::Function(call_hook_type_index),
+            encoder::EntityType::Function(self.metadata.type_count + 3),
         );
         imports.import(
             "env",
             EXIT_CALL,
             encoder::EntityType::Function(call_hook_type_index),
         );
+        imports.import(
+            "env",
+            TRANSACTION_RESULT,
+            encoder::EntityType::Function(self.metadata.type_count + 2),
+        );
+    }
+
+    fn transaction_result_wrapper(&self) -> encoder::Function {
+        let mut function = encoder::Function::new([]);
+        function.instruction(&LocalGet(2));
+        function.instruction(&Call(self.metadata.imported_function_count + 4));
+        for argument in 0..8 {
+            function.instruction(&LocalGet(argument));
+        }
+        function.instruction(&Call(
+            self.original_index(self.metadata.transaction_result_function_index),
+        ));
+        function.instruction(&End);
+        function
     }
 
     fn opcode_wrapper(&self) -> encoder::Function {
@@ -127,7 +146,8 @@ impl Instrumenter {
     }
 
     fn call_frame_wrapper(&self) -> encoder::Function {
-        let mut function = encoder::Function::new([(4, encoder::ValType::I32)]);
+        let mut function = encoder::Function::new([(5, encoder::ValType::I32)]);
+        let layout = &self.metadata.call_frame_layout;
         let current_op_code_global = self.metadata.global_count;
         let open_op_codes_global = self.metadata.global_count + 1;
         // The supported wasm32 ABI passes input_data as a Vec pointer:
@@ -168,6 +188,27 @@ impl Instrumenter {
             LocalGet(4),
             LocalGet(7),
             LocalGet(6),
+            LocalGet(1),
+            I32Load(MemArg {
+                offset: layout.frames_pointer_offset,
+                ..input_data_pointer
+            }),
+            LocalGet(1),
+            I32Load(MemArg {
+                offset: layout.frames_length_offset,
+                ..input_data_pointer
+            }),
+            LocalTee(8),
+            I32Const(layout.frame_size),
+            I32Mul,
+            I32Add,
+            I32Const(-layout.frame_size),
+            I32Add,
+            LocalGet(1),
+            LocalGet(8),
+            Select,
+            I32Const(layout.code_address_offset),
+            I32Add,
             Call(self.metadata.imported_function_count + 2),
             End,
             LocalGet(0),
@@ -201,6 +242,8 @@ impl Reencode for Instrumenter {
             self.metadata.function_count + HOST_FUNCTION_COUNT
         } else if index == self.metadata.run_frame_function_index {
             self.metadata.function_count + HOST_FUNCTION_COUNT + 1
+        } else if index == self.metadata.transaction_result_function_index {
+            self.metadata.function_count + HOST_FUNCTION_COUNT + 2
         } else {
             self.original_index(index)
         })
@@ -221,6 +264,8 @@ impl Reencode for Instrumenter {
             [],
         );
         types.ty().function([encoder::ValType::I32; 3], []);
+        types.ty().function([encoder::ValType::I32], []);
+        types.ty().function([encoder::ValType::I32; 4], []);
         Ok(())
     }
 
@@ -256,6 +301,7 @@ impl Reencode for Instrumenter {
         reencode::utils::parse_function_section(self, functions, section)?;
         functions.function(self.metadata.exec_instruction_type_index);
         functions.function(self.metadata.run_frame_type_index);
+        functions.function(self.metadata.transaction_result_type_index);
         Ok(())
     }
 
@@ -283,6 +329,7 @@ impl Reencode for Instrumenter {
         reencode::utils::parse_code_section(self, code, section)?;
         code.function(&self.opcode_wrapper());
         code.function(&self.call_frame_wrapper());
+        code.function(&self.transaction_result_wrapper());
         Ok(())
     }
 }

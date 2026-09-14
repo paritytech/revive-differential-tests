@@ -41,6 +41,7 @@ pub enum ProfilingEvent {
     CallEnter {
         op_code: u8,
         selector: Option<[u8; 4]>,
+        code_address: H160,
     },
     CallExit {
         op_code: u8,
@@ -130,7 +131,9 @@ fn process_events(events: &[ProfilingEvent]) -> Result<Vec<OpCodeMeasurement>> {
                     selector: entered.selector,
                 });
             }
-            ProfilingEvent::CallEnter { op_code, selector } => {
+            ProfilingEvent::CallEnter {
+                op_code, selector, ..
+            } => {
                 calls.push(CallFrame {
                     op_code,
                     selector,

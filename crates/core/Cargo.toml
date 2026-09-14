@@ -44,6 +44,17 @@ subxt = { workspace = true }
 console-subscriber = { workspace = true, optional = true }
 derive_more = { workspace = true }
 dashmap = { workspace = true }
+revive-dt-profiler = { workspace = true }
+revive-dt-runtime-builder = { workspace = true }
+sp-core = { workspace = true }
+sp-runtime = { workspace = true }
+sp-io = { workspace = true }
+parity-scale-codec = { workspace = true }
+cumulus-primitives-core = { workspace = true }
+cumulus-test-relay-sproof-builder = { workspace = true }
+cumulus-primitives-parachain-inherent = { workspace = true }
+sp-inherents = { workspace = true }
+sp-timestamp = { workspace = true }
 
 [features]
 tokio-debug = ["dep:console-subscriber", "tokio/tracing"]
