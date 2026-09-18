@@ -13,14 +13,21 @@
   (data (i32.const 336) "\33\33\33\33\33\33\33\33\33\33\33\33\33\33\33\33\33\33\33\33")
   (func $memcmp (param i32 i32 i32) (result i32) i32.const 0)
   (func $_ZN116_$LT$pallet_revive..vm..evm..interpreter..Interpreter$LT$E$GT$$u20$as$u20$pallet_revive..tracing..FrameTraceInfo$GT$15weight_consumed17h5e8e4e80cc9f7841E
-    (param $output i32) (param $interpreter i32)
+    (param $output i32) (param $interpreter i32) (local $offset i32)
     local.get $output
     local.get $interpreter
+    local.get $offset
+    i32.add
     i64.load
+    i32.const 8
+    local.set $offset
     i64.store
     local.get $output
     local.get $interpreter
-    i64.load offset=8
+    local.get $offset
+    i32.add
+    local.tee $interpreter
+    i64.load
     i64.store offset=8
   )
   (func $charge (param $interpreter i32) (param $weight i64)
@@ -107,6 +114,12 @@
     local.get $interpreter
     i64.const 7
     call $charge
+    local.get $interpreter
+    local.get $interpreter
+    i64.load offset=8
+    i64.const 3
+    i64.add
+    i64.store offset=8
   )
   (func $pallet_revive::exec::Stack::run
     (param $result i32) (param $stack i32) (param $executable i32) (param $input i32)

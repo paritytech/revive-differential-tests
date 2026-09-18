@@ -24,7 +24,7 @@
     main { max-width: 1600px; margin: 0 auto; padding: 42px 36px 28px; }
     header { display: flex; justify-content: space-between; align-items: flex-end; gap: 24px; padding-bottom: 26px; }
     h1 { margin: 0; font-size: 32px; line-height: 1.2; letter-spacing: -.035em; font-weight: 500; }
-    #configuration { color: var(--muted); margin: 9px 0 0; font: 12px var(--mono); }
+    #configuration, #machine { color: var(--muted); margin: 9px 0 0; font: 12px/1.6 var(--mono); }
     #repetitions { color: var(--muted); white-space: nowrap; font: 12px var(--mono); }
     .toolbar { border-block: 1px solid var(--line); display: flex; gap: 18px; align-items: center; padding: 16px 0; flex-wrap: wrap; }
     .transaction { display: flex; align-items: center; gap: 12px; flex: 1; min-width: 220px; }
@@ -43,9 +43,12 @@
     .zoom { display: flex; gap: 6px; }
     .zoom button { min-width: 34px; }
     #status { color: var(--muted); padding: 60px 0; text-align: center; }
-    #chart { position: relative; margin-top: 28px; }
+    #transaction-totals { display: flex; flex-wrap: wrap; gap: 12px 28px; margin-top: 24px; color: var(--muted); font: 12px var(--mono); }
+    #transaction-totals strong { margin-left: 8px; color: var(--text); font-weight: 400; }
+    #chart { position: relative; margin-top: 20px; }
     #opcode-summary { margin-top: 32px; overflow-x: auto; }
     #opcode-summary table { width: 100%; min-width: 620px; border-collapse: collapse; font-size: 12px; }
+    #opcode-summary caption { padding-bottom: 12px; text-align: left; color: var(--muted); }
     #opcode-summary th, #opcode-summary td { padding: 12px 14px; text-align: right; border-bottom: 1px solid var(--line); }
     #opcode-summary thead th { color: var(--muted); font-weight: 400; border-top: 1px solid var(--line); }
     #opcode-summary thead button { width: 100%; border: 0; padding: 0; background: none; color: inherit; font: inherit; text-align: inherit; }
@@ -84,7 +87,7 @@
 <body>
 <main>
   <header>
-    <div><h1 id="title">Transaction profile</h1><p id="configuration"></p></div>
+    <div><h1 id="title">Transaction profile</h1><p id="machine"></p><p id="configuration"></p></div>
     <div id="repetitions"></div>
   </header>
   <div class="toolbar" id="toolbar" hidden>
@@ -100,12 +103,17 @@
     </div>
   </div>
   <p id="status" role="status">Loading profiling data…</p>
+  <div id="transaction-totals" hidden title="Per transaction, across the recorded opcode interval. Execution time is the mean ± sample standard deviation. Runtime work before the first opcode and after the last is not recorded.">
+    <span>Ref time total<strong id="transaction-ref-time"></strong></span>
+    <span>Execution time total<strong id="transaction-execution-time"></strong></span>
+  </div>
   <div id="chart" hidden>
     <canvas id="flame" tabindex="0" role="img" aria-label="Opcode flame graph. Arrow keys select opcodes. Enter zooms to the selected opcode. Home fits all."></canvas>
     <div id="highlight"></div>
   </div>
   <div id="opcode-summary" hidden>
-    <table aria-label="Opcode totals across all repetitions of the selected step, excluding call and creation opcodes">
+    <table aria-label="Opcode totals per transaction, excluding call and creation opcodes">
+      <caption>Per transaction</caption>
       <thead><tr>
         <th scope="col"><button type="button" data-sort="code">Opcode<span class="sort-arrow" aria-hidden="true">↕</span></button></th>
         <th scope="col"><button type="button" data-sort="refTime">Ref time total<span class="sort-arrow" aria-hidden="true">↕</span><span class="table-unit">ms</span></button></th>
@@ -155,7 +163,7 @@ const canvas = $('flame'), context = canvas.getContext('2d');
 const number = new Intl.NumberFormat('en-US', { maximumFractionDigits: 3 });
 const whole = new Intl.NumberFormat('en-US');
 const milliseconds = new Intl.NumberFormat('en-US', { minimumFractionDigits: 3, maximumFractionDigits: 9 });
-let report, choices, selected, frames, owners, stats;
+let report, choices, selected, frames, owners, stats, maxDepth;
 let metric = 'ref', starts, widths, total, view, painted = [], width, height, drag, active;
 let opcodeSort = {key:'difference', direction:'descending'};
 let loadRevision = 0;
@@ -167,6 +175,25 @@ function selectorHex(selector) { return selector?.map(byte => byte.toString(16).
 function modeName(mode) {
   const pipeline = {ViaYulIR:'Y', ViaNewYorkIR:'NY', ViaEVMAssembly:'E'}[mode.pipeline];
   return `${pipeline} ${mode.optimize_setting.level} S${mode.optimize_setting.solc_optimizer_enabled?'+':'-'}`;
+}
+function machineDescription(machine) {
+  if (!machine) return 'Machine information not recorded';
+  const details = [...machine.cpu_models];
+  if (machine.physical_cores) details.push(`${whole.format(machine.physical_cores)} reported cores`);
+  if (machine.logical_cpus) details.push(`${whole.format(machine.logical_cpus)} logical threads`);
+  if (machine.available_parallelism && machine.available_parallelism!==machine.logical_cpus) {
+    details.push(`${whole.format(machine.available_parallelism)} available CPU${machine.available_parallelism===1?'':'s'}`);
+  }
+  const frequencies = machine.reported_cpu_frequencies_mhz;
+  if (frequencies.length) {
+    const first=frequencies[0], last=frequencies[frequencies.length-1];
+    details.push(`${whole.format(first)}${last===first?'':` to ${whole.format(last)}`} MHz snapshot`);
+  }
+  if (machine.memory_bytes) details.push(`${number.format(machine.memory_bytes/1024**3)} GiB RAM`);
+  if (machine.operating_system) details.push(machine.operating_system);
+  if (machine.kernel_version) details.push(`Kernel ${machine.kernel_version}`);
+  if (machine.architecture) details.push(machine.architecture);
+  return details.join(' · ') || 'Machine information not recorded';
 }
 function opcodeColor(code) {
   const fixed = { 0x39:'#1163a0', 0x02:'#6543ba', 0x57:'#a92351', 0x5b:'#067265', 0x01:'#9743a7', 0xfa:'#ae6106', 0xf1:'#be7326' };
@@ -194,14 +221,20 @@ function callName(call, workload) {
 async function summarize(group) {
   const count = group.op_codes.length;
   const startMean = new Float64Array(count), elapsedMean = new Float64Array(count), m2 = new Float64Array(count);
-  const opcodeTotals = [];
+  const opcodeTotals = [], rootIndices = [];
+  let transactionMean = 0, transactionM2 = 0;
   requireValue(group.samples.length > 0, 'No timing samples in this repeat step.');
   for (const [index, code] of group.op_codes.entries()) {
-    const totals = opcodeTotals[code] ??= {code, refTime:0, executionTime:0};
-    totals.refTime += group.weights[index].ref_time * group.samples.length;
+    const totals = opcodeTotals[code] ??= {code, refTime:0, executionTime:0, executionM2:0};
+    totals.refTime += group.weights[index].ref_time;
+    if (group.depths[index]===0) rootIndices.push(index);
   }
+  requireValue(rootIndices.length>0, 'No entry-point opcodes in this repeat step.');
+  const transactionRefTime=rootIndices.reduce((sum,index) => sum+group.weights[index].ref_time,0);
+  requireValue(Number.isSafeInteger(transactionRefTime), 'The transaction weight cannot be represented exactly.');
   for (const [sampleIndex, sample] of group.samples.entries()) {
     requireValue(sample.elapsed_ns.length === count && sample.started_at_ns.length === count, 'Timing samples do not match the opcode sequence.');
+    const executionTotals = new Float64Array(opcodeTotals.length);
     for (let i=0; i<count; i++) {
       const elapsed = sample.elapsed_ns[i], start = sample.started_at_ns[i];
       requireValue(Number.isSafeInteger(elapsed) && elapsed >= 0 && Number.isSafeInteger(start) && start >= 0, 'A timestamp cannot be represented exactly.');
@@ -209,16 +242,31 @@ async function summarize(group) {
       const delta = elapsed-elapsedMean[i];
       elapsedMean[i] += delta/(sampleIndex+1);
       m2[i] += delta*(elapsed-elapsedMean[i]);
-      opcodeTotals[group.op_codes[i]].executionTime += elapsed;
+      executionTotals[group.op_codes[i]] += elapsed;
     }
+    for (const row of opcodeTotals.filter(Boolean)) {
+      const executionTime=executionTotals[row.code];
+      requireValue(Number.isSafeInteger(executionTime*1000), 'An opcode total cannot be represented exactly.');
+      const delta=executionTime-row.executionTime;
+      row.executionTime+=delta/(sampleIndex+1);
+      row.executionM2+=delta*(executionTime-row.executionTime);
+    }
+    const firstStart=rootIndices.reduce((start,index) => Math.min(start,sample.started_at_ns[index]),sample.started_at_ns[rootIndices[0]]);
+    const lastEnd=rootIndices.reduce((end,index) => Math.max(end,sample.started_at_ns[index]+sample.elapsed_ns[index]),firstStart);
+    requireValue(Number.isSafeInteger(lastEnd), 'The transaction interval cannot be represented exactly.');
+    const elapsed=lastEnd-firstStart, delta=elapsed-transactionMean;
+    transactionMean+=delta/(sampleIndex+1);
+    transactionM2+=delta*(elapsed-transactionMean);
     if (sampleIndex % 4 === 0) await new Promise(resolve => setTimeout(resolve,0));
   }
   const sd = group.samples.length > 1 ? m2.map(value => Math.sqrt(Math.max(0,value/(group.samples.length-1)))) : null;
-  const totals = opcodeTotals.filter(row => !CALLS.has(row.code)).map(row => {
-    requireValue(Number.isSafeInteger(row.refTime) && Number.isSafeInteger(row.executionTime*1000), 'An opcode total cannot be represented exactly.');
-    return {...row, difference:row.refTime-row.executionTime*1000};
+  const totals = opcodeTotals.filter(row => !CALLS.has(row.code)).map(({executionM2,...row}) => {
+    requireValue(Number.isSafeInteger(row.refTime), 'An opcode total cannot be represented exactly.');
+    const executionSd=group.samples.length>1 ? Math.sqrt(Math.max(0,executionM2/(group.samples.length-1))) : null;
+    return {...row, executionSd, difference:row.refTime-row.executionTime*1000};
   });
-  return {startMean, elapsedMean, sd, totals};
+  const transactionSd=group.samples.length>1 ? Math.sqrt(Math.max(0,transactionM2/(group.samples.length-1))) : null;
+  return {startMean, elapsedMean, sd, totals, transactionTotals:{refTime:transactionRefTime,executionTime:transactionMean,executionSd:transactionSd}};
 }
 
 function renderOpcodeTotals(totals) {
@@ -230,13 +278,14 @@ function renderOpcodeTotals(totals) {
     else button.parentElement.removeAttribute('aria-sort');
     button.querySelector('.sort-arrow').textContent=selected?(direction==='ascending'?'↑':'↓'):'↕';
   }
-  $('opcode-totals').replaceChildren(...sorted.map(({code,refTime,executionTime,difference}) => {
+  $('opcode-totals').replaceChildren(...sorted.map(({code,refTime,executionTime,executionSd,difference}) => {
     const row = document.createElement('tr'), opcode = document.createElement('th');
     opcode.scope = 'row';
     const color = document.createElement('span'); color.className='opcode-color'; color.style.background=opcodeColor(code);
     const hex = document.createElement('span'); hex.className='opcode-code'; hex.textContent=opcodeHex(code);
     opcode.append(color,hex,opcodeName(code)); row.append(opcode);
-    for (const value of [milliseconds.format(refTime/1e9), milliseconds.format(executionTime/1e6), `${difference>0?'+':''}${milliseconds.format(difference/1e9)}`]) {
+    const execution=milliseconds.format(executionTime/1e6)+(executionSd===null?'':` ± ${milliseconds.format(executionSd/1e6)}`);
+    for (const value of [milliseconds.format(refTime/1e9), execution, `${difference>0?'+':''}${milliseconds.format(difference/1e9)}`]) {
       const cell = document.createElement('td'); cell.textContent=value; row.append(cell);
     }
     return row;
@@ -245,7 +294,7 @@ function renderOpcodeTotals(totals) {
 
 function buildFrames(group, workload) {
   const count = group.op_codes.length;
-  requireValue(group.weights.length === count && group.depths.length === count && group.selectors.length === count, 'Opcode metadata lengths differ.');
+  requireValue(group.weights.length === count && group.depths.length === count, 'Opcode metadata lengths differ.');
   const root = {first:0,end:count,parent:null,depth:0,label:group.entry_point || 'Entry point',indices:[]};
   const result = [root, ...group.calls.map(call => ({first:call.first_opcode,end:call.end_opcode,parent:call.parent_opcode,
     depth:group.depths[call.parent_opcode]+1,label:callName(call,workload),address:call.code_address,
@@ -316,7 +365,7 @@ function zoom(factor, centre = (view.start+view.end)/2) {
   setView(centre-span*fraction,centre+span*(1-fraction));
 }
 function x(value) { return LEFT+(value-view.start)/(view.end-view.start)*(width-LEFT-RIGHT); }
-function rowY(depth) { return TOP+(Math.max(...frames.map(frame => frame.depth))-depth)*ROW; }
+function rowY(depth) { return TOP+(maxDepth-depth)*ROW; }
 function roundedRect(left,top,w,h,r=2) { context.beginPath(); context.roundRect(left,top,w,h,r); context.fill(); }
 function firstVisible(indices) {
   let left=0, right=indices.length;
@@ -330,7 +379,7 @@ function firstVisible(indices) {
 function draw() {
   if (!frames || !view) return;
   width = $('chart').clientWidth;
-  height = TOP+(Math.max(...frames.map(frame => frame.depth))+1)*ROW+44;
+  height = TOP+(maxDepth+1)*ROW+44;
   const scale = window.devicePixelRatio || 1;
   canvas.width = Math.round(width*scale); canvas.height = Math.round(height*scale);
   canvas.style.height = `${height}px`;
@@ -338,7 +387,6 @@ function draw() {
   context.fillStyle = '#111719'; context.fillRect(0,0,width,height);
   context.font = '11px "IBM Plex Mono", monospace'; context.textBaseline = 'middle';
   context.fillStyle = '#82989c'; context.fillText('DEPTH',0,7);
-  const maxDepth = Math.max(...frames.map(frame => frame.depth));
   for (let depth=0; depth<=maxDepth; depth++) context.fillText(String(depth).padStart(2,'0'),12,rowY(depth)+BAR/2);
   const axisY = height-30, unit = unitFor(view.end-view.start);
   for (let tick=0; tick<=4; tick++) {
@@ -436,7 +484,7 @@ async function selectTransaction() {
   const revision=++loadRevision;
   active=undefined;
   for (const button of $('toolbar').querySelectorAll('button')) button.disabled=true;
-  $('chart').hidden=true; $('opcode-summary').hidden=true; $('status').hidden=false;
+  $('chart').hidden=true; $('transaction-totals').hidden=true; $('opcode-summary').hidden=true; $('status').hidden=false;
   $('status').textContent='Averaging the recorded repetitions…'; hideTooltip();
   try {
     const choice=choices[Number($('transaction').value)];
@@ -444,12 +492,17 @@ async function selectTransaction() {
     if (revision!==loadRevision) return;
     selected=choice; stats=calculated;
     ({frames,owners}=buildFrames(choice.group,choice.workload));
+    maxDepth=frames.reduce((maximum,frame) => Math.max(maximum,frame.depth),0);
     $('title').textContent=choice.workload.name || 'Transaction profile';
     $('configuration').textContent=`EVM · ${modeName(choice.workload.mode)}`;
+    $('machine').textContent=machineDescription(report.machine);
     $('repetitions').textContent=`${whole.format(choice.group.samples.length)} repetitions`;
+    $('transaction-ref-time').textContent=duration(stats.transactionTotals.refTime/1000);
+    $('transaction-execution-time').textContent=duration(stats.transactionTotals.executionTime,stats.transactionTotals.executionSd??undefined);
     renderOpcodeTotals(stats.totals);
     $('chart').hidden=false; $('status').hidden=true;
     layout();
+    $('transaction-totals').hidden=false;
     $('opcode-summary').hidden=false;
   } catch (error) {
     $('chart').hidden=true; $('status').hidden=false;

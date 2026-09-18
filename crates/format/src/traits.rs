@@ -21,6 +21,10 @@ impl<'a, A: LazyResolverApi> ResolutionContext<'a, A> {
         self.node_connector.clone()
     }
 
+    pub fn runtime_value(&mut self, token: &str) -> Option<anyhow::Result<U256>> {
+        self.api.as_mut()?.runtime_value(token)
+    }
+
     pub async fn get_contract_address(
         &mut self,
         contract_ref: &ContractInstanceOrReference<'_>,
@@ -44,6 +48,10 @@ impl<'a, A: LazyResolverApi> ResolutionContext<'a, A> {
 
 #[allow(async_fn_in_trait)]
 pub trait LazyResolverApi {
+    fn runtime_value(&mut self, _: &str) -> Option<anyhow::Result<U256>> {
+        None
+    }
+
     async fn get_contract_address(
         &mut self,
         contract_ref: &ContractInstanceOrReference<'_>,

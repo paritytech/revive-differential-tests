@@ -9,7 +9,19 @@ pub struct Recorder;
 
 impl Recorder {
     pub fn initialize(capacity: usize) {
-        EVENTS.with_borrow_mut(|events| *events = Vec::with_capacity(capacity));
+        EVENTS.with_borrow_mut(|events| {
+            *events = vec![
+                ProfilingEvent::OpCodeEnter {
+                    op_code: 0,
+                    weight_consumed: Weight::zero(),
+                    instant: Instant::now(),
+                };
+                capacity
+            ];
+            // Touch the reserved pages before execution, then discard the fill.
+            black_box(events.as_slice());
+            events.clear();
+        });
     }
 
     pub fn record(event: ProfilingEvent) {
@@ -26,17 +38,20 @@ impl Recorder {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ProfilingEvent {
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(tag = "event")]
+pub enum ProfilingEvent<Timestamp = Instant> {
     OpCodeEnter {
         op_code: u8,
         weight_consumed: Weight,
-        instant: Instant,
+        #[serde(rename = "offset")]
+        instant: Timestamp,
     },
     OpCodeExit {
         op_code: u8,
         weight_consumed: Weight,
-        instant: Instant,
+        #[serde(rename = "offset")]
+        instant: Timestamp,
     },
     CallEnter {
         op_code: u8,
@@ -49,17 +64,82 @@ pub enum ProfilingEvent {
     },
 }
 
-#[derive(Debug)]
-pub struct ProcessedEventsAndRawEvents {
-    pub processed_events: Vec<OpCodeMeasurement>,
-    pub raw_events: Vec<ProfilingEvent>,
+#[derive(Debug, Serialize)]
+pub struct ProcessedEventsAndRawEvents<Timestamp = Instant> {
+    pub processed_events: Vec<OpCodeMeasurement<Timestamp>>,
+    pub raw_events: Vec<ProfilingEvent<Timestamp>>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct OpCodeMeasurement {
+impl ProcessedEventsAndRawEvents {
+    pub fn relative_to(self, origin: Instant) -> Result<ProcessedEventsAndRawEvents<Duration>> {
+        let offset = |instant: Instant| {
+            instant
+                .checked_duration_since(origin)
+                .context("Profiling event precedes transaction start")
+        };
+        Ok(ProcessedEventsAndRawEvents {
+            processed_events: self
+                .processed_events
+                .into_iter()
+                .map(|event| {
+                    Ok(OpCodeMeasurement {
+                        op_code: event.op_code,
+                        weight_consumed: event.weight_consumed,
+                        instant: offset(event.instant)?,
+                        elapsed: event.elapsed,
+                        call_depth: event.call_depth,
+                        selector: event.selector,
+                    })
+                })
+                .collect::<Result<_>>()?,
+            raw_events: self
+                .raw_events
+                .into_iter()
+                .map(|event| {
+                    Ok(match event {
+                        ProfilingEvent::OpCodeEnter {
+                            op_code,
+                            weight_consumed,
+                            instant,
+                        } => ProfilingEvent::OpCodeEnter {
+                            op_code,
+                            weight_consumed,
+                            instant: offset(instant)?,
+                        },
+                        ProfilingEvent::OpCodeExit {
+                            op_code,
+                            weight_consumed,
+                            instant,
+                        } => ProfilingEvent::OpCodeExit {
+                            op_code,
+                            weight_consumed,
+                            instant: offset(instant)?,
+                        },
+                        ProfilingEvent::CallEnter {
+                            op_code,
+                            selector,
+                            code_address,
+                        } => ProfilingEvent::CallEnter {
+                            op_code,
+                            selector,
+                            code_address,
+                        },
+                        ProfilingEvent::CallExit { op_code, selector } => {
+                            ProfilingEvent::CallExit { op_code, selector }
+                        }
+                    })
+                })
+                .collect::<Result<_>>()?,
+        })
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct OpCodeMeasurement<Timestamp = Instant> {
     pub op_code: u8,
     pub weight_consumed: Weight,
-    pub instant: Instant,
+    #[serde(rename = "started_at")]
+    pub instant: Timestamp,
     pub elapsed: Duration,
     pub call_depth: usize,
     pub selector: Option<[u8; 4]>,

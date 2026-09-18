@@ -24,6 +24,7 @@ pub(crate) mod internal_prelude {
         cell::RefCell,
         collections::{BTreeMap, BTreeSet},
         convert::Infallible,
+        hint::black_box,
         mem::take,
         time::{Duration, Instant},
     };
@@ -31,6 +32,7 @@ pub(crate) mod internal_prelude {
     pub use anyhow::{Context as _, Result, bail, ensure};
     pub use rustc_demangle::demangle;
     pub use sc_executor::{RuntimeVersionOf, WasmExecutor};
+    pub use serde::Serialize;
     pub use sp_core::{
         H160,
         traits::{CallContext, CodeExecutor, RuntimeCode, WrappedRuntimeCode},
@@ -47,8 +49,8 @@ pub(crate) mod internal_prelude {
     };
     pub use wasm_encoder::{
         Instruction::{
-            Call, End, GlobalGet, GlobalSet, I32Add, I32Const, I32GeU, I32Load, I32Mul, I32Sub,
-            I64Load, If, LocalGet, LocalSet, LocalTee, Select,
+            Block, Call, End, GlobalGet, GlobalSet, I32Add, I32Const, I32GeU, I32Load, I32Mul,
+            I32Sub, If, LocalGet, LocalSet, LocalTee, Select,
         },
         MemArg,
     };

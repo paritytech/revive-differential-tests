@@ -14,11 +14,11 @@ pub(crate) async fn handle_profiling(context: Profile) -> Result<()> {
         .cloned()
         .try_fold(Corpus::new(), Corpus::with_test_specifier)?;
     let built = build_profiling_runtime(&context.profiling.runtime_branch).await?;
-    let mut report = ProfilingReport {
-        runtime_branch: context.profiling.runtime_branch.clone(),
-        runtime_commit: built.commit.to_string(),
-        workloads: Vec::new(),
-    };
+    let mut report = ProfilingReport::new(
+        &context.working_directory.working_directory,
+        &context.profiling.runtime_branch,
+        built.commit.to_string(),
+    )?;
     let runtime = ProfilingRuntime::new(instrument_wasm(built.wasm)?);
     let signers = context.wallet.signers()?;
     let mut compilers = HashMap::new();
@@ -57,7 +57,8 @@ pub(crate) async fn handle_profiling(context: Profile) -> Result<()> {
         let span = info_span!("Profiling workload", path = %metadata.metadata_file_path.display(),
             case = %case_index, mode = %mode);
         let _entered = span.enter();
-        let mut profiling = Profiling::new(&runtime, &signers, &context.wallet)?;
+        report.begin_workload()?;
+        let mut profiling = Profiling::new(&runtime, &signers, &context.wallet, &mut report)?;
         let sources = metadata.contract_sources(CompilerIdentifier::Solc)?;
         let mut input = metadata
             .files_to_compile()?
@@ -106,6 +107,7 @@ pub(crate) async fn handle_profiling(context: Profile) -> Result<()> {
         }
         profiling
             .run(metadata, case, &compiled, compiler.version())
+            .await
             .context("Workload profiling failed")?;
         let mut function_names = BTreeMap::<String, BTreeSet<String>>::new();
         for source in sources.values() {
@@ -125,7 +127,7 @@ pub(crate) async fn handle_profiling(context: Profile) -> Result<()> {
                     ));
             }
         }
-        report.workloads.push(WorkloadProfilingReport {
+        let workload = WorkloadProfilingReport {
             metadata_file_path: metadata.metadata_file_path.clone(),
             case_index,
             mode: mode.into_owned(),
@@ -141,15 +143,11 @@ pub(crate) async fn handle_profiling(context: Profile) -> Result<()> {
                     Ok((address, source.contract_ident.to_string()))
                 })
                 .collect::<Result<_>>()?,
-            transactions: profiling.transactions,
-        });
+        };
+        report.finish_workload(&workload)?;
         info!("Workload profiling finished");
     }
-    ensure!(
-        !report.workloads.is_empty(),
-        "No compatible EVM workloads matched the selection"
-    );
-    let path = report.write(&context.working_directory.working_directory)?;
+    let path = report.finish()?;
     info!(path = %path.display(), "Profiling report has been written");
     Ok(())
 }

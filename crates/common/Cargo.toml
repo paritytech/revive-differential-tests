@@ -23,6 +23,7 @@ sp-weights = { workspace = true }
 strum = { workspace = true }
 tokio = { workspace = true }
 derive_more = { workspace = true }
+sysinfo = { workspace = true }
 
 [lints]
 workspace = true

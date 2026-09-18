@@ -19,11 +19,11 @@ pub fn instrument_wasm(wasm: impl AsRef<[u8]>) -> Result<Vec<u8>> {
     Ok(wasm)
 }
 
-struct Instrumenter {
-    metadata: Metadata,
+struct Instrumenter<'wasm> {
+    metadata: Metadata<'wasm>,
 }
 
-impl Instrumenter {
+impl Instrumenter<'_> {
     fn original_index(&self, index: u32) -> u32 {
         if index < self.metadata.imported_function_count {
             index
@@ -33,33 +33,19 @@ impl Instrumenter {
     }
 
     fn add_imports(&self, imports: &mut encoder::ImportSection) {
-        let opcode_hook_type_index = self.metadata.type_count;
-        let call_hook_type_index = self.metadata.type_count + 1;
-        imports.import(
-            "env",
-            ENTER_OPCODE,
-            encoder::EntityType::Function(opcode_hook_type_index),
-        );
-        imports.import(
-            "env",
-            EXIT_OPCODE,
-            encoder::EntityType::Function(opcode_hook_type_index),
-        );
-        imports.import(
-            "env",
-            ENTER_CALL,
-            encoder::EntityType::Function(self.metadata.type_count + 3),
-        );
-        imports.import(
-            "env",
-            EXIT_CALL,
-            encoder::EntityType::Function(call_hook_type_index),
-        );
-        imports.import(
-            "env",
-            TRANSACTION_RESULT,
-            encoder::EntityType::Function(self.metadata.type_count + 2),
-        );
+        for (name, type_offset) in [
+            (ENTER_OPCODE, 0),
+            (EXIT_OPCODE, 0),
+            (ENTER_CALL, 3),
+            (EXIT_CALL, 1),
+            (TRANSACTION_RESULT, 2),
+        ] {
+            imports.import(
+                "env",
+                name,
+                encoder::EntityType::Function(self.metadata.type_count + type_offset),
+            );
+        }
     }
 
     fn transaction_result_wrapper(&self) -> encoder::Function {
@@ -76,63 +62,50 @@ impl Instrumenter {
         function
     }
 
-    fn opcode_wrapper(&self) -> encoder::Function {
-        let mut function = encoder::Function::new([(2, encoder::ValType::I32)]);
-        let stack_pointer_global_index = self.metadata.stack_pointer_global_index;
+    fn opcode_wrapper(
+        &mut self,
+    ) -> std::result::Result<encoder::Function, reencode::Error<Infallible>> {
+        let getter = self.metadata.weight_consumed_body.clone();
+        let getter_locals = getter
+            .get_locals_reader()?
+            .into_iter()
+            .try_fold(0, |total, local| local.map(|(count, _)| total + count))?;
+        let mut function = encoder::Function::new([
+            (2 + getter_locals, encoder::ValType::I32),
+            (2, encoder::ValType::I64),
+        ]);
+        let ref_time_local = 5 + getter_locals;
+        let proof_size_local = ref_time_local + 1;
         let current_op_code_global = self.metadata.global_count;
         let open_op_codes_global = self.metadata.global_count + 1;
         let weight_consumed_function_index =
             self.original_index(self.metadata.weight_consumed_function_index);
-        let ref_time = MemArg {
-            offset: 0,
-            align: 3,
-            memory_index: 0,
-        };
-        let proof_size = MemArg {
-            offset: 8,
-            ..ref_time
-        };
         for instruction in [
             GlobalGet(current_op_code_global),
-            LocalSet(4),
+            LocalSet(3),
             LocalGet(2),
             GlobalSet(current_op_code_global),
             GlobalGet(open_op_codes_global),
             I32Const(1),
             I32Add,
             GlobalSet(open_op_codes_global),
-            GlobalGet(stack_pointer_global_index),
-            I32Const(16),
-            I32Sub,
-            LocalTee(3),
-            GlobalSet(stack_pointer_global_index),
-            LocalGet(3),
             LocalGet(1),
             Call(weight_consumed_function_index),
             LocalGet(2),
-            LocalGet(3),
-            I64Load(ref_time),
-            LocalGet(3),
-            I64Load(proof_size),
+            LocalGet(ref_time_local),
+            LocalGet(proof_size_local),
             Call(self.metadata.imported_function_count),
             LocalGet(0),
             LocalGet(1),
             LocalGet(2),
             Call(self.original_index(self.metadata.exec_instruction_function_index)),
-            LocalGet(3),
             LocalGet(1),
             Call(weight_consumed_function_index),
             LocalGet(2),
-            LocalGet(3),
-            I64Load(ref_time),
-            LocalGet(3),
-            I64Load(proof_size),
+            LocalGet(ref_time_local),
+            LocalGet(proof_size_local),
             Call(self.metadata.imported_function_count + 1),
             LocalGet(3),
-            I32Const(16),
-            I32Add,
-            GlobalSet(stack_pointer_global_index),
-            LocalGet(4),
             GlobalSet(current_op_code_global),
             GlobalGet(open_op_codes_global),
             I32Const(1),
@@ -140,9 +113,38 @@ impl Instrumenter {
             GlobalSet(open_op_codes_global),
             End,
         ] {
-            function.instruction(&instruction);
+            if matches!(instruction, Call(index) if index == weight_consumed_function_index) {
+                function.instruction(&LocalSet(4));
+                for index in 5..5 + getter_locals {
+                    function.instruction(&I32Const(0));
+                    function.instruction(&LocalSet(index));
+                }
+                for operator in getter.get_operators_reader()? {
+                    let instruction = match operator? {
+                        WasmOperator::LocalGet { local_index: 0 } => {
+                            Block(encoder::BlockType::Result(encoder::ValType::I64))
+                        }
+                        WasmOperator::I64Store { memarg } => {
+                            function.instruction(&End);
+                            LocalSet(if memarg.offset == 0 {
+                                ref_time_local
+                            } else {
+                                proof_size_local
+                            })
+                        }
+                        WasmOperator::LocalGet { local_index } => LocalGet(local_index + 3),
+                        WasmOperator::LocalSet { local_index } => LocalSet(local_index + 3),
+                        WasmOperator::LocalTee { local_index } => LocalTee(local_index + 3),
+                        WasmOperator::End => continue,
+                        operator => self.instruction(operator)?,
+                    };
+                    function.instruction(&instruction);
+                }
+            } else {
+                function.instruction(&instruction);
+            }
         }
-        function
+        Ok(function)
     }
 
     fn call_frame_wrapper(&self) -> encoder::Function {
@@ -231,7 +233,7 @@ impl Instrumenter {
     }
 }
 
-impl Reencode for Instrumenter {
+impl Reencode for Instrumenter<'_> {
     type Error = Infallible;
 
     fn function_index(
@@ -327,7 +329,7 @@ impl Reencode for Instrumenter {
         section: parser::CodeSectionReader<'_>,
     ) -> std::result::Result<(), reencode::Error<Self::Error>> {
         reencode::utils::parse_code_section(self, code, section)?;
-        code.function(&self.opcode_wrapper());
+        code.function(&self.opcode_wrapper()?);
         code.function(&self.call_frame_wrapper());
         code.function(&self.transaction_result_wrapper());
         Ok(())

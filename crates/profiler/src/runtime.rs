@@ -83,6 +83,7 @@ pub struct ProfiledCall {
 pub enum TransactionOutput {
     Returned(Vec<u8>),
     Reverted(Vec<u8>),
+    Failed,
 }
 
 impl TransactionOutput {

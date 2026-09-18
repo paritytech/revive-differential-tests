@@ -16,7 +16,8 @@ pub(crate) struct Profiling<'a> {
     pub chain_id: u64,
     pub gas_limit: u64,
     pub gas_price: u128,
-    pub transactions: Vec<TransactionProfilingReport>,
+    pub event_capacity: usize,
+    pub report: &'a mut ProfilingReport,
 }
 
 impl<'a> Profiling<'a> {
@@ -24,6 +25,7 @@ impl<'a> Profiling<'a> {
         runtime: &'a ProfilingRuntime,
         signers: &'a [PrivateKeySigner],
         wallet: &WalletConfiguration,
+        report: &'a mut ProfilingReport,
     ) -> Result<Self> {
         let signers = signers
             .iter()
@@ -114,7 +116,8 @@ impl<'a> Profiling<'a> {
             chain_id,
             gas_limit,
             gas_price,
-            transactions: Vec::new(),
+            event_capacity: 2_097_152,
+            report,
         })
     }
 
@@ -143,10 +146,11 @@ impl<'a> Profiling<'a> {
             matches!(result.output, TransactionOutput::Returned(_)),
             "Library deployment failed"
         );
+        self.report.write_transaction(&result.report)?;
         Ok(caller.create(u64::from(nonce)))
     }
 
-    pub fn run(
+    pub async fn run(
         &mut self,
         metadata: &MetadataFile,
         case: &Case,
@@ -161,12 +165,13 @@ impl<'a> Profiling<'a> {
                 version,
                 &StepPath::new(vec![index.into()]),
                 None,
-            )?;
+            )
+            .await?;
         }
         Ok(())
     }
 
-    fn step(
+    async fn step(
         &mut self,
         step: &Step,
         metadata: &MetadataFile,
@@ -175,8 +180,7 @@ impl<'a> Profiling<'a> {
         path: &StepPath,
         repeat_path: Option<&StepPath>,
     ) -> Result<()> {
-        let first_transaction = self.transactions.len();
-        match step {
+        let transaction = match step {
             Step::Repeat(repeat) => {
                 for index in 0..repeat.repeat {
                     if let Some(name) = &repeat.capture_index {
@@ -186,39 +190,42 @@ impl<'a> Profiling<'a> {
                         );
                     }
                     for (step_index, step) in repeat.steps.iter().enumerate() {
-                        self.step(
+                        Box::pin(self.step(
                             step,
                             metadata,
                             compiled,
                             version,
                             &path.append(step_index),
                             Some(path),
-                        )?;
+                        ))
+                        .await?;
                     }
                 }
+                None
             }
             Step::AllocateAccount(step) => {
                 let address = self.allocator.allocate()?.address();
-                self.variables.insert(
-                    step.variable_name
-                        .trim_start_matches("$VARIABLE:")
-                        .to_owned(),
-                    U256::from_be_slice(address.as_slice()),
-                );
+                let name = self
+                    .variable_name(step.variable_name.trim_start_matches("$VARIABLE:"))
+                    .await?;
+                self.variables
+                    .insert(name, U256::from_be_slice(address.as_slice()));
+                None
             }
             Step::Transfer(step) => {
                 let request = TransactionRequest::default()
-                    .with_from(self.address(&step.from)?)
-                    .with_to(self.address(&step.to)?)
+                    .with_from(self.address(&step.from).await?)
+                    .with_to(self.address(&step.to).await?)
                     .with_value(step.amount.into_inner());
                 let result = self.transact(request)?;
                 ensure!(
                     matches!(result.output, TransactionOutput::Returned(_)),
                     "Transfer failed"
                 );
+                Some(result.report)
             }
             Step::BalanceAssertion(step) => {
-                let address = self.address(&step.address)?;
+                let address = self.address(&step.address).await?;
                 let actual = self.api::<RuntimeU256>(
                     "ReviveApi_balance",
                     &RuntimeAddress::from_slice(address.as_slice()).encode(),
@@ -228,9 +235,10 @@ impl<'a> Profiling<'a> {
                         == RuntimeU256::from_big_endian(&step.expected_balance.to_be_bytes::<32>()),
                     "Balance assertion failed at {address}: {actual}"
                 );
+                None
             }
             Step::StorageEmptyAssertion(step) => {
-                let address = self.address(&step.address)?;
+                let address = self.address(&step.address).await?;
                 let key = subxt_core::storage::get_address_bytes(
                     &subxt::dynamic::storage(
                         "Revive",
@@ -257,24 +265,27 @@ impl<'a> Profiling<'a> {
                     empty == step.is_storage_empty,
                     "Storage assertion failed at {address}"
                 );
+                None
             }
-            Step::FunctionCall(step) => self.function_call(step, metadata, compiled, version)?,
-        }
-        if repeat_path.is_some() && !matches!(step, Step::Repeat(_)) {
-            for transaction in &mut self.transactions[first_transaction..] {
-                transaction.repeat_path = Some(path.clone());
-            }
+            Step::FunctionCall(step) => Some(
+                self.function_call(step, metadata, compiled, version)
+                    .await?,
+            ),
+        };
+        if let Some(mut transaction) = transaction {
+            transaction.repeat_path = repeat_path.map(|_| path.clone());
+            self.report.write_transaction(&transaction)?;
         }
         Ok(())
     }
 
-    fn function_call(
+    async fn function_call(
         &mut self,
         step: &FunctionCallStep,
         metadata: &MetadataFile,
         compiled: &CompilerOutput,
         version: &Version,
-    ) -> Result<()> {
+    ) -> Result<TransactionProfilingReport> {
         ensure!(
             step.storage.as_ref().is_none_or(HashMap::is_empty),
             "Profiling does not accept storage overrides"
@@ -283,7 +294,9 @@ impl<'a> Profiling<'a> {
             ContractInstanceOrReference::Instance(instance) => instance.as_ref().clone(),
             ContractInstanceOrReference::Reference(reference) => {
                 let reference = reference.to_string();
-                let index = self.expression(reference.trim_start_matches("$INSTANCE:"))?;
+                let index = self
+                    .expression(reference.trim_start_matches("$INSTANCE:"))
+                    .await?;
                 metadata
                     .contracts
                     .as_ref()
@@ -292,8 +305,8 @@ impl<'a> Profiling<'a> {
                     .context("Invalid contract instance reference")?
             }
         };
-        let caller = self.address(&step.caller)?;
-        let arguments = self.calldata(&step.calldata)?;
+        let caller = self.address(&step.caller).await?;
+        let arguments = self.calldata(&step.calldata).await?;
         let mut request = TransactionRequest::default().with_from(caller).with_value(
             step.value
                 .map(|value| value.into_inner())
@@ -356,7 +369,7 @@ impl<'a> Profiling<'a> {
         if let Some(gas) = step.gas_overrides.get(&PlatformName::new("REVM")) {
             gas.apply_to::<Ethereum>(&mut request);
         }
-        let result = self.transact(request)?;
+        let mut result = self.transact(request)?;
         let method = match &step.method {
             Method::Deployer => "constructor",
             Method::Fallback => "fallback",
@@ -366,10 +379,7 @@ impl<'a> Profiling<'a> {
                 ..
             }) => name,
         };
-        self.transactions
-            .last_mut()
-            .context("Missing transaction report")?
-            .entry_point = Some(format!("{instance}.{method}"));
+        result.report.entry_point = Some(format!("{instance}.{method}"));
         let expected = match &step.expected {
             Some(Expected::Expected(expected)) => vec![expected],
             Some(Expected::ExpectedMany(expected)) => expected.iter().collect(),
@@ -384,9 +394,9 @@ impl<'a> Profiling<'a> {
                     .is_none_or(|requirement| requirement.matches(version))
             })
             .collect::<Vec<_>>();
-        let reverted = matches!(result.output, TransactionOutput::Reverted(_));
+        let failed = !matches!(result.output, TransactionOutput::Returned(_));
         ensure!(
-            reverted == expected.iter().any(|expected| expected.exception),
+            failed == expected.iter().any(|expected| expected.exception),
             "Unexpected transaction outcome: {:?}",
             result.output
         );
@@ -397,18 +407,19 @@ impl<'a> Profiling<'a> {
             (TransactionOutput::Returned(data) | TransactionOutput::Reverted(data), _) => {
                 Cow::Borrowed(data.as_slice())
             }
+            (TransactionOutput::Failed, _) => Cow::Borrowed([].as_slice()),
         };
         if let Some(deployment) = deployment
-            && !reverted
+            && !failed
         {
             self.register_contract(instance, deployment.address, deployment.abi);
         }
         if let Some(Expected::Calldata(expected)) = &step.expected {
-            self.assert_calldata(expected, &return_data)?;
+            self.assert_calldata(expected, &return_data).await?;
         }
         for expected in expected {
             if let Some(data) = &expected.return_data {
-                self.assert_calldata(data, &return_data)?;
+                self.assert_calldata(data, &return_data).await?;
             }
             if let Some(events) = &expected.events {
                 ensure!(
@@ -418,7 +429,7 @@ impl<'a> Profiling<'a> {
                 for (expected, actual) in events.iter().zip(&result.logs) {
                     if let Some(address) = &expected.address {
                         ensure!(
-                            self.address(address)? == actual.address,
+                            self.address(address).await? == actual.address,
                             "Unexpected event address"
                         );
                     }
@@ -430,9 +441,10 @@ impl<'a> Profiling<'a> {
                         self.assert_calldata(
                             &Calldata::new_compound([expected]),
                             actual.as_slice(),
-                        )?;
+                        )
+                        .await?;
                     }
-                    self.assert_calldata(&expected.values, &actual.data)?;
+                    self.assert_calldata(&expected.values, &actual.data).await?;
                 }
             }
         }
@@ -465,11 +477,13 @@ impl<'a> Profiling<'a> {
                 "Variable assignment count mismatch"
             );
             for (name, value) in assignments.names().iter().zip(values) {
-                let name = self.variable_name(name.trim_start_matches("$VARIABLE:"))?;
+                let name = self
+                    .variable_name(name.trim_start_matches("$VARIABLE:"))
+                    .await?;
                 self.variables.insert(name, value);
             }
         }
-        Ok(())
+        Ok(result.report)
     }
 
     fn transact(&mut self, mut request: TransactionRequest) -> Result<TransactionResult> {
@@ -503,7 +517,10 @@ impl<'a> Profiling<'a> {
         let extrinsic =
             UncheckedExtrinsic::<AccountId32, Encoded, MultiSignature, ()>::new_bare(Encoded(call));
         let started = Instant::now();
-        let execution = self.apply(extrinsic, 1_048_576)?;
+        let execution = self.apply(extrinsic, self.event_capacity)?;
+        self.event_capacity = self
+            .event_capacity
+            .max(execution.events.raw_events.capacity());
         let events_key = [
             sp_io::hashing::twox_128(b"System"),
             sp_io::hashing::twox_128(b"Events"),
@@ -514,7 +531,7 @@ impl<'a> Profiling<'a> {
             .execute_with(|| sp_io::storage::get(&events_key))
             .context("Missing runtime events")?;
         let mut logs = Vec::new();
-        let mut dispatch_error = None;
+        let mut output = execution.transaction_output;
         for event in
             RuntimeEvents::<PolkadotConfig>::decode_from(bytes.to_vec(), self.metadata.clone())
                 .iter()
@@ -533,27 +550,30 @@ impl<'a> Profiling<'a> {
                             .collect(),
                     });
                 }
-                ("Revive", "EthExtrinsicRevert") => dispatch_error = Some(event.field_values()?),
+                ("Revive", "EthExtrinsicRevert")
+                    if !matches!(output, Some(TransactionOutput::Reverted(_))) =>
+                {
+                    output = Some(TransactionOutput::Failed);
+                }
                 _ => {}
             }
         }
-        let output = match execution.transaction_output {
-            Some(output) => output,
-            None if dispatch_error.is_none() => {
-                bail!("Transaction completed without a captured return value")
-            }
-            None => bail!("Transaction failed before returning output: {dispatch_error:?}"),
-        };
+        let output = output.context("Transaction completed without a captured return value")?;
         self.parent = self.api::<RuntimeHeader>("BlockBuilder_finalize_block", &[])?;
-        self.transactions.push(TransactionProfilingReport::new(
+        let report = TransactionProfilingReport {
             transaction_hash,
-            caller,
+            sender: caller,
             destination,
-            u64::from(nonce),
-            started,
-            execution.events,
-        )?);
-        Ok(TransactionResult { output, logs })
+            nonce: u64::from(nonce),
+            repeat_path: None,
+            entry_point: None,
+            events: execution.events.relative_to(started)?,
+        };
+        Ok(TransactionResult {
+            output,
+            logs,
+            report,
+        })
     }
 
     fn initialize_block(&mut self) -> Result<()> {
@@ -646,26 +666,29 @@ impl<'a> Profiling<'a> {
             .with_context(|| format!("Invalid output from {method}"))
     }
 
-    fn address(&mut self, address: &StepAddress) -> Result<Address> {
+    async fn address(&mut self, address: &StepAddress) -> Result<Address> {
         match address {
             StepAddress::Address(address) => Ok(*address),
             StepAddress::ResolvableAddress(expression) => Ok(Address::from_word(B256::from(
-                self.expression(expression)?.to_be_bytes::<32>(),
+                self.expression(expression).await?.to_be_bytes::<32>(),
             ))),
         }
     }
 
-    fn calldata(&mut self, calldata: &Calldata) -> Result<Vec<u8>> {
+    async fn calldata(&mut self, calldata: &Calldata) -> Result<Vec<u8>> {
         match calldata {
             Calldata::Single(bytes) => Ok(bytes.to_vec()),
-            Calldata::Compound(items) => items.iter().try_fold(Vec::new(), |mut bytes, item| {
-                bytes.extend(self.expression(item.as_ref())?.to_be_bytes::<32>());
+            Calldata::Compound(items) => {
+                let mut bytes = Vec::new();
+                for item in items {
+                    bytes.extend(self.expression(item.as_ref()).await?.to_be_bytes::<32>());
+                }
                 Ok(bytes)
-            }),
+            }
         }
     }
 
-    fn assert_calldata(&mut self, expected: &Calldata, actual: &[u8]) -> Result<()> {
+    async fn assert_calldata(&mut self, expected: &Calldata, actual: &[u8]) -> Result<()> {
         match expected {
             Calldata::Single(bytes) => {
                 ensure!(bytes.as_ref() == actual, "Return data does not match")
@@ -680,7 +703,7 @@ impl<'a> Profiling<'a> {
                         let mut padded = [0; 32];
                         padded[..actual.len()].copy_from_slice(actual);
                         ensure!(
-                            self.expression(item.as_ref())? == U256::from_be_bytes(padded),
+                            self.expression(item.as_ref()).await? == U256::from_be_bytes(padded),
                             "Return data does not match"
                         );
                     }
@@ -690,88 +713,63 @@ impl<'a> Profiling<'a> {
         Ok(())
     }
 
-    fn expression(&mut self, expression: &str) -> Result<U256> {
-        let mut stack = Vec::new();
-        for token in expression.split_whitespace() {
-            let value = match token {
-                "+" | "-" | "*" | "/" | "&" | "|" | "^" | "<<" | ">>" => {
-                    let right = stack.pop().context("Missing right operand")?;
-                    let left: U256 = stack.pop().context("Missing left operand")?;
-                    match token {
-                        "+" => left.checked_add(right),
-                        "-" => left.checked_sub(right),
-                        "*" => left.checked_mul(right),
-                        "/" => left.checked_div(right),
-                        "&" => Some(left & right),
-                        "|" => Some(left | right),
-                        "^" => Some(left ^ right),
-                        "<<" => Some(left << usize::try_from(right)?),
-                        ">>" => Some(left >> usize::try_from(right)?),
-                        _ => unreachable!(),
-                    }
-                    .context("Invalid calldata arithmetic")?
-                }
-                "$CHAIN_ID" => U256::from(self.chain_id),
-                "$GAS_LIMIT" => U256::from(
-                    self.api::<RuntimeU256>("ReviveApi_block_gas_limit", &[])?
-                        .as_u64(),
-                ),
-                "$BASE_FEE" | "$TRANSACTION_GAS_PRICE" => U256::from(self.gas_price),
-                "$BLOCK_NUMBER" => U256::from(*self.parent.number()),
-                "$BLOCK_TIMESTAMP" => U256::from(self.timestamp / 1000),
-                "$RANDOM_ADDRESS" => U256::from_be_slice(Address::random().as_slice()),
-                token => {
-                    if let Some(name) = token.strip_suffix(".address") {
-                        let name = self.variable_name(name)?;
-                        let contract = self
-                            .contracts
-                            .get(&ContractInstance::new(name))
-                            .context("Unknown contract address")?;
-                        U256::from_be_slice(contract.address.as_slice())
-                    } else if let Some(name) = token.strip_prefix("$VARIABLE:") {
-                        let name = self.variable_name(name)?;
-                        *self
-                            .variables
-                            .get(&name)
-                            .with_context(|| format!("Variable {name} is undefined"))?
-                    } else if let Some(value) = token.strip_prefix('-') {
-                        let value = U256::from_str_radix(value, 10)?;
-                        ensure!(
-                            value > U256::ZERO && value <= U256::ONE << 255,
-                            "Invalid negative literal"
-                        );
-                        U256::MAX - value + U256::ONE
-                    } else {
-                        U256::from_str_radix(
-                            token.trim_start_matches("0x"),
-                            if token.starts_with("0x") { 16 } else { 10 },
-                        )?
-                    }
-                }
-            };
-            stack.push(value);
-        }
-        match stack.as_slice() {
-            [] => Ok(U256::ZERO),
-            [value] => Ok(*value),
-            _ => bail!("Invalid calldata expression"),
-        }
+    async fn expression(&mut self, expression: &str) -> Result<U256> {
+        let normalized = expression.split_whitespace().collect::<Vec<_>>().join(" ");
+        CalldataItem::new(if normalized.is_empty() {
+            "0"
+        } else {
+            &normalized
+        })
+        .resolve(&mut self.resolution_context())
+        .await
     }
 
-    fn variable_name(&self, name: &str) -> Result<String> {
-        let mut resolved = name.to_owned();
-        while let Some(start) = resolved.find("$VARIABLE:") {
-            let suffix = &resolved[start + 10..];
-            let end = suffix
-                .find(|character: char| !(character.is_alphanumeric() || character == '_'))
-                .unwrap_or(suffix.len());
-            let value = self
-                .variables
-                .get(&suffix[..end])
-                .context("Unknown variable in name")?;
-            resolved.replace_range(start..start + 10 + end, &value.to_string());
+    async fn variable_name(&mut self, name: &str) -> Result<String> {
+        CalldataToken::<&str>::resolve_variable_name_template(name, &mut self.resolution_context())
+            .await
+    }
+
+    fn resolution_context(&mut self) -> ResolutionContext<'_, Self> {
+        ResolutionContext {
+            metadata: None,
+            pinned_block: None,
+            transaction_hash: None,
+            node_connector: None,
+            api: Some(self),
         }
-        Ok(resolved)
+    }
+}
+
+impl LazyResolverApi for Profiling<'_> {
+    fn runtime_value(&mut self, token: &str) -> Option<Result<U256>> {
+        Some(match token {
+            "$CHAIN_ID" => Ok(U256::from(self.chain_id)),
+            "$GAS_LIMIT" => self
+                .api::<RuntimeU256>("ReviveApi_block_gas_limit", &[])
+                .map(|limit| U256::from(limit.as_u64())),
+            "$BASE_FEE" | "$TRANSACTION_GAS_PRICE" => Ok(U256::from(self.gas_price)),
+            "$BLOCK_NUMBER" => Ok(U256::from(*self.parent.number())),
+            "$BLOCK_TIMESTAMP" => Ok(U256::from(self.timestamp / 1000)),
+            _ => return None,
+        })
+    }
+
+    async fn get_contract_address(
+        &mut self,
+        contract_ref: &ContractInstanceOrReference<'_>,
+    ) -> Result<Address> {
+        let ContractInstanceOrReference::Instance(instance) = contract_ref else {
+            bail!("Instance references are not supported in profiling calldata")
+        };
+        let instance = ContractInstance::new(self.variable_name(instance.as_inner()).await?);
+        self.contracts
+            .get(&instance)
+            .map(|contract| contract.address)
+            .context("Unknown contract address")
+    }
+
+    async fn get_variable(&mut self, variable: impl AsRef<str>) -> Option<Result<U256>> {
+        self.variables.get(variable.as_ref()).copied().map(Ok)
     }
 }
 
@@ -784,6 +782,7 @@ pub(crate) struct DeployedContract {
 struct TransactionResult {
     output: TransactionOutput,
     logs: Vec<ContractLog>,
+    report: TransactionProfilingReport,
 }
 
 struct ContractLog {
@@ -803,30 +802,110 @@ fn merge_genesis(genesis: &mut Value, patch: Value) {
     }
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug)]
 pub(crate) struct ProfilingReport {
-    pub runtime_branch: String,
-    pub runtime_commit: String,
-    pub workloads: Vec<WorkloadProfilingReport>,
+    pub writer: BufWriter<File>,
+    pub path: PathBuf,
+    pub temporary_path: PathBuf,
+    pub workload_count: usize,
+    pub transaction_count: usize,
 }
 
 impl ProfilingReport {
-    pub fn write(&self, working_directory: impl AsRef<Path>) -> Result<PathBuf> {
+    pub fn new(
+        working_directory: impl AsRef<Path>,
+        runtime_branch: impl AsRef<str>,
+        runtime_commit: impl AsRef<str>,
+    ) -> Result<Self> {
         let directory = working_directory.as_ref();
         create_dir_all(directory).with_context(|| {
             format!("Failed to create report directory {}", directory.display())
         })?;
         let path = directory.join("profiling_report.json");
-        let mut writer =
-            BufWriter::new(File::create(&path).with_context(|| {
-                format!("Failed to create profiling report {}", path.display())
-            })?);
-        serde_json::to_writer(&mut writer, self)
-            .with_context(|| format!("Failed to write profiling report {}", path.display()))?;
-        writer
-            .flush()
-            .with_context(|| format!("Failed to flush profiling report {}", path.display()))?;
+        let temporary_path = directory.join("profiling_report.json.partial");
+        let writer = BufWriter::new(File::create(&temporary_path).with_context(|| {
+            format!(
+                "Failed to create profiling report {}",
+                temporary_path.display()
+            )
+        })?);
+        let mut report = Self {
+            writer,
+            path,
+            temporary_path,
+            workload_count: 0,
+            transaction_count: 0,
+        };
+        report.writer.write_all(b"{\"runtime_branch\":")?;
+        serde_json::to_writer(&mut report.writer, runtime_branch.as_ref())?;
+        report.write_field("runtime_commit", &runtime_commit.as_ref())?;
+        report.write_field("machine", &current_machine_information::get())?;
+        report.writer.write_all(b",\"workloads\":[")?;
+        Ok(report)
+    }
+
+    pub fn begin_workload(&mut self) -> Result<()> {
+        if self.workload_count > 0 {
+            self.writer.write_all(b",")?;
+        }
+        self.writer.write_all(b"{\"transactions\":[")?;
+        self.transaction_count = 0;
+        Ok(())
+    }
+
+    pub fn write_transaction(&mut self, transaction: &TransactionProfilingReport) -> Result<()> {
+        if self.transaction_count > 0 {
+            self.writer.write_all(b",")?;
+        }
+        serde_json::to_writer(&mut self.writer, transaction)
+            .context("Failed to write profiling transaction")?;
+        self.transaction_count += 1;
+        Ok(())
+    }
+
+    pub fn finish_workload(&mut self, workload: &WorkloadProfilingReport) -> Result<()> {
+        self.writer.write_all(b"]")?;
+        self.write_field("metadata_file_path", &workload.metadata_file_path)?;
+        self.write_field("case_index", &workload.case_index)?;
+        self.write_field("mode", &workload.mode)?;
+        self.write_field("name", &workload.name)?;
+        self.write_field("function_names", &workload.function_names)?;
+        self.write_field("deployments", &workload.deployments)?;
+        self.writer.write_all(b"}")?;
+        self.workload_count += 1;
+        Ok(())
+    }
+
+    pub fn finish(mut self) -> Result<PathBuf> {
+        ensure!(
+            self.workload_count > 0,
+            "No compatible EVM workloads matched the selection"
+        );
+        self.writer.write_all(b"]}")?;
+        self.writer.flush().with_context(|| {
+            format!(
+                "Failed to flush profiling report {}",
+                self.temporary_path.display()
+            )
+        })?;
+        let Self {
+            writer,
+            path,
+            temporary_path,
+            ..
+        } = self;
+        drop(writer);
+        rename(&temporary_path, &path)
+            .with_context(|| format!("Failed to publish profiling report {}", path.display()))?;
         Ok(path)
+    }
+
+    fn write_field(&mut self, name: &str, value: &impl Serialize) -> Result<()> {
+        self.writer.write_all(b",")?;
+        serde_json::to_writer(&mut self.writer, name)?;
+        self.writer.write_all(b":")?;
+        serde_json::to_writer(&mut self.writer, value)?;
+        Ok(())
     }
 }
 
@@ -838,7 +917,6 @@ pub(crate) struct WorkloadProfilingReport {
     pub name: Option<String>,
     pub function_names: BTreeMap<String, BTreeSet<String>>,
     pub deployments: BTreeMap<Address, String>,
-    pub transactions: Vec<TransactionProfilingReport>,
 }
 
 // Event offsets and measurement starts are relative to the signed runtime call.
@@ -850,120 +928,6 @@ pub(crate) struct TransactionProfilingReport {
     pub nonce: u64,
     pub repeat_path: Option<StepPath>,
     pub entry_point: Option<String>,
-    pub processed_events: Vec<OpCodeProfilingMeasurement>,
-    pub raw_events: Vec<RawProfilingEvent>,
-}
-
-impl TransactionProfilingReport {
-    pub fn new(
-        transaction_hash: TxHash,
-        sender: Address,
-        destination: Option<Address>,
-        nonce: u64,
-        started: Instant,
-        events: ProcessedEventsAndRawEvents,
-    ) -> Result<Self> {
-        let offset = |instant: Instant| {
-            instant
-                .checked_duration_since(started)
-                .context("Profiling event precedes transaction start")
-        };
-        let processed_events = events
-            .processed_events
-            .into_iter()
-            .map(|event| {
-                Ok(OpCodeProfilingMeasurement {
-                    op_code: event.op_code,
-                    weight_consumed: event.weight_consumed,
-                    started_at: offset(event.instant)?,
-                    elapsed: event.elapsed,
-                    call_depth: event.call_depth,
-                    selector: event.selector,
-                })
-            })
-            .collect::<Result<Vec<_>>>()?;
-        let raw_events = events
-            .raw_events
-            .into_iter()
-            .map(|event| {
-                Ok(match event {
-                    ProfilingEvent::OpCodeEnter {
-                        op_code,
-                        weight_consumed,
-                        instant,
-                    } => RawProfilingEvent::OpCodeEnter {
-                        op_code,
-                        weight_consumed,
-                        offset: offset(instant)?,
-                    },
-                    ProfilingEvent::OpCodeExit {
-                        op_code,
-                        weight_consumed,
-                        instant,
-                    } => RawProfilingEvent::OpCodeExit {
-                        op_code,
-                        weight_consumed,
-                        offset: offset(instant)?,
-                    },
-                    ProfilingEvent::CallEnter {
-                        op_code,
-                        selector,
-                        code_address,
-                    } => RawProfilingEvent::CallEnter {
-                        op_code,
-                        selector,
-                        code_address,
-                    },
-                    ProfilingEvent::CallExit { op_code, selector } => {
-                        RawProfilingEvent::CallExit { op_code, selector }
-                    }
-                })
-            })
-            .collect::<Result<Vec<_>>>()?;
-        Ok(Self {
-            transaction_hash,
-            sender,
-            destination,
-            nonce,
-            repeat_path: None,
-            entry_point: None,
-            processed_events,
-            raw_events,
-        })
-    }
-}
-
-// Weight and elapsed time include nested calls made by the opcode.
-#[derive(Debug, Serialize)]
-pub(crate) struct OpCodeProfilingMeasurement {
-    pub op_code: u8,
-    pub weight_consumed: Weight,
-    pub started_at: Duration,
-    pub elapsed: Duration,
-    pub call_depth: usize,
-    pub selector: Option<[u8; 4]>,
-}
-
-#[derive(Debug, Serialize)]
-#[serde(tag = "event")]
-pub(crate) enum RawProfilingEvent {
-    OpCodeEnter {
-        op_code: u8,
-        weight_consumed: Weight,
-        offset: Duration,
-    },
-    OpCodeExit {
-        op_code: u8,
-        weight_consumed: Weight,
-        offset: Duration,
-    },
-    CallEnter {
-        op_code: u8,
-        selector: Option<[u8; 4]>,
-        code_address: RuntimeAddress,
-    },
-    CallExit {
-        op_code: u8,
-        selector: Option<[u8; 4]>,
-    },
+    #[serde(flatten)]
+    pub events: ProcessedEventsAndRawEvents<Duration>,
 }

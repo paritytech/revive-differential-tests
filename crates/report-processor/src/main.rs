@@ -34,7 +34,7 @@ mod internal_prelude {
     pub(crate) use crate::profiling::data::ProfilingData;
     pub use anyhow::{Context as _, Result, ensure};
     pub use flate2::{Compression, read::GzDecoder, write::GzEncoder};
-    pub use revive_dt_common::types::Mode;
+    pub use revive_dt_common::prelude::{MachineInformation, Mode};
     pub use serde::{
         Deserialize, Deserializer, Serialize,
         de::{Error as _, SeqAccess, Visitor},

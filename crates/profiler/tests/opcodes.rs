@@ -48,7 +48,7 @@ fn preserves_results_and_records_nested_opcodes_partial_refunds_and_early_return
             (0xf1, Weight::from_parts(15, 0), 0, None),
             (
                 0x01,
-                Weight::from_parts(7, 0),
+                Weight::from_parts(7, 3),
                 1,
                 Some([0x12, 0x34, 0x56, 0x78])
             ),

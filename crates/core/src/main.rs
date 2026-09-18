@@ -60,7 +60,7 @@ mod internal_prelude {
     pub use std::{
         borrow::Cow,
         collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque, hash_map::Entry},
-        fs::{File, create_dir_all},
+        fs::{File, create_dir_all, rename},
         future::{Future, ready},
         io::{BufWriter, Write, stderr},
         ops::ControlFlow,

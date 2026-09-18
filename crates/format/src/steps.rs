@@ -631,7 +631,7 @@ impl Calldata {
 
 impl CalldataItem {
     #[instrument(level = "info", skip_all, err(Debug))]
-    async fn resolve<R: LazyResolverApi>(
+    pub async fn resolve<R: LazyResolverApi>(
         &self,
         context: &mut ResolutionContext<'_, R>,
     ) -> anyhow::Result<U256> {
@@ -780,8 +780,9 @@ impl<T: AsRef<str>> CalldataToken<T> {
         match self {
             Self::Item(item) => {
                 let item = item.as_ref();
-                let value = if let Some(instance) = item.strip_suffix(Self::ADDRESS_VARIABLE_SUFFIX)
-                {
+                let value = if let Some(value) = context.runtime_value(item) {
+                    value
+                } else if let Some(instance) = item.strip_suffix(Self::ADDRESS_VARIABLE_SUFFIX) {
                     let contract_ref = ContractInstanceOrReference::from(instance.to_owned());
                     context
                         .get_contract_address(&contract_ref)

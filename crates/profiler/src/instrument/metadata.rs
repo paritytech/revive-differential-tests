@@ -1,15 +1,15 @@
 use crate::internal_prelude::*;
 
-pub(crate) struct Metadata {
+pub(crate) struct Metadata<'wasm> {
     pub exec_instruction_function_index: u32,
     pub exec_instruction_type_index: u32,
     pub weight_consumed_function_index: u32,
+    pub weight_consumed_body: parser::FunctionBody<'wasm>,
     pub run_frame_function_index: u32,
     pub run_frame_type_index: u32,
     pub call_frame_layout: CallFrameLayout,
     pub transaction_result_function_index: u32,
     pub transaction_result_type_index: u32,
-    pub stack_pointer_global_index: u32,
     pub global_count: u32,
     pub type_count: u32,
     pub function_count: u32,
@@ -17,10 +17,11 @@ pub(crate) struct Metadata {
     pub has_import_section: bool,
 }
 
-impl Metadata {
-    pub(super) fn read(wasm: &[u8]) -> Result<Self> {
+impl<'wasm> Metadata<'wasm> {
+    pub(super) fn read(wasm: &'wasm [u8]) -> Result<Self> {
         let mut types = Vec::new();
         let mut function_type_indices = Vec::new();
+        let mut function_bodies = Vec::new();
         let mut globals = Vec::new();
         let mut function_names = BTreeMap::new();
         let mut stack_pointer_global_index = None;
@@ -69,6 +70,7 @@ impl Metadata {
                         globals.push(global?.ty);
                     }
                 }
+                Payload::CodeSectionEntry(body) => function_bodies.push(body),
                 Payload::CustomSection(section) => {
                     if let parser::KnownCustom::Name(section) = section.as_known() {
                         for name in section {
@@ -134,15 +136,10 @@ impl Metadata {
         validate_signature(weight_consumed_function_index, &[parser::ValType::I32; 2])?;
         let run_frame_type_index =
             validate_signature(run_frame_function_index, &[parser::ValType::I32; 4])?;
-        let run_frame_body = Parser::new(0)
-            .parse_all(wasm)
-            .filter_map(|payload| match payload {
-                Ok(Payload::CodeSectionEntry(body)) => Some(body),
-                _ => None,
-            })
-            .nth((run_frame_function_index - imported_function_count) as usize)
+        let run_frame_body = function_bodies
+            .get((run_frame_function_index - imported_function_count) as usize)
             .context("Missing call frame function body")?;
-        let call_frame_layout = CallFrameLayout::read(&run_frame_body, &function_names)?;
+        let call_frame_layout = CallFrameLayout::read(run_frame_body, &function_names)?;
         let transaction_result_type_index = validate_signature(
             transaction_result_function_index,
             &[
@@ -156,50 +153,110 @@ impl Metadata {
                 parser::ValType::I32,
             ],
         )?;
-        let mut function_index = imported_function_count;
-        for payload in Parser::new(0).parse_all(wasm) {
-            if let Payload::CodeSectionEntry(body) = payload? {
-                if function_index == transaction_result_function_index {
-                    let instructions = body
-                        .get_operators_reader()?
-                        .into_iter()
-                        .collect::<std::result::Result<Vec<_>, _>>()?;
-                    let result_tag = instructions.windows(4).any(|instructions| {
-                        matches!(
-                            instructions,
-                            [parser::Operator::LocalGet { local_index: 2 },
-                             parser::Operator::I32Load8U { memarg },
-                             parser::Operator::I32Const { value: 15 },
-                             parser::Operator::I32Ne] if memarg.offset == 112
-                        )
-                    });
-                    let fields = [116, 120, 124].into_iter().all(|offset| {
-                        instructions.windows(2).any(|instructions| {
-                            matches!(
-                                instructions,
-                                [parser::Operator::LocalGet { local_index: 2 },
-                                 parser::Operator::I32Load { memarg }]
-                                    if memarg.offset == offset
-                            )
-                        })
-                    });
-                    let flags = instructions.windows(3).any(|instructions| {
-                        matches!(
-                            instructions,
-                            [parser::Operator::LocalGet { local_index: 2 },
-                             parser::Operator::I32Load8U { memarg },
-                             parser::Operator::I32Const { value: 1 }]
-                                if memarg.offset == 128
-                        )
-                    });
-                    ensure!(
-                        result_tag && fields && flags,
-                        "Transaction result ABI differs from the supported runtime"
-                    );
-                }
-                function_index += 1;
-            }
+        let instructions = function_bodies
+            .get((transaction_result_function_index - imported_function_count) as usize)
+            .context("Missing transaction result function body")?
+            .get_operators_reader()?
+            .into_iter()
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        let result_tag = instructions.windows(4).any(|instructions| {
+            matches!(
+                instructions,
+                [parser::Operator::LocalGet { local_index: 2 },
+                 parser::Operator::I32Load8U { memarg },
+                 parser::Operator::I32Const { value: 15 },
+                 parser::Operator::I32Ne] if memarg.offset == 112
+            )
+        });
+        let fields = [116, 120, 124].into_iter().all(|offset| {
+            instructions.windows(2).any(|instructions| {
+                matches!(
+                    instructions,
+                    [parser::Operator::LocalGet { local_index: 2 },
+                     parser::Operator::I32Load { memarg }]
+                        if memarg.offset == offset
+                )
+            })
+        });
+        let flags = instructions.windows(3).any(|instructions| {
+            matches!(
+                instructions,
+                [parser::Operator::LocalGet { local_index: 2 },
+                 parser::Operator::I32Load8U { memarg },
+                 parser::Operator::I32Const { value: 1 }]
+                    if memarg.offset == 128
+            )
+        });
+        ensure!(
+            result_tag && fields && flags,
+            "Transaction result ABI differs from the supported runtime"
+        );
+        let weight_consumed_body = function_bodies
+            .get((weight_consumed_function_index - imported_function_count) as usize)
+            .context("Missing weight getter body")?
+            .clone();
+        for local in weight_consumed_body.get_locals_reader()? {
+            ensure!(
+                local?.1 == parser::ValType::I32,
+                "Unsupported weight getter local type"
+            );
         }
+        let operators = weight_consumed_body
+            .get_operators_reader()?
+            .into_iter()
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        for instruction in &operators {
+            ensure!(
+                matches!(
+                    instruction,
+                    WasmOperator::LocalGet { .. }
+                        | WasmOperator::LocalSet { .. }
+                        | WasmOperator::LocalTee { .. }
+                        | WasmOperator::I32Load { .. }
+                        | WasmOperator::I32Const { .. }
+                        | WasmOperator::I32Mul
+                        | WasmOperator::I32Add
+                        | WasmOperator::Select
+                        | WasmOperator::I64Load { .. }
+                        | WasmOperator::I64Store { .. }
+                        | WasmOperator::End
+                ),
+                "Unsupported weight getter instruction"
+            );
+        }
+        let (end, operators) = operators.split_last().context("Empty weight getter")?;
+        ensure!(
+            matches!(end, WasmOperator::End),
+            "Weight getter has no final end"
+        );
+        let fields = operators
+            .split_inclusive(|operator| matches!(operator, WasmOperator::I64Store { .. }))
+            .map(|field| -> Result<u64> {
+                let [
+                    WasmOperator::LocalGet { local_index: 0 },
+                    expression @ ..,
+                    WasmOperator::I64Store { memarg },
+                ] = field
+                else {
+                    bail!("Unsupported weight getter output expression");
+                };
+                ensure!(memarg.memory == 0, "Unsupported weight output memory");
+                ensure!(
+                    expression.iter().all(|operator| !matches!(
+                        operator,
+                        WasmOperator::LocalGet { local_index: 0 }
+                            | WasmOperator::LocalSet { local_index: 0 }
+                            | WasmOperator::LocalTee { local_index: 0 }
+                    )),
+                    "Weight getter reads its output address"
+                );
+                Ok(memarg.offset)
+            })
+            .collect::<Result<Vec<_>>>()?;
+        ensure!(
+            matches!(fields.as_slice(), [0, 8] | [8, 0]),
+            "Unsupported weight output fields"
+        );
         let stack_pointer_global_index =
             stack_pointer_global_index.context("Missing __stack_pointer global")?;
         match globals.get(stack_pointer_global_index as usize) {
@@ -210,12 +267,12 @@ impl Metadata {
             exec_instruction_function_index,
             exec_instruction_type_index,
             weight_consumed_function_index,
+            weight_consumed_body,
             run_frame_function_index,
             run_frame_type_index,
             call_frame_layout,
             transaction_result_function_index,
             transaction_result_type_index,
-            stack_pointer_global_index,
             global_count: globals.len() as u32,
             type_count: types.len() as u32,
             function_count: function_type_indices.len() as u32,

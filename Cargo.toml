@@ -76,6 +76,7 @@ sp-timestamp = { git = "https://github.com/paritytech/polkadot-sdk", rev = "cde8
 cumulus-test-relay-sproof-builder = { git = "https://github.com/paritytech/polkadot-sdk", rev = "cde8a924504c99e768940bf6b600716725c3c438" }
 cumulus-primitives-proof-size-hostfunction = { git = "https://github.com/paritytech/polkadot-sdk", rev = "cde8a924504c99e768940bf6b600716725c3c438" }
 strum = { version = "0.27.2", features = ["derive"] }
+sysinfo = { version = "0.38.4", default-features = false, features = ["system"] }
 syn = { version = "2.0.117", features = ["full"] }
 subxt = { version = "0.43.0", features = ["reconnecting-rpc-client"] }
 temp-dir = { version = "0.1.16" }

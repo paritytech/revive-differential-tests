@@ -13,6 +13,7 @@ anyhow = { workspace = true }
 cumulus-primitives-proof-size-hostfunction = { workspace = true }
 rustc-demangle = { workspace = true }
 sc-executor = { workspace = true }
+serde = { workspace = true }
 sp-core = { workspace = true }
 sp-externalities = { workspace = true }
 sp-io = { workspace = true }

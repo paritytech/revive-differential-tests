@@ -4,6 +4,7 @@ use crate::internal_prelude::*;
 pub(crate) struct ProfilingData {
     pub runtime_branch: String,
     pub runtime_commit: String,
+    pub machine: Option<MachineInformation>,
     pub workloads: Vec<Workload>,
 }
 
@@ -27,7 +28,6 @@ pub(crate) struct RepeatedTransaction {
     pub op_codes: Vec<u8>,
     pub weights: Vec<Weight>,
     pub depths: Vec<usize>,
-    pub selectors: Vec<Option<[u8; 4]>>,
     pub calls: Vec<CallFrame>,
     pub samples: Vec<Sample>,
 }
@@ -41,7 +41,6 @@ impl RepeatedTransaction {
             op_codes: events.iter().map(|event| event.op_code).collect(),
             weights: events.iter().map(|event| event.weight_consumed).collect(),
             depths: events.iter().map(|event| event.call_depth).collect(),
-            selectors: events.iter().map(|event| event.selector).collect(),
             calls: transaction.raw_events.clone(),
             samples: Vec::new(),
         }
@@ -60,8 +59,7 @@ impl RepeatedTransaction {
             ensure!(
                 event.op_code == self.op_codes[index]
                     && event.weight_consumed == self.weights[index]
-                    && event.call_depth == self.depths[index]
-                    && event.selector == self.selectors[index],
+                    && event.call_depth == self.depths[index],
                 "Repeat step {} changed opcode, weight or call frame at event {}",
                 self.repeat_path,
                 index
@@ -97,7 +95,6 @@ struct Measurement {
     op_code: u8,
     weight_consumed: Weight,
     call_depth: usize,
-    selector: Option<[u8; 4]>,
     started_at: Duration,
     elapsed: Duration,
 }
