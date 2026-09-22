@@ -67,7 +67,7 @@ pub(crate) mod internal_prelude {
     pub use pallet_revive::{EthTransactError, H256, Weight};
     pub use pallet_revive_types::runtime_api::{
         DryRunConfigV1, ExecutionTraceV1, ExecutionTracerConfigV2, GenericTransactionV1,
-        ReceiptGasInfoV1, TraceEntryV1, TraceTxInputPayloadV2, TraceTxVersionedInputPayload,
+        ReceiptGasInfoV1, TraceEntryV1, TraceTxInputPayloadV3, TraceTxVersionedInputPayload,
         TraceTxVersionedOutputPayload, TraceV1, TraceV2, TracerTypeV1, TracerTypeV2,
     };
     pub use parity_scale_codec::{Compact, Decode, Encode};

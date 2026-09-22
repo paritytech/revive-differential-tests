@@ -2067,10 +2067,10 @@ async fn trace_execution_window(
         memory_word_limit: 0,
     };
 
-    // TODO: encoded by hand because the checked-in metadata's `TraceTxInputPayloadV2` still
-    // carries a V1 tracer config, which has no `step_offset`. Use the typed payload once
+    // TODO: encoded by hand because the checked-in metadata predates the V3 payloads, the ones
+    // carrying a `TracerTypeV2` and so a `step_offset`. Use the typed payload once
     // `assets/revive_metadata.scale` is regenerated.
-    let input = TraceTxVersionedInputPayload::V2(TraceTxInputPayloadV2 {
+    let input = TraceTxVersionedInputPayload::V3(TraceTxInputPayloadV3 {
         block: location.block.clone(),
         tx_index: location.inclusion.extrinsic_index,
         config: TracerTypeV2::ExecutionTracer(Some(config)),
@@ -2082,13 +2082,13 @@ async fn trace_execution_window(
         .await
         .context(
             "Failed to run the execution tracer; windowed capture needs a runtime exposing \
-             ReviveApi v2 (trace_tx_versioned)",
+             ReviveApi v3 (trace_tx_versioned)",
         )?;
 
     let output = TraceTxVersionedOutputPayload::decode(&mut raw.as_slice())
         .context("Failed to SCALE-decode the trace_tx_versioned result")?;
-    let TraceTxVersionedOutputPayload::V2(output) = output else {
-        bail!("expected a V2 output for a V2 trace_tx_versioned request")
+    let TraceTxVersionedOutputPayload::V3(output) = output else {
+        bail!("expected a V3 output for a V3 trace_tx_versioned request")
     };
 
     match output.entry {

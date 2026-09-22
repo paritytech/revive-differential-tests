@@ -16,9 +16,9 @@ on:
         required: true
         default: paritytech/polkadot-sdk
       polkadot-sdk-ref:
-        description: The branch, tag, or commit hash to use for the polkadot-sdk repository. Opcode profiling needs a runtime exposing ReviveApi v2 with the execution tracer's `step_offset`, so keep this in step with the `pallet-revive` rev pinned in Cargo.toml.
+        description: The branch, tag, or commit hash to use for the polkadot-sdk repository. Opcode profiling needs a runtime exposing ReviveApi v3 with the execution tracer's `step_offset`, so keep this in step with the `pallet-revive` rev pinned in Cargo.toml.
         required: true
-        default: 4695e38c7047d97f1dfc89a4e579ed7c92cbca1f
+        default: d0cb57cab1d6454ed2493f372339ce67ec562dfa
       solc-version:
         description: Solc compiler version (e.g. v0.8.28)
         required: true
