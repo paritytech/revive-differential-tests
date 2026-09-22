@@ -21,6 +21,7 @@ mod internal_prelude {
         collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque},
         future::{Future, ready},
         io::{BufWriter, Write, stderr},
+        num::NonZeroU64,
         ops::ControlFlow,
         path::{Path, PathBuf},
         pin::Pin,

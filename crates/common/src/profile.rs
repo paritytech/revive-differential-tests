@@ -156,7 +156,8 @@ pub struct OpcodeStat {
 /// `base_call` (the base cost of the outermost call) is not a traced step, so it
 /// is already part of `unattributed`. It is surfaced separately as a labeled
 /// slice for visibility; do not add it on top of `unattributed`, or the total
-/// double-counts it.
+/// double-counts it. On a [`TxProfile::partial`] profile the steps the walk never
+/// captured are in there too.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TxWeights {
     pub consumed: Weight,
@@ -174,6 +175,13 @@ pub struct TxProfile {
     pub extrinsic_index: u32,
     pub failed: bool,
     pub gas_used: u64,
+    /// Steps folded into this profile.
+    #[serde(default)]
+    pub steps_captured: u64,
+    /// Whether the walk ended before the execution did, leaving the steps it never
+    /// captured in `weights.unattributed`.
+    #[serde(default)]
+    pub partial: bool,
     pub weights: TxWeights,
     pub opcodes: Vec<OpcodeStat>,
 }

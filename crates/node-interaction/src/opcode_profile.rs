@@ -3,20 +3,23 @@
 //! Two responsibilities:
 //! 1. [`current_catalog`] snapshots upstream byte→name tables (revm for EVM,
 //!    pallet-revive for PVM) and tags each with an editorial `Category`.
-//! 2. [`from_execution_trace`] aggregates one `ExecutionTraceV1`
-//!    (returned by [`NodeConnector::trace_execution_tx`](crate::connector::NodeConnector::trace_execution_tx))
+//! 2. [`TxProfileAccumulator`] folds the windows of one execution trace
+//!    (streamed by [`NodeConnector::trace_execution_tx`](crate::connector::NodeConnector::trace_execution_tx))
 //!    into the shared [`TxProfile`]: per-opcode weight buckets plus the
-//!    unattributed-weight residual.
+//!    unattributed-weight residual. One window at a time, so a long execution is
+//!    never held whole; [`from_execution_trace`] is the single-window shorthand.
 
 use std::collections::{BTreeMap, HashMap};
 
-use alloy::primitives::{BlockNumber, TxHash};
+use alloy::primitives::TxHash;
 use pallet_revive_types::runtime_api::{ExecutionStepKindV1, ExecutionTraceV1, PolkavmSyscallV1};
 use revive_dt_common::profile::{
     Category, OpKey, OpcodeCatalog, OpcodeEntry, OpcodeStat, TxProfile, TxWeights, Weight,
 };
 use revive_dt_common::subscriptions::StepPath;
 use strum::VariantArray;
+
+use crate::connector::TxInclusion;
 
 /// Categorize an EVM opcode by revm name (revm has no opcode enum). Unknown
 /// names fall into [`Category::Other`].
@@ -118,70 +121,138 @@ struct OpcodeStats {
     weight: Weight,
 }
 
-/// Pure transform from `ExecutionTrace` to the shared [`TxProfile`].
-///
-/// `block_number`/`extrinsic_index` locate the tx in the chain; the connector
-/// resolves them while tracing (they aren't carried in the trace itself).
+/// The execution-wide totals a trace carries alongside its steps. Every window
+/// repeats them, so absorbing one overwrites rather than adds.
+#[derive(Clone, Copy)]
+struct ExecutionTotals {
+    consumed: Weight,
+    base_call: Weight,
+    gas_used: u64,
+    failed: bool,
+}
+
+/// Folds the windows of one execution trace into a [`TxProfile`]. Absorb each
+/// window as it arrives and drop it.
+#[derive(Default)]
+pub struct TxProfileAccumulator {
+    by_op: HashMap<OpKey, OpcodeStats>,
+    step_total: Weight,
+    steps: u64,
+    partial: bool,
+    totals: Option<ExecutionTotals>,
+}
+
+impl TxProfileAccumulator {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Fold one window's steps into the buckets.
+    pub fn absorb_window(&mut self, trace: &ExecutionTraceV1) {
+        for step in &trace.struct_logs {
+            let key = match &step.kind {
+                ExecutionStepKindV1::EVMOpcode { op, .. } => OpKey::Evm(op.0),
+                ExecutionStepKindV1::PVMSyscall { op, .. } => OpKey::Pvm(*op as u8),
+            };
+            let entry = self.by_op.entry(key).or_default();
+            entry.count += 1;
+            entry.weight += step.weight_cost;
+            self.step_total += step.weight_cost;
+        }
+        self.steps += trace.struct_logs.len() as u64;
+
+        self.totals = Some(ExecutionTotals {
+            consumed: trace.weight_consumed,
+            base_call: trace.base_call_weight,
+            gas_used: trace.gas,
+            failed: trace.failed,
+        });
+    }
+
+    /// The number of steps absorbed so far.
+    pub fn steps(&self) -> u64 {
+        self.steps
+    }
+
+    /// Record that the walk ended before the execution did, so the profile says its
+    /// breakdown covers only part of the execution.
+    pub fn mark_partial(&mut self) {
+        self.partial = true;
+    }
+
+    /// Build the profile, or `None` if no window was absorbed.
+    pub fn finish(
+        self,
+        tx_hash: TxHash,
+        step_path: StepPath,
+        inclusion: TxInclusion,
+    ) -> Option<TxProfile> {
+        let totals = self.totals?;
+
+        let mut opcodes = self
+            .by_op
+            .into_iter()
+            .map(|(op, stats)| OpcodeStat {
+                op,
+                count: stats.count,
+                weight: stats.weight,
+            })
+            .collect::<Vec<_>>();
+        opcodes.sort_by(|a, b| {
+            b.weight
+                .ref_time()
+                .cmp(&a.weight.ref_time())
+                .then_with(|| a.op.cmp(&b.op))
+        });
+
+        // Weight consumed but not attributed to an absorbed step, which step weights never
+        // exceed. A walk that stopped early leaves the steps it missed in here.
+        let unattributed = totals.consumed.saturating_sub(self.step_total);
+
+        Some(TxProfile {
+            tx_hash,
+            step_path,
+            block_number: inclusion.block_number,
+            extrinsic_index: inclusion.extrinsic_index,
+            failed: totals.failed,
+            gas_used: totals.gas_used,
+            steps_captured: self.steps,
+            partial: self.partial,
+            weights: TxWeights {
+                consumed: totals.consumed,
+                base_call: totals.base_call,
+                unattributed,
+            },
+            opcodes,
+        })
+    }
+}
+
+/// Aggregate a single-window (or otherwise complete) trace into a [`TxProfile`].
 pub fn from_execution_trace(
     tx_hash: TxHash,
     step_path: StepPath,
-    block_number: BlockNumber,
-    extrinsic_index: u32,
+    inclusion: TxInclusion,
     trace: ExecutionTraceV1,
 ) -> TxProfile {
-    let mut by_op = HashMap::<OpKey, OpcodeStats>::new();
-    let mut step_total = Weight::zero();
-
-    for step in &trace.struct_logs {
-        let key = match &step.kind {
-            ExecutionStepKindV1::EVMOpcode { op, .. } => OpKey::Evm(op.0),
-            ExecutionStepKindV1::PVMSyscall { op, .. } => OpKey::Pvm(*op as u8),
-        };
-        let entry = by_op.entry(key).or_default();
-        entry.count += 1;
-        entry.weight += step.weight_cost;
-        step_total += step.weight_cost;
-    }
-
-    let mut opcodes = by_op
-        .into_iter()
-        .map(|(op, stats)| OpcodeStat {
-            op,
-            count: stats.count,
-            weight: stats.weight,
-        })
-        .collect::<Vec<_>>();
-    opcodes.sort_by(|a, b| {
-        b.weight
-            .ref_time()
-            .cmp(&a.weight.ref_time())
-            .then_with(|| a.op.cmp(&b.op))
-    });
-
-    let consumed = trace.weight_consumed;
-    // Weight consumed but not attributed to any traced step. A trace's step
-    // weights never exceed `weight_consumed`, so this is non-negative.
-    let unattributed = consumed.saturating_sub(step_total);
-
-    TxProfile {
-        tx_hash,
-        step_path,
-        block_number,
-        extrinsic_index,
-        failed: trace.failed,
-        gas_used: trace.gas,
-        weights: TxWeights {
-            consumed,
-            base_call: trace.base_call_weight,
-            unattributed,
-        },
-        opcodes,
-    }
+    let mut accumulator = TxProfileAccumulator::new();
+    accumulator.absorb_window(&trace);
+    accumulator
+        .finish(tx_hash, step_path, inclusion)
+        .expect("qed; one window was absorbed")
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// These tests care about the fold, not the location.
+    fn inclusion() -> TxInclusion {
+        TxInclusion {
+            block_number: 7,
+            extrinsic_index: 3,
+        }
+    }
 
     #[test]
     fn opcode_catalog_resolves_names_and_categories() {
@@ -291,7 +362,7 @@ mod tests {
                 evm_step(0x01, 100, 10),
             ],
         );
-        let p = from_execution_trace(TxHash::ZERO, StepPath::new(vec![]), 0, 0, t);
+        let p = from_execution_trace(TxHash::ZERO, StepPath::new(vec![]), inclusion(), t);
         assert_eq!(p.opcodes.len(), 1);
         assert_eq!(p.opcodes[0].count, 3);
         assert_eq!(p.opcodes[0].weight.ref_time(), 300);
@@ -311,7 +382,7 @@ mod tests {
                 pvm_step(0x03, 500, 0), // same PVM syscall again → 1000 total
             ],
         );
-        let p = from_execution_trace(TxHash::ZERO, StepPath::new(vec![]), 0, 0, t);
+        let p = from_execution_trace(TxHash::ZERO, StepPath::new(vec![]), inclusion(), t);
         assert_eq!(p.opcodes.len(), 3);
         assert_eq!(p.opcodes[0].op, OpKey::Pvm(0x03));
         assert_eq!(p.opcodes[0].count, 2);
@@ -330,9 +401,40 @@ mod tests {
             false,
             vec![evm_step(0x01, 1000, 20), evm_step(0x52, 500, 15)],
         );
-        let p = from_execution_trace(TxHash::ZERO, StepPath::new(vec![]), 0, 0, t);
+        let p = from_execution_trace(TxHash::ZERO, StepPath::new(vec![]), inclusion(), t);
         assert_eq!(p.weights.unattributed.ref_time(), 500);
         assert_eq!(p.weights.unattributed.proof_size(), 15);
+    }
+
+    #[test]
+    fn windows_fold_to_the_same_profile_as_one_whole_trace() {
+        let steps = vec![
+            evm_step(0x01, 100, 10), // ADD
+            pvm_step(0x03, 500, 5),
+            evm_step(0x52, 200, 20), // MSTORE
+            evm_step(0x01, 100, 10),
+            pvm_step(0x03, 500, 5),
+        ];
+        let totals = |steps| trace(weight(10, 1), weight(2000, 100), false, steps);
+
+        let whole = from_execution_trace(
+            TxHash::ZERO,
+            StepPath::new(vec![]),
+            inclusion(),
+            totals(steps.clone()),
+        );
+
+        // The same execution walked two steps at a time.
+        let mut accumulator = TxProfileAccumulator::new();
+        for window in steps.chunks(2) {
+            accumulator.absorb_window(&totals(window.to_vec()));
+        }
+        assert_eq!(accumulator.steps(), 5);
+        let walked = accumulator
+            .finish(TxHash::ZERO, StepPath::new(vec![]), inclusion())
+            .expect("windows were absorbed");
+
+        assert_eq!(walked, whole);
     }
 
     #[test]
