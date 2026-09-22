@@ -216,7 +216,7 @@ mod context {
         /// through as `ExecutionTracerConfig::limit`. A trace is walked one window
         /// of this size at a time, which keeps the runtime from allocating a long
         /// trace whole.
-        #[arg(long = "benchmark.profile-step-limit", default_value_t = NonZeroU64::new(25_000).expect("qed; non-zero"))]
+        #[arg(long = "benchmark.profile-step-limit", default_value = "25000")]
         pub profile_step_limit: NonZeroU64,
     }
 
