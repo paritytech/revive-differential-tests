@@ -271,7 +271,7 @@ impl ZombienetNode {
 
     pub fn node_genesis(node_path: impl AsRef<Path>, wallet: &EthereumWallet) -> Result<Value> {
         let mut chainspec_json = Command::new(node_path.as_ref())
-            .arg("build-spec")
+            .arg("export-chain-spec")
             .arg("--chain")
             .arg("asset-hub-westend-local")
             .env_remove("RUST_LOG")

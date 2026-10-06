@@ -93,7 +93,7 @@ impl ReviveDevNode {
             HashMapEntry::Occupied(entry) => entry.get().clone(),
             HashMapEntry::Vacant(entry) => {
                 let chainspec = Command::new(binary_path.as_ref())
-                    .arg("build-spec")
+                    .arg("export-chain-spec")
                     .arg("--chain")
                     .arg("dev")
                     .env_remove("RUST_LOG")
