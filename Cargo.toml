@@ -101,7 +101,7 @@ revive-solc-json-interface = { version = "1.1.0" }
 revive-common = { version = "1.1.0" }
 revive-differential = { version = "0.3.0" }
 
-zombienet-sdk = { version = "0.4.14" }
+zombienet-sdk = { version = "0.5.0" }
 pallet-revive = { git = "https://github.com/paritytech/polkadot-sdk", rev = "cde8a924504c99e768940bf6b600716725c3c438", default-features = true }
 pallet-revive-types = { git = "https://github.com/paritytech/polkadot-sdk", rev = "cde8a924504c99e768940bf6b600716725c3c438" }
 revm-bytecode = { version = "6.2.2", default-features = false, features = ["std"] }

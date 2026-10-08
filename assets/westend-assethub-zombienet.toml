@@ -6,7 +6,7 @@ node_spawn_timeout = 240
 default_command = "polkadot"
 default_args = ["-linfo,polkavm=debug", "--no-mdns"]
 chain = "westend-dev"
-chain_spec_command = "polkadot build-spec --chain {{chainName}}"
+chain_spec_command = "polkadot export-chain-spec --chain {{chainName}}"
 # Override RC spec raw to allow paras to produce blocks
 override_session_0 = true
 genesis.runtimeGenesis.patch.babe.epochConfig.c = [0, 1]
@@ -60,7 +60,7 @@ env = [{ name = "POLKAVM_CORE_PINNING", value = "disabled" }]
 [[parachains]]
 id = 1000
 chain = "asset-hub-westend-dev"
-chain_spec_command = "polkadot-parachain build-spec --chain {{chainName}}"
+chain_spec_command = "polkadot-parachain export-chain-spec --chain {{chainName}}"
 cumulus_based = true
 # Assign 3 cores at genesis (RC)
 num_cores = 3
