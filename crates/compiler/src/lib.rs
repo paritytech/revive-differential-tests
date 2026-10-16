@@ -96,6 +96,18 @@ pub trait ContractCompiler {
     /// The low-level compiler interface.
     fn build(&self, input: CompilerInput) -> StaticFuture<Result<CompilerOutput>>;
 
+    /// Links the `libraries` into the contracts of `output`.
+    ///
+    /// `None` means the compiler can't link and the contracts need to be compiled again.
+    fn link(
+        &self,
+        _output: &CompilerOutput,
+        _base_path: &Path,
+        _libraries: &HashMap<PathBuf, HashMap<String, Address>>,
+    ) -> Option<StaticFuture<Result<CompilerOutput>>> {
+        None
+    }
+
     /// Does the compiler support the provided mode and version settings.
     fn supports_mode(&self, mode: &Mode) -> bool;
 }
