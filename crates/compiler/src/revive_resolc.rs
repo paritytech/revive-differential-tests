@@ -423,6 +423,7 @@ impl ContractCompiler for Resolc {
         }
 
         let resolc_path = self.0.resolc_path.clone();
+        let solc_path = self.0.solc.path().to_path_buf();
         let output = output.clone();
         let base_path = base_path.to_path_buf();
         let libraries = libraries.clone();
@@ -432,6 +433,9 @@ impl ContractCompiler for Resolc {
                     "Failed to resolve the resolc path {}",
                     resolc_path.display()
                 )
+            })?;
+            let solc_path = std::path::absolute(&solc_path).with_context(|| {
+                format!("Failed to resolve the solc path {}", solc_path.display())
             })?;
             let directory = tempfile::tempdir().context("Failed to create the link directory")?;
             let mut objects = Vec::new();
@@ -454,7 +458,11 @@ impl ContractCompiler for Resolc {
             }
 
             let mut command = AsyncCommand::new(&resolc_path);
-            command.current_dir(directory.path()).arg("--link");
+            command
+                .current_dir(directory.path())
+                .arg("--solc")
+                .arg(&solc_path)
+                .arg("--link");
             for (source_path, names) in &libraries {
                 let source_name = normalize_path(source_path, Some(&base_path))?;
                 for (name, address) in names {
