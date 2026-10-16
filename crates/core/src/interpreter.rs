@@ -139,6 +139,7 @@ impl<'a> Interpreter<'a> {
             .flat_map(|(_, map)| map.values());
 
         let mut deployed_libraries = HashMap::new();
+        let mut linker_libraries = HashMap::new();
         for library_instance in library_instances {
             let source_and_ident = contract_sources
                 .remove(library_instance)
@@ -180,6 +181,13 @@ impl<'a> Interpreter<'a> {
             let library_address = receipt
                 .contract_address
                 .expect("qed; this is a deployment tx");
+            linker_libraries
+                .entry(source_and_ident.contract_source_path.clone())
+                .or_insert_with(HashMap::new)
+                .insert(
+                    source_and_ident.contract_ident.as_inner().clone(),
+                    library_address,
+                );
             deployed_libraries.insert(
                 library_instance.clone(),
                 (
@@ -205,9 +213,22 @@ impl<'a> Interpreter<'a> {
         let post_link_compilation_output = if deployed_libraries.is_empty() {
             pre_link_compilation_output
         } else {
-            self.compile_contracts(cached_compiler, Some(&deployed_libraries))
-                .await
-                .context("Post link compilation failed")?
+            let base_path = self
+                .test_definition
+                .metadata
+                .directory()
+                .context("Failed to get the metadata directory")?;
+            match self.platform_information.compiler.link(
+                &pre_link_compilation_output,
+                &base_path,
+                &linker_libraries,
+            ) {
+                Some(linking) => linking.await.context("Linking failed")?,
+                None => self
+                    .compile_contracts(cached_compiler, Some(&deployed_libraries))
+                    .await
+                    .context("Post link compilation failed")?,
+            }
         };
 
         self.compiled_contracts = post_link_compilation_output

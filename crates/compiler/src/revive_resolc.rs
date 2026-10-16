@@ -412,6 +412,78 @@ impl ContractCompiler for Resolc {
         })
     }
 
+    fn link(
+        &self,
+        output: &CompilerOutput,
+        base_path: &Path,
+        libraries: &HashMap<PathBuf, HashMap<String, Address>>,
+    ) -> Option<StaticFuture<Result<CompilerOutput>>> {
+        if self.0.runtime_target != ResolcRuntimeTarget::Native {
+            return None;
+        }
+
+        let resolc_path = self.0.resolc_path.clone();
+        let output = output.clone();
+        let base_path = base_path.to_path_buf();
+        let libraries = libraries.clone();
+        Some(Box::pin(async move {
+            let directory = tempfile::tempdir().context("Failed to create the link directory")?;
+            let mut objects = Vec::new();
+            for (source_path, contracts) in &output.contracts {
+                let source_name = normalize_path(source_path, Some(&base_path))?;
+                for (contract_name, (bytecode, _)) in contracts {
+                    let object_name = format!("{source_name}:{contract_name}");
+                    let object_path = directory.path().join(&object_name);
+                    if let Some(parent) = object_path.parent() {
+                        std::fs::create_dir_all(parent).with_context(|| {
+                            format!("Failed to create the directory of {object_name}")
+                        })?;
+                    }
+                    let bytecode = hex::decode(bytecode.trim_start_matches("0x"))
+                        .with_context(|| format!("The code of {object_name} is not hex"))?;
+                    std::fs::write(&object_path, bytecode)
+                        .with_context(|| format!("Failed to write the object {object_name}"))?;
+                    objects.push((source_path.clone(), contract_name.clone(), object_name));
+                }
+            }
+
+            let mut command = AsyncCommand::new(&resolc_path);
+            command.current_dir(directory.path()).arg("--link");
+            for (source_path, names) in &libraries {
+                let source_name = normalize_path(source_path, Some(&base_path))?;
+                for (name, address) in names {
+                    command
+                        .arg("--libraries")
+                        .arg(format!("{source_name}:{name}={address}"));
+                }
+            }
+            command.args(objects.iter().map(|(_, _, object_name)| object_name));
+            let result = command
+                .output()
+                .await
+                .with_context(|| format!("Failed to spawn resolc at {}", resolc_path.display()))?;
+            if !result.status.success() {
+                anyhow::bail!(
+                    "Linking failed with an error: {}",
+                    String::from_utf8_lossy(&result.stderr)
+                );
+            }
+
+            let mut linked_output = CompilerOutput::default();
+            for (source_path, contract_name, object_name) in objects {
+                let bytecode = std::fs::read(directory.path().join(&object_name))
+                    .with_context(|| format!("Failed to read the linked object {object_name}"))?;
+                let abi = output.contracts[&source_path][&contract_name].1.clone();
+                linked_output
+                    .contracts
+                    .entry(source_path)
+                    .or_default()
+                    .insert(contract_name, (hex::encode(bytecode), abi));
+            }
+            Ok(linked_output)
+        }))
+    }
+
     fn supports_mode(&self, mode: &Mode) -> bool {
         match mode.pipeline {
             ModePipeline::ViaYulIR => {
