@@ -427,6 +427,12 @@ impl ContractCompiler for Resolc {
         let base_path = base_path.to_path_buf();
         let libraries = libraries.clone();
         Some(Box::pin(async move {
+            let resolc_path = std::path::absolute(&resolc_path).with_context(|| {
+                format!(
+                    "Failed to resolve the resolc path {}",
+                    resolc_path.display()
+                )
+            })?;
             let directory = tempfile::tempdir().context("Failed to create the link directory")?;
             let mut objects = Vec::new();
             for (source_path, contracts) in &output.contracts {
