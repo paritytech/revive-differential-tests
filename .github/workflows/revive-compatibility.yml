@@ -189,9 +189,11 @@ jobs:
     steps:
       # For some deeply nested contracts in `resolc-compiler-tests`, Windows will generate
       # a "Filename too long" error during checkout. This step enables long paths.
-      - name: Enable Git long paths (Windows)
+      - name: Configure Git (Windows)
         if: ${{ runner.os == 'Windows' }}
-        run: git config --system core.longpaths true
+        run: |
+          git config --system core.longpaths true
+          git config --system core.autocrlf false
 
       - name: Checkout revive-differential-tests
         uses: actions/checkout@v6
